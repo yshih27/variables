@@ -1,0 +1,66 @@
+# Scheduled data warmers — refresh the Postgres snapshots that the app reads.
+# The warmer scripts write straight to Supabase via the service key, so the
+# Vercel app just reads. Cadences are tuned to stay within the private-repo
+# GitHub Actions free budget (~2,000 min/mo). Trigger any batch manually from
+# the Actions tab (workflow_dispatch).
+name: warm
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # every 6h — core market data
+    - cron: "30 5 * * *" # daily 05:30 UTC — holders, beezie traits, fresh gacha
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC — full CC trait crawl (heavy)
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: Which batch to run
+        type: choice
+        default: core
+        options: [core, daily, cc-traits]
+
+concurrency:
+  group: warm
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+      HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+      RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # ── Core market data — every 6h (+ manual "core") ──
+      - name: Core warmers
+        if: github.event.schedule == '0 */6 * * *' || github.event.inputs.batch == 'core'
+        run: |
+          npx tsx scripts/warm-listings.ts
+          npx tsx scripts/warm-marketcap.ts
+          npx tsx scripts/warm-cc-sales.ts
+          npx tsx scripts/warm-courtyard-primary.ts
+          npx tsx scripts/warm-primary-revenue.ts
+          npx tsx scripts/backfill-history.ts
+          npx tsx scripts/warm-gacha-dune.ts --cached
+
+      # ── Daily — holders, beezie traits, fresh gacha (full Dune run) ──
+      - name: Daily warmers
+        if: github.event.schedule == '30 5 * * *' || github.event.inputs.batch == 'daily'
+        run: |
+          npx tsx scripts/warm-holders.ts
+          npx tsx scripts/warm-traits.ts
+          npx tsx scripts/warm-gacha-dune.ts
+
+      # ── Weekly — full CC collection trait crawl (~122K assets) ──
+      - name: CC trait crawl
+        if: github.event.schedule == '0 4 * * 1' || github.event.inputs.batch == 'cc-traits'
+        run: npx tsx scripts/warm-cc-traits.ts
