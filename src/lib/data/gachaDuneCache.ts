@@ -1,0 +1,106 @@
+/**
+ * Gacha snapshot store — backed by Postgres (`snapshots` table, key='gacha').
+ *
+ * Migrated from local disk (.cache/gacha-dune.json) to the dedicated Supabase
+ * DB so the cron warmer and the page reads share one source of truth across
+ * serverless instances. The reader/writer signatures are unchanged, so
+ * fetchGacha and the warmer are untouched (the migration "seam" — see
+ * MIGRATION_PLAN.md §2).
+ *
+ * Populated by runGachaWarm() (scripts/warm-gacha-dune.ts CLI or the
+ * /api/cron/gacha route), read by fetchGacha.
+ */
+import { db } from "../db/client";
+
+const SNAPSHOT_KEY = "gacha";
+
+export type GachaPriceBucket = {
+  /** Pack price in whole USD. */
+  price: number;
+  pulls24h: number;
+  vol24h: number;
+  pulls7d: number;
+  vol7d: number;
+  pulls30d: number;
+  vol30d: number;
+};
+
+/** Realized odds for one rarity tier (prize-delivery counts on-chain). */
+export type GachaOddsTier = {
+  tier: string; // Low | Mid | High | Epic | LGND | SPrT
+  prizes24h: number;
+  prizes7d: number;
+  prizes30d: number;
+  /** Share of 7d prizes (the headline odds), 0–1. */
+  pct: number;
+};
+
+export type GachaDunePlatform = {
+  /** "gacha" = randomized pull mechanic; "tokenization" = pay-to-vault (Courtyard). */
+  kind: "gacha" | "tokenization";
+  pulls24h: number;
+  vol24h: number;
+  pulls7d: number;
+  vol7d: number;
+  pulls30d: number;
+  vol30d: number;
+  /** Per-price-tier breakdown, sorted by 30d volume desc. Empty for tokenization. */
+  byPrice: GachaPriceBucket[];
+  /** Realized rarity odds, rarest→commonest. Present only where tier wallets exist (CC). */
+  odds?: GachaOddsTier[];
+  /**
+   * Buyback — USDC paid back to players who instantly cashed out a pull.
+   * Net house revenue = vol − payout. Present only where the buyback wallet
+   * is known on-chain (CC, Phygitals).
+   */
+  buyback?: {
+    payout24h: number;
+    payout7d: number;
+    payout30d: number;
+    count24h: number;
+    count7d: number;
+    count30d: number;
+  };
+};
+
+/** A biggest-hit: a high-value NFT delivered as a gacha prize. */
+export type GachaBigHit = {
+  platform: string;
+  mint: string;
+  name: string;
+  tier: string;
+  /** Insured-value FMV of the card pulled, USD. */
+  valueUsd: number;
+  image: string | null;
+  imageFallback: string | null;
+  /** ISO timestamp the prize was delivered. */
+  at: string;
+};
+
+export type GachaDuneSnapshot = {
+  generatedAt: string;
+  /** Keyed by platform key (collector-crypt | beezie | phygitals | courtyard). */
+  platforms: Record<string, GachaDunePlatform>;
+  /** Biggest hits across platforms, ranked by FMV desc. */
+  bigHits: GachaBigHit[];
+};
+
+export async function readGachaDune(): Promise<GachaDuneSnapshot | null> {
+  const { data, error } = await db()
+    .from("snapshots")
+    .select("payload")
+    .eq("key", SNAPSHOT_KEY)
+    .maybeSingle();
+  if (error) {
+    console.warn(`[gachaDuneCache] read failed: ${error.message}`);
+    return null;
+  }
+  return (data?.payload as GachaDuneSnapshot) ?? null;
+}
+
+export async function writeGachaDune(snap: GachaDuneSnapshot): Promise<void> {
+  const { error } = await db()
+    .from("snapshots")
+    .upsert({ key: SNAPSHOT_KEY, payload: snap, generated_at: snap.generatedAt });
+  if (error) throw new Error(`[gachaDuneCache] write failed: ${error.message}`);
+}

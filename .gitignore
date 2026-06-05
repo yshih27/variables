@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local data cache — DO NOT COMMIT (~490MB / 122K files; this data lives in Postgres now)
+/.cache
+
+# claude code local settings
+.claude/settings.local.json

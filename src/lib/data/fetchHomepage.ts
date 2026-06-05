@@ -1,0 +1,358 @@
+import type { NormalizedSale } from "@/lib/rarible/queries";
+import type { HomepagePayload, HotIP, IPRow, PlatformRow, TopSale, Trend } from "@/lib/types";
+import {
+  getBeezieMetadataCachedOnly,
+  extractCategoryHints,
+} from "./beezieTraits";
+import { getCCMetadataCachedOnly } from "./ccTraits";
+import { classifyIP, type IPMeta } from "./ipCatalog";
+import { sumLast, pctChange, type HourBucket } from "./history";
+import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
+import { PLATFORM_SOURCES } from "./sources";
+import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
+import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
+
+function trendOf(values: number[]): Trend {
+  if (values.length < 4) return "flat";
+  const mid = Math.floor(values.length / 2);
+  const first = values.slice(0, mid).reduce((a, b) => a + b, 0);
+  const second = values.slice(mid).reduce((a, b) => a + b, 0);
+  const denom = first + second;
+  if (denom === 0) return "flat";
+  if (Math.abs(second - first) < denom * 0.05) return "flat";
+  return second > first ? "up" : "down";
+}
+
+function spark24hFromSales(sales: NormalizedSale[], buckets = 24): number[] {
+  const now = Date.now();
+  const start = now - DAY;
+  const bucketMs = DAY / buckets;
+  const out = new Array<number>(buckets).fill(0);
+  for (const s of sales) {
+    const t = Date.parse(s.date);
+    if (!Number.isFinite(t) || t < start || t > now) continue;
+    const idx = Math.min(buckets - 1, Math.floor((t - start) / bucketMs));
+    out[idx] += s.priceUsd;
+  }
+  return out;
+}
+
+function spark7dFromHistory(buckets: HourBucket[]): number[] {
+  if (buckets.length === 0) return [];
+  const macroSize = 6;
+  const macroCount = Math.floor(buckets.length / macroSize);
+  const out: number[] = [];
+  for (let i = 0; i < macroCount; i++) {
+    let v = 0;
+    for (let j = 0; j < macroSize; j++) {
+      v += buckets[i * macroSize + j]?.volumeUsd ?? 0;
+    }
+    out.push(v);
+  }
+  return out;
+}
+
+type AssetMeta = {
+  name?: string;
+  attributes?: Array<{ trait_type: string; value: string | number }>;
+  image?: string;
+};
+
+/**
+ * Top 5 single sales by USD across all platforms in the last 24h.
+ * Looks up each top tokenId's cached metadata to resolve card name,
+ * image, and canonical IP.
+ */
+async function buildTopSales(buckets: PlatformBucket[]): Promise<TopSale[]> {
+  type Candidate = {
+    platformKey: string;
+    tokenId: string;
+    priceUsd: number;
+    date: string;
+  };
+  const allSales: Candidate[] = [];
+  for (const b of buckets) {
+    for (const s of b.sales24h) {
+      allSales.push({
+        platformKey: b.source.key,
+        tokenId: s.tokenId,
+        priceUsd: s.priceUsd,
+        date: s.date,
+      });
+    }
+  }
+  // Sort by priceUsd desc, then dedupe by token so the same card can't appear
+  // twice (a card that sold 2× would otherwise show as two identical cards).
+  // First occurrence per token = its highest sale, since the list is sorted.
+  allSales.sort((a, b) => b.priceUsd - a.priceUsd);
+  const seenToken = new Set<string>();
+  const candidates: Candidate[] = [];
+  for (const s of allSales) {
+    const key = `${s.platformKey}:${s.tokenId}`;
+    if (seenToken.has(key)) continue;
+    seenToken.add(key);
+    candidates.push(s);
+    if (candidates.length >= 30) break;
+  }
+
+  // Resolve metadata per platform
+  const beezieIds = candidates.filter((c) => c.platformKey === "beezie").map((c) => c.tokenId);
+  const ccIds = candidates.filter((c) => c.platformKey === "collector-crypt").map((c) => c.tokenId);
+  const beezieMetas = await getBeezieMetadataCachedOnly(beezieIds);
+  const ccMetas = await getCCMetadataCachedOnly(ccIds);
+
+  const out: TopSale[] = [];
+  for (const c of candidates) {
+    let meta: AssetMeta | undefined;
+    if (c.platformKey === "beezie") meta = beezieMetas.get(c.tokenId);
+    else if (c.platformKey === "collector-crypt") meta = ccMetas.get(c.tokenId);
+    if (!meta || !meta.name) continue;
+    const ip = classifyIP(extractCategoryHints(meta));
+    out.push({
+      cardName: meta.name,
+      ipName: ip.name,
+      ipKey: ip.key,
+      ipShort: ip.short,
+      ipColor: ip.color,
+      ipLogo: ip.logo,
+      ipIconBlendMode: ip.iconBlendMode,
+      ipEmoji: ip.emoji,
+      priceUsd: c.priceUsd,
+      image: meta.image ?? null,
+      imageFallback:
+        (meta as { imageFallback?: string }).imageFallback ?? null,
+      platform: c.platformKey,
+      date: c.date,
+    });
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]> {
+  type Acc = {
+    ip: IPMeta;
+    sales: NormalizedSale[];
+    holders: Set<string>;
+    cardIds: Set<string>;
+    platforms: Set<string>;
+    topCard: { name: string; price: number } | null;
+    trades: number;
+  };
+  const accByIp = new Map<string, Acc>();
+
+  for (const b of buckets) {
+    if (b.sales24h.length === 0) continue;
+    let metas: Map<string, AssetMeta> = new Map();
+    if (b.source.key === "beezie") {
+      metas = await getBeezieMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));
+    } else if (b.source.key === "collector-crypt") {
+      metas = await getCCMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));
+    }
+    for (const sale of b.sales24h) {
+      const meta = metas.get(sale.tokenId);
+      const ip = meta ? classifyIP(extractCategoryHints(meta)) : classifyIP(["other"]);
+      let acc = accByIp.get(ip.key);
+      if (!acc) {
+        acc = {
+          ip,
+          sales: [],
+          holders: new Set(),
+          cardIds: new Set(),
+          platforms: new Set(),
+          topCard: null,
+          trades: 0,
+        };
+        accByIp.set(ip.key, acc);
+      }
+      acc.sales.push(sale);
+      acc.holders.add(sale.buyer);
+      acc.cardIds.add(sale.tokenId);
+      acc.platforms.add(b.source.key);
+      acc.trades += 1;
+      if (meta?.name && (!acc.topCard || sale.priceUsd > acc.topCard.price)) {
+        acc.topCard = { name: meta.name, price: sale.priceUsd };
+      }
+    }
+  }
+
+  const rows: IPRow[] = [];
+  for (const acc of accByIp.values()) {
+    const vol24Usd = acc.sales.reduce((s, x) => s + x.priceUsd, 0);
+    const spark = spark24hFromSales(acc.sales, 24);
+    rows.push({
+      rank: 0,
+      key: acc.ip.key,
+      name: acc.ip.name,
+      short: acc.ip.short,
+      color: acc.ip.color,
+      logo: acc.ip.logo,
+      iconBlendMode: acc.ip.iconBlendMode,
+      emoji: acc.ip.emoji,
+      cards: acc.cardIds.size,
+      platforms: acc.platforms.size,
+      holders: NaN, // filled in below from .cache/holders.json
+      buyers24h: acc.holders.size,
+      trades24h: acc.trades,
+      vol24Usd,
+      vol7Usd: NaN,
+      volTotalUsd: NaN,
+      mcapUsd: NaN,
+      pct7d: null,
+      trend: trendOf(spark),
+      spark,
+      topCard: acc.topCard?.name ?? null,
+      floorUsd: NaN,
+      insuredUsd: 0,
+    });
+  }
+
+  rows.sort((a, b) => b.vol24Usd - a.vol24Usd);
+  return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+export async function fetchHomepage(): Promise<HomepagePayload> {
+  const [buckets, holders, mcap, mcapHist] = await Promise.all([
+    getPlatformBuckets(),
+    readHolders(),
+    readMarketCap(),
+    readMarketCapHistory(),
+  ]);
+
+  const platformRows: PlatformRow[] = buckets
+    .map<PlatformRow>((b) => {
+      const histVol7 = b.history ? sumLast(b.history, 24 * 7).volumeUsd : NaN;
+      const spark = b.history
+        ? spark7dFromHistory(b.history)
+        : spark24hFromSales(b.sales24h, 24);
+      // Unique wallets (union of buyers + sellers) and cards traded in 24h.
+      // Source: bucket.sales24h is the canonical 24h sale list.
+      const wallets = new Set<string>();
+      const cards = new Set<string>();
+      for (const s of b.sales24h) {
+        wallets.add(s.buyer);
+        wallets.add(s.seller);
+        cards.add(s.tokenId);
+      }
+      return {
+        rank: 0,
+        key: b.source.key,
+        name: b.source.name,
+        short: b.source.short,
+        chain: b.source.chain,
+        vault: b.source.vault,
+        vol24Usd: b.stats24h.volumeUsd,
+        vol7Usd: histVol7,
+        primaryUsd: b.primaryUsd ?? null,
+        active24h: wallets.size,
+        cards: cards.size,
+        holders: holdersForPlatform(holders, b.source.key),
+        avgTradeUsd: b.stats24h.avgTradeUsd,
+        spark,
+        trend: trendOf(spark),
+      };
+    })
+    .sort((a, b) => b.vol24Usd - a.vol24Usd)
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  const baseIpRows = await buildAggregateIPRows(buckets);
+  const ipRows = baseIpRows
+    .map((r) => {
+      const entry = mcap?.byIp?.[r.key];
+      return {
+        ...r,
+        holders: holdersForIp(holders, r.key),
+        mcapUsd: entry?.mcapUsd ?? NaN,
+        floorUsd: entry?.floorUsd ?? NaN,
+        insuredUsd: entry?.insuredUsd ?? 0,
+      };
+    })
+    // Sort by Market Cap desc. NaN (no mcap data yet) sinks to the bottom.
+    .sort((a, b) => {
+      const av = Number.isFinite(a.mcapUsd) ? a.mcapUsd : -Infinity;
+      const bv = Number.isFinite(b.mcapUsd) ? b.mcapUsd : -Infinity;
+      return bv - av;
+    })
+    .map((r, i) => ({ ...r, rank: i + 1 }));
+
+  // Hottest IPs: top 3 by 24h volume.
+  const hotIPs: HotIP[] = [...baseIpRows]
+    .sort((a, b) => b.vol24Usd - a.vol24Usd)
+    .slice(0, 3)
+    .map((r, i) => ({
+      rank: i + 1,
+      key: r.key,
+      name: r.name,
+      short: r.short,
+      color: r.color,
+      logo: r.logo,
+      iconBlendMode: r.iconBlendMode,
+      emoji: r.emoji,
+      vol24Usd: r.vol24Usd,
+      buyers24h: r.buyers24h,
+      spark: r.spark,
+      trend: r.trend,
+    }));
+
+  const topSales = await buildTopSales(buckets);
+
+  const sumVol24 = buckets.reduce((s, b) => s + b.stats24h.volumeUsd, 0);
+  const sumTrades24 = buckets.reduce((s, b) => s + b.stats24h.salesCount, 0);
+  const sumVol7 = buckets.reduce(
+    (s, b) => s + (b.history ? sumLast(b.history, 24 * 7).volumeUsd : 0),
+    0,
+  );
+  const has7dForAll = buckets.every((b) => b.history && b.history.length >= 24 * 7);
+
+  const vol24Pct = has7dForAll
+    ? buckets
+        .map((b) => pctChange(b.history!, 24))
+        .filter((v): v is number => v != null)
+        .reduce((acc, v, _, arr) => acc + v / arr.length, 0)
+    : null;
+
+  // Hero aggregates from the disk caches we already populated.
+  const totalMcapUsd = mcap?.totals?.mcapUsd ?? NaN;
+  const totalCards = mcap
+    ? Object.values(mcap.byIp).reduce((s, e) => s + e.cards, 0)
+    : NaN;
+  // Sum of platform holder counts. Up to a small over-count when one wallet
+  // holds on multiple platforms — but `Total Holders` here is per-platform sum,
+  // not a unique union (we don't currently snapshot the cross-platform owner
+  // union; the per-IP holders rows do that for their cohort).
+  const totalHolders = holders
+    ? Object.values(holders.platforms).reduce((s, n) => s + n, 0)
+    : NaN;
+
+  // Mcap 24h change: diff vs ~24h-old snapshot in .cache/marketcap-history.json.
+  // Returns null if history is too thin or oldest snapshot is malformed.
+  const mcapPct24h = pctChangeOverHours(mcapHist, 24);
+
+  // Use the latest snapshot's timestamp for the "Live · Xs ago" indicator,
+  // not render time. Falls back to render time if no snapshot yet.
+  const dataUpdatedAt =
+    mcap?.generatedAt ?? holders?.generatedAt ?? new Date().toISOString();
+
+  return {
+    hero: {
+      vol24Usd: sumVol24,
+      trades24h: sumTrades24,
+      platformsTracked: PLATFORM_SOURCES.length,
+      ipsTracked: ipRows.length,
+      updatedAt: dataUpdatedAt,
+      totalMcapUsd,
+      vol7Usd: has7dForAll ? sumVol7 : NaN,
+      totalCards,
+      holders: totalHolders,
+      mcapPct24h,
+      vol24Pct: Number.isFinite(vol24Pct as number) ? (vol24Pct as number) : null,
+      vol7Pct: null,
+      holdersPct7d: null,
+      trades24hPct: null,
+    },
+    hotIPs,
+    topSales,
+    ips: ipRows,
+    platforms: platformRows,
+  };
+}
