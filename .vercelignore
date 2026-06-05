@@ -1,0 +1,12 @@
+# Never upload the local data cache (~490MB / 124K files) — this data lives in Postgres now.
+.cache
+
+# Rebuilt by Vercel; no need to upload.
+.next
+node_modules
+
+# Not needed at runtime (warmers run in GitHub Actions; docs are local).
+scripts
+.github
+supabase
+*.md
