@@ -7,8 +7,8 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        // Don't crawl the image proxy or any future internal API routes.
-        disallow: ["/api/"],
+        // Don't crawl the image proxy, internal API routes, or the data-status page.
+        disallow: ["/api/", "/status"],
       },
     ],
     sitemap: `${baseUrl}/sitemap.xml`,

@@ -1,14 +1,17 @@
 /**
  * Build per-IP market-cap snapshot by joining listing data with trait caches.
  *
- *   • Beezie + Courtyard tokens: priced by their listing in .cache/listings.json
+ *   • Beezie + Courtyard tokens: priced by their listing (Postgres `listings`
+ *                                snapshot, via readListings)
  *   • Collector Crypt tokens:    priced by the "Insured Value" trait
+ *                                (local .cache/cc-traits/*.json)
  *   • Floor per IP:              min per-token value across the IP
  *   • mcap per IP:               sum of per-token values
  *
  *   npx tsx scripts/warm-marketcap.ts
  *
- * Run hourly (after warm-listings). Appends an hourly row to history.json.
+ * Writes the `marketcap` + `marketcap-history` Postgres snapshots.
+ * Run every 6h (core batch, after warm-listings).
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -25,6 +28,7 @@ import { classifyIP } from "../src/lib/data/ipCatalog";
 import { extractCategoryHints } from "../src/lib/data/beezieTraits";
 import type { TokenMetadata } from "../src/lib/onchain/tokenUri";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const BEEZIE_CACHE = path.join(process.cwd(), ".cache", "beezie-traits");
 const CC_CACHE = path.join(process.cwd(), ".cache", "cc-traits");
@@ -153,7 +157,7 @@ async function main() {
   await writeMarketCap(snap);
   await appendMarketCapHistory(snap);
 
-  console.log(`\nWrote .cache/marketcap.json in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  console.log(`\nWrote marketcap snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   console.log(`Total mcap: $${snap.totals.mcapUsd.toFixed(0)} · insured: $${snap.totals.insuredUsd.toFixed(0)}`);
   console.log("\nTop IPs by mcap:");
   const sorted = Object.entries(snap.byIp).sort((a, b) => b[1].mcapUsd - a[1].mcapUsd);
@@ -162,9 +166,10 @@ async function main() {
       `  ${k.padEnd(14)} cards=${v.cards.toString().padStart(6)} valued=${v.cardsValued.toString().padStart(6)} floor=$${v.floorUsd.toFixed(0).padStart(8)} mcap=$${v.mcapUsd.toFixed(0).padStart(10)} insured=$${v.insuredUsd.toFixed(0).padStart(10)}`,
     );
   }
+  return { rowsWritten: Object.keys(snap.byIp).length };
 }
 
-main().catch((e) => {
+runWarmer("marketcap", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

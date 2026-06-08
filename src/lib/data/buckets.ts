@@ -1,17 +1,20 @@
 /**
- * Shared platform-buckets fetcher. Pulls 24h sales for every tracked
- * platform once per request (Server Components share a single cache key).
+ * Shared platform-buckets fetcher. Assembles 24h sales + stats for every
+ * tracked platform, cached once per request (Server Components share a single
+ * cache key). Used by fetchHomepage, fetchIP, and fetchPlatform.
  *
- * Used by fetchHomepage and fetchIP — both depend on the same raw sale +
- * trait join, so we centralize the data layer here.
+ * Read path (current state):
+ *   • CC:        cache-only — reads the `cc-sales` Postgres snapshot. NO live
+ *                Helius fallback; that fallback caused the 30–60s cold renders
+ *                + 429s and was removed.
+ *   • Beezie / Courtyard: still fetch 24h sales LIVE from Rarible per request.
+ *                Being moved onto a Dune-backed `core-volume` snapshot so the
+ *                render makes zero network calls — see plan Phase 2/3.
+ *   • Primary revenue (Courtyard tokenization etc.): resolvePrimaryUsd reads
+ *                Postgres snapshots (gacha-dune → primary-revenue → legacy).
  *
- * For CC: prefers `.cache/cc-sales-24h.json` (refreshed by `npm run
- * warm-cc-sales`) so Helius rate limits never block a render. Falls back
- * to live Helius fetch when the cache is stale (>15 min old) or missing.
- *
- * For Courtyard: also attaches a primary-market revenue figure read from
- * `.cache/courtyard-primary.json` (USDC transfers to the tokenization
- * treasury — populated by `npm run warm-courtyard-primary`).
+ * Per-source freshness is surfaced via the honest "as of" chips, not a fake
+ * "Live" badge.
  */
 import { unstable_cache } from "next/cache";
 import {

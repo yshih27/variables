@@ -12,6 +12,7 @@ config({ path: ".env.local" });
 import { collectSales } from "../src/lib/rarible/queries";
 import { getBeezieMetadata } from "../src/lib/data/beezieTraits";
 import { readCards } from "../src/lib/data/cards";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const BEEZIE = "BASE:0xbb5ec6fd4b61723bd45c399840f1d868840ca16f";
 const DAY = 24 * 60 * 60 * 1000;
@@ -28,7 +29,7 @@ async function main() {
   console.log(`  cached: ${unique.length - missing.length} | missing: ${missing.length}`);
   if (missing.length === 0) {
     console.log("Nothing to fetch.");
-    return;
+    return { rowsWritten: 0 };
   }
 
   console.log("Fetching missing metadata at concurrency=2 with 200ms delay…");
@@ -55,9 +56,10 @@ async function main() {
 
   await Promise.all([worker(), worker()]);
   console.log(`Done. fetched=${done - failed} failed=${failed} in ${((Date.now() - start) / 1000).toFixed(0)}s`);
+  return { rowsWritten: done - failed };
 }
 
-main().catch((e) => {
+runWarmer("beezie-traits", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

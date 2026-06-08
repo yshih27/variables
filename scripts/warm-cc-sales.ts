@@ -1,11 +1,13 @@
 /**
  * Pre-warm Collector Crypt's 24h sales feed via Helius Enhanced TX.
- * Writes `.cache/cc-sales-24h.json`. Homepage reads this directly so
- * Helius rate limits never block a render.
+ * Writes the `cc-sales` Postgres snapshot (read by the homepage/buckets so
+ * Helius rate limits never block a render).
  *
  *   npx tsx scripts/warm-cc-sales.ts
  *
- * Recommended cron: every 5-10 minutes.
+ * NOTE: the Helius marketplace-program scan is the known-undercounting path
+ * (≈3.6× low vs Dune) and is being replaced by the Dune-backed core-volume
+ * warmer — see plan Phase 2. Kept only until that cutover lands.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -13,6 +15,7 @@ config({ path: ".env.local" });
 import { collectCCSales } from "../src/lib/helius/queries";
 import { writeCCSales } from "../src/lib/data/ccSalesCache";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -26,11 +29,12 @@ async function main() {
   const volume = sales.reduce((s, x) => s + x.priceUsd, 0);
   await writeCCSales({ generatedAt: new Date().toISOString(), sales });
   console.log(
-    `Wrote .cache/cc-sales-24h.json: ${sales.length} sales, $${volume.toFixed(0)} 24h vol (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+    `Wrote cc-sales snapshot: ${sales.length} sales, $${volume.toFixed(0)} 24h vol (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
   );
+  return { rowsWritten: sales.length };
 }
 
-main().catch((e) => {
+runWarmer("cc-sales", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

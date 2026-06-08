@@ -25,6 +25,7 @@ import { dasCall } from "../src/lib/helius/client";
 import type { DasGroupResponse } from "../src/lib/helius/client";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
 import { dasAssetToTokenMetadata, writeCCMetadata } from "../src/lib/data/ccTraits";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 type PerIPMap = Map<string, Set<string>>; // ipKey → ownerSet
 
@@ -151,13 +152,14 @@ async function main() {
     byIp,
   });
   console.log(
-    `\nWrote .cache/holders.json in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
+    `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
       `${Object.keys(byIp).length} IPs · ` +
       `beezie=${beezie.total} cc=${cc.total}`,
   );
+  return { rowsWritten: Object.keys(byIp).length };
 }
 
-main().catch((e) => {
+runWarmer("holders", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

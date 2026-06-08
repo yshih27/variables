@@ -24,6 +24,7 @@ config({ path: ".env.local" });
 import { iterateActivities } from "../src/lib/rarible/queries";
 import { writeCourtyardPrimary } from "../src/lib/data/courtyardPrimaryCache";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 // Default estimate. Adjust when Courtyard discloses their fee schedule.
 const TOKENIZATION_FEE_USD = 2.0;
@@ -60,11 +61,12 @@ async function main() {
   };
   await writeCourtyardPrimary(snap);
   console.log(
-    `Wrote .cache/courtyard-primary.json: estimated 24h=$${snap.volume24hUsd.toFixed(0)} (count × $${TOKENIZATION_FEE_USD} fee assumption)`,
+    `Wrote courtyard-primary snapshot: estimated 24h=$${snap.volume24hUsd.toFixed(0)} (count × $${TOKENIZATION_FEE_USD} fee assumption)`,
   );
+  return { rowsWritten: count7d };
 }
 
-main().catch((e) => {
+runWarmer("courtyard-primary", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

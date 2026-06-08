@@ -11,6 +11,7 @@ import { PLATFORM_SOURCES } from "../src/lib/data/sources";
 import { collectSales } from "../src/lib/rarible/queries";
 import { collectCCSales } from "../src/lib/helius/queries";
 import { bucketsFromSales, writeHistory } from "../src/lib/data/history";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -29,9 +30,10 @@ async function main() {
       `done in ${((Date.now() - t0) / 1000).toFixed(0)}s — ${sales.length} sales, $${totalVol.toFixed(0)} 7d`,
     );
   }
+  return { rowsWritten: PLATFORM_SOURCES.length };
 }
 
-main().catch((e) => {
+runWarmer("history", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

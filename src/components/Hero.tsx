@@ -1,5 +1,6 @@
 import type { HeroStats } from "@/lib/types";
 import { formatCompactUsd, formatCompactNumber, formatPct, formatInt } from "@/lib/format";
+import { FreshnessChips } from "@/components/FreshnessChip";
 
 type Props = { stats: HeroStats };
 
@@ -58,19 +59,17 @@ export function Hero({ stats }: Props) {
             The market for <span className="text-yellow">phygital</span> collectibles.
           </h1>
         </div>
-        <div className="flex items-center gap-3 text-[12px] text-ink-3">
-          <span
-            className={
-              isFresh(stats.updatedAt)
-                ? "live-dot"
-                : "inline-block h-2 w-2 rounded-full bg-ink-4"
-            }
-          />
-          <span>Updated {formatTimeAgo(stats.updatedAt)}</span>
-          <span>·</span>
-          <span>{stats.ipsTracked} IPs</span>
-          <span>·</span>
-          <span>{stats.platformsTracked} platforms</span>
+        <div className="flex flex-col items-start gap-2 lg:items-end">
+          <FreshnessChips sources={["marketcap", "cc-sales", "holders"]} />
+          <div className="flex items-center gap-3 text-[12px] text-ink-3">
+            <span>{stats.ipsTracked} IPs</span>
+            <span>·</span>
+            <span>{stats.platformsTracked} platforms</span>
+            <span>·</span>
+            <a href="/status" className="underline-offset-2 hover:text-ink-2 hover:underline">
+              data status
+            </a>
+          </div>
         </div>
       </div>
 
@@ -113,24 +112,4 @@ export function Hero({ stats }: Props) {
       </div>
     </section>
   );
-}
-
-function formatTimeAgo(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return "just now";
-  const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
-}
-
-/** Fresh = under 2h old. Drives the live dot vs a muted "stale" dot. */
-function isFresh(iso: string): boolean {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return false;
-  return Date.now() - then < 2 * 60 * 60 * 1000;
 }

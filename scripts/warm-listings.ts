@@ -24,6 +24,7 @@ import {
   type ListingEntry,
 } from "../src/lib/data/listings";
 import { PLATFORM_SOURCES, type PlatformSource } from "../src/lib/data/sources";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const MIN_PRICE_USD = 1.0;
 const argMax = process.argv.find((a) => a.startsWith("--max-orders="));
@@ -135,12 +136,13 @@ async function main() {
     }
     // Save after each platform so partial runs are still useful
     await writeListings({ generatedAt: new Date().toISOString(), byItem: Object.fromEntries(byItem) });
-    console.log(`  → wrote .cache/listings.json (${byItem.size} tokens so far)`);
+    console.log(`  → wrote listings snapshot (${byItem.size} tokens so far)`);
   }
   console.log(`\nDone. ${byItem.size} tokens have a USD-priced listing.`);
+  return { rowsWritten: byItem.size };
 }
 
-main().catch((e) => {
+runWarmer("listings", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

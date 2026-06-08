@@ -4,6 +4,7 @@ import { GachaBigHitsRail } from "@/components/GachaBigHitsRail";
 import { GachaBudgetCompare } from "@/components/GachaBudgetCompare";
 import { GachaHouseTake } from "@/components/GachaHouseTake";
 import { GachaPlatformDeepDive } from "@/components/GachaPlatformDeepDive";
+import { FreshnessChips } from "@/components/FreshnessChip";
 import { getGachaData } from "@/lib/data/fetchGacha";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
@@ -64,7 +65,7 @@ function GachaHero({ data }: { data: GachaData }) {
             Find your best <span className="text-yellow">gacha</span> bet.
           </h1>
         </div>
-        <DataAgeBadge generatedAt={data.generatedAt} />
+        <FreshnessChips sources={["gacha-dune"]} />
       </div>
 
       <div className="grid grid-cols-2 gap-x-10 gap-y-7 md:grid-cols-4">
@@ -119,27 +120,6 @@ function HeroCell({
       {sub && (
         <span className={`text-[12px] ${dim ? "text-ink-4" : "text-ink-2"}`}>{sub}</span>
       )}
-    </div>
-  );
-}
-
-function DataAgeBadge({ generatedAt }: { generatedAt: string | null }) {
-  if (!generatedAt) {
-    return (
-      <span className="text-[12px] text-ink-3">
-        No primary-revenue snapshot yet — run{" "}
-        <code className="rounded bg-bg-2 px-1.5 py-0.5 text-ink-2">npm run warm-primary-revenue</code>
-      </span>
-    );
-  }
-  const age = Math.max(0, Date.now() - new Date(generatedAt).getTime());
-  const mins = Math.round(age / 60_000);
-  const hours = Math.round(mins / 60);
-  const label = mins < 60 ? `${mins}m ago` : `${hours}h ago`;
-  return (
-    <div className="flex items-center gap-3 text-[12px] text-ink-3">
-      <span className="live-dot" />
-      <span>Updated {label}</span>
     </div>
   );
 }

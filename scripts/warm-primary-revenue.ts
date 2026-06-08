@@ -6,12 +6,12 @@
  *
  * Plus optional amount-bucket filter (CC pulls = $25/50/75/80/100/250/1000).
  *
- * Writes one .cache/primary-revenue.json snapshot covering every platform
+ * Writes the `primary-revenue` Postgres snapshot covering every platform
  * with a `primary` block in PLATFORM_SOURCES.
  *
  *   npx tsx scripts/warm-primary-revenue.ts
  *
- * Run hourly (alongside warm-listings / warm-marketcap).
+ * Run every 6h (core batch, alongside warm-listings / warm-marketcap).
  *
  * Sources used:
  *   EVM (Polygon, Base):  Etherscan v2 unified API
@@ -36,6 +36,7 @@ import {
   type PrimaryPlatformEntry,
   type PrimaryRevenueSnapshot,
 } from "../src/lib/data/primaryRevenueCache";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const DAY_S = 24 * 60 * 60;
 const WEEK_S = 7 * DAY_S;
@@ -270,7 +271,7 @@ async function tallySolana(
 
 // ─── Main ─────────────────────────────────────────────────────────────
 
-async function main(): Promise<void> {
+async function main() {
   const nowS = Math.floor(Date.now() / 1000);
   const platforms: Record<string, PrimaryPlatformEntry> = {};
 
@@ -306,11 +307,12 @@ async function main(): Promise<void> {
   };
   await writePrimaryRevenue(snap);
   console.log(
-    `Wrote .cache/primary-revenue.json — ${Object.keys(platforms).length}/${PLATFORM_SOURCES.length} platforms snapshotted`,
+    `Wrote primary-revenue snapshot — ${Object.keys(platforms).length}/${PLATFORM_SOURCES.length} platforms snapshotted`,
   );
+  return { rowsWritten: Object.keys(platforms).length };
 }
 
-main().catch((e) => {
+runWarmer("primary-revenue", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

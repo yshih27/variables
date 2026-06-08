@@ -10,6 +10,7 @@ config({ path: ".env.local" });
 import { iterateCollectionAssets } from "../src/lib/helius/queries";
 import { dasAssetToTokenMetadata, writeCCMetadata } from "../src/lib/data/ccTraits";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 async function main() {
   const cc = PLATFORM_SOURCES.find((p) => p.key === "collector-crypt");
@@ -28,9 +29,10 @@ async function main() {
     }
   }
   console.log(`Done. ${count} CC NFTs cached in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  return { rowsWritten: count };
 }
 
-main().catch((e) => {
+runWarmer("cc-traits", main).catch((e) => {
   console.error(e);
   process.exit(1);
 });

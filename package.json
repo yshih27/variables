@@ -16,7 +16,8 @@
     "warm-gacha-dune": "tsx scripts/warm-gacha-dune.ts",
     "warm-listings": "tsx scripts/warm-listings.ts",
     "warm-marketcap": "tsx scripts/warm-marketcap.ts",
-    "backfill-history": "tsx scripts/backfill-history.ts"
+    "backfill-history": "tsx scripts/backfill-history.ts",
+    "check-freshness": "tsx scripts/check-freshness.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
