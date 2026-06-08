@@ -348,7 +348,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v1"],
+  ["platform-detail:v2"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

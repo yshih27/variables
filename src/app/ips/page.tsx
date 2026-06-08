@@ -3,7 +3,7 @@ import { NavBar } from "@/components/NavBar";
 import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 
-const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v2"], {
+const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v3"], {
   revalidate: 3600,
   tags: ["homepage"],
 });

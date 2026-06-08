@@ -368,6 +368,6 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
 
 export const getIPDetail = unstable_cache(
   async (ipKey: string) => fetchIP(ipKey),
-  ["ip-detail:v3"],
+  ["ip-detail:v4"],
   { revalidate: 3600, tags: ["ip-detail"] },
 );

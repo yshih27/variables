@@ -60,7 +60,7 @@ export function Hero({ stats }: Props) {
           </h1>
         </div>
         <div className="flex flex-col items-start gap-2 lg:items-end">
-          <FreshnessChips sources={["marketcap", "cc-sales", "holders"]} />
+          <FreshnessChips sources={["marketcap", "core-volume", "holders"]} />
           <div className="flex items-center gap-3 text-[12px] text-ink-3">
             <span>{stats.ipsTracked} IPs</span>
             <span>·</span>

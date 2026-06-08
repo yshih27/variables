@@ -1,34 +1,22 @@
 /**
- * Shared platform-buckets fetcher. Assembles 24h sales + stats for every
- * tracked platform, cached once per request (Server Components share a single
- * cache key). Used by fetchHomepage, fetchIP, and fetchPlatform.
+ * Shared platform-buckets fetcher. Assembles 24h sales + stats for every tracked
+ * platform, cached once per request (Server Components share a single cache key).
+ * Used by fetchHomepage, fetchIP, and fetchPlatform.
  *
- * Read path (current state):
- *   • CC:        cache-only — reads the `cc-sales` Postgres snapshot. NO live
- *                Helius fallback; that fallback caused the 30–60s cold renders
- *                + 429s and was removed.
- *   • Beezie / Courtyard: still fetch 24h sales LIVE from Rarible per request.
- *                Being moved onto a Dune-backed `core-volume` snapshot so the
- *                render makes zero network calls — see plan Phase 2/3.
- *   • Primary revenue (Courtyard tokenization etc.): resolvePrimaryUsd reads
- *                Postgres snapshots (gacha-dune → primary-revenue → legacy).
- *
- * Per-source freshness is surfaced via the honest "as of" chips, not a fake
- * "Live" badge.
+ * CACHE-ONLY: reads the `core-volume` Postgres snapshot (written by the core
+ * warmer — CC via Dune, Beezie/Courtyard via Rarible) plus the per-platform
+ * history and primary-revenue snapshots. Makes ZERO request-time network calls,
+ * so renders are sub-second and never go stale mid-render. Per-source freshness
+ * is surfaced via the honest "as of" chips, not a fake "Live" badge.
  */
 import { unstable_cache } from "next/cache";
-import {
-  collectSales,
-  computeStatsFromSales,
-  type CollectionStats,
-  type NormalizedSale,
-} from "@/lib/rarible/queries";
+import type { CollectionStats, NormalizedSale } from "@/lib/rarible/queries";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import { readHistory, type HourBucket } from "./history";
-import { readCCSales } from "./ccSalesCache";
 import { readCourtyardPrimary } from "./courtyardPrimaryCache";
 import { readPrimaryRevenue } from "./primaryRevenueCache";
 import { readGachaDune } from "./gachaDuneCache";
+import { readCoreVolume, type CoreVolumeSnapshot } from "./coreVolumeCache";
 
 const HOUR = 60 * 60 * 1000;
 export const DAY = 24 * HOUR;
@@ -42,20 +30,6 @@ export type PlatformBucket = {
   primaryUsd: number | null;
 };
 
-function statsFromSales(collectionId: string, sales: NormalizedSale[]): CollectionStats {
-  const volumeUsd = sales.reduce((s, x) => s + x.priceUsd, 0);
-  return {
-    collectionId,
-    windowFrom: new Date(Date.now() - DAY).toISOString(),
-    windowTo: new Date().toISOString(),
-    salesCount: sales.length,
-    volumeUsd,
-    uniqueBuyers: new Set(sales.map((s) => s.buyer)).size,
-    uniqueSellers: new Set(sales.map((s) => s.seller)).size,
-    avgTradeUsd: sales.length ? volumeUsd / sales.length : 0,
-  };
-}
-
 function emptyStats(collectionId: string): CollectionStats {
   return {
     collectionId,
@@ -67,16 +41,6 @@ function emptyStats(collectionId: string): CollectionStats {
     uniqueSellers: 0,
     avgTradeUsd: 0,
   };
-}
-
-/**
- * CC sales: CACHE-ONLY. Reads the cc-sales snapshot written by the warmer and
- * never falls back to a live Helius fetch — that fallback was the source of the
- * 30–60s cold renders + 429s. Freshness is surfaced via the "as of" badge.
- */
-async function getCCSales(): Promise<NormalizedSale[]> {
-  const cached = await readCCSales();
-  return cached?.sales ?? [];
 }
 
 /**
@@ -104,75 +68,46 @@ async function resolvePrimaryUsd(platformKey: string): Promise<number | null> {
   return null;
 }
 
-async function fetchPlatformBucket(source: PlatformSource): Promise<PlatformBucket> {
-  const history = await readHistory(source.key);
-  const histBuckets = history?.buckets ?? null;
-  const primaryUsd = await resolvePrimaryUsd(source.key);
-
-  try {
-    if (source.kind === "helius") {
-      // Phygitals has no marketplace program wired yet — only primary
-      // revenue is tracked. Return empty sales stats but keep primaryUsd.
-      if (!source.marketplaceProgram || !source.collectionAddress) {
-        return {
-          source,
-          stats24h: emptyStats(source.collectionAddress || source.key),
-          sales24h: [],
-          history: histBuckets,
-          primaryUsd,
-        };
-      }
-      const sales = await getCCSales();
-      return {
-        source,
-        stats24h: statsFromSales(source.collectionAddress, sales),
-        sales24h: sales,
-        history: histBuckets,
-        primaryUsd,
-      };
-    }
-    if (source.key === "beezie") {
-      const sales = await collectSales(source.collectionId, DAY);
-      return {
-        source,
-        stats24h: statsFromSales(source.collectionId, sales),
-        sales24h: sales,
-        history: histBuckets,
-        primaryUsd,
-      };
-    }
-    // Courtyard: aggregate stats from Rarible + primary from the warmer.
-    const stats = await computeStatsFromSales(source.collectionId, DAY);
-    return {
-      source,
-      stats24h: stats,
-      sales24h: [],
-      history: histBuckets,
-      primaryUsd,
-    };
-  } catch (err) {
-    console.warn(
-      `[buckets] ${source.key} 24h fetch failed, falling back to history-only:`,
-      err instanceof Error ? err.message : err,
-    );
-    const collectionId =
-      source.kind === "helius" ? source.collectionAddress : source.collectionId;
-    return {
-      source,
-      stats24h: emptyStats(collectionId || source.key),
-      sales24h: [],
-      history: histBuckets,
-      primaryUsd,
-    };
-  }
+/**
+ * Assemble one platform's bucket from the snapshots — pure, no network. CC,
+ * Beezie, and Courtyard come from `core-volume`; Phygitals (no marketplace
+ * program wired) has no entry and renders empty stats + its primaryUsd.
+ */
+function buildBucket(
+  source: PlatformSource,
+  core: CoreVolumeSnapshot | null,
+  history: HourBucket[] | null,
+  primaryUsd: number | null,
+): PlatformBucket {
+  const cv = core?.platforms?.[source.key];
+  const collectionId =
+    source.kind === "helius" ? source.collectionAddress : source.collectionId;
+  return {
+    source,
+    stats24h: cv?.stats24h ?? emptyStats(collectionId || source.key),
+    sales24h: cv?.sales24h ?? [],
+    history,
+    primaryUsd,
+  };
 }
 
 /**
- * Cached for 1h. Both homepage and IP detail share this fetch.
+ * Cached for 1h. Homepage, IP, and platform pages share this fetch. Pure
+ * snapshot reads — zero request-time network calls.
  */
 export const getPlatformBuckets = unstable_cache(
-  async (): Promise<PlatformBucket[]> =>
-    Promise.all(PLATFORM_SOURCES.map(fetchPlatformBucket)),
-  ["platform-buckets:v5"],
+  async (): Promise<PlatformBucket[]> => {
+    const core = await readCoreVolume();
+    return Promise.all(
+      PLATFORM_SOURCES.map(async (source) => {
+        const [history, primaryUsd] = await Promise.all([
+          readHistory(source.key).then((h) => h?.buckets ?? null),
+          resolvePrimaryUsd(source.key),
+        ]);
+        return buildBucket(source, core, history, primaryUsd);
+      }),
+    );
+  },
+  ["platform-buckets:v6"],
   { revalidate: 3600, tags: ["platform-buckets"] },
 );

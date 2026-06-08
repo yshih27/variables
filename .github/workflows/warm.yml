@@ -60,10 +60,10 @@ jobs:
         if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-marketcap.ts
-      - name: CC sales
+      - name: Core volume (cached Dune + Rarible)
         if: steps.which.outputs.batch == 'core'
         continue-on-error: true
-        run: npx tsx scripts/warm-cc-sales.ts
+        run: npx tsx scripts/warm-core-dune.ts --cached
       - name: Courtyard primary
         if: steps.which.outputs.batch == 'core'
         continue-on-error: true
@@ -98,6 +98,10 @@ jobs:
         if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-phygitals.ts
+      - name: Core volume (fresh Dune execution)
+        if: steps.which.outputs.batch == 'daily'
+        continue-on-error: true
+        run: npx tsx scripts/warm-core-dune.ts
 
       # ── Weekly — full CC collection trait crawl (~122K assets) ──
       - name: CC trait crawl

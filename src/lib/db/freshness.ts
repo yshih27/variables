@@ -76,7 +76,6 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "primary-revenue": 6 * HOUR_MS,
   history: 6 * HOUR_MS,
   "gacha-dune": 6 * HOUR_MS,
-  "cc-sales": 6 * HOUR_MS, // legacy (Helius) — retired once core-volume serves CC
   // daily batch — every 24h
   holders: DAY_MS,
   "beezie-traits": DAY_MS,

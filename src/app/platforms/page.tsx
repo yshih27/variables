@@ -5,7 +5,7 @@ import { fetchHomepage } from "@/lib/data/fetchHomepage";
 
 const getData = unstable_cache(
   async () => fetchHomepage(),
-  ["platforms-fulllist:v4"],
+  ["platforms-fulllist:v5"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 

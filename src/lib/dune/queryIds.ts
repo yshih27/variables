@@ -44,3 +44,14 @@ export const BUYBACK_QUERY_IDS = {
   "collector-crypt": 7644128,
   phygitals: 7644129,
 } as const;
+
+/**
+ * CC secondary marketplace sales (Collector Crypt program CcmRKTuZ…). Returns
+ * sale-level rows `{ block_time, price_usd, nft_mint, buyer, seller }` over 30d.
+ * price_usd = MAX USDC transfer per tx (robust to escrow/fee splits); native-SOL
+ * movements in these txs are fees/rent, not payments (validated on-chain), so
+ * USDC carries the sale value + the high-end tail. Replaces the rate-limited
+ * Helius cc-sales scan. The core warmer derives 24h/7d/30d aggregates + the
+ * recent sale list from these rows.
+ */
+export const CC_SECONDARY_QUERY_ID = 7675297;

@@ -9,7 +9,7 @@
     "lint": "eslint",
     "warm-traits": "tsx scripts/warm-traits.ts",
     "warm-cc-traits": "tsx scripts/warm-cc-traits.ts",
-    "warm-cc-sales": "tsx scripts/warm-cc-sales.ts",
+    "warm-core-dune": "tsx scripts/warm-core-dune.ts",
     "warm-holders": "tsx scripts/warm-holders.ts",
     "warm-courtyard-primary": "tsx scripts/warm-courtyard-primary.ts",
     "warm-primary-revenue": "tsx scripts/warm-primary-revenue.ts",
