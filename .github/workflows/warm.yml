@@ -94,6 +94,10 @@ jobs:
         if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts
+      - name: Phygitals marketplace
+        if: steps.which.outputs.batch == 'daily'
+        continue-on-error: true
+        run: npx tsx scripts/warm-phygitals.ts
 
       # ── Weekly — full CC collection trait crawl (~122K assets) ──
       - name: CC trait crawl

@@ -54,7 +54,9 @@ export function cardHref(platform: string, tokenId: string): string {
  * Courtyard don't have readers yet.
  */
 export function cardSupported(platform: string): boolean {
-  return platform === "collector-crypt" || platform === "beezie";
+  return (
+    platform === "collector-crypt" || platform === "beezie" || platform === "phygitals"
+  );
 }
 
 /** Parse a `/card/[id]` segment back into { platform, tokenId }, or null. */

@@ -13,6 +13,7 @@
  */
 import { getCCMetadata } from "@/lib/data/ccTraits";
 import { getBeezieMetadata } from "@/lib/data/beezieTraits";
+import { readCards } from "@/lib/data/cards";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "@/lib/data/traits";
 import { proxyImg } from "@/lib/img";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
@@ -58,7 +59,8 @@ async function metaFor(
 ): Promise<TokenMetadata | null> {
   if (platform === "collector-crypt") return getCCMetadata(tokenId);
   if (platform === "beezie") return getBeezieMetadata(tokenId);
-  // phygitals / courtyard have no per-card metadata reader yet.
+  if (platform === "phygitals") return (await readCards("phygitals", [tokenId])).get(tokenId) ?? null;
+  // courtyard has no per-card metadata reader yet.
   return null;
 }
 
