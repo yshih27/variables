@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
+import { GachaPackExplorer } from "@/components/GachaPackExplorer";
+import { getGachaCatalog } from "@/lib/data/gachaCatalog";
 import { GachaBigHitsRail } from "@/components/GachaBigHitsRail";
 import { GachaBudgetCompare } from "@/components/GachaBudgetCompare";
 import { GachaHouseTake } from "@/components/GachaHouseTake";
@@ -32,6 +34,10 @@ export default async function GachaPage() {
         </div>
 
         <GachaHero data={data} />
+
+        <section className="mb-12 max-w-[560px]">
+          <GachaPackExplorer catalog={getGachaCatalog()} />
+        </section>
 
         <GachaBigHitsRail hits={data.bigHits ?? []} />
 
@@ -88,8 +94,14 @@ function GachaHero({ data }: { data: GachaData }) {
         />
         <HeroCell
           label="Best-EV Pack"
-          value={hero.bestEvPackId ?? "—"}
-          sub="realized EV — next"
+          value={
+            hero.bestEvPackId ?? (
+              <span className="inline-flex items-center rounded-md bg-yellow/10 px-2 py-1 text-[12px] font-semibold uppercase tracking-[0.04em] text-yellow ring-1 ring-inset ring-yellow/20">
+                Coming soon
+              </span>
+            )
+          }
+          sub={hero.bestEvPackId ? "realized EV leader" : "ranked $-back-per-$1"}
           dim
         />
       </div>
