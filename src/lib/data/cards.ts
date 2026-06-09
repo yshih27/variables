@@ -108,6 +108,45 @@ export async function upsertCards(rows: CardRow[]): Promise<void> {
   }
 }
 
+/**
+ * Stream the minimal valuation columns for EVERY card of a platform (paged).
+ * Used by warm-marketcap — `ip_key` + `insured_value_usd` are precomputed at
+ * write time, so per-IP market cap is a pure aggregation with no disk reads and
+ * no re-classification.
+ */
+export async function readCardValuations(
+  platform: CardPlatform,
+): Promise<Array<{ tokenId: string; ipKey: string; insuredValueUsd: number | null }>> {
+  const out: Array<{ tokenId: string; ipKey: string; insuredValueUsd: number | null }> = [];
+  const PAGE = 1000;
+  // Keyset pagination on the primary key (id). OFFSET pagination over 122K rows
+  // hits the Postgres statement_timeout at high offsets; an id-range scan stays
+  // O(PAGE) per page and uses the PK index.
+  let lastId: string | null = null;
+  for (;;) {
+    let q = db()
+      .from("cards")
+      .select("id,token_id,ip_key,insured_value_usd")
+      .eq("platform", platform)
+      .order("id", { ascending: true })
+      .limit(PAGE);
+    if (lastId !== null) q = q.gt("id", lastId);
+    const { data, error } = await q;
+    if (error) throw new Error(`[cards] valuation read failed: ${error.message}`);
+    const rows = data ?? [];
+    for (const r of rows) {
+      out.push({
+        tokenId: r.token_id as string,
+        ipKey: (r.ip_key as string) ?? "other",
+        insuredValueUsd: (r.insured_value_usd as number | null) ?? null,
+      });
+    }
+    if (rows.length < PAGE) break;
+    lastId = rows[rows.length - 1].id as string;
+  }
+  return out;
+}
+
 /** Read metadata for many tokenIds of one platform (cache-only). */
 export async function readCards(
   platform: CardPlatform,

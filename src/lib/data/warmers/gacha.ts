@@ -39,6 +39,13 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// Denoise gacha tiers. A real pack tier has repeat buyers; a one-off odd-dollar
+// USDC send to the gacha wallet (e.g. $41,465 ×1) is not a pull — these pollute
+// platforms with variable pricing (Phygitals) and inflate their totals (which
+// sum over the tiers). Require a few pulls over 30d to count as a tier. CC/Beezie
+// tiers are allowlist-filtered upstream, so this never touches their real tiers.
+const MIN_TIER_PULLS = 3;
+
 function buildOdds(rows: DuneRow[]): GachaOddsTier[] {
   const tiers = rows.map((r) => ({
     tier: String(r.tier),
@@ -64,7 +71,7 @@ function buildGachaPlatform(rows: DuneRow[]): GachaDunePlatform {
       pulls30d: num(r.pulls_30d),
       vol30d: num(r.volume_30d),
     }))
-    .filter((b) => b.price > 0)
+    .filter((b) => b.price > 0 && b.pulls30d >= MIN_TIER_PULLS)
     .sort((a, b) => b.vol30d - a.vol30d);
 
   const sum = (sel: (b: GachaPriceBucket) => number) =>
