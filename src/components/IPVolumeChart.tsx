@@ -6,6 +6,10 @@ type Props = {
   /** Display name (used for empty-state aria). */
   name: string;
   height?: number;
+  /** Authoritative 24h volume — the same figure shown in the page hero, so the
+   *  big "24h total" can never contradict it. Falls back to the sum of the
+   *  hourly buckets when omitted. */
+  total?: number;
 };
 
 const TIMEFRAMES = ["24H", "7D", "30D", "All"] as const;
@@ -15,8 +19,10 @@ const TIMEFRAMES = ["24H", "7D", "30D", "All"] as const;
  * 24H is the only active timeframe today; 7D / 30D placeholders are
  * shown disabled until we add per-IP hourly history backfill.
  */
-export function IPVolumeChart({ hourlyVol, name, height = 280 }: Props) {
-  const total = hourlyVol.reduce((a, b) => a + b, 0);
+export function IPVolumeChart({ hourlyVol, name, height = 280, total }: Props) {
+  const bucketSum = hourlyVol.reduce((a, b) => a + b, 0);
+  const displayTotal =
+    total != null && Number.isFinite(total) ? total : bucketSum;
   const max = Math.max(...hourlyVol, 0.01);
   const peak = max;
   const peakIdx = hourlyVol.indexOf(peak);
@@ -53,7 +59,7 @@ export function IPVolumeChart({ hourlyVol, name, height = 280 }: Props) {
       <div className="rounded-2xl border border-line bg-bg-1 p-6">
         <div className="mb-4 flex items-baseline gap-4">
           <span className="text-[26px] font-semibold tabular tracking-[-0.01em]">
-            {formatCompactUsd(total)}
+            {formatCompactUsd(displayTotal)}
           </span>
           <span className="text-[11px] uppercase tracking-[0.06em] text-ink-3">
             24h total

@@ -79,7 +79,7 @@ export function PlatformTable({ rows }: Props) {
                 </Td>
                 <Td muted>{p.vault ?? "—"}</Td>
                 <Td align="right" strong>
-                  {formatCompactUsd(p.vol24Usd)}
+                  {p.vol24Usd > 0 ? formatCompactUsd(p.vol24Usd) : "—"}
                 </Td>
                 <Td align="right" muted>
                   {Number.isFinite(p.vol7Usd) ? formatCompactUsd(p.vol7Usd) : "—"}
@@ -94,7 +94,9 @@ export function PlatformTable({ rows }: Props) {
                     : "—"}
                 </Td>
                 <Td align="right">{formatInt(p.holders)}</Td>
-                <Td align="right">{formatCompactUsd(p.avgTradeUsd)}</Td>
+                <Td align="right">
+                  {p.avgTradeUsd > 0 ? formatCompactUsd(p.avgTradeUsd) : "—"}
+                </Td>
                 <Td>
                   {p.spark.length > 0 ? <Sparkline data={p.spark} trend={p.trend} /> : "—"}
                 </Td>

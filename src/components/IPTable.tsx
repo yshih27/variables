@@ -95,8 +95,21 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
                 <Td>
                   <Sparkline data={ip.spark} trend={ip.trend} />
                 </Td>
-                <Td className="max-w-[280px] overflow-hidden text-ellipsis text-[12px] text-ink-2">
-                  {ip.topCard ?? "—"}
+                <Td className="max-w-[280px] text-[12px] text-ink-2">
+                  {ip.topCard ? (
+                    ip.topCardHref ? (
+                      <Link
+                        href={ip.topCardHref}
+                        className="relative z-10 block truncate underline-offset-2 hover:text-yellow hover:underline"
+                      >
+                        {ip.topCard}
+                      </Link>
+                    ) : (
+                      <span className="block truncate">{ip.topCard}</span>
+                    )
+                  ) : (
+                    "—"
+                  )}
                 </Td>
               </tr>
             ))}

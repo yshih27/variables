@@ -29,7 +29,11 @@ export default async function PlatformDetailPage({
       <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-20">
         <PlatformDetailHero detail={detail} />
         <PlatformDetailStats detail={detail} />
-        <IPVolumeChart hourlyVol={detail.hourlyVol} name={detail.source.name} />
+        <IPVolumeChart
+          hourlyVol={detail.hourlyVol}
+          name={detail.source.name}
+          total={detail.vol24Usd}
+        />
         <PlatformIPsTable
           rows={detail.ips}
           maxRows={10}

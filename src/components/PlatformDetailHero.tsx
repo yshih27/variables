@@ -107,14 +107,16 @@ export function PlatformDetailStats({ detail }: { detail: PlatformDetail }) {
         value={detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—"}
         sub="across this platform"
       />
-      <Cell label="7d Volume" value={formatCompactUsd(detail.vol7Usd)} sub="from disk history" />
+      <Cell label="7d Volume" value={formatCompactUsd(detail.vol7Usd)} sub="rolling 7d" />
       <Cell
         label="Primary"
         value={detail.primaryUsd != null ? formatCompactUsd(detail.primaryUsd) : "—"}
         sub={
-          detail.primaryUsd != null && detail.source.key === "courtyard"
-            ? "tokenization (24h, est)"
-            : "n/a"
+          detail.primaryUsd == null
+            ? "not tracked"
+            : detail.source.key === "courtyard"
+              ? "tokenization · 24h est"
+              : "primary market · 24h"
         }
       />
       <Cell label="24h Trades" value={formatInt(detail.trades24h)} sub="secondary sales" />

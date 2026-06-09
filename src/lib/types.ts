@@ -31,6 +31,9 @@ export type IPRow = {
   trend: Trend;
   spark: number[];
   topCard: string | null;
+  /** Link to the top card's detail page, or null if that platform has no
+   *  per-card reader yet (Courtyard). */
+  topCardHref?: string | null;
   /** Cheapest active listing across platforms, USD. NaN until warm-marketcap. */
   floorUsd: number;
   /** Sum of insured values for CC tokens in this IP, USD. 0 if N/A. */

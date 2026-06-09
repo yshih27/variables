@@ -90,7 +90,7 @@ export function IPDetailStats({ detail }: { detail: IPDetail }) {
   const mcapValue = detail.totalMcapUsd > 0 ? formatCompactUsd(detail.totalMcapUsd) : "—";
   const mcapSub =
     detail.totalMcapUsd > 0
-      ? "insured value · traded 24h"
+      ? "of cards traded · 24h"
       : "needs insured-value trait";
   const buybackPct = Math.round(detail.buybackConcentration * 100);
   const isBuybackDominated = detail.buybackConcentration >= 0.7;
@@ -98,7 +98,7 @@ export function IPDetailStats({ detail }: { detail: IPDetail }) {
   return (
     <>
       <section className="mb-10 grid grid-cols-2 gap-x-10 gap-y-7 md:grid-cols-3 lg:grid-cols-6">
-        <Cell label="Market Cap" value={mcapValue} sub={mcapSub} />
+        <Cell label="Insured Value" value={mcapValue} sub={mcapSub} />
         <Cell
           label="24h Trades"
           value={formatInt(detail.trades24h)}

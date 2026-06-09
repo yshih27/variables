@@ -11,6 +11,7 @@ import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
 import { PLATFORM_SOURCES } from "./sources";
 import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
 import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
+import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
   if (values.length < 4) return "flat";
@@ -137,7 +138,7 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
     holders: Set<string>;
     cardIds: Set<string>;
     platforms: Set<string>;
-    topCard: { name: string; price: number } | null;
+    topCard: { name: string; price: number; platform: string; tokenId: string } | null;
     trades: number;
   };
   const accByIp = new Map<string, Acc>();
@@ -172,7 +173,12 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
       acc.platforms.add(b.source.key);
       acc.trades += 1;
       if (meta?.name && (!acc.topCard || sale.priceUsd > acc.topCard.price)) {
-        acc.topCard = { name: meta.name, price: sale.priceUsd };
+        acc.topCard = {
+          name: meta.name,
+          price: sale.priceUsd,
+          platform: b.source.key,
+          tokenId: sale.tokenId,
+        };
       }
     }
   }
@@ -203,6 +209,10 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
       trend: trendOf(spark),
       spark,
       topCard: acc.topCard?.name ?? null,
+      topCardHref:
+        acc.topCard && cardSupported(acc.topCard.platform)
+          ? cardHref(acc.topCard.platform, acc.topCard.tokenId)
+          : null,
       floorUsd: NaN,
       insuredUsd: 0,
     });
@@ -313,10 +323,24 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
     : null;
 
   // Hero aggregates from the disk caches we already populated.
-  const totalMcapUsd = mcap?.totals?.mcapUsd ?? NaN;
-  const totalCards = mcap
+  // A stale/empty marketcap snapshot can report totals of 0 — which must NEVER
+  // surface as a "$0.00" headline. Fall back to the most recent non-zero hourly
+  // history snapshot (last-known good); the freshness chip already discloses the
+  // "as of" age. Only drops to "—" if we have never recorded a value.
+  const currentMcap = mcap?.totals?.mcapUsd ?? NaN;
+  const lastKnownMcap = (() => {
+    for (let i = mcapHist.hourly.length - 1; i >= 0; i--) {
+      const v = mcapHist.hourly[i]?.totalMcapUsd;
+      if (Number.isFinite(v) && v > 0) return v;
+    }
+    return NaN;
+  })();
+  const totalMcapUsd = currentMcap > 0 ? currentMcap : lastKnownMcap;
+  const rawTotalCards = mcap
     ? Object.values(mcap.byIp).reduce((s, e) => s + e.cards, 0)
     : NaN;
+  // Never headline "0 cards" — treat an empty snapshot as unknown ("—").
+  const totalCards = rawTotalCards > 0 ? rawTotalCards : NaN;
   // Sum of platform holder counts. Up to a small over-count when one wallet
   // holds on multiple platforms — but `Total Holders` here is per-platform sum,
   // not a unique union (we don't currently snapshot the cross-platform owner

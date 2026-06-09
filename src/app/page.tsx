@@ -10,7 +10,7 @@ import { fetchHomepage } from "@/lib/data/fetchHomepage";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
-  ["homepage:v38"],
+  ["homepage:v39"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 

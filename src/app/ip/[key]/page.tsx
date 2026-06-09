@@ -22,7 +22,11 @@ export default async function IPDetailPage({
       <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-20">
         <IPDetailHero detail={detail} />
         <IPDetailStats detail={detail} />
-        <IPVolumeChart hourlyVol={detail.hourlyVol} name={detail.ip.name} />
+        <IPVolumeChart
+          hourlyVol={detail.hourlyVol}
+          name={detail.ip.name}
+          total={detail.vol24Usd}
+        />
         <SetsTable rows={detail.sets} maxRows={10} seeAllHref={`/ip/${key}/sets`} />
         <GradesTable rows={detail.grades} maxRows={10} seeAllHref={`/ip/${key}/grades`} />
         <TopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/ip/${key}/cards`} />
