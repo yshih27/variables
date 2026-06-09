@@ -67,7 +67,12 @@ export function parseCardId(
   if (dash <= 0) return null;
   const platform = PLATFORM_BY_CODE[id.slice(0, dash)];
   if (!platform) return null;
-  const tokenId = decodeURIComponent(id.slice(dash + 1));
+  let tokenId: string;
+  try {
+    tokenId = decodeURIComponent(id.slice(dash + 1));
+  } catch {
+    return null; // malformed percent-encoding → not-found, never throw (would 500 the route)
+  }
   if (!tokenId) return null;
   return { platform, tokenId };
 }

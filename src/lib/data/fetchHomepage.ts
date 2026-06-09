@@ -122,6 +122,7 @@ async function buildTopSales(buckets: PlatformBucket[]): Promise<TopSale[]> {
       imageFallback:
         (meta as { imageFallback?: string }).imageFallback ?? null,
       platform: c.platformKey,
+      tokenId: c.tokenId,
       date: c.date,
     });
     if (out.length >= 5) break;

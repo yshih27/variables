@@ -106,6 +106,7 @@ export type TopSale = {
   image: string | null;
   imageFallback: string | null;
   platform: string;
+  tokenId: string;
   date: string;
 };
 

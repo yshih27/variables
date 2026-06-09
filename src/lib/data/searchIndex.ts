@@ -9,6 +9,7 @@
 import type { HomepagePayload } from "@/lib/types";
 import { IP_CATALOG, OTHER_IP } from "./ipCatalog";
 import { PLATFORM_SOURCES } from "./sources";
+import { cardHref, cardSupported } from "@/lib/card/ids";
 
 export type SearchResult = {
   kind: "ip" | "platform" | "card";
@@ -116,7 +117,10 @@ export function buildSearch(home: HomepagePayload, rawQuery: string): GroupedRes
         kind: "card",
         label: sale.cardName,
         sub: `${sale.ipName} · sold $${sale.priceUsd.toFixed(0)}`,
-        href: `/ip/${sale.ipKey}`,
+        href:
+          sale.tokenId && cardSupported(sale.platform)
+            ? cardHref(sale.platform, sale.tokenId)
+            : `/ip/${sale.ipKey}`,
         score,
       });
     }

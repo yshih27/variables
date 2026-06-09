@@ -13,7 +13,7 @@ export const metadata = {
 
 const getHome = unstable_cache(
   async () => fetchHomepage(),
-  ["search-source:v1"],
+  ["search-source:v2"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 

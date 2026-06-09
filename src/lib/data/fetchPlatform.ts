@@ -40,6 +40,7 @@ export type PlatformIPRow = {
 
 export type PlatformCardRow = {
   rank: number;
+  platform: string;
   name: string;
   ipName: string;
   ipKey: string;
@@ -60,6 +61,7 @@ export type PlatformCardRow = {
 
 export type RecentSaleRow = {
   date: string;
+  platform: string;
   cardName: string | null;
   ipName: string;
   ipKey: string;
@@ -198,7 +200,7 @@ async function buildPlatformIPs(
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
-function buildTopCards(enriched: EnrichedSale[]): PlatformCardRow[] {
+function buildTopCards(enriched: EnrichedSale[], platform: string): PlatformCardRow[] {
   type Acc = {
     sale: EnrichedSale;
     trades: number;
@@ -225,6 +227,7 @@ function buildTopCards(enriched: EnrichedSale[]): PlatformCardRow[] {
     const traits = acc.sale.traits;
     rows.push({
       rank: 0,
+      platform,
       name: acc.sale.meta.name ?? acc.sale.tokenId,
       ipName: ip.name,
       ipKey: ip.key,
@@ -247,12 +250,13 @@ function buildTopCards(enriched: EnrichedSale[]): PlatformCardRow[] {
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
-function buildRecentSales(enriched: EnrichedSale[]): RecentSaleRow[] {
+function buildRecentSales(enriched: EnrichedSale[], platform: string): RecentSaleRow[] {
   const sorted = [...enriched].sort((a, b) => (a.date < b.date ? 1 : -1));
   return sorted.map((s) => {
     const ip = classifyIP(extractCategoryHints(s.meta));
     return {
       date: s.date,
+      platform,
       cardName: s.meta.name ?? null,
       ipName: ip.name,
       ipKey: ip.key,
@@ -316,8 +320,8 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const cards = new Set(allSales.map((s) => s.tokenId)).size;
 
   const ips = await buildPlatformIPs(enriched, holders?.byIp ?? null, key);
-  const topCards = buildTopCards(enriched);
-  const recentSales = buildRecentSales(enriched);
+  const topCards = buildTopCards(enriched, key);
+  const recentSales = buildRecentSales(enriched, key);
 
   return {
     source: bucket.source,
@@ -348,7 +352,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v2"],
+  ["platform-detail:v3"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

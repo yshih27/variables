@@ -5,6 +5,7 @@ import type { TopSale } from "@/lib/types";
 import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd } from "@/lib/format";
+import { cardHref, cardSupported } from "@/lib/card/ids";
 
 const PLATFORM_LABELS: Record<string, string> = {
   beezie: "Beezie",
@@ -44,6 +45,11 @@ function SaleCard({ sale }: { sale: TopSale }) {
   const [failed, setFailed] = useState(sources.length === 0);
   const currentSrc = sources[srcIdx];
   const platformLabel = PLATFORM_LABELS[sale.platform] ?? sale.platform;
+  // Link to the card detail page when we can render it; else fall back to the IP.
+  const cardLink =
+    sale.tokenId && cardSupported(sale.platform)
+      ? cardHref(sale.platform, sale.tokenId)
+      : `/ip/${sale.ipKey}`;
 
   // No JS "loaded" gating — the photo renders at full opacity layered ABOVE
   // the slab placeholder. While the image is still downloading it has no
@@ -65,7 +71,7 @@ function SaleCard({ sale }: { sale: TopSale }) {
 
   return (
     <a
-      href={`/ip/${sale.ipKey}`}
+      href={cardLink}
       className="group flex flex-col overflow-hidden rounded-xl bg-bg-2 transition hover:-translate-y-0.5"
     >
       {/* Image area: slab placeholder always behind, img fades in on top */}

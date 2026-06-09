@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CardImage } from "./CardImage";
 import { formatCompactUsd } from "@/lib/format";
 import type { CardDetail } from "@/lib/card/fetchCard";
+import { FreshnessChips } from "@/components/FreshnessChip";
 
 const GRADER_COLOR: Record<string, string> = {
   PSA: "#D62828",
@@ -16,6 +17,13 @@ const CHAIN_COLOR: Record<string, string> = {
   Base: "#5fa3ff",
   Polygon: "#a18cff",
   Ethereum: "#b8b8b8",
+};
+
+/** Per-platform freshness source for this card's identity/trait data. */
+const FRESHNESS_SOURCE: Record<string, string> = {
+  "collector-crypt": "cc-traits",
+  beezie: "beezie-traits",
+  phygitals: "phygitals",
 };
 
 const SOON = [
@@ -55,6 +63,7 @@ function GradeBadge({
 
 export function CardDetailView({ card }: { card: CardDetail }) {
   const t = card.traits;
+  const freshnessSource = FRESHNESS_SOURCE[card.platform];
   const byLabel = new Map(card.attributes.map((a) => [a.label.toLowerCase(), a.value]));
   const attr = (k: string) => byLabel.get(k.toLowerCase()) ?? null;
 
@@ -111,6 +120,12 @@ export function CardDetailView({ card }: { card: CardDetail }) {
               {card.chain}
             </span>
           </div>
+
+          {freshnessSource && (
+            <div className="mt-3">
+              <FreshnessChips sources={[freshnessSource]} />
+            </div>
+          )}
 
           <h1 className="mt-4 text-[30px] font-bold leading-tight tracking-[-0.01em]">
             {card.name}

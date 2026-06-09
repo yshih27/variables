@@ -7,6 +7,7 @@ import type {
 import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
+import { cardHref, cardSupported } from "@/lib/card/ids";
 
 type SectionProps = {
   title: string;
@@ -159,6 +160,26 @@ export function PlatformIPsTable({
 
 // ─────────────────────────── Top Cards ────────────────────────────
 
+/** Wrap a card's image+name in a /card/[id] link when the platform is supported. */
+function CardLink({
+  platform,
+  tokenId,
+  children,
+}: {
+  platform: string;
+  tokenId: string;
+  children: React.ReactNode;
+}) {
+  if (!cardSupported(platform)) {
+    return <div className="flex items-center gap-3">{children}</div>;
+  }
+  return (
+    <Link href={cardHref(platform, tokenId)} className="group flex items-center gap-3">
+      {children}
+    </Link>
+  );
+}
+
 export function PlatformTopCardsTable({
   rows,
   maxRows,
@@ -196,7 +217,7 @@ export function PlatformTopCardsTable({
             <tr key={r.tokenId} className="transition-colors hover:bg-bg-1">
               <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
-                <div className="flex items-center gap-3">
+                <CardLink platform={r.platform} tokenId={r.tokenId}>
                   {r.image ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
@@ -208,10 +229,10 @@ export function PlatformTopCardsTable({
                   ) : (
                     <div className="h-9 w-7 rounded-sm bg-bg-2" />
                   )}
-                  <span className="max-w-[280px] overflow-hidden text-ellipsis font-semibold">
+                  <span className="max-w-[280px] overflow-hidden text-ellipsis font-semibold group-hover:text-yellow">
                     {r.name}
                   </span>
-                </div>
+                </CardLink>
               </Td>
               <Td className="max-w-[220px] overflow-hidden text-ellipsis text-[12px] text-ink-2">
                 {r.set ?? "—"}
@@ -306,7 +327,7 @@ export function RecentSalesTable({
             >
               <Td className="text-ink-3">{timeAgo(r.date)}</Td>
               <Td>
-                <div className="flex items-center gap-3">
+                <CardLink platform={r.platform} tokenId={r.tokenId}>
                   {r.image ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img
@@ -318,10 +339,10 @@ export function RecentSalesTable({
                   ) : (
                     <div className="h-9 w-7 rounded-sm bg-bg-2" />
                   )}
-                  <span className="max-w-[280px] overflow-hidden text-ellipsis text-[12.5px] font-medium">
+                  <span className="max-w-[280px] overflow-hidden text-ellipsis text-[12.5px] font-medium group-hover:text-yellow">
                     {r.cardName ?? r.tokenId.slice(0, 12)}
                   </span>
-                </div>
+                </CardLink>
               </Td>
               <Td>
                 <Link href={`/ip/${r.ipKey}`} className="text-[12px] text-ink-2 hover:text-yellow">
