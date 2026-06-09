@@ -17,15 +17,25 @@ function apiKey(): string {
 }
 
 /**
- * Wrapped fetch with retry on transient network errors (ECONNRESET, socket
- * hangs, 5xx, 429). Up to 5 attempts with exponential backoff.
+ * Wrapped fetch with a per-request TIMEOUT + retry on transient network errors
+ * (timeout, ECONNRESET, socket hangs, 5xx, 429). Up to 5 attempts with
+ * exponential backoff. The timeout is the critical part: without it, a Rarible
+ * endpoint that holds the connection open (e.g. /ownerships/byCollection for
+ * some collections) hangs the caller forever — which is exactly how the holders
+ * warmer rotted silently. Now a stuck request aborts and either retries or
+ * fails loudly so runWarmer can record it.
  */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 async function fetchWithRetry(url: string, init: RequestInit, path: string): Promise<Response> {
   let attempt = 0;
   const maxAttempts = 5;
   while (true) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, { ...init, signal: ctrl.signal });
+      clearTimeout(timer);
       if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
         if (attempt >= maxAttempts - 1) {
           throw new RaribleError(res.status, await res.text(), path);
@@ -36,14 +46,21 @@ async function fetchWithRetry(url: string, init: RequestInit, path: string): Pro
       }
       return res;
     } catch (err) {
+      clearTimeout(timer);
+      const isTimeout = (err as Error).name === "AbortError";
       const isTransient =
+        isTimeout ||
         err instanceof TypeError ||
         (err as { code?: string }).code === "ECONNRESET" ||
         (err as { code?: string }).code === "ETIMEDOUT" ||
         /fetch failed|ECONNRESET|socket hang up|ETIMEDOUT|terminated/i.test(
           (err as Error).message ?? "",
         );
-      if (!isTransient || attempt >= maxAttempts - 1) throw err;
+      if (!isTransient || attempt >= maxAttempts - 1) {
+        throw isTimeout
+          ? new RaribleError(408, `request exceeded ${REQUEST_TIMEOUT_MS}ms`, path)
+          : err;
+      }
       await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
       attempt += 1;
     }

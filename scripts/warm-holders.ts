@@ -125,7 +125,19 @@ async function warmCC(): Promise<{ total: number; byIp: PerIPMap }> {
 
 async function main() {
   const t0 = Date.now();
-  const [beezie, cc] = await Promise.all([warmBeezie(), warmCC()]);
+  // Resilient: a hang/failure in one source (e.g. Beezie ownerships) must not
+  // sink the other or leave the snapshot unwritten. Write whatever we got; only
+  // fail (so runWarmer records an error) when BOTH sources fail.
+  const empty = { total: 0, byIp: new Map<string, Set<string>>() };
+  const [beezieR, ccR] = await Promise.allSettled([warmBeezie(), warmCC()]);
+  const beezie = beezieR.status === "fulfilled" ? beezieR.value : empty;
+  const cc = ccR.status === "fulfilled" ? ccR.value : empty;
+  if (beezieR.status === "rejected")
+    console.warn(`  Beezie holders FAILED: ${(beezieR.reason as Error).message}`);
+  if (ccR.status === "rejected")
+    console.warn(`  CC holders FAILED: ${(ccR.reason as Error).message}`);
+  if (beezieR.status === "rejected" && ccR.status === "rejected")
+    throw new Error("holders: both Beezie and CC sources failed");
 
   // Combine per-IP across platforms
   const byIp: Record<string, HoldersIPEntry> = {};

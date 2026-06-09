@@ -74,6 +74,27 @@ function buildPlatform(
   };
 }
 
+/**
+ * Fetch CC secondary sales from Dune as NormalizedSale rows. Shared by the core
+ * warmer and the history backfill so both read the same source (no Helius 429).
+ */
+export async function fetchCCSecondarySales(
+  opts: { cachedOnly?: boolean } = {},
+): Promise<NormalizedSale[]> {
+  const rows: DuneRow[] = opts.cachedOnly
+    ? await getLatestResults(CC_SECONDARY_QUERY_ID)
+    : await runQuery(CC_SECONDARY_QUERY_ID, { maxWaitMs: 480_000 });
+  return rows
+    .map((r) => ({
+      date: duneTimeToIso(r.block_time),
+      tokenId: String(r.nft_mint ?? ""),
+      buyer: String(r.buyer ?? ""),
+      seller: String(r.seller ?? ""),
+      priceUsd: num(r.price_usd),
+    }))
+    .filter((s) => s.priceUsd > 0 && s.tokenId);
+}
+
 export type CoreWarmResult = {
   platforms: number;
   ccSales30d: number;
@@ -91,18 +112,7 @@ export async function runCoreWarm(
   // ── Collector Crypt: Dune (full chain scan, no Helius 429) ──
   try {
     const t0 = Date.now();
-    const rows: DuneRow[] = opts.cachedOnly
-      ? await getLatestResults(CC_SECONDARY_QUERY_ID)
-      : await runQuery(CC_SECONDARY_QUERY_ID, { maxWaitMs: 480_000 });
-    const ccSales: NormalizedSale[] = rows
-      .map((r) => ({
-        date: duneTimeToIso(r.block_time),
-        tokenId: String(r.nft_mint ?? ""),
-        buyer: String(r.buyer ?? ""),
-        seller: String(r.seller ?? ""),
-        priceUsd: num(r.price_usd),
-      }))
-      .filter((s) => s.priceUsd > 0 && s.tokenId);
+    const ccSales = await fetchCCSecondarySales(opts);
     platforms["collector-crypt"] = buildPlatform("collector-crypt", "dune", ccSales, 30);
     log(
       `→ collector-crypt (Dune) ${ccSales.length} sales/30d · 24h $${Math.round(
