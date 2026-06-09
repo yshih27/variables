@@ -6,11 +6,34 @@ import { cardHref, cardSupported } from "@/lib/card/ids";
 import type { Chain } from "@/lib/types";
 
 /**
- * 3D coverflow of the biggest gacha hits. The center card is featured large;
- * neighbors shrink/rotate/fade by depth. Transforms run imperatively in a RAF
- * loop (refs, 60fps); only the featured index lives in React state to drive the
- * detail panel. See COMPONENT-gacha-coverflow.md for the spec.
+ * 3D coverflow of the biggest gacha hits. Layout is derived from `featured`
+ * state and rendered as inline transforms, so the cards are positioned on the
+ * very first paint (no mount-effect dependency) and CSS transitions animate
+ * every change. Drag / wheel / keyboard are layered on as progressive
+ * enhancement. See COMPONENT-gacha-coverflow.md for the spec.
  */
+const NEAR = 210,
+  FAR = 72,
+  SCALE_STEP = 0.16,
+  ROT = 26,
+  OP_STEP = 0.26,
+  MINSCALE = 0.5;
+
+type Layout = { transform: string; opacity: number; zIndex: number; pointer: "auto" | "none" };
+
+function layoutFor(off: number): Layout {
+  const a = Math.abs(off),
+    s = Math.sign(off);
+  const x = a <= 1 ? off * NEAR : s * (NEAR + (a - 1) * FAR);
+  const opacity = Math.max(0, 1 - a * OP_STEP);
+  return {
+    transform: `translate3d(${x}px,0,${-a * 60}px) rotateY(${Math.max(-46, Math.min(46, -off * ROT))}deg) scale(${Math.max(MINSCALE, 1 - a * SCALE_STEP)})`,
+    opacity,
+    zIndex: Math.round(1000 - a * 10),
+    pointer: opacity < 0.15 ? "none" : "auto",
+  };
+}
+
 export function GachaHitsCoverflow({
   hits,
   windowLabel,
@@ -19,90 +42,64 @@ export function GachaHitsCoverflow({
   windowLabel: string;
 }) {
   const N = hits.length;
+  const [featured, setFeatured] = useState(0);
+  const featuredRef = useRef(0);
+  featuredRef.current = featured;
   const flowRef = useRef<HTMLDivElement | null>(null);
   const cardEls = useRef<(HTMLDivElement | null)[]>([]);
-  const activeRef = useRef(0);
-  const targetRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
-  const featuredRef = useRef(0);
-  const movedRef = useRef(false);
-  const goRef = useRef<(t: number) => void>(() => {});
-  const [featured, setFeatured] = useState(0);
 
+  const go = (t: number) => setFeatured(Math.max(0, Math.min(N - 1, t)));
+
+  // Drag / wheel / keyboard — progressive enhancement. Navigation (arrows,
+  // dots, card click) works without this via plain React handlers.
   useEffect(() => {
     const flow = flowRef.current;
     if (!flow || N === 0) return;
-    const cards = cardEls.current;
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-    const NEAR = 210,
-      FAR = 72,
-      SCALE_STEP = 0.16,
-      ROT = 26,
-      OP_STEP = 0.26,
-      MINSCALE = 0.5;
-
-    const place = (off: number) => {
-      const a = Math.abs(off),
-        s = Math.sign(off);
-      return a <= 1 ? off * NEAR : s * (NEAR + (a - 1) * FAR);
+    const paint = (p: number) => {
+      cardEls.current.forEach((el, i) => {
+        if (!el) return;
+        const l = layoutFor(i - p);
+        el.style.transform = l.transform;
+        el.style.opacity = String(l.opacity);
+        el.style.zIndex = String(l.zIndex);
+        el.classList.toggle("ghc-card--active", Math.round(p) === i);
+      });
     };
 
-    const render = () => {
-      const active = activeRef.current;
-      for (let i = 0; i < N; i++) {
-        const el = cards[i];
-        if (!el) continue;
-        const off = i - active,
-          a = Math.abs(off);
-        const x = place(off);
-        const scale = Math.max(MINSCALE, 1 - a * SCALE_STEP);
-        const rot = Math.max(-46, Math.min(46, -off * ROT));
-        const op = Math.max(0, 1 - a * OP_STEP);
-        el.style.transform = `translate3d(${x}px,0,${-a * 60}px) rotateY(${rot}deg) scale(${scale})`;
-        el.style.zIndex = String(Math.round(1000 - a * 10));
-        el.style.opacity = String(op);
-        el.style.pointerEvents = op < 0.15 ? "none" : "auto";
-        el.classList.toggle("ghc-card--active", Math.round(active) === i);
-      }
-      const ri = Math.round(active);
-      if (ri !== featuredRef.current && ri >= 0 && ri < N) {
-        featuredRef.current = ri;
-        setFeatured(ri);
-      }
+    let dragging = false,
+      startX = 0,
+      startPos = 0,
+      moved = false,
+      pos = featuredRef.current;
+    const onDown = (e: PointerEvent) => {
+      dragging = true;
+      moved = false;
+      startX = e.clientX;
+      startPos = featuredRef.current;
+      pos = startPos;
+      flow.classList.add("ghc-flow--dragging");
+      flow.setPointerCapture?.(e.pointerId);
     };
-
-    const loop = () => {
-      const t = targetRef.current;
-      activeRef.current += (t - activeRef.current) * 0.16;
-      if (Math.abs(t - activeRef.current) < 0.0008) activeRef.current = t;
-      render();
-      rafRef.current = activeRef.current !== t ? requestAnimationFrame(loop) : null;
+    const onMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      if (Math.abs(dx) > 4) moved = true;
+      pos = Math.max(-0.45, Math.min(N - 0.55, startPos - dx / NEAR));
+      paint(pos);
     };
-    const kick = () => {
-      if (rafRef.current == null) rafRef.current = requestAnimationFrame(loop);
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      flow.classList.remove("ghc-flow--dragging");
+      const next = Math.max(0, Math.min(N - 1, Math.round(pos)));
+      paint(next); // settle (transition re-enabled) — matches what React will render
+      setFeatured(next);
     };
-    const go = (t: number) => {
-      targetRef.current = Math.max(0, Math.min(N - 1, t));
-      if (reduce) {
-        activeRef.current = targetRef.current;
-        render();
-      } else kick();
-    };
-    goRef.current = go;
-
-    // initial layout
-    targetRef.current = Math.max(0, Math.min(N - 1, targetRef.current));
-    activeRef.current = targetRef.current;
-    render();
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") go(targetRef.current - 1);
-      if (e.key === "ArrowRight") go(targetRef.current + 1);
-    };
-    window.addEventListener("keydown", onKey);
+    flow.addEventListener("pointerdown", onDown);
+    flow.addEventListener("pointermove", onMove);
+    flow.addEventListener("pointerup", onUp);
+    flow.addEventListener("pointercancel", onUp);
 
     let wheelAcc = 0;
     let wheelT: ReturnType<typeof setTimeout> | undefined;
@@ -110,7 +107,7 @@ export function GachaHitsCoverflow({
       e.preventDefault();
       wheelAcc += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
       if (Math.abs(wheelAcc) > 50) {
-        go(targetRef.current + (wheelAcc > 0 ? 1 : -1));
+        setFeatured((f) => Math.max(0, Math.min(N - 1, f + (wheelAcc > 0 ? 1 : -1))));
         wheelAcc = 0;
       }
       clearTimeout(wheelT);
@@ -118,60 +115,29 @@ export function GachaHitsCoverflow({
     };
     flow.addEventListener("wheel", onWheel, { passive: false });
 
-    let dragging = false,
-      startX = 0,
-      startActive = 0,
-      moved = false;
-    const onDown = (e: PointerEvent) => {
-      dragging = true;
-      moved = false;
-      startX = e.clientX;
-      startActive = activeRef.current;
-      flow.classList.add("ghc-flow--dragging");
-      flow.setPointerCapture?.(e.pointerId);
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") setFeatured((f) => Math.max(0, f - 1));
+      if (e.key === "ArrowRight") setFeatured((f) => Math.min(N - 1, f + 1));
     };
-    const onMove = (e: PointerEvent) => {
-      if (!dragging) return;
-      const dx = e.clientX - startX;
-      if (Math.abs(dx) > 4) moved = true;
-      activeRef.current = Math.max(-0.45, Math.min(N - 0.55, startActive - dx / NEAR));
-      render();
-    };
-    const onUp = () => {
-      if (!dragging) return;
-      dragging = false;
-      flow.classList.remove("ghc-flow--dragging");
-      movedRef.current = moved;
-      go(Math.round(activeRef.current));
-    };
-    flow.addEventListener("pointerdown", onDown);
-    flow.addEventListener("pointermove", onMove);
-    flow.addEventListener("pointerup", onUp);
-    flow.addEventListener("pointercancel", onUp);
-    // swallow the click that follows a drag so it doesn't re-center a card
+    window.addEventListener("keydown", onKey);
+
     const onClickCapture = (e: MouseEvent) => {
-      if (movedRef.current) {
+      if (moved) {
         e.stopPropagation();
         e.preventDefault();
-        movedRef.current = false;
+        moved = false;
       }
     };
     flow.addEventListener("click", onClickCapture, true);
 
     return () => {
-      window.removeEventListener("keydown", onKey);
-      flow.removeEventListener("wheel", onWheel);
       flow.removeEventListener("pointerdown", onDown);
       flow.removeEventListener("pointermove", onMove);
       flow.removeEventListener("pointerup", onUp);
       flow.removeEventListener("pointercancel", onUp);
+      flow.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKey);
       flow.removeEventListener("click", onClickCapture, true);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
     };
   }, [N]);
 
@@ -194,7 +160,7 @@ export function GachaHitsCoverflow({
         <button
           type="button"
           className="ghc-arrow ghc-arrow--prev"
-          onClick={() => goRef.current(targetRef.current - 1)}
+          onClick={() => go(featured - 1)}
           aria-label="Previous hit"
         >
           <Chevron dir="left" />
@@ -209,15 +175,25 @@ export function GachaHitsCoverflow({
         >
           {hits.map((h, i) => {
             const r = RARITY_META[h.rarity];
+            const l = layoutFor(i - featured);
             return (
               <div
                 key={`${h.mint}:${i}`}
                 ref={(el) => {
                   cardEls.current[i] = el;
                 }}
-                className="ghc-card"
-                style={{ ["--rar"]: r.color, ["--rarGlow"]: r.glow } as React.CSSProperties}
-                onClick={() => goRef.current(i)}
+                className={`ghc-card${i === featured ? " ghc-card--active" : ""}`}
+                style={
+                  {
+                    "--rar": r.color,
+                    "--rarGlow": r.glow,
+                    transform: l.transform,
+                    opacity: l.opacity,
+                    zIndex: l.zIndex,
+                    pointerEvents: l.pointer,
+                  } as React.CSSProperties
+                }
+                onClick={() => go(i)}
                 role="option"
                 aria-selected={featured === i}
                 aria-label={`Rank ${h.rank}: ${h.name}, ${h.hit}`}
@@ -248,7 +224,7 @@ export function GachaHitsCoverflow({
         <button
           type="button"
           className="ghc-arrow ghc-arrow--next"
-          onClick={() => goRef.current(targetRef.current + 1)}
+          onClick={() => go(featured + 1)}
           aria-label="Next hit"
         >
           <Chevron dir="right" />
@@ -294,7 +270,7 @@ export function GachaHitsCoverflow({
               key={i}
               type="button"
               className={`ghc-dot ${featured === i ? "ghc-dot--on" : ""}`}
-              onClick={() => goRef.current(i)}
+              onClick={() => go(i)}
               aria-label={`Go to hit ${i + 1}`}
             />
           ))}
@@ -326,9 +302,7 @@ function Header({ windowLabel }: { windowLabel: string }) {
 }
 
 function HitArt({ hit }: { hit: CoverflowHit }) {
-  const sources = [hit.image, hit.imageFallback].filter(
-    (s): s is string => Boolean(s),
-  );
+  const sources = [hit.image, hit.imageFallback].filter((s): s is string => Boolean(s));
   const [idx, setIdx] = useState(0);
   const [failed, setFailed] = useState(sources.length === 0);
   const src = sources[idx];
@@ -353,7 +327,6 @@ function HitArt({ hit }: { hit: CoverflowHit }) {
   );
 }
 
-/** Rarity-tinted slab silhouette shown behind the image (and if it fails). */
 function SlabGlyph({ color }: { color: string }) {
   return (
     <svg className="ghc-slab" viewBox="0 0 64 92" aria-hidden>
