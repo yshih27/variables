@@ -43,8 +43,8 @@ function useTickerCollapse(enabled: boolean): boolean {
         const y = window.scrollY;
         const dy = y - lastY;
         if (Math.abs(dy) > 6) {
-          if (y > 80 && dy > 0) setCollapsed(true);
-          else if (dy < 0 || y <= 80) setCollapsed(false);
+          if (dy > 0 && y > 80) setCollapsed(true);
+          else if (dy < 0 || y <= 24) setCollapsed(false);
           lastY = y;
         }
         ticking = false;

@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { NavBar, type TickerItem } from "@/components/NavBar";
+import { MarketStatCards } from "@/components/MarketStatCards";
 import { HotIPsPanel } from "@/components/HotIPsPanel";
 import { TopSalesPanel } from "@/components/TopSalesPanel";
 import { IPTable } from "@/components/IPTable";
@@ -10,7 +11,7 @@ import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
-  ["homepage:v39"],
+  ["homepage:v40"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
@@ -49,6 +50,8 @@ export default async function Home() {
             Live prices, volume, and holders across tokenized trading-card platforms.
           </p>
         </div>
+
+        <MarketStatCards hero={data.hero} />
 
         <section className="mb-10 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.7fr]">
           <HotIPsPanel items={data.hotIPs} />

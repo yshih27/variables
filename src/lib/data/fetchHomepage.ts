@@ -358,8 +358,28 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
   const dataUpdatedAt =
     mcap?.generatedAt ?? holders?.generatedAt ?? new Date().toISOString();
 
+  // ── Homepage stat-card sparklines ───────────────────────────────────
+  // Market cap: recent non-zero hourly totals (oldest→newest).
+  const mcapSpark = mcapHist.hourly
+    .map((h) => h.totalMcapUsd)
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .slice(-40);
+  // Total volume: sum every platform's hourly buckets by hourStart, last 24h.
+  const volByHour = new Map<string, number>();
+  for (const b of buckets) {
+    for (const h of b.history ?? []) {
+      volByHour.set(h.hourStart, (volByHour.get(h.hourStart) ?? 0) + h.volumeUsd);
+    }
+  }
+  const volSpark = [...volByHour.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-24)
+    .map(([, v]) => v);
+
   return {
     hero: {
+      mcapSpark,
+      volSpark,
       vol24Usd: sumVol24,
       trades24h: sumTrades24,
       platformsTracked: PLATFORM_SOURCES.length,
