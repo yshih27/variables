@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
-import { GachaPackExplorer } from "@/components/GachaPackExplorer";
-import { getGachaCatalog } from "@/lib/data/gachaCatalog";
-import { GachaBigHitsRail } from "@/components/GachaBigHitsRail";
-import { GachaBudgetCompare } from "@/components/GachaBudgetCompare";
+import { GachaHitsCoverflow } from "@/components/GachaHitsCoverflow";
+import { mapBigHits } from "@/lib/data/gachaHits";
+import { GachaSpendDecider } from "@/components/GachaSpendDecider";
+import { buildSpendDecider } from "@/lib/data/gachaDecide";
 import { GachaHouseTake } from "@/components/GachaHouseTake";
 import { GachaPlatformDeepDive } from "@/components/GachaPlatformDeepDive";
 import { FreshnessChips } from "@/components/FreshnessChip";
@@ -22,6 +22,10 @@ type GachaData = Awaited<ReturnType<typeof getGachaData>>;
 
 export default async function GachaPage() {
   const data = await getGachaData();
+  // nowMs passed through so the coverflow's "ago" + 24h window match between
+  // server and client renders (no hydration drift).
+  const bigHits = mapBigHits(data.bigHits ?? [], Date.now());
+  const decider = buildSpendDecider(data.spendTiers ?? [], data.platforms ?? [], data.bigHits ?? []);
 
   return (
     <>
@@ -35,13 +39,9 @@ export default async function GachaPage() {
 
         <GachaHero data={data} />
 
-        <section className="mb-12 max-w-[560px]">
-          <GachaPackExplorer catalog={getGachaCatalog()} />
-        </section>
+        <GachaSpendDecider decider={decider} />
 
-        <GachaBigHitsRail hits={data.bigHits ?? []} />
-
-        <GachaBudgetCompare tiers={data.spendTiers ?? []} />
+        <GachaHitsCoverflow hits={bigHits.hits} windowLabel={bigHits.windowLabel} />
 
         <GachaHouseTake rows={data.platforms ?? []} />
 
