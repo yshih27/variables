@@ -3,11 +3,7 @@
 import { useMemo, useState } from "react";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 import type { Chain } from "@/lib/types";
-import type {
-  SpendDecider,
-  SpendDecision,
-  PlatformDecision,
-} from "@/lib/data/gachaDecide";
+import type { SpendDecider, PlatformDecision } from "@/lib/data/gachaDecide";
 
 const CHAIN_DOT: Record<Chain, string> = {
   Polygon: "var(--color-purple)",
@@ -18,10 +14,14 @@ const CHAIN_DOT: Record<Chain, string> = {
 
 type SortKey = "value" | "odds" | "popularity";
 
+/** Shared 5-column grid: header row + each platform row align to it. */
+const GRID =
+  "grid grid-cols-2 gap-3 md:grid-cols-[1.5fr_1fr_1fr_1fr_1fr] md:items-center md:gap-4";
+
 /**
- * "I have $X — where do I spend it?" Pick a budget; compare every platform on
- * MONEY BACK (EV from house take) and HIT ODDS (realized Epic+ rate) side by
- * side, sortable by either. The top card per sort is crowned with a verdict.
+ * "I have $X — where do I spend it?" Pick a budget; every platform's money back
+ * (EV) and hit odds sit side by side, sortable by either. No verdict — the
+ * ranking and the numbers let the user draw their own conclusion.
  */
 export function GachaSpendDecider({ decider }: { decider: SpendDecider }) {
   const tiers = decider.tiers;
@@ -50,30 +50,17 @@ export function GachaSpendDecider({ decider }: { decider: SpendDecider }) {
   if (!tier) {
     return (
       <section className="mt-14 rounded-xl border border-line bg-bg-1 p-6 text-[13px] text-ink-3">
-        No budget data yet — run{" "}
-        <code className="rounded bg-bg-2 px-1.5 py-0.5 text-ink-2">npm run warm-gacha-dune</code>.
+        No budget data yet.
       </section>
     );
   }
 
-  const winner = sorted[0];
-  const winnerHasMetric =
-    winner &&
-    (sortBy === "popularity" ||
-      (sortBy === "value" && winner.moneyBackUsd != null) ||
-      (sortBy === "odds" && winner.hitOddsPct != null));
-
   return (
     <section className="mt-14">
-      <div>
-        <h2 className="text-[22px] font-semibold tracking-[-0.005em]">Where should I spend it?</h2>
-        <div className="mt-1 text-[12px] text-ink-3">
-          Pick a budget — compare money back vs. odds of a hit across every platform.
-        </div>
-      </div>
+      <h2 className="text-[22px] font-semibold tracking-[-0.005em]">Where should I spend it?</h2>
 
       {/* Budget selector */}
-      <div className="scroll-x mb-5 mt-5 flex gap-2">
+      <div className="scroll-x mb-6 mt-5 flex gap-2">
         {tiers.map((t) => {
           const active = t.key === tier.key;
           return (
@@ -81,31 +68,20 @@ export function GachaSpendDecider({ decider }: { decider: SpendDecider }) {
               key={t.key}
               type="button"
               onClick={() => setTierKey(t.key)}
-              className={`inline-flex shrink-0 flex-col items-start gap-0.5 rounded-xl border px-4 py-2.5 text-left transition-colors ${
+              className={`shrink-0 rounded-xl border px-5 py-3 text-[18px] font-bold tabular transition-colors ${
                 active
-                  ? "border-yellow/60 bg-yellow/10"
-                  : "border-line/70 bg-bg-1 hover:border-line hover:bg-bg-2"
+                  ? "border-yellow/60 bg-yellow/10 text-yellow"
+                  : "border-line/70 bg-bg-1 text-ink hover:border-line hover:bg-bg-2"
               }`}
             >
-              <span className={`text-[18px] font-bold tabular ${active ? "text-yellow" : "text-ink"}`}>
-                {t.label}
-              </span>
-              <span className="text-[10px] uppercase tracking-[0.06em] text-ink-3">
-                {formatInt(t.totalSpins24h)} spins · 24h
-              </span>
+              {t.label}
             </button>
           );
         })}
       </div>
 
-      {/* Verdict */}
-      <div className="mb-5 flex items-start gap-3 rounded-xl border border-yellow/25 bg-yellow/[0.06] px-5 py-4">
-        <span aria-hidden className="text-[15px] leading-none">🏆</span>
-        <p className="text-[13px] leading-relaxed text-ink-2">{verdict(tier, winner, sortBy)}</p>
-      </div>
-
       {/* Sort control */}
-      <div className="mb-3 flex items-center gap-1.5 text-[12px] text-ink-3">
+      <div className="mb-2 flex items-center gap-1.5 text-[12px] text-ink-3">
         <span className="mr-1">Sort by</span>
         <SortBtn active={sortBy === "value"} onClick={() => setSortBy("value")}>
           Money back
@@ -118,144 +94,114 @@ export function GachaSpendDecider({ decider }: { decider: SpendDecider }) {
         </SortBtn>
       </div>
 
-      {/* Decision cards */}
-      <div className="flex flex-col gap-3">
-        {sorted.map((p, i) => (
-          <DecisionCard
-            key={p.key}
-            p={p}
-            rank={i + 1}
-            sortBy={sortBy}
-            isWinner={i === 0 && !!winnerHasMetric}
-          />
-        ))}
+      {/* Header row (desktop) */}
+      <div className={`${GRID} hidden border-b border-line px-5 pb-2 md:grid`}>
+        <span className="text-[10px] uppercase tracking-[0.07em] text-ink-3">Platform</span>
+        <HeadCell label="Money Back" active={sortBy === "value"} title="Average return if you cash a pull straight back to the house" />
+        <HeadCell label="Hit Odds" active={sortBy === "odds"} title="Realized chance of an Epic+ pull" />
+        <HeadCell label="Biggest Hit" />
+        <HeadCell label="Popularity" active={sortBy === "popularity"} title="Spins in the last 24h" />
       </div>
 
-      <p className="mt-4 text-[11px] leading-relaxed text-ink-4">
-        <span className="text-ink-3">Money back</span> = average return if you instantly cash a pull
-        back to the house (on-chain buyback economics); keeping a rare pull can be worth more.{" "}
-        <span className="text-ink-3">Hit odds</span> = realized chance of an Epic+ prize.{" "}
-        <span className="text-ink-3">Soon</span> = the platform doesn&apos;t publish that on-chain yet.
-      </p>
+      {/* Rows */}
+      <div className="flex flex-col gap-2 md:gap-0">
+        {sorted.map((p, i) => (
+          <div
+            key={p.key}
+            className={`${GRID} rounded-xl border border-line bg-bg-1 px-5 py-4 md:rounded-none md:border-x-0 md:border-t-0 md:border-b md:border-line/60 md:bg-transparent md:py-4 md:transition-colors md:hover:bg-bg-1`}
+          >
+            <div className="col-span-2 flex items-center gap-3 md:col-span-1">
+              <span className="w-5 text-[12px] tabular text-ink-3">{String(i + 1).padStart(2, "0")}</span>
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-bg-2 text-[11px] font-bold">
+                {p.short}
+              </span>
+              <span className="flex items-center gap-2 font-semibold">
+                {p.name}
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[p.chain] }} />
+              </span>
+            </div>
+
+            <Cell
+              label="Money Back"
+              active={sortBy === "value"}
+              value={p.moneyBackUsd != null ? formatCompactUsd(p.moneyBackUsd) : null}
+              tone="green"
+            />
+            <Cell
+              label="Hit Odds"
+              active={sortBy === "odds"}
+              value={p.hitOddsPct != null ? pct(p.hitOddsPct) : null}
+              tone="ink"
+            />
+            <Cell
+              label="Biggest Hit"
+              value={p.biggestHitUsd != null ? formatCompactUsd(p.biggestHitUsd) : "—"}
+              tone="muted"
+            />
+            <Cell
+              label="Popularity"
+              active={sortBy === "popularity"}
+              value={formatInt(p.spins24h)}
+              tone="muted"
+            />
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
 
 /* ───────────────────────── sub-components ───────────────────────── */
 
-function DecisionCard({
-  p,
-  rank,
-  sortBy,
-  isWinner,
+function HeadCell({
+  label,
+  active,
+  title,
 }: {
-  p: PlatformDecision;
-  rank: number;
-  sortBy: SortKey;
-  isWinner: boolean;
+  label: string;
+  active?: boolean;
+  title?: string;
 }) {
-  const badge =
-    sortBy === "odds" ? "Best odds" : sortBy === "value" ? "Best value" : "Most played";
   return (
-    <div
-      className={`relative grid grid-cols-2 gap-4 rounded-2xl border px-5 py-4 md:grid-cols-[minmax(170px,1.1fr)_1fr_1fr_1.2fr] md:items-center ${
-        isWinner ? "border-yellow/50 bg-yellow/[0.04]" : "border-line bg-bg-1"
-      }`}
+    <span
+      title={title}
+      className={`text-right text-[10px] uppercase tracking-[0.07em] ${
+        active ? "text-yellow" : "text-ink-3"
+      } ${title ? "cursor-help" : ""}`}
     >
-      {/* identity */}
-      <div className="col-span-2 flex items-center gap-3 md:col-span-1">
-        <span className="w-5 text-[12px] tabular text-ink-3">{String(rank).padStart(2, "0")}</span>
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-bg-2 text-[12px] font-bold">
-          {p.short}
-        </span>
-        <div className="flex flex-col">
-          <span className="flex items-center gap-2 font-semibold">
-            {p.name}
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[p.chain] }} />
-          </span>
-          {isWinner && (
-            <span className="mt-1 inline-flex w-fit items-center rounded-md bg-yellow px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.06em] text-black">
-              {badge}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* money back */}
-      <Metric
-        label="Money Back"
-        active={sortBy === "value"}
-        value={p.moneyBackUsd != null ? formatCompactUsd(p.moneyBackUsd) : null}
-        sub={
-          p.evMultiple != null
-            ? `${p.evMultiple.toFixed(2)}× · ${Math.round((p.houseEdgePct ?? 0) * 100)}% edge`
-            : undefined
-        }
-        tone="green"
-      />
-
-      {/* hit odds */}
-      <Metric
-        label="Hit Odds"
-        active={sortBy === "odds"}
-        value={p.hitOddsPct != null ? pct(p.hitOddsPct) : null}
-        sub={p.hitOddsPct != null ? "Epic+ pull" : undefined}
-        tone="ink"
-      />
-
-      {/* biggest hit + popularity */}
-      <div className="col-span-2 flex items-center justify-between gap-3 md:col-span-1">
-        <div className="flex flex-col" title={p.biggestHitName ?? undefined}>
-          <span className="text-[10px] uppercase tracking-[0.06em] text-ink-3">Biggest hit</span>
-          <span className="text-[14px] font-bold tabular">
-            {p.biggestHitUsd != null ? formatCompactUsd(p.biggestHitUsd) : "—"}
-          </span>
-        </div>
-        <div className="flex flex-col items-end">
-          <span className="text-[10px] uppercase tracking-[0.06em] text-ink-3">Popularity</span>
-          <span className="text-[13px] tabular text-ink-2">
-            {formatInt(p.spins24h)}
-            <span className="text-ink-3"> /24h</span>
-          </span>
-        </div>
-      </div>
-    </div>
+      {label}
+      {active && <span className="ml-1">↓</span>}
+    </span>
   );
 }
 
-function Metric({
+function Cell({
   label,
   value,
-  sub,
-  active,
   tone,
+  active,
 }: {
   label: string;
   value: string | null;
-  sub?: string;
-  active: boolean;
-  tone: "green" | "ink";
+  tone: "green" | "ink" | "muted";
+  active?: boolean;
 }) {
+  const color = tone === "green" ? "text-green" : tone === "muted" ? "text-ink-2" : "text-ink";
+  const size = tone === "muted" ? "text-[14px]" : "text-[18px]";
   return (
-    <div className={`rounded-xl px-3 py-2 transition-colors ${active ? "bg-bg-2" : ""}`}>
-      <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.06em] text-ink-3">
+    <div className="md:text-right">
+      <div
+        className={`mb-0.5 text-[10px] uppercase tracking-[0.07em] md:hidden ${
+          active ? "text-yellow" : "text-ink-3"
+        }`}
+      >
         {label}
-        {active && <span className="text-yellow">↓</span>}
       </div>
       {value != null ? (
-        <div
-          className={`text-[19px] font-bold tabular ${tone === "green" ? "text-green" : "text-ink"}`}
-        >
-          {value}
-        </div>
+        <span className={`${size} font-bold tabular ${color}`}>{value}</span>
       ) : (
-        <div className="mt-1">
-          <span className="inline-flex items-center rounded-md bg-yellow/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] text-yellow ring-1 ring-inset ring-yellow/20">
-            Soon
-          </span>
-        </div>
+        <span className="text-[12px] text-ink-4">soon</span>
       )}
-      {sub && value != null && <div className="mt-0.5 text-[11px] text-ink-3">{sub}</div>}
     </div>
   );
 }
@@ -283,27 +229,6 @@ function SortBtn({
   );
 }
 
-/* ───────────────────────── helpers ───────────────────────── */
-
 function pct(p: number): string {
   return `${(p * 100).toFixed(p < 0.1 ? 1 : 0)}%`;
-}
-
-function verdict(tier: SpendDecision, winner: PlatformDecision | undefined, sortBy: SortKey): string {
-  if (!winner) return "No platforms are live at this budget yet.";
-  if (sortBy === "value") {
-    if (winner.moneyBackUsd == null)
-      return `Money-back data is still warming for ${tier.label} platforms — sort by hit odds or popularity for now.`;
-    return `Best value at ${tier.label}: ${winner.name} — about ${formatCompactUsd(
-      winner.moneyBackUsd,
-    )} back per pull (${Math.round((winner.houseEdgePct ?? 0) * 100)}% house edge).`;
-  }
-  if (sortBy === "odds") {
-    if (winner.hitOddsPct == null)
-      return `Hit-odds data is still warming — only Collector Crypt publishes realized odds on-chain today.`;
-    return `Best hit odds at ${tier.label}: ${winner.name} — ${pct(
-      winner.hitOddsPct,
-    )} chance of an Epic+ pull.`;
-  }
-  return `Most played at ${tier.label}: ${winner.name} — ${formatInt(winner.spins24h)} spins in 24h.`;
 }

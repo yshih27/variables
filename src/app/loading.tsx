@@ -12,7 +12,7 @@ export default function RootLoading() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
         {/* Hero skeleton */}
         <div className="mb-12 flex flex-col gap-4">
           <div className="h-3 w-32 animate-pulse rounded bg-bg-2" />

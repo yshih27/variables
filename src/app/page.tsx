@@ -22,7 +22,7 @@ export default async function Home() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
         <Hero stats={data.hero} />
         <ChainFilter chains={["Polygon", "Base", "Solana"]} />
         <section className="mb-10 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.7fr]">
