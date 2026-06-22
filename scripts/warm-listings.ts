@@ -24,6 +24,8 @@ import {
   type ListingEntry,
 } from "../src/lib/data/listings";
 import { PLATFORM_SOURCES, type PlatformSource } from "../src/lib/data/sources";
+import { fetchPhygitalsListings } from "../src/lib/phygitals/client";
+import { fetchCCListingsPage } from "../src/lib/cc/marketplace";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 const MIN_PRICE_USD = 1.0;
@@ -109,6 +111,81 @@ async function warmPlatform(
   return { total, priced, dust, unpriced };
 }
 
+/**
+ * Phygitals (Solana cNFT) active listings, from api.phygitals.com — which
+ * already aggregates Tensor / Magic Eden / native, sorted cheapest-first. Keyed
+ * `SOLANA:<mint>` to match the Solana card ids + getCardMarket's lookup. Same
+ * cheapest-per-token + dust rules as the Rarible path.
+ */
+async function warmPhygitals(out: Map<string, ListingEntry>): Promise<number> {
+  const ITEMS = 100;
+  const MAX_PAGES = 120; // ~12K cap (≈7.4K listed today)
+  const t0 = Date.now();
+  let scanned = 0;
+  let priced = 0;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { listings, total } = await fetchPhygitalsListings(page, ITEMS, {});
+    if (listings.length === 0) break;
+    for (const l of listings) {
+      scanned += 1;
+      const mint = l.address;
+      if (!mint || l.price == null) continue;
+      const priceUsd = Number(l.price) / 1e6; // USDC raw → USD
+      if (!Number.isFinite(priceUsd) || priceUsd < MIN_PRICE_USD) continue;
+      priced += 1;
+      const itemId = `SOLANA:${mint}`;
+      const existing = out.get(itemId);
+      if (!existing || priceUsd < existing.priceUsd) {
+        out.set(itemId, { itemId, priceUsd, platform: "phygitals", source: l.marketplace ?? "PHYGITALS" });
+      }
+    }
+    if (total && page * ITEMS >= total) break;
+  }
+  console.log(
+    `  Phygitals: ${scanned} listed scanned · ${priced} priced (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+  );
+  return priced;
+}
+
+/**
+ * Collector Crypt active listings via api.collectorcrypt.com/marketplace — its
+ * own native marketplace (CC cards don't route through Rarible/Tensor/ME). The
+ * query returns LISTED cards only, 96/page (API caps page size), price already
+ * in whole USD. ~57.8K listed → ~600 pages, paginated sequentially. Keyed
+ * SOLANA:<nftAddress>, same cheapest-per-token + dust rules.
+ */
+async function warmCC(out: Map<string, ListingEntry>): Promise<number> {
+  const MAX_PAGES = 700; // safety bound; ~603 today
+  const t0 = Date.now();
+  let priced = 0;
+  let totalPages = MAX_PAGES;
+  for (let page = 1; page <= Math.min(totalPages, MAX_PAGES); page++) {
+    let resp: Awaited<ReturnType<typeof fetchCCListingsPage>>;
+    try {
+      resp = await fetchCCListingsPage(page);
+    } catch (e) {
+      console.warn(`  CC page ${page}: ${(e as Error).message} — stopping, keeping progress`);
+      break;
+    }
+    if (resp.totalPages > 0) totalPages = resp.totalPages;
+    if (resp.cards.length === 0) break;
+    for (const c of resp.cards) {
+      if (c.priceUsd < MIN_PRICE_USD) continue;
+      const itemId = `SOLANA:${c.nftAddress}`;
+      const existing = out.get(itemId);
+      if (!existing || c.priceUsd < existing.priceUsd) {
+        out.set(itemId, { itemId, priceUsd: c.priceUsd, platform: "collector-crypt", source: "COLLECTOR_CRYPT" });
+      }
+      priced += 1;
+    }
+    if (page % 100 === 0) {
+      console.log(`  CC: ${page}/${totalPages} pages · ${priced} priced (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    }
+  }
+  console.log(`  CC: done. ${priced} listings (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+  return priced;
+}
+
 async function main() {
   // Beezie first (smaller, faster) so we always end up with at least its
   // listings even if Courtyard scan is interrupted.
@@ -138,6 +215,28 @@ async function main() {
     await writeListings({ generatedAt: new Date().toISOString(), byItem: Object.fromEntries(byItem) });
     console.log(`  → wrote listings snapshot (${byItem.size} tokens so far)`);
   }
+  // ── Phygitals (Solana) — not a Rarible source, fetched separately ──
+  console.log(`→ Phygitals active listings (api.phygitals.com)`);
+  try {
+    const before = byItem.size;
+    await warmPhygitals(byItem);
+    console.log(`  → +${byItem.size - before} Phygitals tokens (${byItem.size} total)`);
+  } catch (err) {
+    console.warn(`  Phygitals interrupted: ${(err as Error).message}. Saving partial progress.`);
+  }
+  await writeListings({ generatedAt: new Date().toISOString(), byItem: Object.fromEntries(byItem) });
+
+  // ── Collector Crypt (Solana) — native marketplace API ──
+  console.log(`→ Collector Crypt active listings (api.collectorcrypt.com)`);
+  try {
+    const before = byItem.size;
+    await warmCC(byItem);
+    console.log(`  → +${byItem.size - before} CC tokens (${byItem.size} total)`);
+  } catch (err) {
+    console.warn(`  CC interrupted: ${(err as Error).message}. Saving partial progress.`);
+  }
+  await writeListings({ generatedAt: new Date().toISOString(), byItem: Object.fromEntries(byItem) });
+
   console.log(`\nDone. ${byItem.size} tokens have a USD-priced listing.`);
   return { rowsWritten: byItem.size };
 }
