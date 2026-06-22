@@ -5,6 +5,7 @@ import { getBeezieMetadataCachedOnly, extractCategoryHints } from "./beezieTrait
 import { getCCMetadataCachedOnly } from "./ccTraits";
 import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "./traits";
+import { readIpHistory, sumLast, pctChange } from "./history";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 import type { Trend } from "@/lib/types";
 
@@ -78,6 +79,8 @@ export type IPDetail = {
   // Hero stats
   vol24Usd: number;
   vol24Pct: number | null;
+  /** 7d secondary volume (from history:by-ip); null until the per-IP history warmer has run. */
+  vol7Usd: number | null;
   trades24h: number;
   uniqueCards: number;
   uniqueBuyers: number;
@@ -186,6 +189,7 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
       rank: rank || sortedIps.length + 1,
       vol24Usd: 0,
       vol24Pct: null,
+      vol7Usd: null,
       trades24h: 0,
       uniqueCards: 0,
       uniqueBuyers: 0,
@@ -406,11 +410,18 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
     }))
     .sort((a, b) => b.vol24Usd - a.vol24Usd);
 
+  // 7d volume + 24h-over-prior-24h change from the per-IP history blob.
+  const ipHist = await readIpHistory();
+  const histBuckets = ipHist?.byIp?.[ipKey] ?? null;
+  const vol7Usd = histBuckets ? sumLast(histBuckets, 168).volumeUsd : null;
+  const vol24Pct = histBuckets ? pctChange(histBuckets, 24) : null;
+
   return {
     ip,
     rank: rank || sortedIps.length + 1,
     vol24Usd,
-    vol24Pct: null,
+    vol24Pct,
+    vol7Usd,
     trades24h,
     uniqueCards,
     uniqueBuyers,
@@ -435,6 +446,6 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
 
 export const getIPDetail = unstable_cache(
   async (ipKey: string) => fetchIP(ipKey),
-  ["ip-detail:v5"],
+  ["ip-detail:v6"],
   { revalidate: 3600, tags: ["ip-detail"] },
 );
