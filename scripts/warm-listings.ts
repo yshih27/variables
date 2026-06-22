@@ -24,6 +24,7 @@ import {
   type ListingEntry,
 } from "../src/lib/data/listings";
 import { PLATFORM_SOURCES, type PlatformSource } from "../src/lib/data/sources";
+import { fetchPhygitalsListings } from "../src/lib/phygitals/client";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 const MIN_PRICE_USD = 1.0;
@@ -109,6 +110,45 @@ async function warmPlatform(
   return { total, priced, dust, unpriced };
 }
 
+/**
+ * Phygitals (Solana cNFT) active listings, from api.phygitals.com — which
+ * already aggregates Tensor / Magic Eden / native, sorted cheapest-first. Keyed
+ * `SOLANA:<mint>` to match the Solana card ids + getCardMarket's lookup. Same
+ * cheapest-per-token + dust rules as the Rarible path.
+ *
+ * (Collector Crypt cards trade on its own marketplace program; api.collectorcrypt.com
+ * is live but exposes no public listings route we can use yet — left as a TODO.)
+ */
+async function warmPhygitals(out: Map<string, ListingEntry>): Promise<number> {
+  const ITEMS = 100;
+  const MAX_PAGES = 120; // ~12K cap (≈7.4K listed today)
+  const t0 = Date.now();
+  let scanned = 0;
+  let priced = 0;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { listings, total } = await fetchPhygitalsListings(page, ITEMS, {});
+    if (listings.length === 0) break;
+    for (const l of listings) {
+      scanned += 1;
+      const mint = l.address;
+      if (!mint || l.price == null) continue;
+      const priceUsd = Number(l.price) / 1e6; // USDC raw → USD
+      if (!Number.isFinite(priceUsd) || priceUsd < MIN_PRICE_USD) continue;
+      priced += 1;
+      const itemId = `SOLANA:${mint}`;
+      const existing = out.get(itemId);
+      if (!existing || priceUsd < existing.priceUsd) {
+        out.set(itemId, { itemId, priceUsd, platform: "phygitals", source: l.marketplace ?? "PHYGITALS" });
+      }
+    }
+    if (total && page * ITEMS >= total) break;
+  }
+  console.log(
+    `  Phygitals: ${scanned} listed scanned · ${priced} priced (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+  );
+  return priced;
+}
+
 async function main() {
   // Beezie first (smaller, faster) so we always end up with at least its
   // listings even if Courtyard scan is interrupted.
@@ -138,6 +178,17 @@ async function main() {
     await writeListings({ generatedAt: new Date().toISOString(), byItem: Object.fromEntries(byItem) });
     console.log(`  → wrote listings snapshot (${byItem.size} tokens so far)`);
   }
+  // ── Phygitals (Solana) — not a Rarible source, fetched separately ──
+  console.log(`→ Phygitals active listings (api.phygitals.com)`);
+  try {
+    const before = byItem.size;
+    await warmPhygitals(byItem);
+    console.log(`  → +${byItem.size - before} Phygitals tokens (${byItem.size} total)`);
+  } catch (err) {
+    console.warn(`  Phygitals interrupted: ${(err as Error).message}. Saving partial progress.`);
+  }
+  await writeListings({ generatedAt: new Date().toISOString(), byItem: Object.fromEntries(byItem) });
+
   console.log(`\nDone. ${byItem.size} tokens have a USD-priced listing.`);
   return { rowsWritten: byItem.size };
 }
