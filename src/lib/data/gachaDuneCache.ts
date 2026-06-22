@@ -25,14 +25,26 @@ export type GachaPriceBucket = {
   vol30d: number;
 };
 
-/** Realized odds for one rarity tier (prize-delivery counts on-chain). */
+/** Realized odds for one tier — a rarity tier (CC) or a prize-value band (Phygitals). */
 export type GachaOddsTier = {
-  tier: string; // Low | Mid | High | Epic | LGND | SPrT
+  tier: string; // CC: Low|Mid|High|Epic|LGND|SPrT · Phygitals: "5×+"|"2–5×"|…
   prizes24h: number;
   prizes7d: number;
   prizes30d: number;
-  /** Share of 7d prizes (the headline odds), 0–1. */
+  /** Share of prizes in the window (the headline odds), 0–1. */
   pct: number;
+  /** Whether this tier counts as "a hit" for the spend-decider. When unset, the
+   *  decider falls back to the CC HIT_TIERS allowlist (Epic/LGND/SPrT). */
+  hit?: boolean;
+};
+
+/** Provenance for a platform's odds — lets the UI label them honestly instead of
+ *  hardcoding CC's "realized 7d · on-chain prize delivery". */
+export type GachaOddsMeta = {
+  /** Window label, e.g. "realized 7d" (CC) or "last ~15h" (Phygitals feed). */
+  window: string;
+  /** Basis label, e.g. "on-chain prize delivery" or "realized pull value". */
+  basis: string;
 };
 
 export type GachaDunePlatform = {
@@ -46,8 +58,11 @@ export type GachaDunePlatform = {
   vol30d: number;
   /** Per-price-tier breakdown, sorted by 30d volume desc. Empty for tokenization. */
   byPrice: GachaPriceBucket[];
-  /** Realized rarity odds, rarest→commonest. Present only where tier wallets exist (CC). */
+  /** Realized odds, rarest/best→commonest. CC: rarity tiers (on-chain wallets);
+   *  Phygitals: prize-value bands (from the CLAW feed). null where neither exists. */
   odds?: GachaOddsTier[];
+  /** Provenance for `odds` — window + basis, so the UI never mislabels the source. */
+  oddsMeta?: GachaOddsMeta;
   /**
    * Buyback — USDC paid back to players who instantly cashed out a pull.
    * Net house revenue = vol − payout. Present only where the buyback wallet
@@ -75,6 +90,8 @@ export type GachaBigHit = {
   imageFallback: string | null;
   /** ISO timestamp the prize was delivered. */
   at: string;
+  /** Display name of the pack/machine the hit came out of (where known). */
+  pack?: string | null;
 };
 
 export type GachaDuneSnapshot = {

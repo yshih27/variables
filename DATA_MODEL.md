@@ -1,4 +1,4 @@
-# TCG.market — Data Model Design
+# VARIABLE — Data Model Design
 
 **Status:** DESIGN — for review before migration.
 **Goal:** one schema that serves the MVP (IP + platform + gacha metrics, live, across as many RWA-TCG platforms as possible) *and* grows into the atomic vision (every card & transaction reconciled across every platform) without rewrites.
@@ -406,3 +406,80 @@ Each step ships independently; the deployed site keeps working throughout.
 Both are single indexed queries once the matcher fills `canonical_card_id`.
 
 **Platform roadmap:** MVP onboards **Beezie, Courtyard, Collector Crypt, Phygitals**. Next: **Renaiss, Mnstr** (pending their APIs — in conversation). Each is config + a warmer; no schema change.
+
+---
+
+## 11. Gacha pack-centric spend model (BUILT 2026-06-10)
+
+> **Shipped** as snapshot blobs (no DDL): `gacha:packs` written by `warmers/gachaPacks.ts` (Beezie `/claw` advertised + Phygitals `/vm/chase` advertised + realized join from `gacha_pulls` by (category,price) + CC native per-pack). Read by `fetchGacha` → `payload.packs`; rendered by `components/GachaPackExplorer.tsx` (the comparison table + budget split-vs-single, replacing the old platform-level spend-decider). Types in `gachaPacksCache.ts`; view math in `gachaPackView.ts`. Cache key `gacha:v12`; freshness sources `gacha-packs` + `cc-gacha`; crons `/api/cron/gacha-packs` + `/api/cron/cc-gacha`; in `warm.yml` core batch. Honesty pass (adversarial review, 30 findings fixed): stated/measured/platform/assumed basis chips everywhere; **leads with median ("typical") not mean**; net-EV-after-buyback; thin-sample (n<10) flagging incl. the budget P(≥1); floor never derived from chase. Spec below is the as-built design.
+>
+> **CC went native (2026-06-10 PM).** The gacha app `gacha.collectorcrypt.com` exposes unauthenticated `/api/gachas/all` (33 machines: price, STATED tier weights ≈ .75/.20/.04/.01, per-tier $ ranges, `targetEV`/`maxEV`, `instantBuyback` 85–93%, `bigWinChance` = non-common share) and `/api/getAllWinners?perTier=N` (most-recent-N per machine×tier; N=100 → ~7.7K pulls w/ prize NFT + `insuredValue`; `prize_tier` 1=Epic…4=Common). Client `src/lib/cc/gacha.ts`; warmer `warmers/ccGacha.ts` → snapshot `gacha:cc` + `gacha_pulls` spine. ⚠️ The winners sample is STRATIFIED (equal depth per tier) — realized EV/odds are computed only inside each pack's complete-coverage window; per-pack `pulls24h` is apportioned from Dune's exact per-price totals by observed rates (private machines included in the pool). CC rows are now fully pack-attributable — the old `notDirectlyComparable` Dune-shell path survives only as a fallback when `gacha:cc` is absent.
+
+
+
+**The bug this fixes.** The /gacha "Where should I spend it?" decider buckets Dune *volume* by observed pull price and shows a **platform-wide** biggest-hit (`biggestHitFor(platform, …)` = max over *all* the platform's hits). So the "Biggest Hit" column is identical in every budget band — $43.2K for CC at $50 *and* at $1K, $536 for Phygitals everywhere. That's backwards: a $50 pack can't pull a $43.2K card; a $1K pack's ceiling is far above $536. **The unit of the decision is the pack, not the platform-budget-bucket.** We don't currently model the pack catalog at all — we infer price tiers from volume.
+
+**The pack is the product.** Each site sells a fixed catalog of priced packs, often per category:
+- **Phygitals** (Pokémon): Trainer $10 · Rookie $25 · Elite $50 · Sealed $100 · Legend $250 · Base Set $500 · Platinum $500 · Mythic $1,000 · Black $2,500 · Diamond $5,000 (One Piece variants too: starter/elite/legend/mini-villain/all-or-nothing/increased-odds packs).
+- **Beezie**: Wildcard $30 · Silver TCG $50 · Gold TCG $250 · Platinum TCG $500.
+- **Collector Crypt**: $25 · $50 · $75 · $80 · $100 · $250 · $1,000 tiers.
+
+Per pack we surface **two complementary views**:
+- **Advertised** (the published pool) — *top-hits-available* (the grail you're chasing, e.g. the $30K Base Set Shadowless Gyarados in Phygitals' Mythic pack), *live odds* (value-band probabilities), *EV*, *buyback %*. Source = the site's pack API.
+- **Realized** (what's actually happened) — *biggest hit pulled so far*, realized odds/EV, recent pulls (popularity). Source = our `gacha_pulls` spine.
+
+### 11.1 Schema — extends §3.4 (additive, non-breaking)
+
+```sql
+alter table gacha_products
+  add column image            text,         -- pack art
+  add column currency         text,
+  add column ev_usd           numeric,      -- advertised expected value per pull
+  add column buyback_pct      numeric,      -- e.g. 0.90 (instant cash-out rate)
+  add column value_ranges     jsonb,        -- per-tier $ bands (Phygitals live-odds bands / Beezie priceRanges)
+  add column top_hits         jsonb,        -- advertised pool top prizes: [{name,image,value_usd,instance_id?}]
+  add column stock_count      int,          -- items currently in the pool
+  add column contract_address text;         -- Beezie per-claw contract (on-chain anchor)
+-- odds_stated (already present) := advertised live odds — tier % (Beezie) or value-band % (Phygitals)
+```
+
+Realized per-pack aggregates reuse `gacha_metrics` with a new **`scope='product'`** (`scope_id = product_id`): `pulls`, realized `odds` (value-band distribution), realized EV, and the biggest realized hit. *Biggest-hit-realized per pack* = `max(prize_value_usd)` over `gacha_pulls` grouped by `product_id` — a single query on the existing `(product_id, pulled_at)` index.
+
+### 11.2 Per-site sourcing matrix
+
+| Field | Beezie | Phygitals | Collector Crypt |
+|---|---|---|---|
+| Pack list + price | ✅ `/claw` `priceUsdc` | ✅ config (10 packs/category, from UI) | ✅ `/api/gachas/all` (33 machines, public flag) |
+| Live odds | ✅ `/claw.odds` (base/low/medium/high/grails) | realized from `gacha_pulls` (advertised odds endpoint not exposed) | ✅ stated `weightMultipliers` + `tierRanges` per machine |
+| EV | ✅ `averageValue` (≈1.10× price) | realized (feed); advertised hidden | ✅ `targetEV`/`maxEV` (1.02–1.10×) + realized from winners |
+| Top-hits available | ✅ `/claw.grails[]` (tokenId+swapValue) | ✅ **`/api/vm/chase/{slug}`** → 60 chase items `{id,name,image,fmv}` | none advertised — realized biggest-pull stands in (with art) |
+| Buyback % | `swapFees` | ✅ (UI shows e.g. 90%); confirm per-pack | ✅ `instantBuyback.percentageOfValue` (85–93%) |
+| Top-hit realized | on-chain (Dune, per claw contract) | ✅ `gacha_pulls` by `product_id` (live now) | ✅ `/api/getAllWinners` (name+art+insuredValue, per pack) |
+
+**DISCOVERED 2026-06-09** — Phygitals gacha namespace is **`/api/vm/`** ("vm" = vending machine; never guessable). **`/api/vm/chase/{slug}`** returns each pack's top ~60 chase prizes (`id,name,image,fmv`), confirmed for all 10 packs — top-hit scales with price (trainer-pack $559 → mythic-pack $30,461 → black/diamond $100,000). This is the advertised Top-Hits the decider needs. The **live-odds/EV** endpoint is still hidden (every `/api/vm/{odds,draw,stats,ev,probability,…}/{slug}` 404s) → **v1 uses realized odds/EV** from the `gacha_pulls` spine; advertised live-odds is a later add if the user grabs that request.
+
+Pack slugs: `trainer-pack rookie-pack elite-pack sealed-pack legend-pack base-set-pack platinum-pack mythic-pack black-pack diamond-pack` (Pokémon); One-Piece + other categories have parallel slugs (seen in feed: `starter-one-piece-pack`, `elite-one-piece-pack`, `legend-one-piece-pack`, `mini-villain`, `all-or-nothing`, `increased-odds-pack`). Numeric clawIds in the feed (`13`,`14`,`17`) are legacy/category aliases for the same packs.
+
+**Beezie maps 1:1 to `/claw` today** (build first). **Phygitals** Top-Hits ✅ via `/api/vm/chase`, realized odds/EV live. **CC** native per-pack since 2026-06-10 (`gacha.collectorcrypt.com/api` — see the callout at the top of §11); the platform-level Dune path is fallback-only.
+
+### 11.3 Spend-decider UX
+
+Pick budget **B** → the decider lists every **pack priced ≤ B** across *sites* (not platforms), each row:
+
+```
+[art] Pack · Platform · $price · category │ TOP HIT (grail, w/ art) │ LIVE ODDS (hit% + value-band bar) │ EV │ BUYBACK │ realized: biggest pulled + popularity
+```
+
+Sortable by top-hit value / hit-odds / EV / price / popularity. Replaces the platform-wide biggest-hit entirely.
+
+**Split-vs-single helper** (the "$2.5K: one Diamond or 2×Mythic+Base Set?" question). For budget B and a pack at price p: shots = ⌊B/p⌋, and P(≥1 grail) = 1 − (1 − odds_grail)^shots. The tool answers:
+- *Chase a specific card* → which pack contains it + your P(hit) at B (more cheap pulls of the pack that holds it = more shots at it).
+- *Maximize any rare hit* → the pack/combo maximizing P(rare) for B; compares `1×Diamond` vs `2×Mythic + 1×Base Set` head-to-head.
+
+### 11.4 Build phases
+1. **Schema** alter (additive) + seed pack catalogs: Beezie `/claw`, Phygitals (pack API + config), CC tiers.
+2. **Warmers**: new Beezie `/claw` warmer; Phygitals pack warmer (advertised); extend the realized warmer to also write `scope='product'` metrics + per-pack biggest-realized-hit.
+3. **fetchGacha / decider**: replace budget→platform-volume with pack-centric rows; per-pack top-hit = advertised ‖ realized.
+4. **UI**: pack rows + split-vs-single helper; retire `biggestHitFor(platform,…)`.
+
+**Sourcing resolved.** Phygitals Top-Hits ✅ `/api/vm/chase/{slug}`; Beezie ✅ `/claw`; realized odds/EV from `gacha_pulls`. The only remaining *advertised* gap is Phygitals' published live-odds/EV numbers (a later enhancement). v1 is fully buildable now.

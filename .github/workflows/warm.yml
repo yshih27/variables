@@ -80,6 +80,23 @@ jobs:
         if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached
+      - name: Phygitals gacha (CLAW feed)
+        # Frequent runs accumulate the feed's shallow recent window into the
+        # gacha_pulls spine; odds/EV are computed over the 7d accumulation.
+        if: steps.which.outputs.batch == 'core'
+        continue-on-error: true
+        run: npx tsx scripts/warm-phygitals-gacha.ts
+      - name: CC gacha (native winners feed + machine catalog)
+        # Per-pack stated odds/EV/buyback + realized pulls from
+        # gacha.collectorcrypt.com; also feeds the gacha_pulls spine.
+        if: steps.which.outputs.batch == 'core'
+        continue-on-error: true
+        run: npx tsx scripts/warm-cc-gacha.ts
+      - name: Gacha pack catalog (Beezie /claw + Phygitals /vm/chase + CC native + realized)
+        # Must run AFTER phygitals-gacha and cc-gacha (reads what they write).
+        if: steps.which.outputs.batch == 'core'
+        continue-on-error: true
+        run: npx tsx scripts/warm-gacha-packs.ts
 
       # ── Daily — holders, beezie traits, fresh gacha (full Dune run) ──
       - name: Holders

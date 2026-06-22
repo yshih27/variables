@@ -76,6 +76,11 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "primary-revenue": 6 * HOUR_MS,
   history: 6 * HOUR_MS,
   "gacha-dune": 6 * HOUR_MS,
+  "phygitals-gacha": 6 * HOUR_MS,
+  "cc-gacha": 6 * HOUR_MS,
+  "gacha-packs": 6 * HOUR_MS,
+  // always-on listener (scripts/listen-gacha.ts) — heartbeats every ~5min
+  "gacha-live": 15 * 60 * 1000,
   // daily batch — every 24h
   holders: DAY_MS,
   "beezie-traits": DAY_MS,
