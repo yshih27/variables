@@ -51,6 +51,27 @@ export type CardRow = {
   image?: string;
 };
 
+export type IPRecentSale = {
+  date: string;
+  platform: "beezie" | "collector-crypt";
+  cardName: string | null;
+  priceUsd: number;
+  buyer: string;
+  seller: string;
+  tokenId: string;
+  image?: string;
+};
+
+/** Per-platform split of an IP's 24h trading — which marketplace drives it. */
+export type IPPlatformSplit = {
+  platform: "beezie" | "collector-crypt";
+  vol24Usd: number;
+  trades24h: number;
+  buyers24h: number;
+  /** Share of the IP's 24h volume on this platform (0–1). */
+  share: number;
+};
+
 export type IPDetail = {
   ip: IPMeta;
   rank: number; // among all IPs by 24h volume
@@ -76,6 +97,10 @@ export type IPDetail = {
   grades: GradeRow[];
   topCards: CardRow[];
   hourlyVol: number[];
+  /** Latest purchases for this IP across platforms, newest first. */
+  recentSales: IPRecentSale[];
+  /** Per-platform split of this IP's 24h trading (which platform drives it). */
+  byPlatform: IPPlatformSplit[];
 };
 
 function spark24h(sales: NormalizedSale[], buckets = 24): number[] {
@@ -178,6 +203,8 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
       grades: [],
       topCards: [],
       hourlyVol: new Array(24).fill(0),
+      recentSales: [],
+      byPlatform: [],
     };
   }
 
@@ -341,6 +368,44 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
     .slice(0, 50)
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
+  // ─── Latest purchases (newest first) ───────────────────────────
+  const recentSales: IPRecentSale[] = [...mine]
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 50)
+    .map((e) => ({
+      date: e.date,
+      platform: e.platform,
+      cardName: e.meta.name ?? e.traits.cardName ?? null,
+      priceUsd: e.priceUsd,
+      buyer: e.buyer,
+      seller: e.seller,
+      tokenId: e.tokenId,
+      image: e.meta.image,
+    }));
+
+  // ─── Per-platform split of this IP's 24h volume ────────────────
+  type PlatAcc = { vol: number; trades: number; buyers: Set<string> };
+  const platMap = new Map<"beezie" | "collector-crypt", PlatAcc>();
+  for (const e of mine) {
+    let acc = platMap.get(e.platform);
+    if (!acc) {
+      acc = { vol: 0, trades: 0, buyers: new Set() };
+      platMap.set(e.platform, acc);
+    }
+    acc.vol += e.priceUsd;
+    acc.trades += 1;
+    acc.buyers.add(e.buyer);
+  }
+  const byPlatform: IPPlatformSplit[] = [...platMap.entries()]
+    .map(([platform, acc]) => ({
+      platform,
+      vol24Usd: acc.vol,
+      trades24h: acc.trades,
+      buyers24h: acc.buyers.size,
+      share: vol24Usd > 0 ? acc.vol / vol24Usd : 0,
+    }))
+    .sort((a, b) => b.vol24Usd - a.vol24Usd);
+
   return {
     ip,
     rank: rank || sortedIps.length + 1,
@@ -363,11 +428,13 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
     grades,
     topCards,
     hourlyVol: sparkBuckets,
+    recentSales,
+    byPlatform,
   };
 }
 
 export const getIPDetail = unstable_cache(
   async (ipKey: string) => fetchIP(ipKey),
-  ["ip-detail:v4"],
+  ["ip-detail:v5"],
   { revalidate: 3600, tags: ["ip-detail"] },
 );

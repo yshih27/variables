@@ -90,6 +90,8 @@ export type PlatformDetail = {
   cards: number;
   holders: number;
   mcapUsd: number;
+  /** This platform's share of total 24h secondary volume across all platforms (0–1). */
+  marketSharePct: number;
   vol24Pct: number | null;
   trend: Trend;
   spark24h: number[];
@@ -319,6 +321,10 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // EVERY platform — surfaced as ~125K on every platform page, which was wrong.
   const cards = new Set(allSales.map((s) => s.tokenId)).size;
 
+  // This platform's share of total 24h secondary volume across all platforms.
+  const totalSecVol = buckets.reduce((s, b) => s + b.stats24h.volumeUsd, 0);
+  const marketSharePct = totalSecVol > 0 ? bucket.stats24h.volumeUsd / totalSecVol : 0;
+
   const ips = await buildPlatformIPs(enriched, holders?.byIp ?? null, key);
   const topCards = buildTopCards(enriched, key);
   const recentSales = buildRecentSales(enriched, key);
@@ -340,6 +346,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     cards,
     holders: platformHolders,
     mcapUsd: platformMcap,
+    marketSharePct,
     vol24Pct,
     trend: trendOf(hourly),
     spark24h: hourly,
@@ -352,7 +359,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v3"],
+  ["platform-detail:v4"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 
