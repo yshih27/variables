@@ -79,6 +79,10 @@ export type HeroStats = {
   trades24h: number;
   trades24hPct: number | null;
   updatedAt: string;
+  /** Recent industry market-cap series (oldest→newest) for the homepage card. */
+  mcapSpark: number[];
+  /** Total hourly volume over the last 24h (oldest→newest) for the homepage card. */
+  volSpark: number[];
 };
 
 export type HotIP = {

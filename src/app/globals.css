@@ -34,6 +34,10 @@ body {
   color: var(--color-ink);
   font-family: var(--font-mono);
   -webkit-font-smoothing: antialiased;
+  /* Stop the browser from re-adjusting scrollY when the sticky header's ticker
+     collapses/expands — that adjustment otherwise feeds back into the scroll
+     listener and makes the header jitter up and down. */
+  overflow-anchor: none;
 }
 
 body {

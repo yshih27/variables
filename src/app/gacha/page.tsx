@@ -30,7 +30,7 @@ export default async function GachaPage() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-24">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-24">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
           <a href="/" className="hover:text-ink-2">Rankings</a>
           <span>›</span>
@@ -89,7 +89,6 @@ function GachaHero({ data }: { data: GachaData }) {
         <HeroCell
           label="Biggest Hit 7d"
           value={hero.biggestHitUsd ? formatCompactUsd(hero.biggestHitUsd) : "—"}
-          sub={hero.biggestHitUsd ? "FMV pulled" : undefined}
           yellow={!!hero.biggestHitUsd}
         />
         <HeroCell
@@ -101,7 +100,6 @@ function GachaHero({ data }: { data: GachaData }) {
               </span>
             )
           }
-          sub={hero.bestEvPackId ? "realized EV leader" : "ranked $-back-per-$1"}
           dim
         />
       </div>

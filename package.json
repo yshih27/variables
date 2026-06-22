@@ -1,5 +1,5 @@
 {
-  "name": "tcg-market",
+  "name": "variable",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -14,6 +14,10 @@
     "warm-courtyard-primary": "tsx scripts/warm-courtyard-primary.ts",
     "warm-primary-revenue": "tsx scripts/warm-primary-revenue.ts",
     "warm-gacha-dune": "tsx scripts/warm-gacha-dune.ts",
+    "warm-phygitals-gacha": "tsx scripts/warm-phygitals-gacha.ts",
+    "warm-cc-gacha": "tsx scripts/warm-cc-gacha.ts",
+    "listen-gacha": "tsx scripts/listen-gacha.ts",
+    "warm-gacha-packs": "tsx scripts/warm-gacha-packs.ts",
     "warm-listings": "tsx scripts/warm-listings.ts",
     "warm-marketcap": "tsx scripts/warm-marketcap.ts",
     "backfill-history": "tsx scripts/backfill-history.ts",

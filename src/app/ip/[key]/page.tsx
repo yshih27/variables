@@ -19,7 +19,7 @@ export default async function IPDetailPage({
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
         <IPDetailHero detail={detail} />
         <IPDetailStats detail={detail} />
         <IPVolumeChart

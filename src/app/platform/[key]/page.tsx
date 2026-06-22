@@ -26,7 +26,7 @@ export default async function PlatformDetailPage({
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1400px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
         <PlatformDetailHero detail={detail} />
         <PlatformDetailStats detail={detail} />
         <IPVolumeChart
