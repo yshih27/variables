@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { NavBar, type TickerItem } from "@/components/NavBar";
 import { MarketStatCards } from "@/components/MarketStatCards";
 import { HotIPsPanel } from "@/components/HotIPsPanel";
+import { OverheatingPanel } from "@/components/OverheatingPanel";
 import { TopSalesPanel } from "@/components/TopSalesPanel";
 import { IPTable } from "@/components/IPTable";
 import { PlatformTable } from "@/components/PlatformTable";
@@ -53,14 +54,17 @@ export default async function Home() {
 
         <MarketStatCards hero={data.hero} />
 
-        <section className="mb-10 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.7fr]">
+        <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <HotIPsPanel items={data.hotIPs} />
+          <OverheatingPanel ips={data.ips} />
+        </section>
+        <section className="mb-10">
           <TopSalesPanel items={data.topSales} />
         </section>
         <IPTable rows={data.ips} maxRows={10} seeAllHref="/ips" />
         <PlatformTable rows={data.platforms} />
         <div className="mt-20 text-center text-[12px] text-ink-3">
-          TCG.market · tracking tokenized phygital collectibles across chains
+          VARIABLE · tracking tokenized phygital collectibles across chains
         </div>
       </div>
     </>
