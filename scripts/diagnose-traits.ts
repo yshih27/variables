@@ -33,7 +33,7 @@ async function main() {
     if (!(await isCached(tid))) missing.push({ tokenId: tid, volume: vol });
   }
   missing.sort((a, b) => b.volume - a.volume);
-  console.log(`  ${missing.size} cached, ${uniq.size - missing.size} missing`);
+  console.log(`  ${uniq.size - missing.length} cached, ${missing.length} missing`);
   console.log(`  missing-tokens volume: $${missing.reduce((s, m) => s + m.volume, 0).toFixed(0)}`);
 
   console.log("\nTop 5 missing tokens by volume — fetch a sample and report:");
