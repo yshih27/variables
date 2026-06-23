@@ -150,9 +150,11 @@ async function warmPhygitals(out: Map<string, ListingEntry>): Promise<number> {
 /**
  * Collector Crypt active listings via api.collectorcrypt.com/marketplace — its
  * own native marketplace (CC cards don't route through Rarible/Tensor/ME). The
- * query returns LISTED cards only, 96/page (API caps page size), price already
- * in whole USD. ~57.8K listed → ~600 pages, paginated sequentially. Keyed
- * SOLANA:<nftAddress>, same cheapest-per-token + dust rules.
+ * query serves LISTED cards first, 96/page (API caps page size), price already
+ * in whole USD. Only ~7.3K are actually listed (findTotal ~57.8K is the whole
+ * Card collection, mostly unlisted — see cc/marketplace.ts), so the feed empties
+ * around page ~78 and this loop gets ~all of them. Keyed SOLANA:<nftAddress>,
+ * same cheapest-per-token + dust rules.
  */
 async function warmCC(out: Map<string, ListingEntry>): Promise<number> {
   const MAX_PAGES = 700; // safety bound; ~603 today
