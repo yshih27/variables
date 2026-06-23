@@ -33,6 +33,25 @@ export async function readHistory(key: string): Promise<PlatformHistory | null> 
 }
 
 /**
+ * Per-IP 7d hourly history — one blob (key='history:by-ip'), `byIp[ipKey]` is
+ * the rolling 168h window. Covers the IPs on platforms with a metadata reader
+ * (Beezie + Collector Crypt), mirroring fetchIP's enrichment. Lets IP pages show
+ * 7d volume + 24h-over-prior-24h change, the way platform pages already do.
+ */
+export type IpHistory = {
+  generatedAt: string;
+  byIp: Record<string, HourBucket[]>;
+};
+
+export async function writeIpHistory(h: IpHistory): Promise<void> {
+  await writeSnapshot("history:by-ip", h, h.generatedAt);
+}
+
+export async function readIpHistory(): Promise<IpHistory | null> {
+  return readSnapshot<IpHistory>("history:by-ip");
+}
+
+/**
  * Build hourly buckets covering the last `hours` hours from a list of sales.
  */
 export function bucketsFromSales(sales: NormalizedSale[], hours: number): HourBucket[] {
