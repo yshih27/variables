@@ -6,10 +6,16 @@
  * needs a browser UA + Origin. Endpoint captured from the live site 2026-06-22.
  *
  *   GET /marketplace?page&step&cardType=Card&orderBy=listedDateDesc
- *     → LISTED cards only (each row carries a `listing`), 96 per page — the API
- *       rejects larger `step` with HTTP 400. `listing.price` is already whole
- *       USD (currency USDC). `nftAddress` is the Solana mint. findTotal = listed
- *       count (~57.8K), totalPages = ceil(findTotal/step).
+ *     → cards sorted listed-first; each LISTED row carries a `listing`. 96 per
+ *       page — the API rejects larger `step` with HTTP 400. `listing.price` is
+ *       already whole USD (currency USDC). `nftAddress` is the Solana mint.
+ *
+ *   ⚠️ findTotal (~57.8K) is the TOTAL Card collection, NOT the listed count —
+ *   most cards are vaulted/unlisted (no `listing`). Only ~7.3K are actually
+ *   listed; the feed serves those (listed-first) then returns empty around page
+ *   ~78, so the plain page loop in warmCC already captures ~all listed cards.
+ *   (Verified 2026-06-23 via a price-windowed sweep with &listPriceMin/&listPriceMax,
+ *   which bypasses the page-78 cutoff and still found only ~7.3K.)
  */
 const BASE = "https://api.collectorcrypt.com";
 const UA =
