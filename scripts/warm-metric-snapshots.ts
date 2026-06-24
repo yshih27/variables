@@ -1,0 +1,139 @@
+/**
+ * Daily metric-snapshots warmer — appends the long-term time-series spine.
+ *
+ *   npx tsx scripts/warm-metric-snapshots.ts
+ *
+ * Writes one row per (entity, metric, UTC-day) into `metric_snapshots`:
+ *   • flow  (volume_usd, trades, active_wallets) — COMPLETE-day aggregates
+ *     backfilled from row-level history: CC 30d (Dune), Beezie/Courtyard 7d
+ *     (history snapshot). Idempotent re-bucketing self-corrects late days.
+ *   • stock (mcap_usd, holders, floor_usd) — today's reading at market / IP /
+ *     platform level; no backfill exists, so it accumulates forward.
+ *
+ * Runs in the DAILY batch AFTER warm-core-dune (fresh) + warm-marketcap +
+ * warm-holders so it reads their fresh output. Wrapped in runWarmer so a
+ * failure is a visible source_freshness error, not a silent gap.
+ */
+import { config } from "dotenv";
+config({ path: ".env.local" });
+
+import { fetchCCSecondarySales } from "../src/lib/data/warmers/core";
+import { readHistory } from "../src/lib/data/history";
+import { readMarketCap } from "../src/lib/data/marketcap";
+import { readHolders } from "../src/lib/data/holders";
+import {
+  writeMetricSnapshots,
+  dayStartUtc,
+  type MetricRow,
+} from "../src/lib/data/metricSnapshots";
+import { runWarmer } from "../src/lib/db/runWarmer";
+
+const DAY = 24 * 60 * 60 * 1000;
+
+async function main() {
+  const now = Date.now();
+  const rows: MetricRow[] = [];
+  const push = (
+    entity_type: MetricRow["entity_type"],
+    entity_key: string,
+    metric: string,
+    value: number,
+    ts: string,
+  ) => rows.push({ entity_type, entity_key, metric, value, ts });
+
+  // ── Family 1a: Collector Crypt secondary daily flow (30d, Dune row-level) ──
+  // The Dune query returns every on-chain sale over 30d; bucket by UTC day.
+  const ccSales = await fetchCCSecondarySales({ cachedOnly: true });
+  let ccWindowStart = Infinity;
+  for (const s of ccSales) {
+    const t = Date.parse(s.date);
+    if (Number.isFinite(t) && t < ccWindowStart) ccWindowStart = t;
+  }
+  const ccByDay = new Map<string, { vol: number; trades: number; wallets: Set<string> }>();
+  for (const s of ccSales) {
+    const t = Date.parse(s.date);
+    if (!Number.isFinite(t)) continue;
+    const day = dayStartUtc(t);
+    let b = ccByDay.get(day);
+    if (!b) {
+      b = { vol: 0, trades: 0, wallets: new Set() };
+      ccByDay.set(day, b);
+    }
+    b.vol += s.priceUsd;
+    b.trades += 1;
+    if (s.buyer) b.wallets.add(s.buyer);
+    if (s.seller) b.wallets.add(s.seller);
+  }
+  let ccDays = 0;
+  let ccVolTotal = 0;
+  for (const [day, b] of ccByDay) {
+    const ds = Date.parse(day);
+    // COMPLETE days only: fully inside the data window AND fully elapsed.
+    if (ds < ccWindowStart || ds + DAY > now) continue;
+    push("platform", "collector-crypt", "volume_usd", b.vol, day);
+    push("platform", "collector-crypt", "trades", b.trades, day);
+    push("platform", "collector-crypt", "active_wallets", b.wallets.size, day);
+    ccDays++;
+    ccVolTotal += b.vol;
+  }
+
+  // ── Family 1b: Beezie + Courtyard daily flow (7d, from history snapshot) ──
+  // history:<key> holds 168 hourly buckets; roll them up to complete UTC days
+  // bounded by the snapshot's own window (it may be a few hours old).
+  for (const key of ["beezie", "courtyard"] as const) {
+    const hist = await readHistory(key);
+    if (!hist || !hist.buckets.length) continue;
+    const windowStart = Date.parse(hist.buckets[0].hourStart);
+    const windowEnd = Date.parse(hist.generatedAt);
+    const byDay = new Map<string, { vol: number; trades: number }>();
+    for (const bk of hist.buckets) {
+      const t = Date.parse(bk.hourStart);
+      if (!Number.isFinite(t)) continue;
+      const day = dayStartUtc(t);
+      const acc = byDay.get(day) ?? { vol: 0, trades: 0 };
+      acc.vol += bk.volumeUsd;
+      acc.trades += bk.sales;
+      byDay.set(day, acc);
+    }
+    for (const [day, acc] of byDay) {
+      const ds = Date.parse(day);
+      if (ds < windowStart || ds + DAY > windowEnd) continue; // complete days within the snapshot
+      push("platform", key, "volume_usd", acc.vol, day);
+      push("platform", key, "trades", acc.trades, day);
+    }
+  }
+
+  // ── Family 2: stock metrics — today's reading (forward only) ──
+  const today = dayStartUtc(now);
+  const mcap = await readMarketCap();
+  if (mcap) {
+    push("market", "total", "mcap_usd", mcap.totals.mcapUsd, today);
+    for (const [ip, e] of Object.entries(mcap.byIp)) {
+      push("ip", ip, "mcap_usd", e.mcapUsd, today);
+      if (e.floorUsd > 0) push("ip", ip, "floor_usd", e.floorUsd, today);
+    }
+  }
+  const holders = await readHolders();
+  if (holders) {
+    for (const [key, n] of Object.entries(holders.platforms)) {
+      push("platform", key, "holders", n, today);
+    }
+    for (const [ip, e] of Object.entries(holders.byIp)) {
+      push("ip", ip, "holders", e.total, today);
+    }
+  }
+
+  const written = await writeMetricSnapshots(rows);
+  console.log(
+    `Wrote ${written} metric_snapshots rows · CC ${ccDays} complete days ` +
+      `($${Math.round(ccVolTotal).toLocaleString()} 30d) · ` +
+      `mcap $${Math.round(mcap?.totals.mcapUsd ?? 0).toLocaleString()} · ` +
+      `${mcap ? Object.keys(mcap.byIp).length : 0} IPs`,
+  );
+  return { rowsWritten: written };
+}
+
+runWarmer("metric-snapshots", main).catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
