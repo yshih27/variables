@@ -21,6 +21,7 @@
     "warm-listings": "tsx scripts/warm-listings.ts",
     "warm-marketcap": "tsx scripts/warm-marketcap.ts",
     "backfill-history": "tsx scripts/backfill-history.ts",
+    "warm-metric-snapshots": "tsx scripts/warm-metric-snapshots.ts",
     "check-freshness": "tsx scripts/check-freshness.ts"
   },
   "dependencies": {

@@ -12,7 +12,7 @@
  * where the trait data is available (locally, or post-Phase-2 anywhere) so the
  * Big Hits rail is populated. Core volumes/odds/buyback don't depend on it.
  */
-import { runQuery, getLatestResults, type DuneRow } from "../../dune/client";
+import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
 import {
   GACHA_QUERY_IDS,
   CC_ODDS_QUERY_ID,
@@ -121,8 +121,21 @@ export async function runGachaWarm(
 ): Promise<GachaWarmResult> {
   const log = opts.log ?? (() => {});
   const startedAt = Date.now();
-  const fetchRows = (id: number) =>
-    opts.cachedOnly ? getLatestResults(id) : runQuery(id, { maxWaitMs: 180_000 });
+  // Gacha queries are refreshed daily and move slowly; self-heal the cache only
+  // once it's clearly missed a daily fresh run (so it can't rot like cc-secondary did).
+  const GACHA_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
+  const fetchRows = async (id: number): Promise<DuneRow[]> => {
+    if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: 180_000 });
+    const r = await getResultsAutoRefresh(id, {
+      maxAgeMs: GACHA_MAX_CACHE_AGE_MS,
+      runOpts: { maxWaitMs: 180_000 },
+    });
+    if (r.refreshed) {
+      const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
+      log(`  ↻ query ${id} cache stale (${ageH}h old) — self-healed with a fresh Dune run`);
+    }
+    return r.rows;
+  };
 
   const platforms: Record<string, GachaDunePlatform> = {};
 

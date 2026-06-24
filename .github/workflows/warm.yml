@@ -119,6 +119,12 @@ jobs:
         if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts
+      # Time-series spine — must run LAST in the daily batch: it reads the fresh
+      # core-volume (Dune), marketcap, and holders output the steps above wrote.
+      - name: Metric snapshots (time-series spine)
+        if: steps.which.outputs.batch == 'daily'
+        continue-on-error: true
+        run: npx tsx scripts/warm-metric-snapshots.ts
 
       # ── Weekly — full CC collection trait crawl (~122K assets) ──
       - name: CC trait crawl

@@ -32,6 +32,8 @@ type DuneResultResponse = {
   query_id: number;
   is_execution_finished: boolean;
   state: string; // QUERY_STATE_COMPLETED | _EXECUTING | _PENDING | _FAILED ...
+  execution_ended_at?: string; // ISO — when Dune last computed this cached result
+  submitted_at?: string; // ISO fallback if execution_ended_at is absent
   result?: {
     rows: DuneRow[];
     metadata: {
@@ -83,23 +85,36 @@ function paramQuery(params?: Record<string, string | number>): string {
   return s ? `?${s}` : "";
 }
 
+export type LatestResults = {
+  rows: DuneRow[];
+  /** When Dune last COMPUTED this cached result (null if the API omitted it). */
+  executionEndedAt: string | null;
+};
+
 /**
- * Instant read of a saved query's most recent cached result. Paginates
- * through `next_uri` so large result sets come back whole.
+ * Instant read of a saved query's most recent cached result, plus the timestamp
+ * of when Dune computed it. Paginates through `next_uri` so large result sets
+ * come back whole.
  */
-export async function getLatestResults(
+export async function getLatestResultsMeta(
   queryId: number,
   opts: { params?: Record<string, string | number>; maxRows?: number } = {},
-): Promise<DuneRow[]> {
+): Promise<LatestResults> {
   const maxRows = opts.maxRows ?? 100_000;
   const rows: DuneRow[] = [];
+  let executionEndedAt: string | null = null;
   let path: string | null = `/query/${queryId}/results${paramQuery(opts.params)}`;
   let absoluteUrl: string | undefined;
+  let first = true;
 
   while (path || absoluteUrl) {
     const page: DuneResultResponse = await req<DuneResultResponse>(path ?? "", {
       absoluteUrl,
     });
+    if (first) {
+      executionEndedAt = page.execution_ended_at ?? page.submitted_at ?? null;
+      first = false;
+    }
     if (page.result?.rows) rows.push(...page.result.rows);
     if (rows.length >= maxRows) break;
     if (page.next_uri) {
@@ -109,7 +124,15 @@ export async function getLatestResults(
       break;
     }
   }
-  return rows;
+  return { rows, executionEndedAt };
+}
+
+/** Rows-only convenience over getLatestResultsMeta — the common read path. */
+export async function getLatestResults(
+  queryId: number,
+  opts: { params?: Record<string, string | number>; maxRows?: number } = {},
+): Promise<DuneRow[]> {
+  return (await getLatestResultsMeta(queryId, opts)).rows;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -165,6 +188,47 @@ export async function runQuery(
     } else break;
   }
   return rows;
+}
+
+export type AutoRefreshResult = {
+  rows: DuneRow[];
+  /** True if the cache was stale and we ran a fresh execution instead. */
+  refreshed: boolean;
+  /** Age of the cached result we found, in ms (null if Dune omitted the time). */
+  cachedAgeMs: number | null;
+};
+
+/**
+ * Self-healing read — the durable fix for "the scheduled fresh run silently
+ * stopped and the cached result rotted for days" (how CC secondary went to $0).
+ *
+ * Serve the cached result, but if Dune last computed it more than `maxAgeMs`
+ * ago — or there are no rows — trigger a FRESH execution and return that. Every
+ * cached read now repairs itself the moment the data crosses the staleness line,
+ * so a missed scheduled refresh can no longer rot the data: the next warm heals it.
+ *
+ * Safe degradation: if Dune doesn't report an execution timestamp, we trust a
+ * non-empty cache rather than re-running on every call (which would burn credits).
+ */
+export async function getResultsAutoRefresh(
+  queryId: number,
+  opts: {
+    maxAgeMs: number;
+    params?: Record<string, string | number>;
+    runOpts?: { maxWaitMs?: number; pollMs?: number; maxRows?: number };
+    maxRows?: number;
+  },
+): Promise<AutoRefreshResult> {
+  const { rows, executionEndedAt } = await getLatestResultsMeta(queryId, {
+    params: opts.params,
+    maxRows: opts.maxRows,
+  });
+  const parsed = executionEndedAt ? Date.parse(executionEndedAt) : NaN;
+  const cachedAgeMs = Number.isFinite(parsed) ? Date.now() - parsed : null;
+  const stale = rows.length === 0 || (cachedAgeMs !== null && cachedAgeMs > opts.maxAgeMs);
+  if (!stale) return { rows, refreshed: false, cachedAgeMs };
+  const fresh = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
+  return { rows: fresh, refreshed: true, cachedAgeMs };
 }
 
 export { DuneError };

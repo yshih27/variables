@@ -9,8 +9,13 @@
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
  * last cached results (0 credits) instead of forcing a fresh execution.
  */
-import { runQuery, getLatestResults, type DuneRow } from "../../dune/client";
+import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
 import { CC_SECONDARY_QUERY_ID } from "../../dune/queryIds";
+
+// Self-heal the cached CC-secondary Dune result if it's older than this. Kept
+// below 24h so the headline 24h window can never silently collapse to $0 while a
+// scheduled fresh run is failing — the next 6h cached warm re-runs it fresh.
+const CC_SECONDARY_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 import { collectSales, type CollectionStats, type NormalizedSale } from "../../rarible/queries";
 import { PLATFORM_SOURCES } from "../sources";
 import {
@@ -79,11 +84,24 @@ function buildPlatform(
  * warmer and the history backfill so both read the same source (no Helius 429).
  */
 export async function fetchCCSecondarySales(
-  opts: { cachedOnly?: boolean } = {},
+  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
-  const rows: DuneRow[] = opts.cachedOnly
-    ? await getLatestResults(CC_SECONDARY_QUERY_ID)
-    : await runQuery(CC_SECONDARY_QUERY_ID, { maxWaitMs: 480_000 });
+  let rows: DuneRow[];
+  if (opts.cachedOnly) {
+    // Cached read, but self-healing: a stale cache (e.g. a missed daily fresh
+    // run) triggers a fresh execution here instead of serving rotted data.
+    const r = await getResultsAutoRefresh(CC_SECONDARY_QUERY_ID, {
+      maxAgeMs: CC_SECONDARY_MAX_CACHE_AGE_MS,
+      runOpts: { maxWaitMs: 480_000 },
+    });
+    rows = r.rows;
+    if (r.refreshed) {
+      const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
+      (opts.log ?? console.log)(`  ↻ cc-secondary cache stale (${ageH}h old) — self-healed with a fresh Dune run`);
+    }
+  } else {
+    rows = await runQuery(CC_SECONDARY_QUERY_ID, { maxWaitMs: 480_000 });
+  }
   return rows
     .map((r) => ({
       date: duneTimeToIso(r.block_time),
