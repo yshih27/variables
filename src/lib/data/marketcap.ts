@@ -17,9 +17,31 @@ export type MarketCapIPEntry = {
   insuredUsd: number;
 };
 
+/** One IP's contribution within a single platform (the platform-breakdown unit). */
+export type MarketCapPlatformIP = {
+  cards: number;
+  cardsValued: number;
+  floorUsd: number;
+  mcapUsd: number;
+};
+
+/** A platform's full market-cap picture: totals + its per-IP composition. */
+export type MarketCapPlatformEntry = {
+  cards: number;
+  cardsValued: number;
+  floorUsd: number;
+  mcapUsd: number;
+  insuredUsd: number;
+  byIp: Record<string, MarketCapPlatformIP>;
+};
+
 export type MarketCapSnapshot = {
   generatedAt: string;
+  /** Across all platforms, keyed by IP (drives the IP pages). */
   byIp: Record<string, MarketCapIPEntry>;
+  /** Per platform, with each platform's IP composition (drives the platform breakdown).
+   *  Only platforms whose cards carry a value appear (CC = insured, Beezie = listing). */
+  byPlatform?: Record<string, MarketCapPlatformEntry>;
   totals: {
     mcapUsd: number;
     insuredUsd: number;

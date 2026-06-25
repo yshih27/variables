@@ -18,8 +18,8 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { fetchCCSecondarySales } from "../src/lib/data/warmers/core";
-import { readHistory } from "../src/lib/data/history";
-import { readMarketCap } from "../src/lib/data/marketcap";
+import { readHistory, readIpHistory } from "../src/lib/data/history";
+import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { readHolders } from "../src/lib/data/holders";
 import {
   writeMetricSnapshots,
@@ -103,6 +103,34 @@ async function main() {
     }
   }
 
+  // ── Family 1c: per-IP daily flow (7d) from the by-ip history snapshot ──
+  // history:by-ip holds 168 hourly buckets per IP (Beezie + CC coverage); roll
+  // up to complete UTC days so the IP Activity chart's volume/trades go real.
+  const ipHist = await readIpHistory();
+  if (ipHist) {
+    const ipWindowEnd = Date.parse(ipHist.generatedAt);
+    for (const [ip, buckets] of Object.entries(ipHist.byIp)) {
+      if (!buckets.length) continue;
+      const windowStart = Date.parse(buckets[0].hourStart);
+      const byDay = new Map<string, { vol: number; trades: number }>();
+      for (const bk of buckets) {
+        const t = Date.parse(bk.hourStart);
+        if (!Number.isFinite(t)) continue;
+        const day = dayStartUtc(t);
+        const acc = byDay.get(day) ?? { vol: 0, trades: 0 };
+        acc.vol += bk.volumeUsd;
+        acc.trades += bk.sales;
+        byDay.set(day, acc);
+      }
+      for (const [day, acc] of byDay) {
+        const ds = Date.parse(day);
+        if (ds < windowStart || ds + DAY > ipWindowEnd) continue; // complete days only
+        push("ip", ip, "volume_usd", acc.vol, day);
+        push("ip", ip, "trades", acc.trades, day);
+      }
+    }
+  }
+
   // ── Family 2: stock metrics — today's reading (forward only) ──
   const today = dayStartUtc(now);
   const mcap = await readMarketCap();
@@ -111,6 +139,9 @@ async function main() {
     for (const [ip, e] of Object.entries(mcap.byIp)) {
       push("ip", ip, "mcap_usd", e.mcapUsd, today);
       if (e.floorUsd > 0) push("ip", ip, "floor_usd", e.floorUsd, today);
+    }
+    for (const [platform, e] of Object.entries(mcap.byPlatform ?? {})) {
+      push("platform", platform, "mcap_usd", e.mcapUsd, today);
     }
   }
   const holders = await readHolders();
@@ -121,6 +152,22 @@ async function main() {
     for (const [ip, e] of Object.entries(holders.byIp)) {
       push("ip", ip, "holders", e.total, today);
     }
+  }
+
+  // ── Family 3: market + per-IP mcap history backfill (past days, ~30d) ──
+  // marketcap-history holds hourly mcap (byIp + total). Sample the latest reading
+  // per UTC day; today is owned by Family 2 (the current snapshot) → skip it here.
+  const mcapHist = await readMarketCapHistory();
+  const dayMcap = new Map<string, { total: number; byIp: Record<string, number> }>();
+  for (const h of mcapHist.hourly) {
+    const t = Date.parse(h.at);
+    if (!Number.isFinite(t)) continue;
+    dayMcap.set(dayStartUtc(t), { total: h.totalMcapUsd, byIp: h.byIp }); // later entry = latest-of-day
+  }
+  for (const [day, m] of dayMcap) {
+    if (day === today) continue; // today handled by Family 2
+    push("market", "total", "mcap_usd", m.total, day);
+    for (const [ip, v] of Object.entries(m.byIp)) push("ip", ip, "mcap_usd", v, day);
   }
 
   const written = await writeMetricSnapshots(rows);

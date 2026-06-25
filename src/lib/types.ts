@@ -50,10 +50,17 @@ export type PlatformRow = {
   vault: string | null;
   vol24Usd: number;
   vol7Usd: number;
-  /** Primary-market revenue (gacha / tokenization), 24h, USD.
-   *  Only populated for Courtyard today (MINT × $2 estimate).
-   *  null when we don't have a primary contract for that platform. */
+  /** Primary-market revenue (gacha pulls + tokenization mints), 24h, USD.
+   *  null when we don't track a primary source for that platform. */
   primaryUsd: number | null;
+  /** Gacha-only volume (pack-pull spend), USD. null for non-gacha platforms
+   *  (e.g. Courtyard, whose primary is tokenization, not gacha).
+   *  Pairs with vol24Usd/vol7Usd (marketplace resale) for the volume split. */
+  gachaVol24Usd: number | null;
+  gachaVol7Usd: number | null;
+  /** Total 24h activity = marketplace resale + primary (gacha or tokenization), USD.
+   *  The honest "how big is this platform" metric; the table's default sort. */
+  total24Usd: number;
   /** Unique wallets (buyers ∪ sellers) active in 24h. */
   active24h: number;
   /** Unique cards traded in the 24h window. */
