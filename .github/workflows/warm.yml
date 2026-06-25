@@ -25,7 +25,10 @@ concurrency:
 jobs:
   warm:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 75m, not 45m: successful runs were landing at 40–44m and ~1 in 4 was being
+    # cancelled at the 45m ceiling mid-batch (starving the daily batch's later steps
+    # — traits, phygitals, metric snapshots — and the weekly 122K CC trait crawl).
+    timeout-minutes: 75
     env:
       DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
       HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
