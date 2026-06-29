@@ -14,8 +14,8 @@
 import {
   fetchPhygitalsListings,
   fetchPhygitalsSales,
+  type PhygitalsListing,
 } from "../../phygitals/client";
-import { recordFreshness } from "../../db/freshness";
 import { db } from "../../db/client";
 
 // API category string → our ip_key. Pokémon (~87%) + One Piece (~3.5%) cover
@@ -62,19 +62,30 @@ export async function runPhygitalsWarm(
   const log = opts.log ?? (() => {});
   const itemsPerPage = opts.itemsPerPage ?? 100;
   const maxPages = opts.maxPages ?? 80; // per category
-  const startedAt = Date.now();
+  const PAGE_DELAY_MS = 150; // polite gap between listing pages (avoid 429s)
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
   const cardById = new Map<string, Record<string, unknown>>();
   const listingById = new Map<string, Record<string, unknown>>();
   let floorUsd: number | null = null;
+  let hadError = false; // a page failed mid-crawl → write the partial we have
 
   for (const { api, ip } of CATEGORIES) {
     let total = 0;
     for (let page = 1; page <= maxPages; page++) {
-      const { listings, total: t } = await fetchPhygitalsListings(page, itemsPerPage, {
-        category: [api],
-      });
-      total = t;
+      let listings: PhygitalsListing[];
+      try {
+        const r = await fetchPhygitalsListings(page, itemsPerPage, { category: [api] });
+        listings = r.listings;
+        total = r.total;
+      } catch (err) {
+        // A page failing (rate-limited past its retries) must not sink the run —
+        // keep the cheapest-first listings already collected (floor stays correct)
+        // and move on. A true total failure is caught below + by runWarmer.
+        hadError = true;
+        log(`  ${api}: stopped at page ${page} — ${(err as Error).message}`);
+        break;
+      }
       if (listings.length === 0) break;
       for (const l of listings) {
         const mint = l.address;
@@ -123,12 +134,19 @@ export async function runPhygitalsWarm(
         }
       }
       if (total && page * itemsPerPage >= total) break;
+      await sleep(PAGE_DELAY_MS);
     }
-    log(`  ${api}: ${total} listed (cumulative cards ${cardById.size})`);
+    log(`  ${api}: ${total} listed${hadError ? " (partial)" : ""} (cumulative cards ${cardById.size})`);
   }
 
   const cardRows = [...cardById.values()];
   const listingRows = [...listingById.values()];
+  if (cardRows.length === 0) {
+    // Collected nothing — surface it (runWarmer records an error row) instead of
+    // silently writing an empty "ok" snapshot. This is the bug that hid a 21-day
+    // outage: the warmer threw before recording, so it read "stale", not "error".
+    throw new Error(`Phygitals: no listings collected${hadError ? " (rate-limited)" : ""}`);
+  }
   const CHUNK = 500;
   for (let i = 0; i < cardRows.length; i += CHUNK) {
     const { error } = await db().from("cards").upsert(cardRows.slice(i, i + CHUNK));
@@ -153,12 +171,6 @@ export async function runPhygitalsWarm(
       generated_at: new Date().toISOString(),
       source: "phygitals-api",
     });
-  await recordFreshness("phygitals", {
-    status: "ok",
-    rowsWritten: cardRows.length,
-    durationMs: Date.now() - startedAt,
-  });
-
   const result: PhygitalsWarmResult = {
     cards: cardRows.length,
     listings: listingRows.length,
