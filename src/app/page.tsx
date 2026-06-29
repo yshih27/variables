@@ -1,13 +1,14 @@
 import { unstable_cache } from "next/cache";
 import { NavBar, type TickerItem } from "@/components/NavBar";
-import { MarketStatCards } from "@/components/MarketStatCards";
+import { MarketKpiGrid } from "@/components/MarketKpiGrid";
 import { HotIPsPanel } from "@/components/HotIPsPanel";
-import { OverheatingPanel } from "@/components/OverheatingPanel";
 import { TopSalesPanel } from "@/components/TopSalesPanel";
 import { IPTable } from "@/components/IPTable";
 import { PlatformTable } from "@/components/PlatformTable";
+import { IPActivityChart } from "@/components/IPActivityChart";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { getGachaData } from "@/lib/data/fetchGacha";
+import { buildMarketActivity } from "@/lib/data/marketActivity";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
 const getHomepageData = unstable_cache(
@@ -40,6 +41,19 @@ export default async function Home() {
     total: vAcc.total,
   };
 
+  // Most-traded IP (24h) for the KPI grid's signal tile.
+  let topIP: (typeof data.ips)[number] | null = null;
+  for (const ip of data.ips) {
+    if (Number.isFinite(ip.vol24Usd) && ip.vol24Usd > 0 && (!topIP || ip.vol24Usd > topIP.vol24Usd)) topIP = ip;
+  }
+  const gachaKpi = { pulls: gacha.hero.totalPulls24h, avgPullUsd: gacha.hero.avgPullUsd };
+
+  // Market-level Activity series (daily) for the overview chart.
+  const marketMetrics = await buildMarketActivity(
+    data.platforms.map((p) => p.key),
+    data.hero.totalMcapUsd,
+  );
+
   // CoinGecko-style top ticker — each stat links to its page.
   const ticker: TickerItem[] = [
     { label: "Market Cap", value: formatCompactUsd(data.hero.totalMcapUsd), href: "/ips" },
@@ -70,13 +84,14 @@ export default async function Home() {
           </p>
         </div>
 
-        <MarketStatCards hero={data.hero} vol={volBreakdown} />
+        <MarketKpiGrid hero={data.hero} vol={volBreakdown} gacha={gachaKpi} topIP={topIP} />
 
-        <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <HotIPsPanel items={data.hotIPs} />
-          <OverheatingPanel ips={data.ips} />
-        </section>
         <section className="mb-10">
+          <IPActivityChart metrics={marketMetrics} timeframes={["7D", "30D", "ALL"]} defaultTimeframe="7D" title="Market activity" />
+        </section>
+
+        <section className="mb-10 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <HotIPsPanel items={data.hotIPs} />
           <TopSalesPanel items={data.topSales} />
         </section>
         <IPTable rows={data.ips} maxRows={10} seeAllHref="/ips" />

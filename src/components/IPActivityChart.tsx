@@ -61,11 +61,31 @@ function smoothPath(pts: Array<[number, number]>): string {
   return d;
 }
 
-export function IPActivityChart({ metrics }: { metrics: ActivityMetric[] }) {
-  const [tf, setTf] = useState<Timeframe>("24H");
-  const [active, setActive] = useState<Set<string>>(
-    () => new Set(metrics.length ? [metrics[0].key] : []),
-  );
+export function IPActivityChart({
+  metrics,
+  timeframes = TIMEFRAMES,
+  defaultTimeframe,
+  title = "Activity",
+}: {
+  metrics: ActivityMetric[];
+  /** Which windows to offer (e.g. market data is daily → omit 24H). */
+  timeframes?: Timeframe[];
+  defaultTimeframe?: Timeframe;
+  title?: string;
+}) {
+  const [tf, setTf] = useState<Timeframe>(defaultTimeframe ?? timeframes[0] ?? "24H");
+  const [active, setActive] = useState<Set<string>>(() => {
+    // Default to the metric with the most history in the opening window (so a
+    // sparse leading metric — e.g. market cap — doesn't open as an empty dot).
+    const tf0 = defaultTimeframe ?? timeframes[0] ?? "24H";
+    let best = metrics[0]?.key;
+    let bestN = -1;
+    for (const m of metrics) {
+      const n = m.series[tf0]?.points.length ?? 0;
+      if (n > bestN) { bestN = n; best = m.key; }
+    }
+    return new Set(best ? [best] : []);
+  });
   const [hover, setHover] = useState<number | null>(null);
   const [reduce, setReduce] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -130,13 +150,13 @@ export function IPActivityChart({ metrics }: { metrics: ActivityMetric[] }) {
       {/* Header */}
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-[22px] font-bold tracking-[-0.02em]">Activity</h2>
+          <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
           <div className="mt-1 font-mono text-[12px] text-ink-3">
             {tf === "24H" ? "24h history · hourly" : `${tf} history · daily`} · overlay any metric
           </div>
         </div>
         <div className="flex gap-0.5 rounded-[10px] border border-line bg-bg-1 p-[3px]">
-          {TIMEFRAMES.map((t) => (
+          {timeframes.map((t) => (
             <button
               key={t}
               type="button"

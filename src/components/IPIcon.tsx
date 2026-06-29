@@ -23,7 +23,6 @@ export function IPIcon({
   color,
   logo,
   iconBlendMode = "normal",
-  emoji,
   size = 32,
 }: Props) {
   const dim = `${size}px`;
@@ -72,18 +71,6 @@ export function IPIcon({
           style={imgStyle}
           onError={() => setLogoFailed(true)}
         />
-      </span>
-    );
-  }
-
-  if (emoji) {
-    return (
-      <span
-        className="inline-flex flex-shrink-0 items-center justify-center"
-        style={{ width: dim, height: dim, fontSize: size * 0.78, lineHeight: 1 }}
-        aria-label={name}
-      >
-        {emoji}
       </span>
     );
   }

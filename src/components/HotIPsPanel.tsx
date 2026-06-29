@@ -11,7 +11,7 @@ export function HotIPsPanel({ items }: Props) {
     <div className="overflow-hidden rounded-2xl border border-line bg-bg-1">
       <div className="flex items-center gap-2.5 border-b border-line px-[22px] py-[18px]">
         <span className="inline-flex h-6 items-center gap-1.5 rounded-md bg-yellow px-2 text-[11px] font-bold uppercase tracking-[0.04em] text-black">
-          🔥 Hot
+          Hot
         </span>
         <span className="text-[15px] font-semibold">Hottest IPs</span>
         <span className="ml-auto text-[11.5px] text-ink-3">top {items.length} · 24h vol</span>
