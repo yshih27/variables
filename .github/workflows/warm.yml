@@ -1,8 +1,16 @@
 # Scheduled data warmers — refresh the Postgres snapshots the app reads.
 # The warmer scripts write straight to Supabase via the service key, so the
 # Vercel app just reads. Each warmer is an INDEPENDENT step (continue-on-error)
-# so one flaky source (e.g. a Helius 429) can't block the others. Trigger any
-# batch manually from the Actions tab (workflow_dispatch).
+# so one flaky source (e.g. a Helius 429) can't block the others.
+#
+# ONE JOB PER BATCH, each with its own timeout. Previously all three batches
+# shared a single job + one timeout, so the heavy weekly CC crawl (~122K assets)
+# and the slow core batch kept hitting the ceiling and getting cancelled
+# mid-run, which starved the later steps. Splitting them means a slow batch
+# can't cancel another, and the weekly crawl gets the headroom it needs. Only
+# the triggered batch's job runs (the others are skipped), so cost is unchanged.
+#
+# Trigger any batch manually from the Actions tab (workflow_dispatch → batch).
 name: warm
 
 on:
@@ -18,119 +26,122 @@ on:
         default: core
         options: [core, daily, cc-traits]
 
+# One run at a time; never cancel an in-flight warm (cancelling mid-write is
+# what used to lose data — keep cancel-in-progress false).
 concurrency:
   group: warm
   cancel-in-progress: false
 
+# Shared by every job — the warmers all write to the same Supabase project.
+env:
+  DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+  HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+  RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
 jobs:
-  warm:
+  # ── Core market data — every 6h (~40–44m of independent steps) ──
+  core:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 */6 * * *')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'core')
     runs-on: ubuntu-latest
-    # 75m, not 45m: successful runs were landing at 40–44m and ~1 in 4 was being
-    # cancelled at the 45m ceiling mid-batch (starving the daily batch's later steps
-    # — traits, phygitals, metric snapshots — and the weekly 122K CC trait crawl).
     timeout-minutes: 75
-    env:
-      DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
-      HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
-      RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
-      - id: which
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "batch=${{ github.event.inputs.batch }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "30 5 * * *" ]; then
-            echo "batch=daily" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 4 * * 1" ]; then
-            echo "batch=cc-traits" >> "$GITHUB_OUTPUT"
-          else
-            echo "batch=core" >> "$GITHUB_OUTPUT"
-          fi
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-
-      # ── Core market data — every 6h (each step independent) ──
       - name: Listings
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-listings.ts
-      - name: Market cap
-        if: steps.which.outputs.batch == 'core'
+      - name: Market cap # reads the listings snapshot written above
         continue-on-error: true
         run: npx tsx scripts/warm-marketcap.ts
       - name: Core volume (cached Dune + Rarible)
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts --cached
       - name: Courtyard primary
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-courtyard-primary.ts
       - name: Primary revenue
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-primary-revenue.ts
       - name: Backfill history
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/backfill-history.ts
       - name: Gacha (cached)
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached
       - name: Phygitals gacha (CLAW feed)
         # Frequent runs accumulate the feed's shallow recent window into the
         # gacha_pulls spine; odds/EV are computed over the 7d accumulation.
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-phygitals-gacha.ts
       - name: CC gacha (native winners feed + machine catalog)
         # Per-pack stated odds/EV/buyback + realized pulls from
         # gacha.collectorcrypt.com; also feeds the gacha_pulls spine.
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-cc-gacha.ts
       - name: Gacha pack catalog (Beezie /claw + Phygitals /vm/chase + CC native + realized)
         # Must run AFTER phygitals-gacha and cc-gacha (reads what they write).
-        if: steps.which.outputs.batch == 'core'
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-packs.ts
 
-      # ── Daily — holders, beezie traits, fresh gacha (full Dune run) ──
+  # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
+  daily:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 5 * * *')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'daily')
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Holders
-        if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-holders.ts
       - name: Beezie traits
-        if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-traits.ts
       - name: Gacha (fresh)
-        if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts
       - name: Phygitals marketplace
-        if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-phygitals.ts
       - name: Core volume (fresh Dune execution)
-        if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts
-      # Time-series spine — must run LAST in the daily batch: it reads the fresh
-      # core-volume (Dune), marketcap, and holders output the steps above wrote.
+      # Time-series spine — runs LAST: it reads the fresh core-volume (Dune),
+      # marketcap, and holders output the steps above wrote.
       - name: Metric snapshots (time-series spine)
-        if: steps.which.outputs.batch == 'daily'
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
 
-      # ── Weekly — full CC collection trait crawl (~122K assets) ──
+  # ── Weekly — full CC collection trait crawl (~122K assets, slow) ──
+  # Its own job + a generous timeout: this crawl is what kept blowing the old
+  # shared 45m ceiling and getting cancelled (so cc-traits never recorded).
+  cc-traits:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 4 * * 1')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'cc-traits')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: CC trait crawl
-        if: steps.which.outputs.batch == 'cc-traits'
         continue-on-error: true
         run: npx tsx scripts/warm-cc-traits.ts
