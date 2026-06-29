@@ -1,12 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #000000;
-  --color-bg-1: #0a0a0a;
-  --color-bg-2: #131313;
-  --color-bg-3: #1a1a1a;
-  --color-line: #1f1f1f;
-  --color-line-2: #2a2a2a;
+  /* Near-black charcoal ramp. Lifted off harsh pure #000 for a crafted,
+     premium base; a faint cool tint (blue a touch over red/green) makes the
+     acid-yellow read warmer. Each rung keeps the prior depth separation so
+     surfaces and borders still stack legibly. */
+  --color-bg: #0a0a0c;
+  --color-bg-1: #131316;
+  --color-bg-2: #1a1a1e;
+  --color-bg-3: #212126;
+  --color-line: #26262c;
+  --color-line-2: #303037;
   --color-ink: #ffffff;
   --color-ink-2: #b8b8b8;
   --color-ink-3: #707070;
@@ -18,8 +22,11 @@
   --color-purple: #a18cff;
   --color-blue: #5fa3ff;
   --color-solana: #14f195;
+  --color-teal: #2bd6a0;
+  --color-amber: #f5c451;
 
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --font-sans: var(--font-inter), system-ui, sans-serif;
 }
 
 * {
@@ -53,8 +60,22 @@ button {
   font-family: inherit;
 }
 
+/* Numbers are the divergent voice: always JetBrains Mono with tabular figures,
+   even inside a sans (Inter) prose container. This is the hook that lets a
+   container opt into `font-sans` while every tagged figure stays mono. */
 .tabular {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Code, keys, and preformatted blocks are always mono, even inside a sans
+   prose container (e.g. the Methodology essay). Unlayered so it wins over
+   Tailwind's layered font-sans utility and plain inheritance. */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
 }
 
 @keyframes pulse-dot {
@@ -76,6 +97,27 @@ button {
   animation: pulse-dot 1.6s infinite;
 }
 
+/* ── Activity chart (IPActivityChart.tsx) ─────────────────────────────── */
+.act-pulse {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+.act-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: act-draw 0.9s ease-out forwards;
+}
+@keyframes act-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .act-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
+
 .scroll-x {
   overflow-x: auto;
 }
@@ -87,352 +129,151 @@ button {
   border-radius: 4px;
 }
 
-/* ── Gacha Hits Coverflow (GachaHitsCoverflow.tsx) ───────────────────── */
-.ghc {
-  position: relative;
-  margin: 8px 0 16px;
-  border-radius: 20px;
-  background:
-    radial-gradient(1000px 420px at 50% -20%, rgba(243, 255, 66, 0.05), transparent 60%),
-    radial-gradient(800px 380px at 50% 130%, rgba(161, 140, 255, 0.045), transparent 60%);
+/* Slim, theme-matched vertical scrollbar for the IP page's scrolling column —
+   replaces the chunky default OS bar that clashed with the dark UI. */
+.scroll-y {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-2) transparent;
 }
-.ghc-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 6px 4px 18px;
+.scroll-y::-webkit-scrollbar {
+  width: 8px;
 }
-.ghc-badge {
-  height: 24px;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--color-yellow);
-  color: #000;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 7px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.scroll-y::-webkit-scrollbar-track {
+  background: transparent;
 }
-.ghc-livedot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #000;
-  animation: ghc-pulse 1.4s infinite;
+.scroll-y::-webkit-scrollbar-thumb {
+  background: var(--color-line-2);
+  border-radius: 4px;
 }
-@keyframes ghc-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-.ghc-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.ghc-accent { color: var(--color-yellow); }
-.ghc-sub {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--color-ink-3);
+.scroll-y::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-4);
 }
 
-.ghc-flow-wrap {
-  position: relative;
+/* ── Gacha LIVE hits ticker (GachaHitsTicker.tsx) ────────────────────── */
+/* Slim ambient band under the /gacha hero: two identical rows drift -50% for
+   a seamless loop; hover pauses; edges fade like the matrix scroller. */
+.ght {
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-.ghc-flow {
-  position: relative;
-  width: 100%;
-  height: 380px;
-  perspective: 1700px;
-  perspective-origin: 50% 45%;
-  touch-action: pan-y;
-  cursor: grab;
-  user-select: none;
-}
-.ghc-flow--dragging { cursor: grabbing; }
-.ghc-flow--dragging .ghc-card { transition: none; }
-
-.ghc-card {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 248px;
-  height: 344px;
-  margin: -172px 0 0 -124px;
-  transform-style: preserve-3d;
-  transition: transform 0.42s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.42s ease;
-  will-change: transform, opacity;
-}
-.ghc-card-inner {
-  position: absolute;
-  inset: 0;
-  border-radius: 18px;
-  overflow: hidden;
-  background: var(--color-bg-2);
-  border: 1px solid var(--color-line-2);
-  display: flex;
-  flex-direction: column;
-}
-.ghc-card--active .ghc-card-inner {
-  border-color: var(--rar, #fff);
-  box-shadow:
-    0 0 0 1px var(--rar, #fff),
-    0 24px 80px -12px var(--rarGlow, rgba(255, 255, 255, 0.4)),
-    0 0 60px -10px var(--rarGlow, rgba(255, 255, 255, 0.3));
-}
-.ghc-art {
-  flex: 1;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 32%, rgba(255, 255, 255, 0.07), transparent 60%),
-    linear-gradient(160deg, #1c1c1c, #0c0c0c);
-}
-.ghc-holo {
-  position: absolute;
-  inset: 0;
-  opacity: 0.45;
-  mix-blend-mode: screen;
-  pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, var(--rar, #fff) 45%, transparent 60%);
-  transform: translateX(-30%);
-  transition: transform 0.6s ease;
-}
-.ghc-card--active .ghc-holo { transform: translateX(30%); }
-.ghc-slab { width: 60%; height: auto; opacity: 0.9; }
-.ghc-img {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  max-width: 86%;
-  max-height: 86%;
-  object-fit: contain;
-  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.6));
-}
-.ghc-rank {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 3;
-  height: 26px;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid var(--rar, #fff);
-  color: var(--rar, #fff);
-  border-radius: 7px;
-  font-size: 12px;
-  font-weight: 700;
-  backdrop-filter: blur(4px);
-}
-.ghc-grade {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 3;
-  height: 24px;
-  padding: 0 8px;
-  display: inline-flex;
-  align-items: center;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid var(--rar, #fff);
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--rar, #fff);
-  backdrop-filter: blur(4px);
-}
-.ghc-foot {
-  padding: 12px 14px;
-  background: var(--color-bg-1);
+  gap: 20px;
+  margin: 26px 0 4px;
+  padding: 12px 0;
   border-top: 1px solid var(--color-line);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  border-bottom: 1px solid var(--color-line);
 }
-.ghc-rarity-tag {
-  align-self: flex-start;
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--rar, #fff);
-  font-weight: 600;
-}
-.ghc-nm {
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
+.ght-mask {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+  mask-image: linear-gradient(90deg, transparent, #000 36px, #000 calc(100% - 36px), transparent);
 }
-.ghc-foot-row {
+.ght-track {
+  display: flex;
+  width: max-content;
+  animation: ght-marquee var(--ght-dur, 40s) linear infinite;
+}
+.ght:hover .ght-track {
+  animation-play-state: paused;
+}
+.ght-row {
+  display: flex;
+  flex: none;
+}
+@keyframes ght-marquee {
+  to { transform: translateX(-50%); }
+}
+.ght-chip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.ghc-set {
-  font-size: 10.5px;
-  color: var(--color-ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ghc-val { font-size: 13px; font-weight: 700; white-space: nowrap; }
-
-.ghc-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 50;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  cursor: pointer;
-  background: rgba(19, 19, 19, 0.7);
-  border: 1px solid var(--color-line-2);
-  color: var(--color-ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(8px);
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
-}
-.ghc-arrow:hover { background: var(--color-bg-3); border-color: var(--color-ink-3); }
-.ghc-arrow:active { transform: translateY(-50%) scale(0.92); }
-.ghc-arrow--prev { left: 8px; }
-.ghc-arrow--next { right: 8px; }
-
-.ghc-detail {
-  padding: 18px 16px 6px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 13px;
-  text-align: center;
-}
-.ghc-pull-line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.ghc-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  align-items: center;
-  padding: 0 20px;
-  border-right: 1px solid var(--color-line);
-  min-width: 110px;
-}
-.ghc-chip:last-child { border-right: none; }
-.ghc-l {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-ink-3);
-}
-.ghc-v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.ghc-green { color: var(--color-green); }
-.ghc-mult {
-  font-size: 15px;
-  font-weight: 800;
-  color: #000;
-  background: var(--color-yellow);
-  padding: 3px 12px;
-  border-radius: 8px;
-}
-.ghc-soon {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-yellow);
-  background: color-mix(in srgb, var(--color-yellow) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-yellow) 22%, transparent);
-  border-radius: 6px;
-  padding: 3px 8px;
-}
-.ghc-meta {
-  font-size: 12px;
-  color: var(--color-ink-3);
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-.ghc-view { color: var(--color-ink-2); }
-.ghc-view:hover { color: var(--color-yellow); }
-.ghc-chain {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--color-bg-2);
+  gap: 12px;
+  margin-right: 12px;
+  padding: 9px 16px 9px 9px;
   border: 1px solid var(--color-line);
-  font-size: 11px;
+  border-radius: 12px;
+  background: var(--color-bg-1);
+  transition: border-color 0.12s;
+}
+a.ght-chip:hover {
+  border-color: var(--color-line-2);
+}
+.ght-art {
+  width: 60px;
+  height: 82px;
+  border-radius: 6px;
+  background: var(--color-bg-2);
+  flex: none;
+  overflow: hidden;
+  position: relative;
+}
+.ght-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+/* Phygitals pedestal product shots — zoom toward the slab so it reads at the
+   same scale as other platforms' tight slab scans (gentler now the art is big). */
+.ght-art--zoom img {
+  transform: scale(1.5);
+  transform-origin: 50% 36%;
+}
+.ght-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 230px;
+}
+.ght-val {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-yellow);
+}
+.ght-grade {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 9.5px;
+  color: var(--color-ink-3);
+}
+.ght-name {
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
   color: var(--color-ink-2);
 }
-.ghc-chain::before { content: ""; width: 6px; height: 6px; border-radius: 50%; }
-.ghc-chain--poly::before { background: var(--color-purple); }
-.ghc-chain--sol::before { background: var(--color-solana); }
-.ghc-chain--base::before { background: var(--color-blue); }
-.ghc-chain--eth::before { background: #9aa6ff; }
-
-.ghc-dots { display: flex; gap: 7px; justify-content: center; }
-.ghc-dot {
-  width: 7px;
-  height: 7px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: var(--color-line-2);
-  cursor: pointer;
-  transition: background 0.2s, transform 0.2s;
-}
-.ghc-dot--on { background: var(--color-yellow); transform: scale(1.3); }
-.ghc-hint { font-size: 11px; color: var(--color-ink-4); letter-spacing: 0.04em; }
-
-.ghc-empty {
-  height: 200px;
+.ght-sub {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--color-ink-3);
-  font-size: 13px;
-  border: 1px dashed var(--color-line-2);
-  border-radius: 16px;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--color-ink-4);
 }
-
-.ghc-card:focus-visible { outline: 2px solid var(--color-yellow); outline-offset: 3px; }
-
-@media (max-width: 680px) {
-  .ghc-arrow { display: none; }
-  .ghc-sub { display: none; }
-  .ghc-chip { min-width: 88px; padding: 0 12px; }
-  .ghc-flow { height: 340px; }
+.ght-pf {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: #000;
+  font-weight: 700;
+  font-size: 8px;
 }
+.ght-sub-t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Reduced motion: no drift — the band becomes a plain scrollable strip and the
+   duplicate row is hidden so content isn't doubled. */
 @media (prefers-reduced-motion: reduce) {
-  .ghc-card { transition: none; }
-  .ghc-holo { display: none; }
-  .ghc-livedot { animation: none; }
+  .ght-track { animation: none; }
+  .ght-mask { overflow-x: auto; }
+  .ght-row[aria-hidden] { display: none; }
 }

@@ -71,7 +71,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
   }
 
   return (
-    <div className="sticky top-0 z-30 bg-black/80 backdrop-blur-xl">
+    <div className="sticky top-0 z-30 bg-bg/80 backdrop-blur-xl font-sans">
       {hasTicker && (
         <div
           className="overflow-hidden border-b border-line/40 transition-[height,opacity] duration-[280ms] ease-out"
@@ -98,14 +98,12 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         </div>
       )}
 
-      <nav className="flex items-center gap-7 border-b border-line/70 px-8 py-4">
+      <nav className="flex items-center gap-3 border-b border-line/70 px-8 py-4 sm:gap-7">
         <Link href="/" className="flex items-center gap-2 text-[17px] font-bold tracking-[0.02em]">
           <span className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-md bg-yellow text-[12px] font-extrabold text-black">
-            T
+            V
           </span>
-          <span>
-            TCG<span className="font-medium text-ink-3">.market</span>
-          </span>
+          <span className="hidden font-mono tracking-[0.04em] sm:inline">VARIABLE</span>
         </Link>
 
         <div className="flex gap-1">
@@ -116,7 +114,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
                 key={link.label}
                 href={link.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-lg px-3 py-1.5 text-[13px] transition-colors ${
+                className={`rounded-lg px-2.5 py-1.5 text-[13px] transition-colors sm:px-3 ${
                   active ? "bg-bg-2 text-ink" : "text-ink-3 hover:text-ink"
                 }`}
               >
@@ -129,7 +127,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         <form
           onSubmit={onSearchSubmit}
           role="search"
-          aria-label="Search TCG.market"
+          aria-label="Search VARIABLE"
           className="ml-auto hidden h-9 w-[360px] items-center gap-2.5 rounded-full border border-line/70 bg-bg-1 px-4 text-[13px] text-ink-3 focus-within:border-yellow/50 md:flex"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
