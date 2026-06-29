@@ -16,12 +16,12 @@ export default function RootError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[tcg.market] root error:", error);
+    console.error("[variable] root error:", error);
   }, [error]);
 
   return (
     <html lang="en">
-      <body className="min-h-screen bg-bg text-ink">
+      <body className="min-h-screen bg-bg font-sans text-ink">
         <main className="mx-auto flex min-h-screen max-w-[560px] flex-col justify-center px-8">
           <span className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-red">
             Something broke

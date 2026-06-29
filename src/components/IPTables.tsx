@@ -1,0 +1,223 @@
+import Link from "next/link";
+import type { CardRow, SetRow } from "@/lib/data/fetchIP";
+import { proxyImg } from "@/lib/img";
+import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
+import { cardHref, cardSupported } from "@/lib/card/ids";
+
+const PLATFORM_LABEL: Record<string, string> = {
+  beezie: "Beezie",
+  "collector-crypt": "Collector Crypt",
+};
+
+const GRADER_COLOR: Record<string, string> = {
+  PSA: "#D62828",
+  CGC: "#5b9bff",
+  BGS: "#f5c451",
+  SGC: "#a18cff",
+  AGS: "#6cf48a",
+  TAG: "#a78bfa",
+};
+
+/** Top Cards — handoff-styled table. 24h % isn't tracked per card yet → "—". */
+export function IPTopCards({
+  rows,
+  seeAllHref,
+  total,
+}: {
+  rows: CardRow[];
+  seeAllHref: string;
+  total: number;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <section className="mb-12 font-sans">
+      <SectionHeader title="Top Cards" sub="Most traded in this window" seeAllHref={seeAllHref} seeAllLabel="See all cards →" />
+      <div className="scroll-x">
+        <table className="w-full min-w-[760px] border-collapse text-[13px]">
+          <thead>
+            <Hr>
+              <Th>#</Th>
+              <Th left>Card</Th>
+              <Th left>Grade</Th>
+              <Th>Last</Th>
+              <Th>Trades</Th>
+              <Th>24h Vol</Th>
+              <Th>24h %</Th>
+            </Hr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const supported = cardSupported(r.platform);
+              const sub = r.set ?? PLATFORM_LABEL[r.platform] ?? r.platform;
+              const card = (
+                <span className="flex items-center gap-3">
+                  {r.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={proxyImg(r.image)}
+                      alt=""
+                      className="h-[42px] w-[30px] shrink-0 rounded-[4px] bg-bg-2 object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span className="h-[42px] w-[30px] shrink-0 rounded-[4px] bg-bg-2" />
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold group-hover:text-yellow">{r.name}</span>
+                    <span className="block truncate font-mono text-[11px] text-ink-4">{sub}</span>
+                  </span>
+                </span>
+              );
+              return (
+                <tr
+                  key={`${r.platform}:${r.tokenId}`}
+                  className="group relative cursor-pointer border-b border-line/60 transition-colors hover:bg-bg-2"
+                >
+                  <Td className="text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
+                  <Td left>
+                    {supported ? (
+                      <Link href={cardHref(r.platform, r.tokenId)} className="block before:absolute before:inset-0 before:content-['']">
+                        {card}
+                      </Link>
+                    ) : (
+                      card
+                    )}
+                  </Td>
+                  <Td left>
+                    <GradePill grade={r.grade} />
+                  </Td>
+                  <Td strong>{formatCompactUsd(r.topPriceUsd)}</Td>
+                  <Td>{formatInt(r.trades)}</Td>
+                  <Td strong>{formatCompactUsd(r.vol24Usd)}</Td>
+                  <Td muted>—</Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** Sets — handoff-styled table. Set year isn't in our data → omitted. */
+export function IPSets({
+  rows,
+  seeAllHref,
+  total,
+}: {
+  rows: SetRow[];
+  seeAllHref: string;
+  total: number;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <section className="mb-12 font-sans">
+      <SectionHeader
+        title="Sets"
+        sub={`Top sets by 24h volume · ${total} total`}
+        seeAllHref={seeAllHref}
+        seeAllLabel={`See all ${total} →`}
+      />
+      <div className="scroll-x">
+        <table className="w-full min-w-[680px] border-collapse text-[13px]">
+          <thead>
+            <Hr>
+              <Th>#</Th>
+              <Th left>Set</Th>
+              <Th>Cards</Th>
+              <Th>Trades</Th>
+              <Th>24h Vol</Th>
+              <Th>Avg Trade</Th>
+              <Th left>Top Card</Th>
+            </Hr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.name} className="border-b border-line/60 transition-colors hover:bg-bg-2">
+                <Td className="text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
+                <Td left>
+                  <span className="font-semibold">{r.name}</span>
+                </Td>
+                <Td>{formatCompactNumber(r.cards)}</Td>
+                <Td>{formatInt(r.trades)}</Td>
+                <Td strong>{formatCompactUsd(r.vol24Usd)}</Td>
+                <Td muted>{formatCompactUsd(r.avgTradeUsd)}</Td>
+                <Td left className="max-w-[260px]">
+                  <span className="block truncate text-[12px] text-ink-2">{r.topCard ?? "—"}</span>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function GradePill({ grade }: { grade: string }) {
+  const m = grade.match(/^([A-Za-z]+)\s*([\d.]+)$/);
+  if (!m) return <span className="font-mono text-[12px] text-ink-3">{grade || "—"}</span>;
+  const color = GRADER_COLOR[m[1].toUpperCase()] ?? "#707070";
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-2 px-2 py-1 font-mono text-[11px] font-bold">
+      <span style={{ color }}>{m[1]}</span>
+      <span className="text-ink">{m[2]}</span>
+    </span>
+  );
+}
+
+function SectionHeader({
+  title,
+  sub,
+  seeAllHref,
+  seeAllLabel,
+}: {
+  title: string;
+  sub: string;
+  seeAllHref: string;
+  seeAllLabel: string;
+}) {
+  return (
+    <div className="mb-4 flex items-end justify-between gap-4">
+      <div>
+        <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
+        <div className="mt-1 font-mono text-[12px] text-ink-3">{sub}</div>
+      </div>
+      <Link href={seeAllHref} className="shrink-0 font-mono text-[12px] text-ink-3 transition-colors hover:text-yellow">
+        {seeAllLabel}
+      </Link>
+    </div>
+  );
+}
+
+function Hr({ children }: { children: React.ReactNode }) {
+  return (
+    <tr className="border-b border-line font-mono text-[11px] uppercase tracking-[0.06em] text-ink-3">
+      {children}
+    </tr>
+  );
+}
+
+function Th({ children, left }: { children: React.ReactNode; left?: boolean }) {
+  return <th className={`px-3 py-3 font-medium ${left ? "text-left" : "text-right"}`}>{children}</th>;
+}
+
+function Td({
+  children,
+  left,
+  strong,
+  muted,
+  className = "",
+}: {
+  children: React.ReactNode;
+  left?: boolean;
+  strong?: boolean;
+  muted?: boolean;
+  className?: string;
+}) {
+  const align = left ? "text-left" : "text-right";
+  const mono = left ? "" : "font-mono tabular";
+  const weight = strong ? "font-semibold text-ink" : muted ? "text-ink-3" : "text-ink-2";
+  return <td className={`whitespace-nowrap px-3 py-3.5 ${align} ${mono} ${weight} ${className}`}>{children}</td>;
+}

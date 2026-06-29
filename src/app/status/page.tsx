@@ -4,7 +4,7 @@ import { allChips, type ChipModel } from "@/lib/data/freshnessView";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Data status · TCG.market",
+  title: "Data status · VARIABLE",
   description: "Honest, per-source freshness for every feed the site reads.",
 };
 
@@ -45,7 +45,7 @@ export default async function StatusPage() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[900px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[900px] px-8 pt-10 pb-20 font-sans">
         <h1 className="text-[28px] font-bold tracking-[-0.01em]">Data status</h1>
         <p className="mt-2 max-w-[640px] text-[13px] leading-relaxed text-ink-2">
           Every feed the site reads, with the last time each source actually
@@ -77,7 +77,7 @@ export default async function StatusPage() {
                 <tr key={c.source} className="border-b border-bg-2 last:border-0">
                   <td className="px-4 py-2.5">
                     <span className="text-ink">{c.label}</span>
-                    <span className="ml-2 text-[11px] text-ink-4">{c.source}</span>
+                    <span className="ml-2 font-mono text-[11px] text-ink-4">{c.source}</span>
                     {c.error && (
                       <div className="mt-0.5 max-w-[420px] truncate text-[11px] text-red" title={c.error}>
                         {c.error}
@@ -101,7 +101,7 @@ export default async function StatusPage() {
         </div>
 
         <div className="mt-20 text-center text-[12px] text-ink-3">
-          TCG.market · data provenance
+          VARIABLE · data provenance
         </div>
       </div>
     </>

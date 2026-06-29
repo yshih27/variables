@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 /**
  * Auto-generated favicon. Matches the NavBar brand chip: yellow square,
- * black "T" mark. Next.js will pick this up at all the standard sizes.
+ * black "V" mark. Next.js will pick this up at all the standard sizes.
  */
 export const size = { width: 32, height: 32 };
 export const contentType = "image/png";
@@ -25,7 +25,7 @@ export default function Icon() {
           fontFamily: "system-ui, -apple-system, Helvetica, Arial",
         }}
       >
-        T
+        V
       </div>
     ),
     { ...size },

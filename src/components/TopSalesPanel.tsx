@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TopSale } from "@/lib/types";
 import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
@@ -51,28 +51,37 @@ function SaleCard({ sale }: { sale: TopSale }) {
       ? cardHref(sale.platform, sale.tokenId)
       : `/ip/${sale.ipKey}`;
 
-  // No JS "loaded" gating — the photo renders at full opacity layered ABOVE
-  // the slab placeholder. While the image is still downloading it has no
-  // pixels (transparent), so the slab shows through; once decoded it covers
-  // the slab; on error `onError` removes it and the slab stays. This is
-  // race-free, unlike an opacity-toggle gated on a load event that can fire
-  // during SSR hydration before React attaches the handler.
-  //
-  // Beezie ships a 2160² image with the slab small (~44%w × ~78%h) centered
-  // on its own near-black field; Collector Crypt ships a tight slab crop. So:
-  //   - Beezie → object-contain + scale-150 so the WHOLE slab (case + grade
-  //              label) enlarges to fill the frame like CC; dark side margins
-  //              overflow and clip harmlessly against the card background.
-  //   - Others → object-contain with padding so the slab "floats".
-  const isBeezie = sale.platform === "beezie";
-  const imgClass = isBeezie
-    ? "absolute inset-0 m-auto max-h-full max-w-full scale-[1.5] object-contain drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)]"
-    : "absolute inset-0 m-auto max-h-full max-w-full object-contain px-4 py-5 drop-shadow-[0_8px_18px_rgba(0,0,0,0.55)]";
+  // Sources frame the slab at wildly different scales (Beezie centres it on a
+  // 2160² near-black field; others ship tight crops). No CSS fit normalises that
+  // because it can't tell the slab from its padding. So once the photo loads we
+  // read its pixels, detect the slab's bounding box (autoTrim), and swap in a
+  // tightly-cropped version rendered with object-contain — every slab then shows
+  // WHOLE at the same size. Reads need CORS (Beezie sends `ACAO: *`); when a host
+  // refuses cross-origin reads we retry without it and keep an object-cover
+  // fallback (display always works, it just isn't auto-trimmed).
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [trimmed, setTrimmed] = useState<string | null>(null);
+  const [corsBlocked, setCorsBlocked] = useState(false);
+
+  const analyze = () => {
+    if (trimmed) return;
+    const el = imgRef.current;
+    if (el && el.complete && el.naturalWidth > 0) {
+      const cropped = autoTrim(el);
+      if (cropped) setTrimmed(cropped);
+    }
+  };
+
+  // Catch images that finished loading before React attached onLoad (cache hit).
+  useEffect(() => {
+    if (!corsBlocked) analyze();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSrc, corsBlocked]);
 
   return (
     <a
       href={cardLink}
-      className="group flex flex-col overflow-hidden rounded-xl bg-bg-2 transition hover:-translate-y-0.5"
+      className="group flex flex-col overflow-hidden rounded-xl bg-bg-2 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5"
     >
       {/* Image area: slab placeholder always behind, img fades in on top */}
       <div
@@ -85,21 +94,38 @@ function SaleCard({ sale }: { sale: TopSale }) {
         <div className="absolute inset-0 flex items-center justify-center px-4 py-5">
           <SlabPlaceholder color={sale.ipColor} />
         </div>
-        {currentSrc && !failed && (
+        {trimmed ? (
+          // Auto-trimmed crop: whole slab, uniform size across every tile.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={currentSrc}
+            src={trimmed}
             alt=""
-            className={imgClass}
-            onError={() => {
-              if (srcIdx + 1 < sources.length) {
-                setSrcIdx(srcIdx + 1);
-              } else {
-                setFailed(true);
-              }
-            }}
-            loading="lazy"
+            className="absolute inset-0 m-auto h-full w-full object-contain p-2 drop-shadow-[0_8px_18px_rgba(0,0,0,0.5)]"
           />
+        ) : (
+          currentSrc &&
+          !failed && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              ref={imgRef}
+              src={currentSrc}
+              alt=""
+              {...(corsBlocked ? {} : { crossOrigin: "anonymous" as const })}
+              className="absolute inset-0 h-full w-full object-cover object-center"
+              onLoad={corsBlocked ? undefined : analyze}
+              onError={() => {
+                // First failure is usually a host refusing cross-origin reads —
+                // retry the same src without crossOrigin so it still displays.
+                if (!corsBlocked) {
+                  setCorsBlocked(true);
+                  return;
+                }
+                if (srcIdx + 1 < sources.length) setSrcIdx(srcIdx + 1);
+                else setFailed(true);
+              }}
+              loading="lazy"
+            />
+          )
         )}
         <span className="absolute right-2.5 top-2.5 z-10 rounded-md bg-yellow px-2 py-[3px] text-[11px] font-bold text-black tabular shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
           {formatCompactUsd(sale.priceUsd)}
@@ -129,6 +155,95 @@ function SaleCard({ sale }: { sale: TopSale }) {
       </div>
     </a>
   );
+}
+
+/**
+ * Detect the slab/card inside a photo and return a tightly-cropped JPEG data
+ * URL, so every tile can render the WHOLE subject at the same size with
+ * object-contain. Sources frame slabs at inconsistent scales and CSS can't tell
+ * the subject from its padding — so we trim the uniform background by scanning a
+ * downscaled copy for the subject's bounding box. Returns the trimmed crop, the
+ * whole frame when there's no clear background to trim, or null when the pixels
+ * can't be read (cross-origin taint).
+ */
+function autoTrim(img: HTMLImageElement): string | null {
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  if (!W || !H) return null;
+
+  // Downscale for a cheap bounding-box scan.
+  const aw = Math.min(W, 160);
+  const scale = aw / W;
+  const ah = Math.max(1, Math.round(H * scale));
+  const scan = document.createElement("canvas");
+  scan.width = aw;
+  scan.height = ah;
+  const sctx = scan.getContext("2d", { willReadFrequently: true });
+  if (!sctx) return null;
+  sctx.drawImage(img, 0, 0, aw, ah);
+
+  let px: Uint8ClampedArray;
+  try {
+    px = sctx.getImageData(0, 0, aw, ah).data;
+  } catch {
+    return null; // cross-origin tainted — pixels unreadable
+  }
+
+  // Background ≈ average of the four corners.
+  const corner = (x: number, y: number) => {
+    const i = (y * aw + x) * 4;
+    return [px[i], px[i + 1], px[i + 2]];
+  };
+  const corners = [corner(0, 0), corner(aw - 1, 0), corner(0, ah - 1), corner(aw - 1, ah - 1)];
+  const bg = [0, 1, 2].map((k) => corners.reduce((sum, c) => sum + c[k], 0) / corners.length);
+
+  // Bounding box of everything that differs from the background.
+  const THRESH = 42; // sum of per-channel deltas
+  let minX = aw, minY = ah, maxX = -1, maxY = -1;
+  for (let y = 0; y < ah; y++) {
+    for (let x = 0; x < aw; x++) {
+      const i = (y * aw + x) * 4;
+      const delta =
+        Math.abs(px[i] - bg[0]) + Math.abs(px[i + 1] - bg[1]) + Math.abs(px[i + 2] - bg[2]);
+      if (delta > THRESH) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // Default to the full frame; trim to the subject when one clearly stands out.
+  let sx = 0, sy = 0, sw = W, sh = H;
+  if (maxX >= minX && maxY >= minY) {
+    const bw = (maxX - minX) / scale;
+    const bh = (maxY - minY) / scale;
+    const meaningful = bw > W * 0.15 && bh > H * 0.15 && (bw < W * 0.97 || bh < H * 0.97);
+    if (meaningful) {
+      const padX = (maxX - minX) * 0.03 + 1;
+      const padY = (maxY - minY) * 0.03 + 1;
+      sx = Math.max(0, minX - padX) / scale;
+      sy = Math.max(0, minY - padY) / scale;
+      sw = Math.min(aw, maxX + padX) / scale - sx;
+      sh = Math.min(ah, maxY + padY) / scale - sy;
+    }
+  }
+
+  // Re-draw the chosen region, capped to a sane resolution.
+  const outH = Math.min(sh, 720);
+  const k = outH / sh;
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, Math.round(sw * k));
+  out.height = Math.max(1, Math.round(outH));
+  const octx = out.getContext("2d");
+  if (!octx) return null;
+  octx.drawImage(img, sx, sy, sw, sh, 0, 0, out.width, out.height);
+  try {
+    return out.toDataURL("image/jpeg", 0.92);
+  } catch {
+    return null;
+  }
 }
 
 function SlabPlaceholder({ color }: { color: string }) {

@@ -22,12 +22,30 @@ export default async function Home() {
   const [data, gacha] = await Promise.all([getHomepageData(), getGachaData()]);
   const gachaRips = gacha.hero.totalPulls24h;
 
+  // 24h volume split — each platform row carries the components, so the homepage
+  // total = marketplace resale + gacha pulls + tokenization (other primary).
+  const vAcc = data.platforms.reduce(
+    (a, p) => ({
+      marketplace: a.marketplace + (p.vol24Usd || 0),
+      gacha: a.gacha + (p.gachaVol24Usd ?? 0),
+      primary: a.primary + (p.primaryUsd ?? 0),
+      total: a.total + (p.total24Usd || 0),
+    }),
+    { marketplace: 0, gacha: 0, primary: 0, total: 0 },
+  );
+  const volBreakdown = {
+    marketplace: vAcc.marketplace,
+    gacha: vAcc.gacha,
+    otherPrimary: Math.max(0, vAcc.primary - vAcc.gacha),
+    total: vAcc.total,
+  };
+
   // CoinGecko-style top ticker — each stat links to its page.
   const ticker: TickerItem[] = [
     { label: "Market Cap", value: formatCompactUsd(data.hero.totalMcapUsd), href: "/ips" },
     {
       label: "24h Vol",
-      value: data.hero.vol24Usd > 0 ? formatCompactUsd(data.hero.vol24Usd) : "—",
+      value: volBreakdown.total > 0 ? formatCompactUsd(volBreakdown.total) : "—",
       href: "/platforms",
     },
     { label: "Platforms", value: String(data.hero.platformsTracked), href: "/platforms" },
@@ -42,17 +60,17 @@ export default async function Home() {
   return (
     <>
       <NavBar ticker={ticker} />
-      <div className="mx-auto max-w-[1760px] px-8 pt-8 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-8 pb-20 font-sans">
         <div className="mb-9">
-          <h1 className="text-[30px] font-bold leading-tight tracking-[-0.01em]">
+          <h1 className="text-[30px] font-bold leading-[1.1] tracking-[-0.02em] md:text-[34px]">
             The market for <span className="text-yellow">phygital</span> collectibles.
           </h1>
-          <p className="mt-1.5 text-[13px] text-ink-3">
+          <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
             Live prices, volume, and holders across tokenized trading-card platforms.
           </p>
         </div>
 
-        <MarketStatCards hero={data.hero} />
+        <MarketStatCards hero={data.hero} vol={volBreakdown} />
 
         <section className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <HotIPsPanel items={data.hotIPs} />

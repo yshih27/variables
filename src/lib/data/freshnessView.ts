@@ -34,6 +34,8 @@ const LABELS: Record<string, string> = {
   "primary-revenue": "Primary revenue",
   history: "Price history",
   "gacha-dune": "Gacha",
+  "phygitals-gacha": "Phygitals gacha",
+  "gacha-packs": "Pack catalog",
   holders: "Holders",
   "beezie-traits": "Beezie traits",
   phygitals: "Phygitals",

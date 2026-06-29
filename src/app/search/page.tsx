@@ -7,7 +7,7 @@ import { buildSearch, type GroupedResults, type SearchResult } from "@/lib/data/
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Search · TCG.market",
+  title: "Search · VARIABLE",
   description: "Find IPs, platforms, and cards across tracked tokenized-collectibles platforms.",
 };
 
@@ -30,7 +30,7 @@ export default async function SearchPage({
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24">
+      <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24 font-sans">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
           <a href="/" className="hover:text-ink-2">Rankings</a>
           <span>›</span>
@@ -79,7 +79,7 @@ function Group({ label, results }: { label: string; results: SearchResult[] }) {
         <h2 className="text-[14px] font-semibold uppercase tracking-[0.06em] text-ink-3">
           {label}
         </h2>
-        <span className="text-[11px] text-ink-4">{results.length}</span>
+        <span className="text-[11px] text-ink-4 tabular">{results.length}</span>
       </div>
       <ul className="flex flex-col gap-2">
         {results.map((r) => (

@@ -6,7 +6,7 @@ import { ImageResponse } from "next/og";
  */
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "TCG.market — the market for tokenized phygital collectibles";
+export const alt = "VARIABLE — the market for tokenized phygital collectibles";
 
 export default function OpengraphImage() {
   return new ImageResponse(
@@ -40,11 +40,10 @@ export default function OpengraphImage() {
               justifyContent: "center",
             }}
           >
-            T
+            V
           </div>
-          <div style={{ display: "flex", fontSize: 36, fontWeight: 700, letterSpacing: -0.5 }}>
-            TCG
-            <span style={{ color: "#707070", fontWeight: 500 }}>.market</span>
+          <div style={{ display: "flex", fontSize: 36, fontWeight: 700, letterSpacing: 1 }}>
+            VARIABLE
           </div>
         </div>
 
@@ -88,7 +87,7 @@ export default function OpengraphImage() {
           }}
         >
           <span>Beezie · Courtyard · Collector Crypt · Phygitals</span>
-          <span>tcg.market</span>
+          <span>VARIABLE</span>
         </div>
       </div>
     ),

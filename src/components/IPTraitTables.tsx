@@ -48,7 +48,7 @@ export function SetsTable({
         </thead>
         <tbody>
           {visible.map((r) => (
-            <tr key={r.name} className="transition-colors hover:bg-bg-1">
+            <tr key={r.name} className="transition-colors hover:bg-bg-2">
               <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <span className="font-semibold">{r.name}</span>
@@ -106,7 +106,7 @@ export function GradesTable({
         </thead>
         <tbody>
           {visible.map((r) => (
-            <tr key={r.label} className="transition-colors hover:bg-bg-1">
+            <tr key={r.label} className="transition-colors hover:bg-bg-2">
               <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <GradePill grader={r.grader} gradeNum={r.gradeNum} label={r.label} />
@@ -232,7 +232,7 @@ export function TopCardsTable({
         </thead>
         <tbody>
           {visible.map((r) => (
-            <tr key={`${r.platform}:${r.tokenId}`} className="transition-colors hover:bg-bg-1">
+            <tr key={`${r.platform}:${r.tokenId}`} className="transition-colors hover:bg-bg-2">
               <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <CardCell

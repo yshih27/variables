@@ -21,6 +21,7 @@ import { fetchCCSecondarySales } from "../src/lib/data/warmers/core";
 import { readHistory, readIpHistory } from "../src/lib/data/history";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { readHolders } from "../src/lib/data/holders";
+import { readCardValuations } from "../src/lib/data/cards";
 import {
   writeMetricSnapshots,
   dayStartUtc,
@@ -75,6 +76,41 @@ async function main() {
     push("platform", "collector-crypt", "active_wallets", b.wallets.size, day);
     ccDays++;
     ccVolTotal += b.vol;
+  }
+
+  // ── Family 1d: per-IP active_wallets + cards_traded from CC's 30d sale rows ──
+  // by-ip history (1c) gives per-IP volume/trades but not uniques; attribute each
+  // CC sale's mint to an IP (cards.ip_key) for daily unique wallets + cards. CC-only
+  // (the dominant platform for these IPs); completes the IP Activity chart's 5 metrics.
+  const ccMintToIp = new Map<string, string>();
+  for (const c of await readCardValuations("collector-crypt")) ccMintToIp.set(c.tokenId, c.ipKey);
+  const ccIpByDay = new Map<string, Map<string, { wallets: Set<string>; cards: Set<string> }>>();
+  for (const s of ccSales) {
+    const t = Date.parse(s.date);
+    if (!Number.isFinite(t)) continue;
+    const day = dayStartUtc(t);
+    const ip = ccMintToIp.get(s.tokenId) ?? "other";
+    let dayMap = ccIpByDay.get(day);
+    if (!dayMap) {
+      dayMap = new Map();
+      ccIpByDay.set(day, dayMap);
+    }
+    let acc = dayMap.get(ip);
+    if (!acc) {
+      acc = { wallets: new Set(), cards: new Set() };
+      dayMap.set(ip, acc);
+    }
+    if (s.buyer) acc.wallets.add(s.buyer);
+    if (s.seller) acc.wallets.add(s.seller);
+    if (s.tokenId) acc.cards.add(s.tokenId);
+  }
+  for (const [day, dayMap] of ccIpByDay) {
+    const ds = Date.parse(day);
+    if (ds < ccWindowStart || ds + DAY > now) continue; // complete days only
+    for (const [ip, acc] of dayMap) {
+      push("ip", ip, "active_wallets", acc.wallets.size, day);
+      push("ip", ip, "cards_traded", acc.cards.size, day);
+    }
   }
 
   // ── Family 1b: Beezie + Courtyard daily flow (7d, from history snapshot) ──

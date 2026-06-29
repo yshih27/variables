@@ -9,6 +9,28 @@ import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
+const GRADER_COLOR: Record<string, string> = {
+  PSA: "#D62828",
+  CGC: "#5b9bff",
+  BGS: "#f5c451",
+  SGC: "#a18cff",
+  AGS: "#6cf48a",
+  TAG: "#a78bfa",
+};
+
+/** Grade chip — colored grader prefix + mono number (e.g. PSA 10). */
+function GradePill({ grade }: { grade: string }) {
+  const m = grade.match(/^([A-Za-z]+)\s*([\d.]+)$/);
+  if (!m) return <span className="font-mono text-[12px] text-ink-3">{grade || "—"}</span>;
+  const color = GRADER_COLOR[m[1].toUpperCase()] ?? "#707070";
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-2 px-2 py-1 font-mono text-[11px] font-bold">
+      <span style={{ color }}>{m[1]}</span>
+      <span className="text-ink">{m[2]}</span>
+    </span>
+  );
+}
+
 type SectionProps = {
   title: string;
   sub?: string;
@@ -28,16 +50,16 @@ function Section({
 }: SectionProps) {
   const overflow = totalRows - visibleRows;
   return (
-    <section className="mt-12">
+    <section className="mb-12 font-sans">
       <div className="mb-4 flex items-end justify-between gap-4">
         <div>
-          <h2 className="text-[20px] font-semibold tracking-[-0.005em]">{title}</h2>
-          {sub && <div className="mt-1 text-[12px] text-ink-3">{sub}</div>}
+          <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
+          {sub && <div className="mt-1 font-mono text-[12px] text-ink-3">{sub}</div>}
         </div>
         {seeAllHref && overflow > 0 && (
           <Link
             href={seeAllHref}
-            className="text-[12px] text-ink-3 transition-colors hover:text-yellow"
+            className="shrink-0 font-mono text-[12px] text-ink-3 transition-colors hover:text-yellow"
           >
             See all {totalRows} →
           </Link>
@@ -51,7 +73,7 @@ function Section({
 function Th({ children, align }: { children: React.ReactNode; align?: "right" }) {
   return (
     <th
-      className={`px-4 py-3 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 ${
+      className={`px-4 py-3 font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 ${
         align === "right" ? "text-right" : "text-left"
       }`}
     >
@@ -73,11 +95,11 @@ function Td({
   strong?: boolean;
   muted?: boolean;
 }) {
-  const a = align === "right" ? "text-right" : "";
+  const a = align === "right" ? "text-right font-mono tabular" : "text-left";
   const w = strong ? "font-semibold text-ink" : muted ? "text-ink-2" : "";
   return (
     <td
-      className={`tabular whitespace-nowrap border-b border-line/60 px-4 py-3.5 ${a} ${w} ${className}`}
+      className={`whitespace-nowrap border-b border-line/60 px-4 py-3.5 ${a} ${w} ${className}`}
     >
       {children}
     </td>
@@ -122,9 +144,9 @@ export function PlatformIPsTable({
           {visible.map((r) => (
             <tr
               key={r.key}
-              className="group relative cursor-pointer transition-colors hover:bg-bg-1"
+              className="group relative cursor-pointer transition-colors hover:bg-bg-2"
             >
-              <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
+              <Td className="w-[44px] font-mono tabular text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <Link
                   href={`/ip/${r.key}`}
@@ -214,8 +236,8 @@ export function PlatformTopCardsTable({
         </thead>
         <tbody>
           {visible.map((r) => (
-            <tr key={r.tokenId} className="transition-colors hover:bg-bg-1">
-              <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
+            <tr key={r.tokenId} className="transition-colors hover:bg-bg-2">
+              <Td className="w-[44px] font-mono tabular text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <CardLink platform={r.platform} tokenId={r.tokenId}>
                   {r.image ? (
@@ -238,7 +260,7 @@ export function PlatformTopCardsTable({
                 {r.set ?? "—"}
               </Td>
               <Td>
-                <span className="text-[12px] text-ink-2">{r.grade}</span>
+                <GradePill grade={r.grade} />
               </Td>
               <Td>
                 <Link
@@ -323,9 +345,9 @@ export function RecentSalesTable({
           {visible.map((r, i) => (
             <tr
               key={`${r.tokenId}:${r.date}:${i}`}
-              className="transition-colors hover:bg-bg-1"
+              className="transition-colors hover:bg-bg-2"
             >
-              <Td className="text-ink-3">{timeAgo(r.date)}</Td>
+              <Td className="font-mono tabular text-ink-3">{timeAgo(r.date)}</Td>
               <Td>
                 <CardLink platform={r.platform} tokenId={r.tokenId}>
                   {r.image ? (

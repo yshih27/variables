@@ -1,16 +1,16 @@
 import { NavBar } from "@/components/NavBar";
 
 export const metadata = {
-  title: "Methodology · TCG.market",
+  title: "Methodology · VARIABLE",
   description:
-    "How TCG.market computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
+    "How VARIABLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
 };
 
 export default function MethodologyPage() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24">
+      <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24 font-sans">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
           <a href="/" className="hover:text-ink-2">Rankings</a>
           <span>›</span>
@@ -25,7 +25,7 @@ export default function MethodologyPage() {
             How we measure.
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
-            Every number on TCG.market is derived from on-chain reads. No
+            Every number on VARIABLE is derived from on-chain reads. No
             partner APIs, no aggregator black boxes, no marketing-deck math.
             This page documents the formula behind every metric so you can
             audit our numbers.
@@ -183,7 +183,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
         </Section>
 
         <div className="mt-16 text-[12px] text-ink-3">
-          TCG.market · methodology · last updated{" "}
+          VARIABLE · methodology · last updated{" "}
           {new Date().toISOString().slice(0, 10)}
         </div>
       </div>
