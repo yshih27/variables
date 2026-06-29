@@ -58,23 +58,40 @@ function cmp(a: number, b: number, dir: 1 | -1): number {
   return (a - b) * dir;
 }
 
+// Category-type facet — derived from the IP key (no catalog field for it).
+const CATEGORY_GROUPS = ["TCG", "Sports", "Other"] as const;
+const TCG_KEYS = new Set(["pokemon", "one_piece", "yugioh", "magic", "lorcana", "dragon_ball", "veefriends"]);
+const SPORTS_KEYS = new Set(["basketball", "baseball", "football", "soccer", "hockey", "f1"]);
+function categoryGroup(key: string): string {
+  if (TCG_KEYS.has(key)) return "TCG";
+  if (SPORTS_KEYS.has(key)) return "Sports";
+  return "Other";
+}
+
 export function IPTable({ rows, maxRows, seeAllHref }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("mcap");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [vw, setVw] = useState<VolWindow>("24h");
+  const [facet, setFacet] = useState<string>("All");
 
   if (rows.length === 0) return null;
 
-  // Dominance = each IP's market cap as a share of the total (across all rows).
+  // Dominance = each IP's market cap as a share of the total market — always
+  // across ALL rows, not just the current facet.
   const totalMcap =
     rows.reduce((s, ip) => {
       const v = mcapValue(ip);
       return s + (Number.isFinite(v) ? v : 0);
     }, 0) || 1;
 
-  const sorted = [...rows].sort((a, b) => cmp(valueFor(a, sortKey, vw), valueFor(b, sortKey, vw), dir));
+  // Category-type facet (TCG / Sports / Other) — only offer tabs that have rows.
+  const facets = ["All", ...CATEGORY_GROUPS.filter((g) => rows.some((r) => categoryGroup(r.key) === g))];
+  const activeFacet = facets.includes(facet) ? facet : "All";
+  const facetRows = activeFacet === "All" ? rows : rows.filter((r) => categoryGroup(r.key) === activeFacet);
+
+  const sorted = [...facetRows].sort((a, b) => cmp(valueFor(a, sortKey, vw), valueFor(b, sortKey, vw), dir));
   const visible = maxRows ? sorted.slice(0, maxRows) : sorted;
-  const overflow = rows.length - visible.length;
+  const overflow = facetRows.length - visible.length;
 
   function onSort(key: SortKey) {
     if (key === sortKey) setDir((d) => (d === -1 ? 1 : -1));
@@ -110,6 +127,26 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
           )}
         </div>
       </div>
+
+      {facets.length > 2 && (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          {facets.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setFacet(g)}
+              aria-pressed={activeFacet === g}
+              className={`rounded-lg border px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
+                activeFacet === g
+                  ? "border-line-2 bg-bg-2 text-ink"
+                  : "border-line text-ink-3 hover:border-line-2 hover:text-ink"
+              }`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="scroll-x">
         <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1320px]">
