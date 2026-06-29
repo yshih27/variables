@@ -78,8 +78,40 @@ export type PhygitalsSale = {
   ebayListing?: PhygitalsEbayListing | null; // the prize, on CLAW rows
 };
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
+const REQUEST_TIMEOUT_MS = 15_000;
+const backoffMs = (attempt: number) =>
+  Math.min(8000, 500 * 2 ** attempt) + Math.floor(Math.random() * 250);
+
+// Resilient JSON GET: a request timeout + backoff retries on BOTH transient HTTP
+// status (429 / 5xx) AND network-level failures (abort/timeout, "terminated",
+// ECONNRESET) — which is how the marketplace endpoint throttles a fast crawl
+// (it stalls the socket rather than returning 429). Without this, one stalled or
+// rate-limited page threw and sank the whole warmer — silently, since freshness
+// was only recorded on success, so it read "stale" not "error".
+async function getJson<T>(url: string, attempt = 0): Promise<T> {
+  let res: Response;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      res = await fetch(url, { headers: HEADERS, cache: "no-store", signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    if (attempt < 4) {
+      await new Promise((r) => setTimeout(r, backoffMs(attempt)));
+      return getJson<T>(url, attempt + 1);
+    }
+    throw err;
+  }
+  if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const waitMs =
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : backoffMs(attempt);
+    await new Promise((r) => setTimeout(r, waitMs));
+    return getJson<T>(url, attempt + 1);
+  }
   if (!res.ok) throw new Error(`Phygitals ${res.status} on ${url.replace(BASE, "")}`);
   return (await res.json()) as T;
 }
