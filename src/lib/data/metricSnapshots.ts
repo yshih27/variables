@@ -19,7 +19,16 @@
  */
 import { db } from "../db/client";
 
-export type MetricEntityType = "market" | "platform" | "ip" | "card";
+// "set"/"grade"/"platform_ip" carry a composite entity_key ("{ip}:{setName}",
+// "{ip}:{gradeLabel}", "{platform}:{ip}") for the daily dominance series.
+export type MetricEntityType =
+  | "market"
+  | "platform"
+  | "ip"
+  | "card"
+  | "set"
+  | "grade"
+  | "platform_ip";
 
 export type MetricRow = {
   entity_type: MetricEntityType;
