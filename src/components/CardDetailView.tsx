@@ -56,7 +56,7 @@ function GradeBadge({
   return (
     <span className="inline-flex items-center gap-2 rounded-md border border-line bg-bg-2 px-2.5 py-1.5 text-[14px] font-bold">
       <span style={{ color }}>{grader}</span>
-      <span className="text-ink">{gradeNum}</span>
+      <span className="text-ink tabular">{gradeNum}</span>
     </span>
   );
 }

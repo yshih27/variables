@@ -98,26 +98,26 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
       </div>
 
       <div className="scroll-x">
-        <table className="w-full min-w-[1100px] border-collapse text-[13px]">
+        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1100px]">
           <thead>
             <tr className="border-b border-line">
               <Th>#</Th>
               <Th>IP / Category</Th>
               <SortTh align="right" {...sortProps("mcap")}>Market Cap</SortTh>
-              <SortTh align="right" {...sortProps("cards")}>Cards</SortTh>
-              <SortTh align="right" {...sortProps("holders")}>Holders</SortTh>
-              <SortTh align="right" {...sortProps("avgTrade")}>Avg Trade</SortTh>
-              <SortTh align="right" {...sortProps("vol")}>{vw} Vol</SortTh>
-              <SortTh align="right" {...sortProps("buyers")}>24h Buyers</SortTh>
-              <Th>24h Chart</Th>
-              <Th>Top Card</Th>
+              <SortTh align="right" className="hidden md:table-cell" {...sortProps("cards")}>Cards</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" {...sortProps("holders")}>Holders</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" {...sortProps("avgTrade")}>Avg Trade</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" {...sortProps("vol")}>{vw} Vol</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" {...sortProps("buyers")}>24h Buyers</SortTh>
+              <Th className="hidden md:table-cell">24h Chart</Th>
+              <Th className="hidden md:table-cell">Top Card</Th>
             </tr>
           </thead>
           <tbody>
             {visible.map((ip, i) => {
               const vol = vw === "24h" ? ip.vol24Usd : ip.vol7Usd;
               return (
-                <tr key={ip.key} className="group relative cursor-pointer transition-colors hover:bg-bg-1">
+                <tr key={ip.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2">
                   <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                   <Td>
                     <Link
@@ -133,31 +133,31 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
                         emoji={ip.emoji}
                         size={32}
                       />
-                      <span className="font-semibold group-hover:text-yellow">{ip.name}</span>
+                      <span className="font-sans font-semibold group-hover:text-yellow">{ip.name}</span>
                     </Link>
                   </Td>
                   <Td align="right" strong>{formatMcap(ip.mcapUsd, ip.cards)}</Td>
-                  <Td align="right">{formatCompactNumber(ip.cards)}</Td>
-                  <Td align="right">{formatInt(ip.holders)}</Td>
-                  <Td align="right" muted>
+                  <Td align="right" className="hidden md:table-cell">{formatCompactNumber(ip.cards)}</Td>
+                  <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>
+                  <Td align="right" muted className="hidden md:table-cell">
                     {ip.trades24h > 0 ? formatCompactUsd(ip.vol24Usd / ip.trades24h) : "—"}
                   </Td>
-                  <Td align="right">{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
-                  <Td align="right" muted>{formatInt(ip.buyers24h)}</Td>
-                  <Td>
+                  <Td align="right" className="hidden md:table-cell">{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
+                  <Td align="right" muted className="hidden md:table-cell">{formatInt(ip.buyers24h)}</Td>
+                  <Td className="hidden md:table-cell">
                     <Sparkline data={ip.spark} trend={ip.trend} />
                   </Td>
-                  <Td className="max-w-[280px] text-[12px] text-ink-2">
+                  <Td className="hidden max-w-[280px] text-[12px] text-ink-2 md:table-cell">
                     {ip.topCard ? (
                       ip.topCardHref ? (
                         <Link
                           href={ip.topCardHref}
-                          className="relative z-10 block truncate underline-offset-2 hover:text-yellow hover:underline"
+                          className="relative z-10 block truncate font-sans underline-offset-2 hover:text-yellow hover:underline"
                         >
                           {ip.topCard}
                         </Link>
                       ) : (
-                        <span className="block truncate">{ip.topCard}</span>
+                        <span className="block truncate font-sans">{ip.topCard}</span>
                       )
                     ) : (
                       "—"
@@ -175,7 +175,7 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
 
 function WindowToggle({ value, onChange }: { value: VolWindow; onChange: (v: VolWindow) => void }) {
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-bg-1 p-[3px] text-[11px]">
+    <div className="hidden items-center gap-0.5 rounded-lg border border-line bg-bg-1 p-[3px] text-[11px] md:inline-flex">
       {(["24h", "7d"] as VolWindow[]).map((w) => (
         <button
           key={w}
@@ -193,12 +193,12 @@ function WindowToggle({ value, onChange }: { value: VolWindow; onChange: (v: Vol
   );
 }
 
-function Th({ children, align }: { children: React.ReactNode; align?: "left" | "right" }) {
+function Th({ children, align, className = "" }: { children: React.ReactNode; align?: "left" | "right"; className?: string }) {
   return (
     <th
-      className={`px-4 py-3 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 ${
+      className={`px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 sm:px-4 ${
         align === "right" ? "text-right" : "text-left"
-      }`}
+      } ${className}`}
     >
       {children}
     </th>
@@ -211,20 +211,22 @@ function SortTh({
   active,
   dir,
   onClick,
+  className = "",
 }: {
   children: React.ReactNode;
   align?: "left" | "right";
   active: boolean;
   dir: 1 | -1;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <th
       onClick={onClick}
       aria-sort={active ? (dir === -1 ? "descending" : "ascending") : "none"}
-      className={`cursor-pointer select-none px-4 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors ${
+      className={`cursor-pointer select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
         active ? "text-ink" : "text-ink-3 hover:text-ink-2"
-      } ${align === "right" ? "text-right" : "text-left"}`}
+      } ${align === "right" ? "text-right" : "text-left"} ${className}`}
     >
       <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
         <span className={active ? "text-yellow" : "text-ink-4"}>
@@ -252,7 +254,7 @@ function Td({
   const alignCls = align === "right" ? "text-right" : "";
   const weightCls = strong ? "font-semibold text-ink" : muted ? "text-ink-2" : "";
   return (
-    <td className={`tabular whitespace-nowrap border-b border-line/60 px-4 py-4 ${alignCls} ${weightCls} ${className}`}>
+    <td className={`tabular whitespace-nowrap border-b border-line/60 px-3 py-4 sm:px-4 ${alignCls} ${weightCls} ${className}`}>
       {children}
     </td>
   );

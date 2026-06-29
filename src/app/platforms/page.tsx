@@ -12,7 +12,7 @@ const getData = unstable_cache(
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "All Platforms · TCG.market",
+  title: "All Platforms · VARIABLE",
   description: "Full list of tokenized-collectible platforms ranked by 24h volume.",
 };
 
@@ -21,7 +21,7 @@ export default async function AllPlatformsPage() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20 font-sans">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
           <a href="/" className="hover:text-ink-2">Rankings</a>
           <span>›</span>

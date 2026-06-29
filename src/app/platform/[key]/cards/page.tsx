@@ -17,7 +17,7 @@ export default async function PlatformCardsPage({
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20 font-sans">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
           <a href="/" className="hover:text-ink-2">Rankings</a>
           <span>›</span>
@@ -44,9 +44,9 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const detail = await getPlatformDetail(key);
-  if (!detail) return { title: "Not found · TCG.market" };
+  if (!detail) return { title: "Not found · VARIABLE" };
   return {
-    title: `${detail.source.name} Cards · TCG.market`,
+    title: `${detail.source.name} Cards · VARIABLE`,
     description: `Top traded cards on ${detail.source.name} in the last 24h.`,
   };
 }

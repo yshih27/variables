@@ -17,10 +17,10 @@ export default async function CardDetailPage({
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1100px] px-8 pt-10 pb-20">
+      <div className="mx-auto max-w-[1100px] px-8 pt-10 pb-20 font-sans">
         <CardDetailView card={card} />
         <div className="mt-20 text-center text-[12px] text-ink-3">
-          TCG.market · card detail
+          VARIABLE · card detail
         </div>
       </div>
     </>
@@ -34,10 +34,10 @@ export async function generateMetadata({
 }) {
   const { id } = await params;
   const card = await getCardDetail(id);
-  if (!card) return { title: "Card not found · TCG.market" };
+  if (!card) return { title: "Card not found · VARIABLE" };
   const bits = [card.traits.set, card.gradeLabel].filter(Boolean).join(" · ");
   return {
-    title: `${card.name} · TCG.market`,
+    title: `${card.name} · VARIABLE`,
     description: `${card.name}${bits ? ` — ${bits}` : ""} on ${card.platformLabel}.`,
   };
 }

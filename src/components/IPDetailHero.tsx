@@ -6,8 +6,14 @@ import { formatCompactUsd, formatPct, formatInt } from "@/lib/format";
 type Props = { detail: IPDetail };
 
 export function IPDetailHero({ detail }: Props) {
-  const trendCls =
-    detail.trend === "up" ? "text-green" : detail.trend === "down" ? "text-red" : "text-ink-3";
+  // Colour the % change by its own sign — not by detail.trend (the sparkline's
+  // shape), which can disagree and paint a decline green.
+  const pctCls =
+    detail.vol24Pct == null || detail.vol24Pct === 0
+      ? "text-ink-3"
+      : detail.vol24Pct > 0
+        ? "text-green"
+        : "text-red";
 
   return (
     <section className="mb-10">
@@ -38,7 +44,8 @@ export function IPDetailHero({ detail }: Props) {
               </span>
             </div>
             <span className="text-[12px] text-ink-3">
-              {detail.uniqueCards.toLocaleString()} cards traded · {detail.uniquePlatforms} platforms
+              {detail.uniqueCards.toLocaleString()} card{detail.uniqueCards === 1 ? "" : "s"} traded ·{" "}
+              {detail.uniquePlatforms} platform{detail.uniquePlatforms === 1 ? "" : "s"}
             </span>
           </div>
         </div>
@@ -50,7 +57,7 @@ export function IPDetailHero({ detail }: Props) {
               {formatCompactUsd(detail.vol24Usd)}
             </span>
             {detail.vol24Pct != null && (
-              <span className={`text-[14px] font-semibold tabular ${trendCls}`}>
+              <span className={`text-[14px] font-semibold tabular ${pctCls}`}>
                 {detail.vol24Pct > 0 ? "▲" : detail.vol24Pct < 0 ? "▼" : "·"}{" "}
                 {formatPct(detail.vol24Pct).replace(/^[+−]/, "")}
               </span>

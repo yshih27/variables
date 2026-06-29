@@ -49,7 +49,7 @@ export function GachaTable({ rows }: { rows: GachaPlatformRow[] }) {
             {rows.map((p) => (
               <tr
                 key={p.key}
-                className="group relative cursor-pointer transition-colors hover:bg-bg-1"
+                className="group relative cursor-pointer transition-colors hover:bg-bg-2"
               >
                 <Td className="w-[44px] text-ink-3">
                   {String(p.rank).padStart(2, "0")}
