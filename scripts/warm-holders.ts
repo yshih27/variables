@@ -4,11 +4,19 @@
  *   • CC:        Helius DAS searchAssets (paginated, metadata + owner inline)
  *   • Courtyard: skipped (no metadata cache + ~millions of tokens — separate effort)
  *
- * Output: .cache/holders.json (see src/lib/data/holders.ts for shape).
+ * Writes the `holders` Postgres snapshot (see src/lib/data/holders.ts for shape).
  *
  *   npx tsx scripts/warm-holders.ts
  *
  * Run daily.
+ *
+ * RESILIENCE: the snapshot is written once, after both scans settle. A slow /
+ * rate-limited scan (Beezie's Rarible ownerships can crawl 20+ min) used to block
+ * the write entirely → the daily job hit the 45-min Actions timeout, was cancelled,
+ * and wrote NOTHING every run (why holders stayed stale and CC showed 0). Each scan
+ * is now BOUNDED by SCAN_BUDGET_MS: it returns whatever it collected when the budget
+ * elapses (flagged partial), so the write always happens. Scans run in parallel +
+ * have a hard backstop, so total runtime can't exceed ~budget+1min.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -24,9 +32,12 @@ import type { RaribleOwnershipsResponse } from "../src/lib/rarible/types";
 import { dasCall } from "../src/lib/helius/client";
 import type { DasGroupResponse } from "../src/lib/helius/client";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
-import { dasAssetToTokenMetadata, writeCCMetadata } from "../src/lib/data/ccTraits";
+import { dasAssetToTokenMetadata } from "../src/lib/data/ccTraits";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
+const SCAN_BUDGET_MS = 10 * 60 * 1000; // per-scan; parallel → total ≤ budget
+
+type ScanResult = { total: number; byIp: PerIPMap; complete: boolean };
 type PerIPMap = Map<string, Set<string>>; // ipKey → ownerSet
 
 function recordOwner(map: PerIPMap, ipKey: string, owner: string) {
@@ -38,7 +49,20 @@ function recordOwner(map: PerIPMap, ipKey: string, owner: string) {
   s.add(owner);
 }
 
-async function warmBeezie(): Promise<{ total: number; byIp: PerIPMap }> {
+/** Race a scan against a hard backstop so a single hung request can't block the write. */
+function guard(p: Promise<ScanResult>, label: string): Promise<ScanResult> {
+  let timer: ReturnType<typeof setTimeout>;
+  const backstop = new Promise<ScanResult>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`  ⏱ ${label} hard-timeout backstop — skipping`);
+      resolve({ total: 0, byIp: new Map(), complete: false });
+    }, SCAN_BUDGET_MS + 60_000);
+  });
+  // clearTimeout when the scan wins, so the process exits promptly + no orphan log.
+  return Promise.race([p, backstop]).finally(() => clearTimeout(timer));
+}
+
+async function warmBeezie(deadline: number): Promise<ScanResult> {
   const beezie = PLATFORM_SOURCES.find((p) => p.key === "beezie");
   if (!beezie || beezie.kind !== "rarible") throw new Error("Beezie source missing");
 
@@ -48,6 +72,7 @@ async function warmBeezie(): Promise<{ total: number; byIp: PerIPMap }> {
   let continuation: string | undefined;
   let pages = 0;
   let tokens = 0;
+  let complete = true;
   const t0 = Date.now();
 
   while (true) {
@@ -73,15 +98,20 @@ async function warmBeezie(): Promise<{ total: number; byIp: PerIPMap }> {
       );
     }
     if (!r.continuation || r.ownerships.length === 0) break;
+    if (Date.now() > deadline) {
+      complete = false;
+      console.log(`  ⏱ Beezie budget elapsed — writing partial (${tokens} tokens, ${totalOwners.size} owners)`);
+      break;
+    }
     continuation = r.continuation;
   }
   console.log(
-    `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
+    `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp };
+  return { total: totalOwners.size, byIp, complete };
 }
 
-async function warmCC(): Promise<{ total: number; byIp: PerIPMap }> {
+async function warmCC(deadline: number): Promise<ScanResult> {
   const cc = PLATFORM_SOURCES.find((p) => p.key === "collector-crypt");
   if (!cc || cc.kind !== "helius") throw new Error("CC source missing");
 
@@ -90,6 +120,7 @@ async function warmCC(): Promise<{ total: number; byIp: PerIPMap }> {
   const totalOwners = new Set<string>();
   let page = 1;
   let tokens = 0;
+  let complete = true;
   const t0 = Date.now();
 
   while (true) {
@@ -103,9 +134,11 @@ async function warmCC(): Promise<{ total: number; byIp: PerIPMap }> {
       const owner = asset.ownership?.owner;
       if (!owner) continue;
       totalOwners.add(owner);
+      // Holder counting only needs the IP classification — NOT a per-asset DB
+      // write. (The old opportunistic writeCCMetadata here did ~1000 sequential
+      // upserts PER PAGE, ~122s/page, which is what made CC blow the budget.
+      // CC metadata is maintained by warm-cc-traits.)
       const meta = dasAssetToTokenMetadata(asset);
-      // Opportunistic cache refresh (cheap — we already have the data)
-      await writeCCMetadata(asset.id, meta);
       const ip = classifyIP(extractCategoryHints(meta));
       recordOwner(byIp, ip.key, owner);
     }
@@ -115,21 +148,30 @@ async function warmCC(): Promise<{ total: number; byIp: PerIPMap }> {
       );
     }
     if (r.items.length < 1000) break;
+    if (Date.now() > deadline) {
+      complete = false;
+      console.log(`  ⏱ CC budget elapsed — writing partial (${tokens} tokens, ${totalOwners.size} owners)`);
+      break;
+    }
     page += 1;
   }
   console.log(
-    `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
+    `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp };
+  return { total: totalOwners.size, byIp, complete };
 }
 
 async function main() {
   const t0 = Date.now();
-  // Resilient: a hang/failure in one source (e.g. Beezie ownerships) must not
-  // sink the other or leave the snapshot unwritten. Write whatever we got; only
-  // fail (so runWarmer records an error) when BOTH sources fail.
-  const empty = { total: 0, byIp: new Map<string, Set<string>>() };
-  const [beezieR, ccR] = await Promise.allSettled([warmBeezie(), warmCC()]);
+  // Resilient: a hang/failure in one source must not sink the other or leave the
+  // snapshot unwritten. Each scan is budget-bounded + backstopped; we write whatever
+  // we got. Only fail (so runWarmer records an error) when BOTH sources fail outright.
+  const empty: ScanResult = { total: 0, byIp: new Map(), complete: false };
+  const deadline = Date.now() + SCAN_BUDGET_MS;
+  const [beezieR, ccR] = await Promise.allSettled([
+    guard(warmBeezie(deadline), "Beezie"),
+    guard(warmCC(deadline), "CC"),
+  ]);
   const beezie = beezieR.status === "fulfilled" ? beezieR.value : empty;
   const cc = ccR.status === "fulfilled" ? ccR.value : empty;
   if (beezieR.status === "rejected")
@@ -166,7 +208,8 @@ async function main() {
   console.log(
     `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
       `${Object.keys(byIp).length} IPs · ` +
-      `beezie=${beezie.total} cc=${cc.total}`,
+      `beezie=${beezie.total}${beezie.complete ? "" : " (partial)"} ` +
+      `cc=${cc.total}${cc.complete ? "" : " (partial)"}`,
   );
   return { rowsWritten: Object.keys(byIp).length };
 }

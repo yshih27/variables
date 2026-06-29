@@ -30,6 +30,10 @@
  */
 const PROXY_HOSTS = new Set<string>([
   "arweave.net",
+  // NOTE: do NOT proxy gateway.irys.xyz (Phygitals art). It 302-redirects to an
+  // ephemeral `*.datasprite-cdn.com` host whose TLS cert Node's fetch rejects —
+  // proxying 502s, while the browser loads the live ones directly. Dead assets
+  // (some irys entries are gone) fall back to the gradient placeholder in the UI.
 ]);
 
 /** Hosts proxied by domain suffix (covers unbounded subdomains). */

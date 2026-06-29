@@ -11,6 +11,7 @@ import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
 import { PLATFORM_SOURCES } from "./sources";
 import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
 import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
+import { readGachaDune } from "./gachaDuneCache";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
@@ -223,11 +224,12 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
 }
 
 export async function fetchHomepage(): Promise<HomepagePayload> {
-  const [buckets, holders, mcap, mcapHist] = await Promise.all([
+  const [buckets, holders, mcap, mcapHist, gacha] = await Promise.all([
     getPlatformBuckets(),
     readHolders(),
     readMarketCap(),
     readMarketCapHistory(),
+    readGachaDune(),
   ]);
 
   const platformRows: PlatformRow[] = buckets
@@ -245,6 +247,10 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
         wallets.add(s.seller);
         cards.add(s.tokenId);
       }
+      // Gacha-only volume (excludes Courtyard's tokenization), for the
+      // marketplace-vs-gacha split.
+      const g = gacha?.platforms?.[b.source.key];
+      const isGacha = !!g && g.kind === "gacha";
       return {
         rank: 0,
         key: b.source.key,
@@ -255,6 +261,9 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
         vol24Usd: b.stats24h.volumeUsd,
         vol7Usd: histVol7,
         primaryUsd: b.primaryUsd ?? null,
+        gachaVol24Usd: isGacha ? g!.vol24h : null,
+        gachaVol7Usd: isGacha ? g!.vol7d : null,
+        total24Usd: b.stats24h.volumeUsd + (b.primaryUsd ?? 0),
         active24h: wallets.size,
         cards: cards.size,
         holders: holdersForPlatform(holders, b.source.key),
@@ -263,7 +272,10 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
         trend: trendOf(spark),
       };
     })
-    .sort((a, b) => b.vol24Usd - a.vol24Usd)
+    // Rank by TOTAL 24h activity (resale + primary), not resale alone — otherwise
+    // a gacha giant like Collector Crypt ($25K resale, $4.9M gacha) ranks below a
+    // resale-churn platform. The split columns still show each lane separately.
+    .sort((a, b) => b.total24Usd - a.total24Usd)
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
   const baseIpRows = await buildAggregateIPRows(buckets);

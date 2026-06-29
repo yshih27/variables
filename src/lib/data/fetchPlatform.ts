@@ -9,10 +9,11 @@ import type { NormalizedSale } from "@/lib/rarible/queries";
 import { getPlatformBuckets, type PlatformBucket } from "./buckets";
 import { getBeezieMetadataCachedOnly, extractCategoryHints } from "./beezieTraits";
 import { getCCMetadataCachedOnly } from "./ccTraits";
-import { classifyIP, type IPMeta } from "./ipCatalog";
+import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "./traits";
 import { readHolders } from "./holders";
-import { readMarketCap } from "./marketcap";
+import { readMarketCap, type MarketCapPlatformIP } from "./marketcap";
+import { readGachaDune } from "./gachaDuneCache";
 import { readHistory, sumLast, pctChange } from "./history";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import type { Chain, Trend } from "@/lib/types";
@@ -30,10 +31,14 @@ export type PlatformIPRow = {
   logo?: string;
   iconBlendMode?: "normal" | "screen" | "lighten";
   emoji?: string;
+  /** Total cards of this IP held on the platform (cards table). */
   cards: number;
+  /** This IP's market cap on the platform (cards table). */
+  mcapUsd: number;
   holders: number;
-  buyers24h: number;
   vol24Usd: number;
+  trades24h: number;
+  buyers24h: number;
   avgTradeUsd: number;
   topCard: string | null;
 };
@@ -80,6 +85,11 @@ export type PlatformDetail = {
   vol24Usd: number;
   vol7Usd: number;
   primaryUsd: number | null;
+  /** Gacha-only volume (pack-pull spend); null for non-gacha platforms (Courtyard = tokenization). */
+  gachaVol24Usd: number | null;
+  gachaVol7Usd: number | null;
+  /** Total 24h activity = marketplace resale + primary (gacha/tokenization). */
+  total24Usd: number;
   trades24h: number;
   uniqueBuyers: number;
   uniqueSellers: number;
@@ -150,55 +160,74 @@ async function enrichSales(bucket: PlatformBucket): Promise<EnrichedSale[]> {
   return out;
 }
 
-async function buildPlatformIPs(
+/** IP metadata by key — composition rows come from the cards table, which only carries the key. */
+function ipMetaByKey(key: string): IPMeta {
+  if (key === OTHER_IP.key) return OTHER_IP;
+  return IP_CATALOG.find((i) => i.key === key) ?? OTHER_IP;
+}
+
+/**
+ * Per-IP breakdown of a platform: the FULL IP composition from the cards table
+ * (total cards + market cap per IP) merged with 24h trading from sales. An IP
+ * with cards but no 24h trades still appears (vol 0) — that's the point of a
+ * breakdown vs. a 24h activity list. Sorted by market cap, then 24h volume.
+ */
+function buildPlatformIPs(
   enriched: EnrichedSale[],
+  mcapByIp: Record<string, MarketCapPlatformIP> | undefined,
   holdersByIp: Record<string, { perPlatform: Record<string, number> }> | null,
   platformKey: string,
-): Promise<PlatformIPRow[]> {
-  type Acc = {
-    ip: IPMeta;
-    sales: EnrichedSale[];
-    cards: Set<string>;
+): PlatformIPRow[] {
+  type SalesAcc = {
+    vol: number;
+    trades: number;
     buyers: Set<string>;
     topCard: { name: string; price: number } | null;
   };
-  const accs = new Map<string, Acc>();
+  const sales = new Map<string, SalesAcc>();
   for (const s of enriched) {
     const ip = classifyIP(extractCategoryHints(s.meta));
-    let acc = accs.get(ip.key);
+    let acc = sales.get(ip.key);
     if (!acc) {
-      acc = { ip, sales: [], cards: new Set(), buyers: new Set(), topCard: null };
-      accs.set(ip.key, acc);
+      acc = { vol: 0, trades: 0, buyers: new Set(), topCard: null };
+      sales.set(ip.key, acc);
     }
-    acc.sales.push(s);
-    acc.cards.add(s.tokenId);
+    acc.vol += s.priceUsd;
+    acc.trades += 1;
     acc.buyers.add(s.buyer);
     if (s.meta.name && (!acc.topCard || s.priceUsd > acc.topCard.price)) {
       acc.topCard = { name: s.meta.name, price: s.priceUsd };
     }
   }
+
+  const keys = new Set<string>([...Object.keys(mcapByIp ?? {}), ...sales.keys()]);
   const rows: PlatformIPRow[] = [];
-  for (const acc of accs.values()) {
-    const vol24 = acc.sales.reduce((s, x) => s + x.priceUsd, 0);
-    const holders = holdersByIp?.[acc.ip.key]?.perPlatform?.[platformKey] ?? 0;
+  for (const key of keys) {
+    const ip = ipMetaByKey(key);
+    const comp = mcapByIp?.[key];
+    const acc = sales.get(key);
+    const vol = acc?.vol ?? 0;
+    const trades = acc?.trades ?? 0;
     rows.push({
       rank: 0,
-      key: acc.ip.key,
-      name: acc.ip.name,
-      short: acc.ip.short,
-      color: acc.ip.color,
-      logo: acc.ip.logo,
-      iconBlendMode: acc.ip.iconBlendMode,
-      emoji: acc.ip.emoji,
-      cards: acc.cards.size,
-      holders,
-      buyers24h: acc.buyers.size,
-      vol24Usd: vol24,
-      avgTradeUsd: acc.sales.length ? vol24 / acc.sales.length : 0,
-      topCard: acc.topCard?.name ?? null,
+      key: ip.key,
+      name: ip.name,
+      short: ip.short,
+      color: ip.color,
+      logo: ip.logo,
+      iconBlendMode: ip.iconBlendMode,
+      emoji: ip.emoji,
+      cards: comp?.cards ?? 0,
+      mcapUsd: comp?.mcapUsd ?? 0,
+      holders: holdersByIp?.[key]?.perPlatform?.[platformKey] ?? 0,
+      vol24Usd: vol,
+      trades24h: trades,
+      buyers24h: acc?.buyers.size ?? 0,
+      avgTradeUsd: trades ? vol / trades : 0,
+      topCard: acc?.topCard?.name ?? null,
     });
   }
-  rows.sort((a, b) => b.vol24Usd - a.vol24Usd);
+  rows.sort((a, b) => b.mcapUsd - a.mcapUsd || b.vol24Usd - a.vol24Usd);
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
@@ -277,7 +306,11 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   if (!bucket) return null;
 
   // Cross-cache reads
-  const [holders, mcap] = await Promise.all([readHolders(), readMarketCap()]);
+  const [holders, mcap, gacha] = await Promise.all([
+    readHolders(),
+    readMarketCap(),
+    readGachaDune(),
+  ]);
 
   const enriched = await enrichSales(bucket);
 
@@ -289,19 +322,11 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const prices = allSales.map((s) => s.priceUsd);
   const hourly = spark24h(allSales, 24);
 
-  // Per-platform mcap contribution: sum of mcap entries × per-platform share
-  let platformMcap = 0;
-  if (mcap) {
-    for (const [ipKey, entry] of Object.entries(mcap.byIp)) {
-      const platformHolders = holders?.byIp?.[ipKey]?.perPlatform?.[key] ?? 0;
-      const totalHolders = holders?.byIp?.[ipKey]?.total ?? 0;
-      // Crude weight by holder share; for a stricter version we'd track
-      // per-token valuation per platform.
-      if (totalHolders > 0) {
-        platformMcap += entry.mcapUsd * (platformHolders / totalHolders);
-      }
-    }
-  }
+  // Real per-platform market cap from the cards table (CC = insured value, Beezie
+  // = listing floor). Platforms whose cards we don't track yet (Courtyard/Phygitals)
+  // have no entry → 0, surfaced honestly as "—" rather than a fabricated estimate.
+  const platformMcapEntry = mcap?.byPlatform?.[key];
+  const platformMcap = platformMcapEntry?.mcapUsd ?? 0;
 
   // History → 7d (we only retain 7d of hourly buckets today)
   const history = await readHistory(key);
@@ -309,25 +334,26 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const vol7Usd = histBuckets ? sumLast(histBuckets, 24 * 7).volumeUsd : NaN;
   const vol24Pct = histBuckets ? pctChange(histBuckets, 24) : null;
 
-  // Rank by 24h vol across platforms
-  const sortedByVol = [...buckets].sort(
-    (a, b) => b.stats24h.volumeUsd - a.stats24h.volumeUsd,
-  );
-  const rank = sortedByVol.findIndex((b) => b.source.key === key) + 1;
+  // Rank by TOTAL 24h activity (resale + primary), consistent with the homepage.
+  const totalOf = (pb: PlatformBucket) => pb.stats24h.volumeUsd + (pb.primaryUsd ?? 0);
+  const sortedByTotal = [...buckets].sort((a, b) => totalOf(b) - totalOf(a));
+  const rank = sortedByTotal.findIndex((b) => b.source.key === key) + 1;
 
   const platformHolders = holders?.platforms?.[key] ?? 0;
-  // Per-platform card count = unique tokens traded on this platform in 24h.
-  // Previously we summed mcap.byIp.cards which counts EVERY tracked card on
-  // EVERY platform — surfaced as ~125K on every platform page, which was wrong.
-  const cards = new Set(allSales.map((s) => s.tokenId)).size;
+  // Total cards held on this platform (cards table). 0 for platforms we don't
+  // crawl yet (Courtyard/Phygitals) — honest "—", not the old ~125K-everywhere bug.
+  const cards = platformMcapEntry?.cards ?? 0;
 
   // This platform's share of total 24h secondary volume across all platforms.
   const totalSecVol = buckets.reduce((s, b) => s + b.stats24h.volumeUsd, 0);
   const marketSharePct = totalSecVol > 0 ? bucket.stats24h.volumeUsd / totalSecVol : 0;
 
-  const ips = await buildPlatformIPs(enriched, holders?.byIp ?? null, key);
+  const ips = buildPlatformIPs(enriched, platformMcapEntry?.byIp, holders?.byIp ?? null, key);
   const topCards = buildTopCards(enriched, key);
   const recentSales = buildRecentSales(enriched, key);
+
+  // Gacha-only split (excludes Courtyard's tokenization, which stays in primaryUsd).
+  const g = gacha?.platforms?.[key];
 
   return {
     source: bucket.source,
@@ -336,6 +362,9 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     vol24Usd: volumeUsd,
     vol7Usd,
     primaryUsd: bucket.primaryUsd,
+    gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : null,
+    gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : null,
+    total24Usd: volumeUsd + (bucket.primaryUsd ?? 0),
     trades24h: allSales.length,
     uniqueBuyers: buyers.size,
     uniqueSellers: sellers.size,
@@ -359,7 +388,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v4"],
+  ["platform-detail:v6"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

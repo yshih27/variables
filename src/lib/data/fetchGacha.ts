@@ -17,8 +17,19 @@ import {
   type GachaDunePlatform,
   type GachaDuneSnapshot,
   type GachaOddsTier,
+  type GachaOddsMeta,
   type GachaBigHit,
 } from "./gachaDuneCache";
+import { readPhygitalsGacha, type PhygitalsGachaSnapshot } from "./phygitalsGachaCache";
+import { readCCGacha } from "./ccGachaCache";
+import { readGachaLive } from "./gachaLiveCache";
+import {
+  readGachaPacks,
+  type GachaPack,
+  type GachaPacksSnapshot,
+  type GachaPrize,
+} from "./gachaPacksCache";
+import { leadMedian, THIN_N } from "./gachaPackView";
 import type { Chain } from "@/lib/types";
 
 /** Max price tiers surfaced per platform (Phygitals alone has 157). */
@@ -52,8 +63,12 @@ export type GachaPlatformRow = {
   avgPullUsd: number;
   /** Per-pack-price breakdown for the 24h window, top tiers by volume. */
   byAmount24h: GachaAmountBucket[];
-  /** Realized rarity odds (rarest→commonest). null where tier wallets don't exist. */
+  /** Realized odds (best→commonest). CC: rarity tiers; Phygitals: prize-value bands. */
   odds: GachaOddsTier[] | null;
+  /** Provenance for `odds` (window + basis), so the UI never mislabels the source. */
+  oddsMeta: GachaOddsMeta | null;
+  /** Realized EV = value retained per $1 (mean prize FMV / price). Phygitals only, from the CLAW feed. */
+  realizedEvMultiple: number | null;
   // ── Buyback / house economics (7d). null where buyback isn't tracked on-chain. ──
   buybackPayout7d: number | null;
   netRevenue7d: number | null;
@@ -68,11 +83,11 @@ export type GachaPlatformRow = {
 };
 
 /**
- * One "pack" = one price tier on one platform.
- * (For platforms without fixed pack prices we still emit one entry per
- *  rounded amount that has at least 1 pull in the 24h window.)
+ * One pull-PRICE BUCKET on one platform (Dune-volume derived). Distinct from the
+ * rich `GachaPack` (the per-pack catalog with top-hits/odds/EV) — this is just
+ * the 24h pull distribution by price, used by the platform deep-dive bars.
  */
-export type GachaPack = {
+export type GachaPackBucket = {
   /** Stable id for React keys: `<platformKey>:<amount>` */
   id: string;
   platformKey: string;
@@ -89,44 +104,6 @@ export type GachaPack = {
   share: number;
 };
 
-/**
- * One platform's activity within a spend tier (budget band). The core unit of
- * the "I have $X, where do I spend it?" comparison.
- */
-export type SpendTierPlatform = {
-  key: string;
-  name: string;
-  short: string;
-  chain: Chain;
-  /** Spins (pulls) in each window — the "what are others doing" popularity signal. */
-  spins24h: number;
-  spins7d: number;
-  spins30d: number;
-  vol24h: number;
-  vol30d: number;
-  /** Average price actually paid within this band (vol30d / spins30d). */
-  avgSpend: number;
-  // ── Pending until the odds + hits queries ship ──
-  /** Best-tier hit probability (0–1), or null until odds query lands. */
-  bestOdds: number | null;
-  /** Highest possible prize FMV at this tier, or null. */
-  topPrizeUsd: number | null;
-  /** Biggest actual hit FMV pulled at this tier in 24h, or null. */
-  biggestHitUsd: number | null;
-};
-
-/** A budget band ($25/$50/$100/$250/$500/$1K+) with each platform's activity. */
-export type SpendTier = {
-  key: string;
-  label: string;
-  rangeLabel: string;
-  min: number;
-  max: number;
-  /** Platforms active in this band, sorted by 24h popularity desc. */
-  platforms: SpendTierPlatform[];
-  totalSpins24h: number;
-};
-
 export type GachaPayload = {
   generatedAt: string | null;
   hero: {
@@ -138,34 +115,26 @@ export type GachaPayload = {
     topPlatformVolUsd: number;
     /** Will populate once NFT-matching warmer ships. */
     biggestHitUsd: number | null;
+    /** Best measured TYPICAL return (median × buyback, non-thin sample) across
+     *  the pack catalog — any platform with realized per-pack data. */
     bestEvPackId: string | null;
+    bestEvMultiple: number | null;
+    bestEvPlatform: string | null;
   };
   platforms: GachaPlatformRow[];
-  /** Budget-band comparison — the primary "compare by spend" view. */
-  spendTiers: SpendTier[];
-  /** Flat list of every pack tier across every platform. Sorted by 24h volume desc. */
+  /** 24h pull distribution by price tier (platform deep-dive bars). */
+  packBuckets: GachaPackBucket[];
+  /** The pack-centric catalog — every purchasable pack across sites with its OWN
+   *  top-hit / odds / EV / floor / buyback. The heart of the comparison. */
   packs: GachaPack[];
+  /** Honest window the realized side of `packs` rests on. */
+  packsWindow: GachaPacksSnapshot["window"] | null;
+  /** Every prize in an ADVERTISED pool (Phygitals chase + Beezie grail tiers) —
+   *  the searchable "find your chase" index. CC publishes no pool. */
+  prizes: GachaPrize[];
   /** Biggest hits (high-FMV prizes), ranked desc. */
   bigHits: GachaBigHit[];
 };
-
-/**
- * Budget bands. Boundaries sit at the geometric midpoints between labels so a
- * $60 Beezie pull lands in "$50" and a $90 in "$100".
- */
-const SPEND_BANDS: Array<{ key: string; label: string; min: number; max: number }> = [
-  { key: "25", label: "$25", min: 1, max: 37 },
-  { key: "50", label: "$50", min: 37, max: 75 },
-  { key: "100", label: "$100", min: 75, max: 175 },
-  { key: "250", label: "$250", min: 175, max: 375 },
-  { key: "500", label: "$500", min: 375, max: 750 },
-  { key: "1000", label: "$1K+", min: 750, max: Infinity },
-];
-
-function rangeLabel(min: number, max: number): string {
-  if (max === Infinity) return `$${min}+`;
-  return `$${min}–${max - 1}`;
-}
 
 function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): GachaPlatformRow {
   const kind = entry?.kind ?? "gacha";
@@ -220,6 +189,8 @@ function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): G
     avgPullUsd,
     byAmount24h,
     odds: entry?.odds ?? null,
+    oddsMeta: entry?.oddsMeta ?? null,
+    realizedEvMultiple: null, // patched in for Phygitals from its CLAW-feed snapshot
     buybackPayout7d,
     netRevenue7d,
     houseTakePct,
@@ -229,8 +200,8 @@ function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): G
   };
 }
 
-function packsFromRows(rows: GachaPlatformRow[]): GachaPack[] {
-  const out: GachaPack[] = [];
+function packsFromRows(rows: GachaPlatformRow[]): GachaPackBucket[] {
+  const out: GachaPackBucket[] = [];
   for (const row of rows) {
     const canonicalSet = new Set(row.packPrices);
     for (const b of row.byAmount24h) {
@@ -272,61 +243,76 @@ function packsFromRows(rows: GachaPlatformRow[]): GachaPack[] {
 }
 
 /**
- * Build the budget-band comparison: for each spend tier, each gacha platform's
- * activity (banding the full per-price data). Platforms sorted by 24h
- * popularity so the leader is obvious.
+ * Fold the Phygitals CLAW-feed snapshot into the Dune gacha snapshot: inject
+ * realized prize-value odds (+ provenance) onto the Phygitals platform entry,
+ * and merge its biggest hits into the cross-platform list. Returns a shallow
+ * clone — the cached Dune object is never mutated. Dune still owns Phygitals'
+ * volume/buyback; this only adds what Dune can't see (pull→prize linkage).
  */
-function buildSpendTiers(snap: GachaDuneSnapshot | null): SpendTier[] {
-  if (!snap) return [];
-  const out: SpendTier[] = [];
-
-  for (const band of SPEND_BANDS) {
-    const platforms: SpendTierPlatform[] = [];
-    for (const source of PLATFORM_SOURCES) {
-      const p = snap.platforms[source.key];
-      if (!p || p.kind !== "gacha") continue;
-      const inBand = p.byPrice.filter((b) => b.price >= band.min && b.price < band.max);
-      const sum = (sel: (b: (typeof inBand)[number]) => number) =>
-        inBand.reduce((a, b) => a + sel(b), 0);
-      const spins30d = sum((b) => b.pulls30d);
-      if (spins30d === 0) continue; // no activity in this band
-      const vol30d = sum((b) => b.vol30d);
-      platforms.push({
-        key: source.key,
-        name: source.name,
-        short: source.short,
-        chain: source.chain,
-        spins24h: sum((b) => b.pulls24h),
-        spins7d: sum((b) => b.pulls7d),
-        spins30d,
-        vol24h: sum((b) => b.vol24h),
-        vol30d,
-        avgSpend: spins30d > 0 ? vol30d / spins30d : 0,
-        bestOdds: null,
-        topPrizeUsd: null,
-        biggestHitUsd: null,
-      });
-    }
-    if (platforms.length === 0) continue;
-    platforms.sort((a, b) => b.spins24h - a.spins24h || b.spins30d - a.spins30d);
-    out.push({
-      key: band.key,
-      label: band.label,
-      rangeLabel: rangeLabel(band.min, band.max),
-      min: band.min,
-      max: band.max,
-      platforms,
-      totalSpins24h: platforms.reduce((s, p) => s + p.spins24h, 0),
-    });
+function mergePhygitals(
+  base: GachaDuneSnapshot | null,
+  pg: PhygitalsGachaSnapshot | null,
+): GachaDuneSnapshot | null {
+  if (!base || !pg) return base;
+  const platforms = { ...base.platforms };
+  const existing = platforms["phygitals"];
+  if (existing && pg.odds.some((o) => o.pct > 0)) {
+    platforms["phygitals"] = {
+      ...existing,
+      odds: pg.odds,
+      oddsMeta: {
+        window: "realized",
+        basis: `prize value vs price · ${pg.window.pulls.toLocaleString()} pulls`,
+      },
+    };
   }
-  return out;
+  const bigHits = [...(base.bigHits ?? []), ...pg.bigHits].sort((a, b) => b.valueUsd - a.valueUsd);
+  return { ...base, platforms, bigHits };
+}
+
+/** Highest-value-per-mint dedupe — CC hits arrive from BOTH Dune and the native
+ *  winners feed; the same prize NFT must appear once in the coverflow. */
+function dedupeHits(hits: GachaBigHit[]): GachaBigHit[] {
+  const byMint = new Map<string, GachaBigHit>();
+  for (const h of hits) {
+    const key = h.mint || `${h.platform}:${h.name}:${h.at}`;
+    const cur = byMint.get(key);
+    if (!cur || h.valueUsd > cur.valueUsd) byMint.set(key, h);
+  }
+  return [...byMint.values()].sort((a, b) => b.valueUsd - a.valueUsd);
+}
+
+/**
+ * The pack to headline as "best value": highest TYPICAL return (median × buyback,
+ * the same number the explorer's value column leads with — never the
+ * jackpot-skewed mean) among packs whose realized sample clears THIN_N.
+ */
+function bestTypicalPack(
+  packs: GachaPack[],
+): { pack: GachaPack; typicalNet: number } | null {
+  let best: { pack: GachaPack; typicalNet: number } | null = null;
+  for (const p of packs) {
+    const med = leadMedian(p);
+    if (med == null || med.n == null || med.n < THIN_N) continue;
+    const typicalNet = med.value * (p.buybackPct ?? 1);
+    if (!best || typicalNet > best.typicalNet) best = { pack: p, typicalNet };
+  }
+  return best;
 }
 
 async function buildGacha(): Promise<GachaPayload> {
-  const snap = await readGachaDune();
-  const rows = PLATFORM_SOURCES.map((source) =>
-    rowFor(source, snap?.platforms?.[source.key]),
-  )
+  const [baseSnap, pg, packsSnap, ccSnap] = await Promise.all([
+    readGachaDune(),
+    readPhygitalsGacha(),
+    readGachaPacks(),
+    readCCGacha(),
+  ]);
+  const snap = mergePhygitals(baseSnap, pg);
+  const rows = PLATFORM_SOURCES.map((source) => {
+    const row = rowFor(source, snap?.platforms?.[source.key]);
+    if (source.key === "phygitals" && pg) row.realizedEvMultiple = pg.realizedEvMultiple;
+    return row;
+  })
     .sort((a, b) => b.vol24Usd - a.vol24Usd)
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
@@ -336,9 +322,10 @@ async function buildGacha(): Promise<GachaPayload> {
   const totalVol24Usd = gacha.reduce((s, r) => s + r.vol24Usd, 0);
   const totalPulls24h = gacha.reduce((s, r) => s + r.pulls24h, 0);
   const top = [...gacha].sort((a, b) => b.vol24Usd - a.vol24Usd)[0] ?? null;
-  const packs = packsFromRows(rows.filter((r) => r.kind === "gacha"));
-  const spendTiers = buildSpendTiers(snap);
-  const bigHits = snap?.bigHits ?? [];
+  const packBuckets = packsFromRows(rows.filter((r) => r.kind === "gacha"));
+  // CC's native winners feed overlaps Dune's big-hits query → dedupe by mint.
+  const bigHits = dedupeHits([...(snap?.bigHits ?? []), ...(ccSnap?.bigHits ?? [])]);
+  const bestTypical = bestTypicalPack(packsSnap?.packs ?? []);
 
   return {
     generatedAt: snap?.generatedAt ?? null,
@@ -350,17 +337,50 @@ async function buildGacha(): Promise<GachaPayload> {
       topPlatformName: top?.name ?? null,
       topPlatformVolUsd: top?.vol24Usd ?? 0,
       biggestHitUsd: bigHits[0]?.valueUsd ?? null,
-      bestEvPackId: null, // realized EV per pack — next
+      // Best TYPICAL return we can actually measure (median × buyback over a
+      // non-thin realized sample) — the mean is jackpot-skewed, so it never leads.
+      bestEvPackId: bestTypical?.pack.name ?? null,
+      bestEvMultiple: bestTypical?.typicalNet ?? null,
+      bestEvPlatform: bestTypical?.pack.platformName ?? null,
     },
     platforms: rows,
-    spendTiers,
-    packs,
+    packBuckets,
+    packs: packsSnap?.packs ?? [],
+    packsWindow: packsSnap?.window ?? null,
+    prizes: packsSnap?.prizes ?? [],
     bigHits,
   };
 }
 
 export const getGachaData = unstable_cache(
   async () => buildGacha(),
-  ["gacha:v9"],
+  ["gacha:v18"],
   { revalidate: 3600, tags: ["gacha", "platform-buckets"] },
 );
+
+/**
+ * Page-facing payload: the cached aggregate ({@link getGachaData}) with the
+ * always-on listener's live hits overlaid on top. The listener (scripts/
+ * listen-gacha.ts) writes the `gacha:live` snapshot every poll cycle (~minutes
+ * fresh); we read it UNCACHED so the hits band reflects the latest pulls on
+ * every request, while the heavy per-pack / per-platform aggregation stays on
+ * the 1h cache (it only moves when the 6h warmers run). Without this overlay the
+ * listener's real-time data never reached the page — the page read only the
+ * warmer snapshots. dedupeHits keeps the highest-value row per mint, so the live
+ * feed and the warmer's big-hits list reconcile cleanly.
+ */
+export async function getGachaPayload(): Promise<GachaPayload> {
+  const [data, live] = await Promise.all([getGachaData(), readGachaLive()]);
+  if (!live?.hits?.length) return data;
+  const bigHits = dedupeHits([...live.hits, ...data.bigHits]);
+  return {
+    ...data,
+    bigHits,
+    // "As of" should reflect the freshest input — usually the live snapshot.
+    generatedAt:
+      data.generatedAt && data.generatedAt > live.generatedAt
+        ? data.generatedAt
+        : live.generatedAt,
+    hero: { ...data.hero, biggestHitUsd: bigHits[0]?.valueUsd ?? data.hero.biggestHitUsd },
+  };
+}

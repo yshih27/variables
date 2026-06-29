@@ -1,7 +1,7 @@
 /**
- * View model for the "Biggest Gacha Hits" coverflow (see GachaHitsCoverflow).
+ * View model for the LIVE biggest-hits ticker (see GachaHitsTicker).
  *
- * Maps raw `GachaBigHit` rows → the showcase shape: real card art, parsed
+ * Maps raw `GachaBigHit` rows → the display shape: real card art, parsed
  * grade, rarity (from CC tier, with a value fallback for non-CC platforms),
  * relative time, and a chain badge.
  *
@@ -43,6 +43,8 @@ export type CoverflowHit = {
   mint: string;
   ago: string;
   at: string;
+  /** Pack/machine the hit came from, where known. */
+  pack: string | null;
 };
 
 export type MappedHits = {
@@ -154,6 +156,7 @@ export function mapBigHits(
         mult: null,
         platform: meta.label,
         platformKey: h.platform,
+        pack: h.pack ?? null,
         chain: meta.chain,
         mint: h.mint,
         ago: agoOf(h.at, nowMs),
