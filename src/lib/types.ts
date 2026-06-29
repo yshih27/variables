@@ -28,6 +28,10 @@ export type IPRow = {
   volTotalUsd: number;
   mcapUsd: number;
   pct7d: number | null;
+  /** Market-cap % change over 1d / 30d from the spine (leaderboard Δ columns).
+   *  Percent units (e.g. -6.95). null when the spine lacks that much history. */
+  pct1d?: number | null;
+  pct30d?: number | null;
   trend: Trend;
   spark: number[];
   topCard: string | null;

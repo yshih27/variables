@@ -12,6 +12,7 @@ import { PLATFORM_SOURCES } from "./sources";
 import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
 import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
+import { readMetricSeriesBulk, pctChange as spinePctChange } from "./metricSnapshots";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
@@ -298,6 +299,14 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
     })
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
+  // Per-IP market-cap change (1d/7d/30d) from the spine, for the leaderboard Δ
+  // columns. One bulk query; null where the spine lacks that much history.
+  const ipMcapHist = await readMetricSeriesBulk("ip", "mcap_usd");
+  const ips: IPRow[] = ipRows.map((r) => {
+    const s = ipMcapHist.get(r.key) ?? [];
+    return { ...r, pct1d: spinePctChange(s, 1), pct7d: spinePctChange(s, 7), pct30d: spinePctChange(s, 30) };
+  });
+
   // Hottest IPs: top 3 by 24h volume.
   const hotIPs: HotIP[] = [...baseIpRows]
     .sort((a, b) => b.vol24Usd - a.vol24Usd)
@@ -409,7 +418,7 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
     },
     hotIPs,
     topSales,
-    ips: ipRows,
+    ips,
     platforms: platformRows,
   };
 }
