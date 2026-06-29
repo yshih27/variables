@@ -147,6 +147,42 @@ export async function readCardValuations(
   return out;
 }
 
+/**
+ * Stream per-card classification dims (ip / set / grade) for EVERY card of a
+ * platform — precomputed columns, keyset-paged like readCardValuations. Lets the
+ * metric-snapshots warmer classify each sale into set/grade/IP for daily
+ * dominance without per-sale metadata reconstruction.
+ */
+export async function readCardDims(
+  platform: CardPlatform,
+): Promise<Map<string, { ip: string; set: string | null; grade: string }>> {
+  const out = new Map<string, { ip: string; set: string | null; grade: string }>();
+  const PAGE = 1000;
+  let lastId: string | null = null;
+  for (;;) {
+    let q = db()
+      .from("cards")
+      .select("id,token_id,ip_key,set_name,grade_label")
+      .eq("platform", platform)
+      .order("id", { ascending: true })
+      .limit(PAGE);
+    if (lastId !== null) q = q.gt("id", lastId);
+    const { data, error } = await q;
+    if (error) throw new Error(`[cards] dims read failed: ${error.message}`);
+    const rows = data ?? [];
+    for (const r of rows) {
+      out.set(r.token_id as string, {
+        ip: (r.ip_key as string) ?? "other",
+        set: (r.set_name as string | null) ?? null,
+        grade: (r.grade_label as string) ?? "Ungraded",
+      });
+    }
+    if (rows.length < PAGE) break;
+    lastId = rows[rows.length - 1].id as string;
+  }
+  return out;
+}
+
 /** Read metadata for many tokenIds of one platform (cache-only). */
 export async function readCards(
   platform: CardPlatform,
