@@ -154,7 +154,7 @@ export default async function PlatformDetailPage({
             <IPActivityChart metrics={metrics} />
             {ipEntities.length > 0 && (
               <section className="mb-12 font-sans">
-                <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seed={7} seeAllHref={`/platform/${key}/ips`} />
+                <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seeAllHref={`/platform/${key}/ips`} />
               </section>
             )}
             {ipRows.length > 0 && (
