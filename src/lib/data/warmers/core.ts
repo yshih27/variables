@@ -17,6 +17,7 @@ import { CC_SECONDARY_QUERY_ID } from "../../dune/queryIds";
 // scheduled fresh run is failing — the next 6h cached warm re-runs it fresh.
 const CC_SECONDARY_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 import { collectSales, type CollectionStats, type NormalizedSale } from "../../rarible/queries";
+import { fetchBeezieSales } from "../../beezie/market";
 import { PLATFORM_SOURCES } from "../sources";
 import {
   writeCoreVolume,
@@ -58,7 +59,7 @@ function statsFromSaleList(collectionId: string, sales: NormalizedSale[]): Colle
  */
 function buildPlatform(
   key: string,
-  source: "dune" | "rarible",
+  source: "dune" | "rarible" | "beezie",
   allSales: NormalizedSale[],
   spanDays: number,
 ): CorePlatformVolume {
@@ -141,21 +142,38 @@ export async function runCoreWarm(
     log(`→ collector-crypt (Dune) FAILED: ${(err as Error).message}`);
   }
 
-  // ── Beezie + Courtyard: Rarible (aggregates OpenSea), 24h ──
-  for (const key of ["beezie", "courtyard"] as const) {
-    const src = PLATFORM_SOURCES.find((p) => p.key === key);
-    if (!src || src.kind !== "rarible") continue;
-    try {
+  // ── Beezie: its OWN /activity feed (no Rarible quota dependency). Reaches
+  //    back months, so we get real 7d/30d too. This is the fix for the Pokémon
+  //    $0 — Rarible's 429 used to drop Beezie sales entirely. ──
+  try {
+    const t0 = Date.now();
+    const sales = await fetchBeezieSales(30 * DAY);
+    platforms["beezie"] = buildPlatform("beezie", "beezie", sales, 30);
+    log(
+      `→ beezie (Beezie /activity) ${sales.length} sales/30d · 24h $${Math.round(
+        platforms["beezie"].stats24h.volumeUsd,
+      ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+    );
+  } catch (err) {
+    log(`→ beezie (Beezie /activity) FAILED: ${(err as Error).message}`);
+  }
+
+  // ── Courtyard: Rarible (aggregates OpenSea), 24h. Low volume; its native
+  //    api.courtyard.io is WAF-blocked to server requests, so it stays on
+  //    Rarible — which is no longer starved now that Beezie is off it. ──
+  try {
+    const src = PLATFORM_SOURCES.find((p) => p.key === "courtyard");
+    if (src && src.kind === "rarible") {
       const sales = await collectSales(src.collectionId, DAY);
-      platforms[key] = buildPlatform(key, "rarible", sales, 1);
+      platforms["courtyard"] = buildPlatform("courtyard", "rarible", sales, 1);
       log(
-        `→ ${key} (Rarible) ${sales.length} sales/24h · $${Math.round(
-          platforms[key].stats24h.volumeUsd,
+        `→ courtyard (Rarible) ${sales.length} sales/24h · $${Math.round(
+          platforms["courtyard"].stats24h.volumeUsd,
         ).toLocaleString()}`,
       );
-    } catch (err) {
-      log(`→ ${key} (Rarible) FAILED: ${(err as Error).message}`);
     }
+  } catch (err) {
+    log(`→ courtyard (Rarible) FAILED: ${(err as Error).message}`);
   }
 
   const snap: CoreVolumeSnapshot = {
