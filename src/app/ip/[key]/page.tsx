@@ -26,37 +26,19 @@ const PLATFORM_META: Record<string, { name: string; chain: string; chainColor: s
 
 const SET_PALETTE = ["#f3ff42", "#5b9bff", "#a78bfa", "#2bd6a0", "#f5c451", "#9aa6ff"];
 
-/** Deterministic placeholder series (no RNG → no hydration drift), used per
- *  window only when the real metric_snapshots series has <2 points. */
-function phSeries(seed: number, n: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const x = i / Math.max(1, n - 1);
-    const v =
-      0.55 +
-      0.3 * Math.sin(seed + x * 6.2) +
-      0.13 * Math.sin(seed * 1.7 + x * 12.5) +
-      0.06 * Math.sin(seed * 3.1 + x * 22);
-    out.push(Math.max(0.04, v));
-  }
-  return out;
-}
-
 /** Per-timeframe windows from a real daily series (metric_snapshots) + optional
- *  real 24h-hourly series. A window is real with ≥2 points, else a sample trend. */
+ *  real 24h-hourly series. A window with <2 points has no history yet — the chart
+ *  disables that metric for the window. We never fabricate a series. */
 function buildWindows(
   daily: SeriesPoint[],
   hourly: number[] | null,
-  seed: number,
 ): Record<Timeframe, MetricWindow> {
   const vals = daily.map((p) => p.value);
-  const win = (pts: number[], phLen: number, phSeed: number): MetricWindow =>
-    pts.length >= 2 ? { points: pts, real: true } : { points: phSeries(phSeed, phLen), real: false };
   return {
-    "24H": hourly && hourly.length >= 2 ? { points: hourly, real: true } : win([], 24, seed),
-    "7D": win(vals.slice(-7), 28, seed + 0.5),
-    "30D": win(vals.slice(-30), 30, seed + 1),
-    ALL: win(vals, 36, seed + 1.5),
+    "24H": { points: hourly && hourly.length >= 2 ? hourly : [] },
+    "7D": { points: vals.slice(-7) },
+    "30D": { points: vals.slice(-30) },
+    ALL: { points: vals },
   };
 }
 
@@ -116,11 +98,11 @@ export default async function IPDetailPage({
     .filter((p) => Number.isFinite(p.value));
 
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol, 1) },
-    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", series: buildWindows(mcapS, null, 2) },
-    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), series: buildWindows(cardsS, null, 3) },
-    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null, 4) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null, 5) },
+    { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
+    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", series: buildWindows(mcapS, null) },
+    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), series: buildWindows(cardsS, null) },
+    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
+    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null) },
   ];
 
   // Set / Grade dominance entities — current shares are real for the chosen metric.
