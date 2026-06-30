@@ -59,7 +59,17 @@ export type PlatformSource = {
   primary?: PrimaryWalletConfig;
 } & (
   | { kind: "rarible"; collectionId: string }
-  | { kind: "helius"; collectionAddress: string; marketplaceProgram: string }
+  | {
+      kind: "helius";
+      collectionAddress: string;
+      /**
+       * Extra collection mints for platforms whose cards span more than one
+       * collection (e.g. Phygitals' two cNFT trees). Scanned alongside
+       * `collectionAddress` for holder/trait reads.
+       */
+      extraCollections?: string[];
+      marketplaceProgram: string;
+    }
 );
 
 // ─── EVM USDC contracts ────────────────────────────────────────────────
@@ -132,8 +142,11 @@ const CC_INTERNAL_EXCLUSIONS: string[] = [
   "LGNDfXQFMiRMz3qqTNAREmRFQutMvazqqRrzn5i98uj",
   "SPrT7eFrCM9UJ4j7Xf9iktKCoBwJjfykFbiNbRsKQm8",
 ];
-/** CC gacha valid pull prices in USDC. Filter inflows to these exact amounts. */
-const CC_VALID_PULL_PRICES: number[] = [25, 50, 75, 80, 100, 250, 1000];
+/** CC gacha valid pull prices in USDC — the full /api/gachas/all catalog (re-sync
+ *  when CC adds packs). 151 = Rarible×CC "151 & Friends" (pokemon_151); 2500/5000
+ *  = Mythic/Celestial. These were missing → CC gacha + primary revenue undercounted.
+ *  Durable fix (TODO): derive from the live catalog instead of hardcoding. */
+const CC_VALID_PULL_PRICES: number[] = [25, 50, 75, 80, 100, 151, 250, 1000, 2500, 5000];
 
 // ─── Phygitals primary-revenue wallets (Solana) ───────────────────────
 // Main gacha wallet + secondary gacha wallet + fee streams.
@@ -145,6 +158,17 @@ const PHYGITALS_PRIMARY_RECEIVERS: string[] = [
 ];
 const PHYGITALS_INTERNAL_EXCLUSIONS: string[] = [
   "5sn2nniGv88bxzxBDkqWP6i8bejsr9WwCpZXq2ZkLHgf", // treasury
+];
+
+// ─── Phygitals collection mints (Solana cNFT) ─────────────────────────
+// Two compressed-NFT collection trees. Verified-by-use: the marketplace
+// listings endpoint (api.phygitals.com/marketplace-listings) returns real
+// Phygitals cards only when filtered to exactly these collectionAddresses.
+// Drive holder + trait reads via Helius DAS. Re-exported by the Phygitals
+// marketplace client so there's one source of truth.
+export const PHYGITALS_COLLECTIONS = [
+  "BSG6DyEihFFtfvxtL9mKYsvTwiZXB1rq5gARMTJC2xAM",
+  "phygZDQZJZVHvJGYPGoKPYUtXw7mstSYtTtcuh8LJcC",
 ];
 
 // ──────────────────────────────────────────────────────────────────────
@@ -212,13 +236,17 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     short: "PH",
     chain: "Solana",
     vault: null, // unverified vault provider; surface as "—" until confirmed
-    // No NFT collection address provided yet — gacha is the only stream we
-    // can track right now. We populate as much of the PlatformSource shape
-    // as possible so it can show up in the platform table; secondary
-    // volume / holders will read 0 until we add the collection mint.
     kind: "helius",
-    collectionAddress: "", // TODO: provide Phygitals collection mint to enable trait + sales tracking
-    marketplaceProgram: "", // TODO: provide Phygitals marketplace program for sale tx parsing
+    // Two cNFT collections (verified-by-use via the marketplace listings API).
+    // Both are scanned for holders + traits via Helius DAS.
+    collectionAddress: PHYGITALS_COLLECTIONS[0],
+    extraCollections: PHYGITALS_COLLECTIONS.slice(1),
+    // Secondary-sale VOLUME is NOT a single native program here: Phygitals
+    // listings aggregate Tensor + Magic Eden + native. Like CC's 7675297, it
+    // needs a Dune query anchored on the collection mints above, feeding
+    // `core-volume`. Pending that query, secondary stats render empty (honestly
+    // absent — not a fabricated $0). marketplaceProgram stays "" (unused today).
+    marketplaceProgram: "",
     primary: {
       receivers: PHYGITALS_PRIMARY_RECEIVERS,
       internalExclusions: PHYGITALS_INTERNAL_EXCLUSIONS,

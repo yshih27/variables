@@ -2,6 +2,7 @@
  * Compute real holder counts per IP per platform.
  *   • Beezie:    Rarible /ownerships/byCollection (paginated) + cached metadata
  *   • CC:        Helius DAS searchAssets (paginated, metadata + owner inline)
+ *   • Phygitals: Helius DAS searchAssets over its two cNFT collections
  *   • Courtyard: skipped (no metadata cache + ~millions of tokens — separate effort)
  *
  * Writes the `holders` Postgres snapshot (see src/lib/data/holders.ts for shape).
@@ -161,6 +162,56 @@ async function warmCC(deadline: number): Promise<ScanResult> {
   return { total: totalOwners.size, byIp, complete };
 }
 
+async function warmPhygitals(deadline: number): Promise<ScanResult> {
+  const ph = PLATFORM_SOURCES.find((p) => p.key === "phygitals");
+  if (!ph || ph.kind !== "helius") throw new Error("Phygitals source missing");
+  const collections = [ph.collectionAddress, ...(ph.extraCollections ?? [])].filter(Boolean);
+  if (collections.length === 0) throw new Error("Phygitals collections missing");
+
+  console.log(`→ Phygitals DAS assets (${collections.length} cNFT collections)`);
+  const byIp: PerIPMap = new Map();
+  const totalOwners = new Set<string>();
+  let tokens = 0;
+  let complete = true;
+  const t0 = Date.now();
+
+  outer: for (const collection of collections) {
+    let page = 1;
+    while (true) {
+      const r = await dasCall<DasGroupResponse>("searchAssets", {
+        grouping: ["collection", collection],
+        page,
+        limit: 1000,
+      });
+      for (const asset of r.items) {
+        tokens += 1;
+        const owner = asset.ownership?.owner;
+        if (!owner) continue;
+        totalOwners.add(owner);
+        // Same classification path as CC. Phygitals cNFT metadata may not always
+        // carry category hints (rarity is null feed-wide), so some owners land in
+        // "other" — the platform total stays exact; per-IP is best-effort v1.
+        const meta = dasAssetToTokenMetadata(asset);
+        const ip = classifyIP(extractCategoryHints(meta));
+        recordOwner(byIp, ip.key, owner);
+      }
+      if (r.items.length < 1000) break;
+      if (Date.now() > deadline) {
+        complete = false;
+        console.log(
+          `  ⏱ Phygitals budget elapsed — writing partial (${tokens} tokens, ${totalOwners.size} owners)`,
+        );
+        break outer;
+      }
+      page += 1;
+    }
+  }
+  console.log(
+    `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
+  );
+  return { total: totalOwners.size, byIp, complete };
+}
+
 async function main() {
   const t0 = Date.now();
   // Resilient: a hang/failure in one source must not sink the other or leave the
@@ -168,31 +219,41 @@ async function main() {
   // we got. Only fail (so runWarmer records an error) when BOTH sources fail outright.
   const empty: ScanResult = { total: 0, byIp: new Map(), complete: false };
   const deadline = Date.now() + SCAN_BUDGET_MS;
-  const [beezieR, ccR] = await Promise.allSettled([
+  const [beezieR, ccR, phR] = await Promise.allSettled([
     guard(warmBeezie(deadline), "Beezie"),
     guard(warmCC(deadline), "CC"),
+    guard(warmPhygitals(deadline), "Phygitals"),
   ]);
   const beezie = beezieR.status === "fulfilled" ? beezieR.value : empty;
   const cc = ccR.status === "fulfilled" ? ccR.value : empty;
+  const ph = phR.status === "fulfilled" ? phR.value : empty;
   if (beezieR.status === "rejected")
     console.warn(`  Beezie holders FAILED: ${(beezieR.reason as Error).message}`);
   if (ccR.status === "rejected")
     console.warn(`  CC holders FAILED: ${(ccR.reason as Error).message}`);
-  if (beezieR.status === "rejected" && ccR.status === "rejected")
-    throw new Error("holders: both Beezie and CC sources failed");
+  if (phR.status === "rejected")
+    console.warn(`  Phygitals holders FAILED: ${(phR.reason as Error).message}`);
+  if (
+    beezieR.status === "rejected" &&
+    ccR.status === "rejected" &&
+    phR.status === "rejected"
+  )
+    throw new Error("holders: all sources failed");
 
   // Combine per-IP across platforms
   const byIp: Record<string, HoldersIPEntry> = {};
-  const allKeys = new Set([...beezie.byIp.keys(), ...cc.byIp.keys()]);
+  const allKeys = new Set([...beezie.byIp.keys(), ...cc.byIp.keys(), ...ph.byIp.keys()]);
   for (const key of allKeys) {
     const beezieOwners = beezie.byIp.get(key) ?? new Set<string>();
     const ccOwners = cc.byIp.get(key) ?? new Set<string>();
-    const union = new Set([...beezieOwners, ...ccOwners]);
+    const phOwners = ph.byIp.get(key) ?? new Set<string>();
+    const union = new Set([...beezieOwners, ...ccOwners, ...phOwners]);
     byIp[key] = {
       total: union.size,
       perPlatform: {
         beezie: beezieOwners.size,
         "collector-crypt": ccOwners.size,
+        phygitals: phOwners.size,
       },
     };
   }
@@ -202,6 +263,7 @@ async function main() {
     platforms: {
       beezie: beezie.total,
       "collector-crypt": cc.total,
+      phygitals: ph.total,
     },
     byIp,
   });
@@ -209,7 +271,8 @@ async function main() {
     `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
       `${Object.keys(byIp).length} IPs · ` +
       `beezie=${beezie.total}${beezie.complete ? "" : " (partial)"} ` +
-      `cc=${cc.total}${cc.complete ? "" : " (partial)"}`,
+      `cc=${cc.total}${cc.complete ? "" : " (partial)"} ` +
+      `phygitals=${ph.total}${ph.complete ? "" : " (partial)"}`,
   );
   return { rowsWritten: Object.keys(byIp).length };
 }

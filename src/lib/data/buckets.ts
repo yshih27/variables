@@ -70,8 +70,9 @@ async function resolvePrimaryUsd(platformKey: string): Promise<number | null> {
 
 /**
  * Assemble one platform's bucket from the snapshots — pure, no network. CC,
- * Beezie, and Courtyard come from `core-volume`; Phygitals (no marketplace
- * program wired) has no entry and renders empty stats + its primaryUsd.
+ * Beezie, and Courtyard come from `core-volume`; Phygitals has no secondary
+ * Dune query yet, so it has no `core-volume` entry and renders empty secondary
+ * stats + its primaryUsd (holders ARE tracked — see warm-holders).
  */
 function buildBucket(
   source: PlatformSource,

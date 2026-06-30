@@ -5,18 +5,19 @@
  *
  * Writes one row per (entity, metric, UTC-day) into `metric_snapshots`:
  *   • flow  (volume_usd, trades, active_wallets, cards_traded) — COMPLETE-day
- *     aggregates from the AUTHORITATIVE native per-sale feeds: CC 30d (Dune) +
- *     Beezie 30d (api.beezie.com/activity). Idempotent re-bucketing self-corrects.
+ *     aggregates from authoritative per-sale feeds: CC (Dune) + Beezie
+ *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, full history).
+ *   • gacha (gacha_volume_usd per platform) — daily primary/gacha volume from the
+ *     daily-bucketed Dune queries (GACHA_DAILY_QUERY_IDS), full history.
  *   • dominance (entity_type set / grade / platform_ip) — daily volume/trades/
  *     cards per "{ip}:{set}", "{ip}:{grade}", "{platform}:{ip}" so the dominance
  *     panels can render a REAL historical trend (shares computed at read time).
  *   • stock (mcap_usd, holders, floor_usd) — today's reading at market / IP /
  *     platform level; no backfill exists, so it accumulates forward.
  *
- * NOTE: Beezie + per-IP volume come from the NATIVE feeds, not the Rarible-fed
- * history snapshot — Rarible inflated Beezie's volume ~20-90× (the cause of the
- * 24h-KPI vs daily-spine gap). Courtyard (no native API, low volume) stays on
- * its history snapshot.
+ * NOTE: all secondary volume is native/Dune now (no Rarible — it inflated Beezie
+ * ~20-90×). Courtyard secondary = Dune nft.trades (full history); per-IP for
+ * Courtyard awaits the traded-mint `cards` enrichment, so it's platform-level only.
  *
  * Runs in the DAILY batch AFTER warm-core-dune (fresh) + warm-marketcap +
  * warm-holders so it reads their fresh output. Wrapped in runWarmer so a
@@ -25,9 +26,10 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { fetchCCSecondarySales } from "../src/lib/data/warmers/core";
+import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/data/warmers/core";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
-import { readHistory } from "../src/lib/data/history";
+import { getResultsAutoRefresh } from "../src/lib/dune/client";
+import { GACHA_DAILY_QUERY_IDS } from "../src/lib/dune/queryIds";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { readHolders } from "../src/lib/data/holders";
 import { readCardDims } from "../src/lib/data/cards";
@@ -209,26 +211,59 @@ async function main() {
     }
   }
 
-  // ── Courtyard daily flow (7d, from history snapshot) — still Rarible-sourced ──
-  // Low volume + no native API, so it stays on the history snapshot.
-  const cyHist = await readHistory("courtyard");
-  if (cyHist && cyHist.buckets.length) {
-    const windowStart = Date.parse(cyHist.buckets[0].hourStart);
-    const windowEnd = Date.parse(cyHist.generatedAt);
-    const byDay = new Map<string, { vol: number; trades: number }>();
-    for (const bk of cyHist.buckets) {
-      const t = Date.parse(bk.hourStart);
+  // ── Courtyard secondary daily flow — Dune nft.trades (full history; off Rarible) ──
+  // Platform-level only: Courtyard's `cards` table is empty, so per-IP would all
+  // fall to "other" (enable per-IP once the traded-mint enrichment lands).
+  try {
+    const cySales = await fetchCourtyardSecondarySales({ cachedOnly: true });
+    const cyOldest = oldestOf(cySales);
+    const cyByDay = new Map<string, { vol: number; trades: number }>();
+    for (const s of cySales) {
+      const t = Date.parse(s.date);
       if (!Number.isFinite(t)) continue;
       const day = dayStartUtc(t);
-      const acc = byDay.get(day) ?? { vol: 0, trades: 0 };
-      acc.vol += bk.volumeUsd; acc.trades += bk.sales;
-      byDay.set(day, acc);
+      const acc = cyByDay.get(day) ?? { vol: 0, trades: 0 };
+      acc.vol += s.priceUsd; acc.trades += 1;
+      cyByDay.set(day, acc);
     }
-    for (const [day, acc] of byDay) {
+    for (const [day, acc] of cyByDay) {
       const ds = Date.parse(day);
-      if (ds < windowStart || ds + DAY > windowEnd) continue;
+      if (ds < cyOldest || ds + DAY > now) continue; // complete days only
       push("platform", "courtyard", "volume_usd", acc.vol, day);
       push("platform", "courtyard", "trades", acc.trades, day);
+    }
+  } catch (e) {
+    console.warn(`  courtyard secondary (Dune) failed: ${(e as Error).message}`);
+  }
+
+  // ── Gacha (primary) daily volume → spine (gacha_volume_usd per platform) ──
+  // Daily-bucketed Dune queries (full history): CC/Beezie/Phygitals = gacha pulls,
+  // Courtyard = tokenization. Summed across pack_price where a query splits tiers.
+  for (const [key, qid] of Object.entries(GACHA_DAILY_QUERY_IDS)) {
+    try {
+      const { rows } = await getResultsAutoRefresh(qid, {
+        maxAgeMs: DAY,
+        runOpts: { maxWaitMs: 480_000 },
+      });
+      const byDay = new Map<string, number>();
+      for (const r of rows) {
+        const raw = String((r as Record<string, unknown>).day ?? "");
+        const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
+        if (!Number.isFinite(t)) continue;
+        const v = Number((r as Record<string, unknown>).volume_usd);
+        if (!Number.isFinite(v)) continue;
+        const day = dayStartUtc(t);
+        byDay.set(day, (byDay.get(day) ?? 0) + v);
+      }
+      let gd = 0;
+      for (const [day, vol] of byDay) {
+        if (Date.parse(day) + DAY > now) continue; // exclude today (partial)
+        push("platform", key, "gacha_volume_usd", vol, day);
+        gd++;
+      }
+      console.log(`  gacha_volume_usd ${key}: ${gd} days`);
+    } catch (e) {
+      console.warn(`  gacha daily ${key} failed: ${(e as Error).message}`);
     }
   }
 

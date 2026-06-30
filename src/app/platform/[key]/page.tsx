@@ -17,37 +17,19 @@ import { formatCompactUsd, formatInt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-/** Deterministic placeholder series (no RNG → no hydration drift), used per
- *  window only when the real metric_snapshots series has <2 points. */
-function phSeries(seed: number, n: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const x = i / Math.max(1, n - 1);
-    const v =
-      0.55 +
-      0.3 * Math.sin(seed + x * 6.2) +
-      0.13 * Math.sin(seed * 1.7 + x * 12.5) +
-      0.06 * Math.sin(seed * 3.1 + x * 22);
-    out.push(Math.max(0.04, v));
-  }
-  return out;
-}
-
 /** Per-timeframe windows from a real daily series (metric_snapshots) + optional
- *  real 24h-hourly series. A window is real with ≥2 points, else a sample trend. */
+ *  real 24h-hourly series. A window with <2 points has no history yet — the chart
+ *  disables that metric for the window. We never fabricate a series. */
 function buildWindows(
   daily: SeriesPoint[],
   hourly: number[] | null,
-  seed: number,
 ): Record<Timeframe, MetricWindow> {
   const vals = daily.map((p) => p.value);
-  const win = (pts: number[], phLen: number, phSeed: number): MetricWindow =>
-    pts.length >= 2 ? { points: pts, real: true } : { points: phSeries(phSeed, phLen), real: false };
   return {
-    "24H": hourly && hourly.length >= 2 ? { points: hourly, real: true } : win([], 24, seed),
-    "7D": win(vals.slice(-7), 28, seed + 0.5),
-    "30D": win(vals.slice(-30), 30, seed + 1),
-    ALL: win(vals, 36, seed + 1.5),
+    "24H": { points: hourly && hourly.length >= 2 ? hourly : [] },
+    "7D": { points: vals.slice(-7) },
+    "30D": { points: vals.slice(-30) },
+    ALL: { points: vals },
   };
 }
 
@@ -75,15 +57,15 @@ export default async function PlatformDetailPage({
     })
     .filter((p) => Number.isFinite(p.value));
 
-  // Activity metrics — chip headline values are always real; 24h volume is real
-  // (hourly buckets); longer windows are real where metric_snapshots has ≥2
-  // points, else a deterministic sample (the chart tags "SAMPLE").
+  // Activity metrics — chip headline values are the live current figures; series
+  // are real from metric_snapshots (24h volume from hourly buckets). A window
+  // with <2 points has no history yet (the chart disables it); never fabricated.
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol, 1) },
-    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—", series: buildWindows(mcapS, null, 2) },
-    { key: "trades", label: "Trades", color: "#a78bfa", value: formatInt(detail.trades24h), series: buildWindows(tradesS, null, 3) },
-    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null, 4) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null, 5) },
+    { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
+    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—", series: buildWindows(mcapS, null) },
+    { key: "trades", label: "Trades", color: "#a78bfa", value: formatInt(detail.trades24h), series: buildWindows(tradesS, null) },
+    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
+    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null) },
   ];
 
   // IP composition — real per-IP volume/trades/mcap/cards/holders. Top N + an
@@ -172,7 +154,7 @@ export default async function PlatformDetailPage({
             <IPActivityChart metrics={metrics} />
             {ipEntities.length > 0 && (
               <section className="mb-12 font-sans">
-                <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seed={7} seeAllHref={`/platform/${key}/ips`} />
+                <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seeAllHref={`/platform/${key}/ips`} />
               </section>
             )}
             {ipRows.length > 0 && (

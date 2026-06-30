@@ -1,0 +1,12 @@
+-- TCG.market — Courtyard tokenization (primary) DAILY
+-- Daily version of validated query 7642710. tokens_polygon.transfers: `amount`
+-- is already USD (no /1e6). No time filter = full history. Output: day, pulls, volume_usd.
+SELECT
+  date_trunc('day', block_time) AS day,
+  COUNT(*) AS pulls,
+  SUM(amount) AS volume_usd
+FROM tokens_polygon.transfers
+WHERE contract_address = 0x3c499c542cef5e3811e1192ce70d8cc03d5c3359
+  AND "to" IN (0xedf073581267d82b6e4fd63b5fb288f1876555cd,0x5e9e7841198c34bad39c7344c6e2829ebf39b8b3,0xda92c437e599b2c973229ca2ae5fb17ec2cf04a9,0x92714d4827fa2e396d9f753976cc8a3d395b8064,0x5556bc8e4c6482e39197425e96e9fb5ef5ba05d2,0x7fc1afb29861fd4a7dfb7859b5271d3c75e4abbd,0x4cd41debc6d038317379df1d059938894362ef7f,0x13e7cdcabce0fca98df4eb5d34619144d45b6b76,0x43f1c23fbf8e3fb964a1337b1e697f04f7e38a5c,0x7ee9f40d48f4e58dc9f21fbd2335c4f2ec1f3d78,0x33d39c79582704fc3fae79e818889cacb8cf5e6c,0x0fc3f443d73d10866d1dff51af4d9f5a31ba2ffc,0x554ad79f0c9d512b624b9bfc2e1ffd4cf50cf220,0x0af477ac793c3ee69bfcad83e148add148705d79,0x5a09ed135b1a9c5bf1a66084d4597d4e9f29ceb1,0xa0e6cb4c42f0fe31846c48f2693bfe879bc10534,0xfaad7036e8b4f8d5613023476485e49d1eafa044,0x29804859dbe973e844c643654269f1e16e546720,0xa695dfa7a885ffaafce414ded322d18ea3f24679,0x31d058b5e02c8b01c749e6844d86cdd3f2962cd7,0x776023a4573bd972c4c3e2a76f611d3c2bef516e)
+GROUP BY 1
+ORDER BY 1

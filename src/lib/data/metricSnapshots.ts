@@ -75,6 +75,55 @@ export async function readMetricSeries(
   return (data ?? []).map((r) => ({ ts: r.ts as string, value: Number(r.value) }));
 }
 
+/**
+ * Every entity's series for one (entity_type, metric), grouped by entity_key —
+ * one query for a whole leaderboard's worth of history (vs N readMetricSeries).
+ */
+export async function readMetricSeriesBulk(
+  entityType: MetricEntityType,
+  metric: string,
+): Promise<Map<string, SeriesPoint[]>> {
+  const out = new Map<string, SeriesPoint[]>();
+  const { data, error } = await db()
+    .from("metric_snapshots")
+    .select("entity_key,ts,value")
+    .eq("entity_type", entityType)
+    .eq("metric", metric)
+    .order("ts", { ascending: true });
+  if (error) {
+    console.warn(`[metric_snapshots] bulk read "${entityType}/${metric}" failed: ${error.message}`);
+    return out;
+  }
+  for (const r of data ?? []) {
+    const key = r.entity_key as string;
+    const arr = out.get(key);
+    const point = { ts: r.ts as string, value: Number(r.value) };
+    if (arr) arr.push(point);
+    else out.set(key, [point]);
+  }
+  return out;
+}
+
+/**
+ * Percent change of a daily series vs the point nearest `daysAgo` days back
+ * (by ts, not index — tolerates gaps). Returns null when there isn't enough
+ * history to reach that far, so we never fabricate a change from a short series.
+ */
+export function pctChange(series: SeriesPoint[], daysAgo: number): number | null {
+  if (series.length < 2) return null;
+  const last = series[series.length - 1];
+  const now = last.value;
+  if (!Number.isFinite(now)) return null;
+  const targetMs = Date.parse(last.ts) - daysAgo * 86_400_000;
+  let prev: SeriesPoint | null = null;
+  for (const p of series) {
+    if (Date.parse(p.ts) <= targetMs) prev = p;
+    else break;
+  }
+  if (!prev || !Number.isFinite(prev.value) || prev.value === 0) return null;
+  return ((now - prev.value) / prev.value) * 100;
+}
+
 /** Midnight-UTC ISO for the day containing `ms`. The canonical bucket key. */
 export function dayStartUtc(ms: number): string {
   const d = new Date(ms);

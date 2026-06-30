@@ -21,7 +21,7 @@ export function TopSalesPanel({ items }: Props) {
     <div className="overflow-hidden rounded-2xl border border-line bg-bg-1">
       <div className="flex items-center gap-2.5 border-b border-line px-6 py-5">
         <span className="inline-flex h-6 items-center gap-1.5 rounded-md bg-green px-2 text-[11px] font-bold uppercase tracking-[0.04em] text-black">
-          📈 Sales
+          Sales
         </span>
         <span className="text-[15px] font-semibold">Top Sales</span>
         <span className="ml-auto text-[11.5px] text-ink-3">

@@ -115,7 +115,7 @@ export async function getLatestResultsMeta(
       executionEndedAt = page.execution_ended_at ?? page.submitted_at ?? null;
       first = false;
     }
-    if (page.result?.rows) rows.push(...page.result.rows);
+    if (page.result?.rows) for (const row of page.result.rows) rows.push(row);
     if (rows.length >= maxRows) break;
     if (page.next_uri) {
       absoluteUrl = page.next_uri;
@@ -180,7 +180,7 @@ export async function runQuery(
   let path: string | null = `/execution/${exec.execution_id}/results`;
   while (path || absoluteUrl) {
     const page: DuneResultResponse = await req<DuneResultResponse>(path ?? "", { absoluteUrl });
-    if (page.result?.rows) rows.push(...page.result.rows);
+    if (page.result?.rows) for (const row of page.result.rows) rows.push(row);
     if (rows.length >= maxRows) break;
     if (page.next_uri) {
       absoluteUrl = page.next_uri;

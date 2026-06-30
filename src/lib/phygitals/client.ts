@@ -9,6 +9,8 @@
  * Note: Phygitals cards are compressed NFTs (cNFT). The listings sort
  * price-low-high, so page 1 ≈ the floor.
  */
+import { PHYGITALS_COLLECTIONS } from "@/lib/data/sources";
+
 const BASE = "https://api.phygitals.com/api/marketplace";
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -19,11 +21,9 @@ const HEADERS = {
   Accept: "application/json",
 };
 
-/** Phygitals collection mints (cNFT) — discovered from the marketplace API. */
-export const PHYGITALS_COLLECTIONS = [
-  "BSG6DyEihFFtfvxtL9mKYsvTwiZXB1rq5gARMTJC2xAM",
-  "phygZDQZJZVHvJGYPGoKPYUtXw7mstSYtTtcuh8LJcC",
-];
+// Phygitals collection mints (cNFT). Canonical list lives in the platform
+// registry (verified IDs); re-exported here for the listings query below.
+export { PHYGITALS_COLLECTIONS };
 
 export type PhygitalsListing = {
   address: string; // Solana mint

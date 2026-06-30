@@ -15,12 +15,13 @@ const CHAIN_DOT: Record<Chain, string> = {
 
 type Props = { rows: PlatformRow[] };
 
-type SortKey = "total" | "vol24" | "gacha" | "vol7" | "active" | "cards" | "holders" | "avgTrade";
+type SortKey = "total" | "dom" | "vol24" | "gacha" | "vol7" | "active" | "cards" | "holders" | "avgTrade";
 
 function valueFor(p: PlatformRow, key: SortKey): number {
   switch (key) {
     case "total":
-      return p.total24Usd;
+    case "dom":
+      return p.total24Usd; // share ranks identically to total activity
     case "vol24":
       return p.vol24Usd;
     case "gacha":
@@ -51,6 +52,7 @@ export function PlatformTable({ rows }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [dir, setDir] = useState<1 | -1>(-1);
 
+  const totalActivity = rows.reduce((s, p) => s + (p.total24Usd > 0 ? p.total24Usd : 0), 0) || 1;
   const sorted = [...rows].sort((a, b) => cmp(valueFor(a, sortKey), valueFor(b, sortKey), dir));
 
   function onSort(key: SortKey) {
@@ -72,7 +74,7 @@ export function PlatformTable({ rows }: Props) {
       </div>
 
       <div className="scroll-x">
-        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1000px]">
+        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1120px]">
           <thead>
             <tr className="border-b border-line">
               <Th>#</Th>
@@ -80,6 +82,7 @@ export function PlatformTable({ rows }: Props) {
               <Th className="hidden md:table-cell">Chain</Th>
               <Th className="hidden md:table-cell">Vault</Th>
               <SortTh align="right" title="Total 24h activity — marketplace resale + gacha + other primary" {...sp("total")}>Total 24h</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" title="Share of total 24h activity across platforms" {...sp("dom")}>Share</SortTh>
               <SortTh align="right" className="hidden md:table-cell" title="Secondary-market resale volume, 24h" {...sp("vol24")}>Marketplace</SortTh>
               <SortTh align="right" className="hidden md:table-cell" title="Gacha pack-pull spend, 24h" {...sp("gacha")}>Gacha</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sp("vol7")}>7d Vol</SortTh>
@@ -129,6 +132,7 @@ export function PlatformTable({ rows }: Props) {
                 </Td>
                 <Td muted className="hidden md:table-cell">{p.vault ?? "—"}</Td>
                 <Td align="right" strong>{p.total24Usd > 0 ? formatCompactUsd(p.total24Usd) : "—"}</Td>
+                <Td align="right" muted className="hidden md:table-cell">{shareCell(p, totalActivity)}</Td>
                 <Td align="right" className="hidden md:table-cell">{p.vol24Usd > 0 ? formatCompactUsd(p.vol24Usd) : "—"}</Td>
                 <Td align="right" className="hidden md:table-cell">{p.gachaVol24Usd != null && p.gachaVol24Usd > 0 ? formatCompactUsd(p.gachaVol24Usd) : "—"}</Td>
                 <Td align="right" muted className="hidden md:table-cell">
@@ -149,6 +153,12 @@ export function PlatformTable({ rows }: Props) {
       </div>
     </section>
   );
+}
+
+/** A platform's share of total 24h activity across all platforms. */
+function shareCell(p: PlatformRow, total: number): string {
+  if (!(p.total24Usd > 0)) return "—";
+  return `${((p.total24Usd / total) * 100).toFixed(1)}%`;
 }
 
 function Th({
