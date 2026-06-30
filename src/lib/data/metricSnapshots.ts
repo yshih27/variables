@@ -28,7 +28,8 @@ export type MetricEntityType =
   | "card"
   | "set"
   | "grade"
-  | "platform_ip";
+  | "platform_ip"
+  | "benchmark";
 
 export type MetricRow = {
   entity_type: MetricEntityType;

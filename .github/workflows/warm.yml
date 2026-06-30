@@ -120,6 +120,9 @@ jobs:
       - name: Core volume (fresh Dune execution)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts
+      - name: Benchmarks (CoinGecko BTC/ETH + Stooq S&P100/NDX)
+        continue-on-error: true
+        run: npx tsx scripts/warm-benchmarks.ts
       # Time-series spine — runs LAST: it reads the fresh core-volume (Dune),
       # marketcap, and holders output the steps above wrote.
       - name: Metric snapshots (time-series spine)
