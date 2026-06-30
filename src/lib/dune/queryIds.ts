@@ -55,3 +55,25 @@ export const BUYBACK_QUERY_IDS = {
  * recent sale list from these rows.
  */
 export const CC_SECONDARY_QUERY_ID = 7675297;
+
+/**
+ * Courtyard secondary marketplace sales (Polygon) via Dune `nft.trades` — replaces
+ * the Rarible aggregator. Same row shape as CC's 7675297
+ * `{ block_time, price_usd, nft_mint, buyer, seller }`, over full history.
+ */
+export const COURTYARD_SECONDARY_QUERY_ID = 7845248;
+
+/**
+ * Daily-bucketed gacha (primary) volume per platform — `{ day, [pack_price],
+ * pulls, volume_usd }` over full history. Powers the spine's `gacha_volume_usd`
+ * metric. CC price list = the live /api/gachas/all catalog (incl. Rarible's $151
+ * `pokemon_151`, plus 2500/5000); Phygitals excludes sub-$1 dust; Courtyard =
+ * tokenization (primary); Beezie = the Claw. (Beezie secondary is its own API,
+ * not Dune.)
+ */
+export const GACHA_DAILY_QUERY_IDS = {
+  "collector-crypt": 7845475,
+  beezie: 7845392,
+  phygitals: 7845484,
+  courtyard: 7845479,
+} as const;

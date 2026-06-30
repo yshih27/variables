@@ -1,24 +1,24 @@
 /**
- * Core secondary-volume warmer — Dune (CC) + Rarible (Beezie/Courtyard) → Postgres.
+ * Core secondary-volume warmer — all native/Dune, no Rarible → Postgres.
  *
  * Produces the `core-volume` snapshot buckets.ts reads, so page renders make ZERO
- * request-time network calls. Per the routing matrix (DATA_MODEL.md §5):
- *   • collector-crypt → Dune CC_SECONDARY_QUERY_ID (replaces the Helius-429 path)
- *   • beezie / courtyard → Rarible collectSales (aggregates OpenSea)
+ * request-time network calls. Per-platform secondary source:
+ *   • collector-crypt → Dune CC_SECONDARY_QUERY_ID (on-chain; replaces Helius-429)
+ *   • beezie          → its own /activity feed (api.beezie.com)
+ *   • courtyard       → Dune COURTYARD_SECONDARY_QUERY_ID (nft.trades; replaces Rarible)
  *
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
  * last cached results (0 credits) instead of forcing a fresh execution.
  */
 import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
-import { CC_SECONDARY_QUERY_ID } from "../../dune/queryIds";
+import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../../dune/queryIds";
 
-// Self-heal the cached CC-secondary Dune result if it's older than this. Kept
-// below 24h so the headline 24h window can never silently collapse to $0 while a
-// scheduled fresh run is failing — the next 6h cached warm re-runs it fresh.
+// Self-heal a cached Dune secondary result older than this. Kept below 24h so the
+// headline 24h window can never silently collapse to $0 while a scheduled fresh
+// run is failing — the next 6h cached warm re-runs it fresh.
 const CC_SECONDARY_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
-import { collectSales, type CollectionStats, type NormalizedSale } from "../../rarible/queries";
+import { type CollectionStats, type NormalizedSale } from "../../rarible/queries";
 import { fetchBeezieSales } from "../../beezie/market";
-import { PLATFORM_SOURCES } from "../sources";
 import {
   writeCoreVolume,
   type CorePlatformVolume,
@@ -53,9 +53,10 @@ function statsFromSaleList(collectionId: string, sales: NormalizedSale[]): Colle
 }
 
 /**
- * Build one platform's volume entry from a sale list. `spanDays` is how far back
- * the list reaches (30 for the CC Dune query, 1 for the 24h Rarille fetch) — we
- * only report 7d/30d aggregates the data actually covers.
+ * Build one platform's volume entry from a sale list. `spanDays` = how far back we
+ * can honestly report (≥30 ⇒ the list covers ≥30 days). 24h/7d/30d are computed as
+ * windows OVER the list, so a longer (full-history) list is fine — only the partial
+ * 24h day stored in `sales24h` is kept; older rows just feed the window sums.
  */
 function buildPlatform(
   key: string,
@@ -74,34 +75,37 @@ function buildPlatform(
     stats24h: statsFromSaleList(key, s24),
     sales24h: s24,
     vol7dUsd: spanDays >= 7 ? sumUsd(within(7)) : null,
-    vol30dUsd: spanDays >= 30 ? sumUsd(allSales) : null,
+    vol30dUsd: spanDays >= 30 ? sumUsd(within(30)) : null,
     sales7dCount: spanDays >= 7 ? within(7).length : null,
-    sales30dCount: spanDays >= 30 ? allSales.length : null,
+    sales30dCount: spanDays >= 30 ? within(30).length : null,
   };
 }
 
 /**
- * Fetch CC secondary sales from Dune as NormalizedSale rows. Shared by the core
- * warmer and the history backfill so both read the same source (no Helius 429).
+ * Fetch sale-level rows `{ block_time, price_usd, nft_mint, buyer, seller }` from a
+ * Dune secondary-sales query → NormalizedSale[]. `cachedOnly` does a self-healing
+ * cached read (a stale cache triggers a fresh run). `maxRows` is generous so a
+ * full-history query (Courtyard, 100k+ rows) isn't truncated at the 100k default.
  */
-export async function fetchCCSecondarySales(
+async function fetchDuneSecondarySales(
+  queryId: number,
+  label: string,
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
   let rows: DuneRow[];
   if (opts.cachedOnly) {
-    // Cached read, but self-healing: a stale cache (e.g. a missed daily fresh
-    // run) triggers a fresh execution here instead of serving rotted data.
-    const r = await getResultsAutoRefresh(CC_SECONDARY_QUERY_ID, {
+    const r = await getResultsAutoRefresh(queryId, {
       maxAgeMs: CC_SECONDARY_MAX_CACHE_AGE_MS,
-      runOpts: { maxWaitMs: 480_000 },
+      runOpts: { maxWaitMs: 480_000, maxRows: 250_000 },
+      maxRows: 250_000,
     });
     rows = r.rows;
     if (r.refreshed) {
       const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
-      (opts.log ?? console.log)(`  ↻ cc-secondary cache stale (${ageH}h old) — self-healed with a fresh Dune run`);
+      (opts.log ?? console.log)(`  ↻ ${label} cache stale (${ageH}h old) — self-healed with a fresh Dune run`);
     }
   } else {
-    rows = await runQuery(CC_SECONDARY_QUERY_ID, { maxWaitMs: 480_000 });
+    rows = await runQuery(queryId, { maxWaitMs: 480_000, maxRows: 250_000 });
   }
   return rows
     .map((r) => ({
@@ -112,6 +116,20 @@ export async function fetchCCSecondarySales(
       priceUsd: num(r.price_usd),
     }))
     .filter((s) => s.priceUsd > 0 && s.tokenId);
+}
+
+/** CC secondary sales (Dune). Shared by the core warmer, the spine, and backfill. */
+export async function fetchCCSecondarySales(
+  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+): Promise<NormalizedSale[]> {
+  return fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", opts);
+}
+
+/** Courtyard secondary sales (Dune nft.trades, full history). Replaces Rarible. */
+export async function fetchCourtyardSecondarySales(
+  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+): Promise<NormalizedSale[]> {
+  return fetchDuneSecondarySales(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", opts);
 }
 
 export type CoreWarmResult = {
@@ -158,22 +176,19 @@ export async function runCoreWarm(
     log(`→ beezie (Beezie /activity) FAILED: ${(err as Error).message}`);
   }
 
-  // ── Courtyard: Rarible (aggregates OpenSea), 24h. Low volume; its native
-  //    api.courtyard.io is WAF-blocked to server requests, so it stays on
-  //    Rarible — which is no longer starved now that Beezie is off it. ──
+  // ── Courtyard: Dune nft.trades (full history) — replaces Rarible. Its own
+  //    api.courtyard.io is WAF-blocked to servers, so Dune is the off-Rarible path. ──
   try {
-    const src = PLATFORM_SOURCES.find((p) => p.key === "courtyard");
-    if (src && src.kind === "rarible") {
-      const sales = await collectSales(src.collectionId, DAY);
-      platforms["courtyard"] = buildPlatform("courtyard", "rarible", sales, 1);
-      log(
-        `→ courtyard (Rarible) ${sales.length} sales/24h · $${Math.round(
-          platforms["courtyard"].stats24h.volumeUsd,
-        ).toLocaleString()}`,
-      );
-    }
+    const t0 = Date.now();
+    const sales = await fetchCourtyardSecondarySales(opts);
+    platforms["courtyard"] = buildPlatform("courtyard", "dune", sales, 30);
+    log(
+      `→ courtyard (Dune) ${sales.length} sales · 24h $${Math.round(
+        platforms["courtyard"].stats24h.volumeUsd,
+      ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+    );
   } catch (err) {
-    log(`→ courtyard (Rarible) FAILED: ${(err as Error).message}`);
+    log(`→ courtyard (Dune) FAILED: ${(err as Error).message}`);
   }
 
   const snap: CoreVolumeSnapshot = {
