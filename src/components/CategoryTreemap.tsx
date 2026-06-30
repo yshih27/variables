@@ -212,15 +212,15 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
     <section className="mb-2 font-sans">
       <header className="mb-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
         <div>
-          <h2 className="text-[22px] font-semibold tracking-[-0.01em]">Market cap by category</h2>
+          <h2 className="text-[22px] font-semibold tracking-[-0.01em]">Market cap by IP</h2>
           <div className="mt-1 text-[12px] text-ink-3">
-            Tiles sized by total market cap. Click a category to drill in.
+            Tiles sized by market cap. Click an IP to drill in.
           </div>
         </div>
         <div className="flex items-baseline gap-2">
           <span className="text-[20px] font-semibold tabular">{formatCompactUsd(total)}</span>
           <span className="text-[12px] text-ink-3">
-            across <span className="tabular">{count}</span> categories
+            across <span className="tabular">{count}</span> IPs
           </span>
         </div>
       </header>
