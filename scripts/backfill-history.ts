@@ -9,6 +9,7 @@ config({ path: ".env.local" });
 
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
 import { collectSales, type NormalizedSale } from "../src/lib/rarible/queries";
+import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { fetchCCSecondarySales } from "../src/lib/data/warmers/core";
 import { bucketsFromSales, writeHistory, writeIpHistory, type HourBucket } from "../src/lib/data/history";
 import { getBeezieMetadataCachedOnly, extractCategoryHints } from "../src/lib/data/beezieTraits";
@@ -30,8 +31,17 @@ async function main() {
     let sales: NormalizedSale[];
     if (p.key === "collector-crypt") {
       sales = await fetchCCSecondarySales({ cachedOnly: true });
+    } else if (p.key === "beezie") {
+      sales = await fetchBeezieSales(168 * HOUR_MS); // native /activity, not Rarible
     } else if (p.kind === "rarible") {
-      sales = await collectSales(p.collectionId, 168 * HOUR_MS);
+      // Courtyard (still on Rarible). Its shared quota may be exhausted — don't
+      // let that sink Beezie + CC history; skip this platform on failure.
+      try {
+        sales = await collectSales(p.collectionId, 168 * HOUR_MS);
+      } catch (err) {
+        console.warn(`→ ${p.name}: Rarible failed (${(err as Error).message.slice(0, 80)}) — skipped`);
+        continue;
+      }
     } else {
       continue; // no secondary-sales source yet (e.g. Phygitals)
     }
