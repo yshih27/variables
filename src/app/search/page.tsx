@@ -2,7 +2,8 @@ import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { buildSearch, type GroupedResults, type SearchResult } from "@/lib/data/searchIndex";
+import { buildSearch, cardHitToResult, type GroupedResults, type SearchResult } from "@/lib/data/searchIndex";
+import { searchCardsByName } from "@/lib/data/cards";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,26 @@ export default async function SearchPage({
 }) {
   const { q } = await searchParams;
   const query = (q ?? "").trim();
-  const home = await getHome();
-  const results = buildSearch(home, query);
+  const [home, cardHits] = await Promise.all([getHome(), searchCardsByName(query, 12)]);
+  const base = buildSearch(home, query);
+
+  // Merge full-table card hits (searchCardsByName over ~137K cards) with the base
+  // 24h-feed cards: keep the timely 24h matches first, then the most valuable table
+  // matches; dedupe by name so the same card doesn't appear twice (QA-3).
+  const seenCards = new Set<string>();
+  const cards = [...base.cards, ...cardHits.map(cardHitToResult)]
+    .filter((c) => {
+      const k = c.label.toLowerCase();
+      if (seenCards.has(k)) return false;
+      seenCards.add(k);
+      return true;
+    })
+    .slice(0, 12);
+  const results: GroupedResults = {
+    ...base,
+    cards,
+    total: base.ips.length + base.platforms.length + cards.length,
+  };
 
   return (
     <>
@@ -61,10 +80,9 @@ export default async function SearchPage({
         )}
 
         <div className="mt-16 rounded-xl border border-line/70 bg-bg-1 p-5 text-[12px] text-ink-3">
-          <span className="font-semibold text-ink-2">Heads up:</span> v1 search
-          covers IPs, platforms, and cards surfaced in the last 24h. Full
-          card-level search across all ~125K tracked tokens lands when we
-          publish the persistent search index.
+          <span className="font-semibold text-ink-2">Search</span> covers every IP
+          and platform plus all tracked cards by name (ranked by value). Set- and
+          grade-level filters land next.
         </div>
       </div>
     </>

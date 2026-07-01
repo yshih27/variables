@@ -93,6 +93,36 @@ export function rebaseWithBands(series: IndexPoint[], from: string, rebaseTo = 1
   }));
 }
 
+/**
+ * Sanitize a raw STOCK series (mcap/floor/holders) before it's rebased or charted:
+ *   1. drop non-finite / non-positive readings — a $0 market cap is never real,
+ *      it's a failed computation (an empty-cards scan), and it makes a rebased
+ *      chart dive to zero.
+ *   2. trim a LEADING ORPHAN cluster — an isolated early reading separated from the
+ *      continuous body by a large gap (e.g. a one-off seed 26 days before daily
+ *      coverage begins). Left in, it anchors the rebased index to pre-history and
+ *      opens a gap that renders as a dip to ~0.
+ * Stops at the first point whose gap to the next is within `maxLeadingGapDays`, so
+ * only the leading orphan is trimmed — the continuous body is untouched. Weekly
+ * series (7-day cadence) and benchmark weekend gaps stay well under the threshold.
+ */
+export function sanitizeStockSeries(
+  raw: { ts: string; value: number }[],
+  maxLeadingGapDays = 10,
+): { ts: string; value: number }[] {
+  const pos = raw
+    .filter((p) => Number.isFinite(p.value) && p.value > 0 && Number.isFinite(Date.parse(p.ts)))
+    .sort((a, b) => a.ts.localeCompare(b.ts));
+  let i = 0;
+  while (
+    i < pos.length - 1 &&
+    (Date.parse(pos[i + 1].ts) - Date.parse(pos[i].ts)) / DAY > maxLeadingGapDays
+  ) {
+    i += 1;
+  }
+  return pos.slice(i);
+}
+
 type PriceIndexSnapshot = { generatedAt: string; series: Record<string, IndexPoint[]> };
 
 /** Read a precomputed price-index series (written by warm-sale-panel) from the blob. */
@@ -106,15 +136,17 @@ async function readMcapSeries(
   entity: "market" | "category" | "ip",
   key: string,
 ): Promise<{ ts: string; value: number }[]> {
-  if (entity !== "category") return readMetricSeries(entity, key, "mcap_usd");
+  if (entity !== "category") return sanitizeStockSeries(await readMetricSeries(entity, key, "mcap_usd"));
   const perDay = new Map<string, number>();
   for (const ip of ipsInCategory(key as IPCategory)) {
-    for (const p of await readMetricSeries("ip", ip, "mcap_usd")) {
+    // sanitize each IP's series first so one IP's zero/orphan day can't poison the sum
+    for (const p of sanitizeStockSeries(await readMetricSeries("ip", ip, "mcap_usd"))) {
       const day = dayStartUtc(Date.parse(p.ts));
       perDay.set(day, (perDay.get(day) ?? 0) + p.value);
     }
   }
-  return [...perDay.entries()].map(([ts, value]) => ({ ts, value })).sort((a, b) => a.ts.localeCompare(b.ts));
+  const summed = [...perDay.entries()].map(([ts, value]) => ({ ts, value })).sort((a, b) => a.ts.localeCompare(b.ts));
+  return sanitizeStockSeries(summed);
 }
 
 /**

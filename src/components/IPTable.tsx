@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { IPRow } from "@/lib/types";
+import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
@@ -13,6 +14,9 @@ type Props = {
   maxRows?: number;
   /** Where the See all link points. Omit to hide the link. */
   seeAllHref?: string;
+  /** Homepage teaser: drop the facet tabs + window toggle so the top-N reads as
+   *  a clean preview; the full controls live on the canonical /ips page. */
+  teaser?: boolean;
 };
 
 type SortKey = "mcap" | "dom" | "d1" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers";
@@ -68,7 +72,7 @@ function categoryGroup(key: string): string {
   return "Other";
 }
 
-export function IPTable({ rows, maxRows, seeAllHref }: Props) {
+export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("mcap");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [vw, setVw] = useState<VolWindow>("24h");
@@ -108,28 +112,23 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
   });
 
   return (
-    <section className="mt-14">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[22px] font-semibold tracking-[-0.005em]">
-            Top {visible.length} IPs <span className="font-normal text-ink-3">/ Categories</span>
-          </h2>
-          <div className="mt-1 text-[12px] text-ink-3">
-            Breakdown by IP across tracked platforms.
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <WindowToggle value={vw} onChange={setVw} />
+    <Section
+      title={`Top ${visible.length} IPs`}
+      subtitle="Breakdown by IP across tracked platforms."
+      right={
+        <>
+          {!teaser && <WindowToggle value={vw} onChange={setVw} />}
           {seeAllHref && overflow > 0 && (
             <Link href={seeAllHref} className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
               See all {rows.length} IPs →
             </Link>
           )}
-        </div>
-      </div>
-
-      {facets.length > 2 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
+        </>
+      }
+      flush
+    >
+      {!teaser && facets.length > 2 && (
+        <div className="mb-3 flex flex-wrap gap-1.5 px-4 sm:px-5">
           {facets.map((g) => (
             <button
               key={g}
@@ -231,7 +230,7 @@ export function IPTable({ rows, maxRows, seeAllHref }: Props) {
           </tbody>
         </table>
       </div>
-    </section>
+    </Section>
   );
 }
 

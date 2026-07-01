@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { PlatformRow, Chain } from "@/lib/types";
+import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
@@ -13,7 +14,13 @@ const CHAIN_DOT: Record<Chain, string> = {
   Ethereum: "#9aa6ff",
 };
 
-type Props = { rows: PlatformRow[] };
+type Props = {
+  rows: PlatformRow[];
+  /** Cap visible rows; the rest surface via the See all link (homepage teaser). */
+  maxRows?: number;
+  /** Where the See all link points. Omit to hide the link. */
+  seeAllHref?: string;
+};
 
 type SortKey = "total" | "dom" | "vol24" | "gacha" | "vol7" | "active" | "cards" | "holders" | "avgTrade";
 
@@ -48,12 +55,14 @@ function cmp(a: number, b: number, dir: 1 | -1): number {
   return (a - b) * dir;
 }
 
-export function PlatformTable({ rows }: Props) {
+export function PlatformTable({ rows, maxRows, seeAllHref }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [dir, setDir] = useState<1 | -1>(-1);
 
   const totalActivity = rows.reduce((s, p) => s + (p.total24Usd > 0 ? p.total24Usd : 0), 0) || 1;
   const sorted = [...rows].sort((a, b) => cmp(valueFor(a, sortKey), valueFor(b, sortKey), dir));
+  const visible = maxRows ? sorted.slice(0, maxRows) : sorted;
+  const overflow = rows.length - visible.length;
 
   function onSort(key: SortKey) {
     if (key === sortKey) setDir((d) => (d === -1 ? 1 : -1));
@@ -65,14 +74,18 @@ export function PlatformTable({ rows }: Props) {
   const sp = (key: SortKey) => ({ active: sortKey === key, dir, onClick: () => onSort(key) });
 
   return (
-    <section className="mt-14">
-      <div className="mb-5 flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[22px] font-semibold tracking-[-0.005em]">Top Platforms</h2>
-          <div className="mt-1 text-[12px] text-ink-3">Where the trading happens.</div>
-        </div>
-      </div>
-
+    <Section
+      title="Top Platforms"
+      subtitle="Where the trading happens."
+      right={
+        seeAllHref && overflow > 0 ? (
+          <Link href={seeAllHref} className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
+            See all {rows.length} platforms →
+          </Link>
+        ) : undefined
+      }
+      flush
+    >
       <div className="scroll-x">
         <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1120px]">
           <thead>
@@ -98,7 +111,7 @@ export function PlatformTable({ rows }: Props) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((p, i) => {
+            {visible.map((p, i) => {
               // Primary-market venues (gacha / tokenization) can post real revenue
               // with no secondary trades — tag them so the dashed row reads as
               // intentional rather than broken data.
@@ -151,7 +164,7 @@ export function PlatformTable({ rows }: Props) {
           </tbody>
         </table>
       </div>
-    </section>
+    </Section>
   );
 }
 

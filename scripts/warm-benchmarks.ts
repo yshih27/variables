@@ -44,7 +44,8 @@ async function main() {
     }
   };
 
-  // ── Crypto: CoinGecko market_chart (daily for days > 90) ──
+  // ── Crypto + gold: CoinGecko market_chart (daily for days > 90) ──
+  // GOLD = PAX Gold (PAXG), a gold-backed token that tracks spot ~1:1 (see benchmarks.ts).
   for (const [symbol, id] of Object.entries(BENCHMARK_COINGECKO_ID)) {
     try {
       const before = rows.length;

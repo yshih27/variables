@@ -14,12 +14,21 @@
 import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
 import { rebaseSeries, rebaseWithBands, resampleWeekly, type IndexPoint } from "./indices";
 
-export type BenchmarkSymbol = "BTC" | "ETH" | "SP500" | "NASDAQ";
+export type BenchmarkSymbol = "BTC" | "ETH" | "SP500" | "NASDAQ" | "GOLD";
 
-/** Crypto benchmarks → CoinGecko coin ids (via prices.fetchCoinGeckoMarketChart). */
-export const BENCHMARK_COINGECKO_ID: Record<"BTC" | "ETH", string> = {
+/**
+ * CoinGecko-sourced benchmarks → coin ids (via prices.fetchCoinGeckoMarketChart).
+ * BTC/ETH are the crypto majors; GOLD is PAX Gold (PAXG) — tokenized gold, fully
+ * LBMA-backed and redeemable, so it tracks the spot gold price ~1:1 (within <1%).
+ * CoinGecko is the reliable server-side source: FRED has NO daily spot-gold price
+ * series anymore (the LBMA fixing series were discontinued → 400), and Stooq/Yahoo
+ * IP-block datacenter hosts (so they fail in GitHub Actions). PAXG on CoinGecko is
+ * as reliable here as BTC/ETH.
+ */
+export const BENCHMARK_COINGECKO_ID: Record<"BTC" | "ETH" | "GOLD", string> = {
   BTC: "bitcoin",
   ETH: "ethereum",
+  GOLD: "pax-gold",
 };
 
 /** Equity benchmarks → source symbols, tried FRED → Stooq → Yahoo in that order. */

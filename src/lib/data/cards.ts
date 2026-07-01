@@ -108,6 +108,66 @@ export async function upsertCards(rows: CardRow[]): Promise<void> {
   }
 }
 
+export type CardSearchHit = {
+  platform: string;
+  token_id: string;
+  name: string;
+  ip_key: string;
+  set_name: string | null;
+  grade_label: string | null;
+  insured_value_usd: number | null;
+};
+
+/** Escape LIKE/ILIKE wildcards so user input matches literally (a `%` typed by the
+ *  user shouldn't become "match anything"). */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+/**
+ * Card-name search across the FULL cards table (~137K rows) via `name ILIKE`, so
+ * "charizard" returns the notable Charizards instead of the single last-24h sale
+ * the homepage payload carried (QA-3). Ranked by insured value (most valuable match
+ * first) and de-duplicated by name. Returns [] for queries under 2 chars.
+ *
+ * A full-table `ILIKE '%q%'` is a sequential scan — fine at this size (tens of ms);
+ * add a `pg_trgm` GIN index on `lower(name)` if card search ever gets hot.
+ */
+export async function searchCardsByName(query: string, limit = 12): Promise<CardSearchHit[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const { data, error } = await db()
+    .from("cards")
+    .select("platform,token_id,name,ip_key,set_name,grade_label,insured_value_usd")
+    .ilike("name", `%${escapeLike(q)}%`)
+    .order("insured_value_usd", { ascending: false, nullsFirst: false })
+    .limit(limit * 6); // over-fetch so de-duping by name still fills `limit`
+  if (error) {
+    console.warn(`[cards] searchCardsByName("${q}") failed: ${error.message}`);
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: CardSearchHit[] = [];
+  for (const r of data ?? []) {
+    const name = (r.name as string | null)?.trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      platform: r.platform as string,
+      token_id: r.token_id as string,
+      name,
+      ip_key: r.ip_key as string,
+      set_name: (r.set_name as string | null) ?? null,
+      grade_label: (r.grade_label as string | null) ?? null,
+      insured_value_usd: (r.insured_value_usd as number | null) ?? null,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /**
  * Stream the minimal valuation columns for EVERY card of a platform (paged).
  * Used by warm-marketcap — `ip_key` + `insured_value_usd` are precomputed at

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { CardImage } from "./CardImage";
+import { BuyLinks } from "./BuyLinks";
 import { formatCompactUsd } from "@/lib/format";
 import type { CardDetail } from "@/lib/card/fetchCard";
-import { FreshnessChips } from "@/components/FreshnessChip";
+import { buyLinks } from "@/lib/links/buyLinks";
 
 const GRADER_COLOR: Record<string, string> = {
   PSA: "#D62828",
@@ -17,13 +18,6 @@ const CHAIN_COLOR: Record<string, string> = {
   Base: "#5fa3ff",
   Polygon: "#a18cff",
   Ethereum: "#b8b8b8",
-};
-
-/** Per-platform freshness source for this card's identity/trait data. */
-const FRESHNESS_SOURCE: Record<string, string> = {
-  "collector-crypt": "cc-traits",
-  beezie: "beezie-traits",
-  phygitals: "phygitals",
 };
 
 const SOON = [
@@ -63,7 +57,12 @@ function GradeBadge({
 
 export function CardDetailView({ card }: { card: CardDetail }) {
   const t = card.traits;
-  const freshnessSource = FRESHNESS_SOURCE[card.platform];
+  // Buy venues only — the resolver's Solscan entry is dropped here because the
+  // on-chain link already lives in the token footer below (and covers Basescan
+  // for Beezie too, not just Solana).
+  const links = buyLinks({ platform: card.platform, chain: card.chain, tokenId: card.tokenId }).filter(
+    (l) => l.platform !== "solscan",
+  );
   const byLabel = new Map(card.attributes.map((a) => [a.label.toLowerCase(), a.value]));
   const attr = (k: string) => byLabel.get(k.toLowerCase()) ?? null;
 
@@ -121,12 +120,6 @@ export function CardDetailView({ card }: { card: CardDetail }) {
             </span>
           </div>
 
-          {freshnessSource && (
-            <div className="mt-3">
-              <FreshnessChips sources={[freshnessSource]} />
-            </div>
-          )}
-
           <h1 className="mt-4 text-[30px] font-bold leading-tight tracking-[-0.01em]">
             {card.name}
           </h1>
@@ -149,6 +142,13 @@ export function CardDetailView({ card }: { card: CardDetail }) {
             )}
             <GradeBadge grader={t.grader} gradeNum={t.gradeNum} label={card.gradeLabel} />
           </div>
+
+          {/* Primary CTA — buy this card (Rarible-first). */}
+          {links.length > 0 && (
+            <div className="mt-7">
+              <BuyLinks links={links} />
+            </div>
+          )}
 
           <dl className="mt-7 grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
             {facts.map(([k, v]) => (

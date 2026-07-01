@@ -62,8 +62,19 @@ export function DominancePanel({
   const [hi, setHi] = useState<string | null>(null);
 
   const segments = useMemo(() => {
+    // avg_trade is DERIVED (volume ÷ trades), not a stored/backend metric (F7);
+    // guarding /0. Deriving here also restores "Other" buckets that were passed
+    // avgTrade: 0 (they now show their real average instead of dropping out).
     const ents = source.entities
-      .map((e) => ({ name: e.name, color: e.color, v: Math.max(0, e.values[metric] || 0) }))
+      .map((e) => {
+        const raw =
+          metric === "avgTrade"
+            ? e.values.trades > 0
+              ? e.values.volume / e.values.trades
+              : 0
+            : e.values[metric] || 0;
+        return { name: e.name, color: e.color, v: Math.max(0, raw) };
+      })
       .filter((e) => e.v > 0);
     const total = ents.reduce((a, e) => a + e.v, 0) || 1;
     return ents

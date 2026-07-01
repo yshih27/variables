@@ -163,7 +163,10 @@ export function rollupByCategory(
   return out.sort((a, b) => b.mcapUsd - a.mcapUsd);
 }
 
-export type CategoryTrendDataset = { group: CategoryGroup; color: string; points: number[] };
+/** `group` is a free string so this shape is reusable for platform trends too.
+ *  `benchmark` marks an external reference line (BTC/S&P/…) so the chart can draw
+ *  it dashed and default it off (QA-6). */
+export type CategoryTrendDataset = { group: string; color: string; points: number[]; benchmark?: boolean };
 export type CategoryTrend = { labels: string[]; datasets: CategoryTrendDataset[] };
 
 /**
@@ -214,10 +217,82 @@ export function buildCategoryTrend(
     }
     datasets.push({ group, color: CATEGORY_COLOR[group], points });
   }
-  return { labels, datasets };
+  return trimTrailingZeroDays({ labels, datasets });
+}
+
+/**
+ * Drop trailing days where every dataset is 0. A flow series whose latest day
+ * hasn't been recorded yet would otherwise dip the chart to zero at the right
+ * edge and headline a misleading $0 in the legend. "hold"-filled stock series
+ * carry their last value forward, so they're never trimmed. Keeps ≥2 points.
+ */
+export function trimTrailingZeroDays(trend: CategoryTrend): CategoryTrend {
+  let end = trend.labels.length;
+  while (end > 2 && trend.datasets.every((d) => !d.points[end - 1])) end--;
+  if (end === trend.labels.length) return trend;
+  return {
+    labels: trend.labels.slice(0, end),
+    datasets: trend.datasets.map((d) => ({ ...d, points: d.points.slice(0, end) })),
+  };
 }
 
 /** Herfindahl–Hirschman index over category market-cap shares (0–1). */
 export function concentrationHHI(cats: CategoryAggregate[]): number {
   return cats.reduce((s, c) => s + Math.pow(c.sharePct / 100, 2), 0);
+}
+
+/** Align labelled spine series into one dataset each over a shared timeline. */
+export function buildSeriesTrend(
+  items: { group: string; color: string; series: SeriesPoint[] }[],
+  fill: "zero" | "hold",
+): CategoryTrend {
+  const tsSet = new Set<string>();
+  for (const it of items) for (const p of it.series) tsSet.add(p.ts);
+  const labels = [...tsSet].sort();
+  const idx = new Map(labels.map((ts, i) => [ts, i]));
+  const datasets: CategoryTrend["datasets"] = items
+    .filter((it) => it.series.length > 0)
+    .map((it) => {
+      const arr = new Array<number>(labels.length).fill(NaN);
+      for (const p of it.series) {
+        const i = idx.get(p.ts);
+        if (i != null && Number.isFinite(p.value)) arr[i] = p.value;
+      }
+      if (fill === "hold") {
+        let last = 0;
+        for (let i = 0; i < arr.length; i++) {
+          if (Number.isFinite(arr[i])) last = arr[i];
+          else arr[i] = last;
+        }
+      } else {
+        for (let i = 0; i < arr.length; i++) if (!Number.isFinite(arr[i])) arr[i] = 0;
+      }
+      return { group: it.group, color: it.color, points: arr };
+    });
+  return { labels, datasets };
+}
+
+/**
+ * Top IPs by market cap (that have spine history) as one mcap series each — for
+ * the rebased "OP vs Pokémon" index comparison (F3). hold-filled (mcap is stock).
+ */
+export function buildIpComparisonTrend(
+  rows: IPRow[],
+  seriesByIp: Record<string, SeriesPoint[]>,
+  maxIps = 5,
+): CategoryTrend {
+  const eligible = [...rows]
+    .filter((ip) => ip.key !== "other" && (seriesByIp[ip.key] ?? []).length >= 2 && qualifiedMcap(ip) > 0)
+    .sort((a, b) => b.mcapUsd - a.mcapUsd);
+  // Compare IPs of broadly comparable scale: drop any under 1% of the largest so
+  // a tiny, volatile IP doesn't add noise to the headline OP-vs-Pokémon view.
+  const floor = (eligible[0]?.mcapUsd ?? 0) * 0.01;
+  const picks = eligible.filter((ip) => ip.mcapUsd >= floor).slice(0, maxIps);
+  // Distinct comparison palette — brand colors collide (Pokémon + One Piece are
+  // both blue), so rebased lines stay legible against each other.
+  const PALETTE = ["#5fa3ff", "#f5c451", "#2bd6a0", "#a18cff", "#ff6b9d"];
+  return buildSeriesTrend(
+    picks.map((ip, i) => ({ group: ip.name, color: PALETTE[i % PALETTE.length], series: seriesByIp[ip.key] ?? [] })),
+    "hold",
+  );
 }

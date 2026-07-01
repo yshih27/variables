@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TopSale } from "@/lib/types";
+import { Section } from "./Section";
 import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd } from "@/lib/format";
@@ -18,22 +19,23 @@ type Props = { items: TopSale[] };
 export function TopSalesPanel({ items }: Props) {
   if (items.length === 0) return null;
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-bg-1">
-      <div className="flex items-center gap-2.5 border-b border-line px-6 py-5">
+    <Section
+      title="Top Sales"
+      badge={
         <span className="inline-flex h-6 items-center gap-1.5 rounded-md bg-green px-2 text-[11px] font-bold uppercase tracking-[0.04em] text-black">
           Sales
         </span>
-        <span className="text-[15px] font-semibold">Top Sales</span>
-        <span className="ml-auto text-[11.5px] text-ink-3">
-          top {items.length} cards · 24h
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-5 px-6 pb-6 pt-6 md:grid-cols-3 lg:grid-cols-5">
+      }
+      right={<span className="text-[11.5px] text-ink-3">top {items.length} cards · 24h</span>}
+      className="font-sans"
+      flush
+    >
+      <div className="grid grid-cols-2 gap-5 px-4 pb-4 pt-1 sm:px-5 sm:pb-5 md:grid-cols-3 lg:grid-cols-5">
         {items.map((s, i) => (
           <SaleCard key={`${s.platform}:${s.cardName}:${i}`} sale={s} />
         ))}
       </div>
-    </div>
+    </Section>
   );
 }
 
