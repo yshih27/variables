@@ -87,3 +87,22 @@ export async function toUsd(
   if (!Number.isFinite(rate)) return null;
   return value * rate;
 }
+
+// ─────────────────────────── Benchmark price history ───────────────────────────
+
+/**
+ * Daily market-chart for a CoinGecko coin id (free, no key) — extends the
+ * CoinGecko integration above for the indices engine's benchmarks. Returns the
+ * raw `[msTimestamp, priceUsd][]` series; for `days > 90` CoinGecko returns daily
+ * granularity. The benchmarks warmer buckets these to one close per UTC day.
+ */
+export async function fetchCoinGeckoMarketChart(
+  id: string,
+  days = 365,
+): Promise<[number, number][]> {
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`CoinGecko market_chart ${res.status} for ${id}`);
+  const body = (await res.json()) as { prices?: [number, number][] };
+  return body.prices ?? [];
+}

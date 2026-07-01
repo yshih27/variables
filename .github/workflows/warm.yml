@@ -17,6 +17,7 @@ on:
   schedule:
     - cron: "0 */6 * * *" # every 6h — core market data
     - cron: "30 5 * * *" # daily 05:30 UTC — holders, beezie traits, fresh gacha
+    - cron: "0 6 * * *" # daily 06:00 UTC — indices (benchmarks + sale-panel), after the daily batch
     - cron: "0 4 * * 1" # Mondays 04:00 UTC — full CC trait crawl (heavy)
   workflow_dispatch:
     inputs:
@@ -24,7 +25,7 @@ on:
         description: Which batch to run
         type: choice
         default: core
-        options: [core, daily, cc-traits]
+        options: [core, daily, indices, cc-traits]
 
 # One run at a time; never cancel an in-flight warm (cancelling mid-write is
 # what used to lose data — keep cancel-in-progress false).
@@ -37,6 +38,7 @@ env:
   DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
   HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
+  FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
@@ -125,6 +127,28 @@ jobs:
       - name: Metric snapshots (time-series spine)
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
+
+  # ── Indices — benchmarks + price-index sale panel. Own job + tight timeout so a
+  #    slow panel build can't starve the daily batch; runs at 06:00, after daily. ──
+  indices:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'indices')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Benchmarks (CoinGecko BTC/ETH + FRED SP500/NASDAQ)
+        continue-on-error: true
+        run: npx tsx scripts/warm-benchmarks.ts
+      - name: Price index (sale panel → stratified-median indices)
+        continue-on-error: true
+        run: npx tsx scripts/warm-sale-panel.ts
 
   # ── Weekly — full CC collection trait crawl (~122K assets, slow) ──
   # Its own job + a generous timeout: this crawl is what kept blowing the old
