@@ -6,6 +6,7 @@ import { getCCMetadataCachedOnly } from "./ccTraits";
 import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "./traits";
 import { readIpHistory, sumLast, pctChange } from "./history";
+import { readMetricSeries, type SeriesPoint } from "./metricSnapshots";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 import type { Trend } from "@/lib/types";
 
@@ -456,5 +457,36 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
 export const getIPDetail = unstable_cache(
   async (ipKey: string) => fetchIP(ipKey),
   ["ip-detail:v7"], // v7: spark24h anchors to newest sale (QA-2)
+  { revalidate: 3600, tags: ["ip-detail"] },
+);
+
+/**
+ * Activity-chart daily series for an IP (metric_snapshots spine) + the market mcap
+ * baseline for the "IP vs market" index. Cached so the IP page reads them through
+ * ONE memoized call instead of 6 uncached `readMetricSeries` round-trips per request
+ * (R2-B1 perf). 1h revalidate + "ip-detail" tag, matching getIPDetail.
+ */
+export const getIPActivitySeries = unstable_cache(
+  async (
+    key: string,
+  ): Promise<{
+    volume: SeriesPoint[];
+    mcap: SeriesPoint[];
+    wallets: SeriesPoint[];
+    trades: SeriesPoint[];
+    cards: SeriesPoint[];
+    marketMcap: SeriesPoint[];
+  }> => {
+    const [volume, mcap, wallets, trades, cards, marketMcap] = await Promise.all([
+      readMetricSeries("ip", key, "volume_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("ip", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("ip", key, "active_wallets").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("ip", key, "trades").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("ip", key, "cards_traded").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("market", "total", "mcap_usd").catch(() => [] as SeriesPoint[]),
+    ]);
+    return { volume, mcap, wallets, trades, cards, marketMcap };
+  },
+  ["ip-activity-series:v1"],
   { revalidate: 3600, tags: ["ip-detail"] },
 );

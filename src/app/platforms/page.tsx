@@ -6,7 +6,7 @@ import { CategoryTrendChart } from "@/components/CategoryTrendChart";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { readMetricSeriesBulk } from "@/lib/data/metricSnapshots";
-import { buildPlatformTrend } from "@/lib/platform/rollup";
+import { buildPlatformTrend, buildVolumeSplitTrend } from "@/lib/platform/rollup";
 
 const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v5"], {
   revalidate: 3600,
@@ -28,19 +28,18 @@ export const metadata = {
 };
 
 export default async function AllPlatformsPage() {
-  const [data, mktSeries, mcapSeries] = await Promise.all([
+  const [data, mktSeries, gachaSeries, mcapSeries] = await Promise.all([
     getData(),
     getPlatformSeries("volume_usd"),
+    getPlatformSeries("gacha_volume_usd"),
     getPlatformSeries("mcap_usd"),
   ]);
 
-  // Marketplace (secondary resale) + market cap only — both reconciled/reliable.
-  // The spine's `gacha_volume_usd` runs ~60× below the live gacha 24h figures
-  // (and spiky), so it's not trustworthy to chart yet; the StatBar + table show
-  // the accurate live gacha numbers. Re-add a gacha trend once the backend
-  // reconciles that series the way `volume_usd` was reconciled in PR #17.
+  // Primary metric = Volume | Market cap (R2-F3). Volume decomposes by TYPE into
+  // Marketplace (secondary resale) + Gacha (primary) rather than mixing a volume
+  // sub-type against a stock metric in one toggle. Market cap stays per-platform.
   const trendViews = [
-    { key: "marketplace", label: "Marketplace", data: buildPlatformTrend(mktSeries, "zero") },
+    { key: "volume", label: "Volume", data: buildVolumeSplitTrend(mktSeries, gachaSeries) },
     { key: "mcap", label: "Market cap", data: buildPlatformTrend(mcapSeries, "hold") },
   ];
 
@@ -61,7 +60,7 @@ export default async function AllPlatformsPage() {
         </div>
         <PlatformStatBar rows={data.platforms} />
         <div className="space-y-6">
-          <CategoryTrendChart views={trendViews} defaultKey="marketplace" entityLabel="platform" />
+          <CategoryTrendChart views={trendViews} defaultKey="volume" entityLabel="platform" />
           <PlatformTable rows={data.platforms} />
         </div>
       </div>

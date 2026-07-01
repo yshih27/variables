@@ -40,7 +40,10 @@ const getBenchmarkCloses = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-export const dynamic = "force-dynamic";
+// ISR: serve cached HTML, revalidate every 30 min in the background. The underlying
+// data only changes every ~6h (warmers), so per-request re-rendering was pure waste
+// (R2-B1). All reads are unstable_cache-backed; no cookies/headers/searchParams here.
+export const revalidate = 1800;
 
 export default async function Home() {
   const [data, gacha, marketIdx, benchCloses] = await Promise.all([

@@ -1,5 +1,5 @@
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
-import { trimTrailingZeroDays, type CategoryTrend } from "@/lib/category/rollup";
+import { trimTrailingZeroDays, buildSeriesTrend, type CategoryTrend } from "@/lib/category/rollup";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
 /**
@@ -53,6 +53,34 @@ export function buildPlatformTrend(seriesByKey: Record<string, SeriesPoint[]>, f
     datasets.push({ group: s.name, color: PLATFORM_COLOR[s.key] ?? "#707070", points: densify(series, labels, idx, fill) });
   }
   return trimTrailingZeroDays({ labels, datasets });
+}
+
+/** Sum every platform's series into one total series by ts. */
+function sumAllByTs(byKey: Record<string, SeriesPoint[]>): SeriesPoint[] {
+  const acc = new Map<string, number>();
+  for (const key of Object.keys(byKey)) for (const p of byKey[key] ?? []) acc.set(p.ts, (acc.get(p.ts) ?? 0) + (p.value || 0));
+  return [...acc.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([ts, value]) => ({ ts, value }));
+}
+
+/**
+ * Total 24h volume split by TYPE — Marketplace (secondary resale) + Gacha
+ * (primary) — as two stacked bands (R2-F3). This is the honest decomposition of
+ * the "Volume" metric; on these platforms gacha/primary dwarfs secondary resale,
+ * so marketplace reads as the thinner band. Flow metric ⇒ "zero" fill.
+ */
+export function buildVolumeSplitTrend(
+  mktByKey: Record<string, SeriesPoint[]>,
+  gachaByKey: Record<string, SeriesPoint[]>,
+): CategoryTrend {
+  return trimTrailingZeroDays(
+    buildSeriesTrend(
+      [
+        { group: "Marketplace", color: "#5fa3ff", series: sumAllByTs(mktByKey) },
+        { group: "Gacha", color: "#f3ff42", series: sumAllByTs(gachaByKey) },
+      ],
+      "zero",
+    ),
+  );
 }
 
 /** Sum several keyed series maps by ts (e.g. marketplace + gacha → total volume). */

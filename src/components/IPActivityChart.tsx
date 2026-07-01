@@ -12,11 +12,13 @@ import { formatCompactUsd, formatInt } from "@/lib/format";
  * volume gets a gradient area fill, end-of-line value labels, a pulsing latest
  * dot, and a hover crosshair + tooltip.
  *
- * AXES: the x-axis shows REAL dates (and clock times in the 24H window), read
- * from each window's `ts` timestamps. The y-axis is labelled with the PRIMARY
- * (first active) metric's real value scale — formatted by its kind ($ vs count)
- * — so magnitude is legible, not just shape. Overlaid metrics keep their own
- * normalization for trend comparison; the axis belongs to the primary metric.
+ * AXES (R2-F4): mcap ($38.6M) and volume ($44K) and trades (146) can't share one
+ * linear axis — the units and ~1000× scale gaps make all but one unreadable. So
+ * each active metric is normalized to its OWN range (overlays compare SHAPE), and
+ * every line carries an **end-of-line label with its real current value**. The
+ * left axis shows real numbers only when a SINGLE metric is active (then it's
+ * that metric's true scale); with 2+ metrics it drops to plain gridlines so it
+ * never implies the overlaid lines share the primary's scale.
  *
  * DATA: every series is REAL, read from the `metric_snapshots` spine (24H volume
  * from hourly buckets). A window with <2 points has no history yet — its chip is
@@ -42,7 +44,7 @@ export type ActivityMetric = {
 };
 
 const H = 320;
-const PAD = { top: 16, right: 20, bottom: 30, left: 52 };
+const PAD = { top: 16, right: 68, bottom: 30, left: 52 }; // right pad holds end-of-line value labels
 
 /** A metric has a drawable series for this window only with ≥2 real points AND at
  *  least one positive value. An all-$0 window (e.g. a platform whose hourly volume
@@ -194,8 +196,33 @@ export function IPActivityChart({
 
   const primary = lines[0];
   const hoverN = primary?.n ?? 0;
-  const yTicks = primary ? buildYTicks(primary.min, primary.max, primary.key) : [];
+  const multi = lines.length > 1;
   const xTickCount = primary ? Math.min(5, primary.n) : 0;
+  // With ONE metric the left axis shows its true scale; with 2+ (normalized
+  // overlays) it drops to unlabeled gridlines so it never implies a shared scale.
+  const gridlines: { f: number; label: string }[] =
+    !multi && primary
+      ? buildYTicks(primary.min, primary.max, primary.key)
+      : [0, 0.5, 1].map((f) => ({ f, label: "" }));
+  // End-of-line labels — each active line's real current value, de-collided so
+  // labels never stack on top of each other (R2-F4).
+  const endLabels = (() => {
+    const items = lines
+      .map((m) => {
+        const last = m.pts[m.pts.length - 1];
+        const raw = m.series[tf].points[m.n - 1];
+        return { key: m.key, color: m.color, y: last[1], text: fmtByKey(m.key, raw) };
+      })
+      .sort((a, b) => a.y - b.y);
+    const GAP = 13;
+    for (let i = 1; i < items.length; i++) {
+      if (items[i].y - items[i - 1].y < GAP) items[i].y = items[i - 1].y + GAP;
+    }
+    const overflow = items.length ? items[items.length - 1].y - (PAD.top + plotH) : 0;
+    if (overflow > 0) for (const it of items) it.y -= overflow;
+    for (const it of items) it.y = Math.max(PAD.top + 4, it.y);
+    return items;
+  })();
 
   return (
     <section className="mb-12 font-sans">
@@ -204,7 +231,8 @@ export function IPActivityChart({
         <div>
           <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
           <div className="mt-1 font-mono text-[12px] text-ink-3">
-            {tf === "24H" ? "24h history · hourly" : `${tf} history · daily`} · overlay any metric
+            {tf === "24H" ? "24h history · hourly" : `${tf} history · daily`}
+            {multi ? " · normalized to compare shape · values at line ends" : " · overlay any metric"}
           </div>
         </div>
         <div className="flex gap-0.5 rounded-[10px] border border-line bg-bg-1 p-[3px]">
@@ -292,8 +320,8 @@ export function IPActivityChart({
               </linearGradient>
             </defs>
 
-            {/* y-axis: labelled gridlines from the primary metric's real scale */}
-            {yTicks.map((t, i) => {
+            {/* y-axis gridlines; value labels only when a single metric is active */}
+            {gridlines.map((t, i) => {
               const y = PAD.top + plotH * (1 - t.f);
               return (
                 <g key={i}>
@@ -305,16 +333,18 @@ export function IPActivityChart({
                     stroke="var(--color-line)"
                     strokeDasharray={t.f === 0 ? undefined : "2 5"}
                   />
-                  <text
-                    x={PAD.left - 8}
-                    y={y + 3.5}
-                    textAnchor="end"
-                    fontSize={11}
-                    fill="var(--color-ink-4)"
-                    fontFamily="var(--font-jetbrains-mono), monospace"
-                  >
-                    {t.label}
-                  </text>
+                  {t.label && (
+                    <text
+                      x={PAD.left - 8}
+                      y={y + 3.5}
+                      textAnchor="end"
+                      fontSize={11}
+                      fill="var(--color-ink-4)"
+                      fontFamily="var(--font-jetbrains-mono), monospace"
+                    >
+                      {t.label}
+                    </text>
+                  )}
                 </g>
               );
             })}
@@ -359,6 +389,21 @@ export function IPActivityChart({
                 stroke="var(--color-line-2)"
               />
             )}
+
+            {/* end-of-line current-value labels */}
+            {endLabels.map((it) => (
+              <text
+                key={it.key}
+                x={w - PAD.right + 7}
+                y={it.y + 3.5}
+                fontSize={11}
+                fontWeight={700}
+                fill={it.color}
+                fontFamily="var(--font-jetbrains-mono), monospace"
+              >
+                {it.text}
+              </text>
+            ))}
 
             {/* x-axis: real dates (clock times in the 24H window) */}
             {Array.from({ length: xTickCount }, (_, k) => {

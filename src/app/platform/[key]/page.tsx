@@ -10,11 +10,13 @@ import { DominancePanel, type DomEntity } from "@/components/IPDominance";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
-import { getPlatformDetail, type PlatformIPRow } from "@/lib/data/fetchPlatform";
-import { readMetricSeries, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
+import { type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
+// ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
+// Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
+export const revalidate = 1800;
 
 /** Per-timeframe windows from a real daily series (metric_snapshots) + optional
  *  real 24h-hourly series. A window with <2 points — or an all-zero hourly (no sales
@@ -47,14 +49,14 @@ export default async function PlatformDetailPage({
   params: Promise<{ key: string }>;
 }) {
   const { key } = await params;
-  const [detail, volS, walletsS, tradesS, mcapS] = await Promise.all([
+  // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
+  // round-trips per request (R2-B1).
+  const [detail, series] = await Promise.all([
     getPlatformDetail(key),
-    readMetricSeries("platform", key, "volume_usd").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("platform", key, "active_wallets").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("platform", key, "trades").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("platform", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
+    getPlatformActivitySeries(key),
   ]);
   if (!detail) notFound();
+  const { volume: volS, wallets: walletsS, trades: tradesS, mcap: mcapS } = series;
 
   // Avg-trade daily series = volume / trades, aligned by day.
   const tradesByTs = new Map(tradesS.map((p) => [p.ts, p.value]));

@@ -27,6 +27,7 @@ export const PRICE_RANGES = [
 const BENCHMARKS = [
   { sym: "BTC", label: "BTC", color: "#e8993a" },
   { sym: "ETH", label: "ETH", color: "#8b93c9" },
+  { sym: "GOLD", label: "Gold", color: "#c8a951" },
   { sym: "SP500", label: "S&P 500", color: "#9aa0ab" },
   { sym: "NASDAQ", label: "NASDAQ", color: "#6fb0c9" },
 ] as const;

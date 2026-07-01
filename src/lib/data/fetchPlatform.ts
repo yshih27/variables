@@ -15,6 +15,7 @@ import { readHolders } from "./holders";
 import { readMarketCap, type MarketCapPlatformIP } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
 import { readHistory, sumLast, pctChange } from "./history";
+import { readMetricSeries, type SeriesPoint } from "./metricSnapshots";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import type { Chain, Trend } from "@/lib/types";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
@@ -400,6 +401,26 @@ export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
   ["platform-detail:v7"], // v7: spark24h anchors to newest sale (QA-2)
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
+);
+
+/**
+ * Activity-chart daily series for a platform (metric_snapshots spine). Cached so
+ * the platform page reads them through ONE memoized call instead of 4 uncached
+ * `readMetricSeries` round-trips per request (R2-B1 perf). Same 1h revalidate +
+ * "platform-detail" tag as the detail, so both refresh together.
+ */
+export const getPlatformActivitySeries = unstable_cache(
+  async (key: string): Promise<{ volume: SeriesPoint[]; wallets: SeriesPoint[]; trades: SeriesPoint[]; mcap: SeriesPoint[] }> => {
+    const [volume, wallets, trades, mcap] = await Promise.all([
+      readMetricSeries("platform", key, "volume_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "active_wallets").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "trades").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
+    ]);
+    return { volume, wallets, trades, mcap };
+  },
+  ["platform-activity-series:v1"],
+  { revalidate: 3600, tags: ["platform-detail"] },
 );
 
 export { PLATFORM_SOURCES };

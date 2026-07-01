@@ -10,16 +10,18 @@ import {
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { IPDominance, type DominanceSource } from "@/components/IPDominance";
 import { IPTopCards, IPSets } from "@/components/IPTables";
-import { getIPDetail } from "@/lib/data/fetchIP";
+import { getIPDetail, getIPActivitySeries } from "@/lib/data/fetchIP";
 import { readMarketCap } from "@/lib/data/marketcap";
 import { readHolders } from "@/lib/data/holders";
-import { readMetricSeries, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 import { gradeColor } from "@/lib/gradeColor";
 import { buildSeriesTrend } from "@/lib/category/rollup";
 import { buildPriceComparison, PRICE_RANGES } from "@/lib/data/perfCompare";
 
-export const dynamic = "force-dynamic";
+// ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
+// Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
+export const revalidate = 1800;
 
 const PLATFORM_META: Record<string, { name: string; chain: string; chainColor: string; color: string }> = {
   beezie: { name: "Beezie", chain: "Base", chainColor: "#5fa3ff", color: "#a78bfa" },
@@ -59,18 +61,16 @@ export default async function IPDetailPage({
   params: Promise<{ key: string }>;
 }) {
   const { key } = await params;
-  const [detail, mcapSnap, holdersSnap, volS, mcapS, walletsS, tradesS, cardsS, marketMcapS] = await Promise.all([
+  // getIPDetail + getIPActivitySeries are both cached (unstable_cache) — one memoized
+  // call each instead of 6 uncached readMetricSeries round-trips per request (R2-B1).
+  const [detail, mcapSnap, holdersSnap, series] = await Promise.all([
     getIPDetail(key),
     readMarketCap(),
     readHolders(),
-    readMetricSeries("ip", key, "volume_usd").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("ip", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("ip", key, "active_wallets").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("ip", key, "trades").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("ip", key, "cards_traded").catch(() => [] as SeriesPoint[]),
-    readMetricSeries("market", "total", "mcap_usd").catch(() => [] as SeriesPoint[]),
+    getIPActivitySeries(key),
   ]);
   if (!detail) notFound();
+  const { volume: volS, mcap: mcapS, wallets: walletsS, trades: tradesS, cards: cardsS, marketMcap: marketMcapS } = series;
 
   // Real per-IP market cap from the marketcap snapshot (fetchIP doesn't carry it).
   const mcapUsd = mcapSnap?.byIp?.[key]?.mcapUsd ?? 0;
