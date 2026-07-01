@@ -20,7 +20,9 @@ const getPlatformSeries = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-export const dynamic = "force-dynamic";
+// ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
+// All reads are unstable_cache-backed; no cookies/headers/searchParams here.
+export const revalidate = 1800;
 
 export const metadata = {
   title: "All Platforms · VARIABLE",
