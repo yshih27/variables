@@ -113,13 +113,23 @@ export type PlatformDetail = {
 };
 
 function spark24h(sales: NormalizedSale[], buckets = 24): number[] {
-  const now = Date.now();
-  const start = now - DAY;
-  const bucketMs = DAY / buckets;
   const out = new Array<number>(buckets).fill(0);
+  // Anchor the 24h window to the NEWEST sale, not wall-clock now. sales come from a
+  // cached snapshot that can lag real time (CC secondary is Dune-daily, ~1d behind),
+  // so windowing against Date.now() drops every sale once the snapshot is >24h old
+  // and the chart flatlines at $0 (QA-2). Bucketing over the data's own last-24h keeps
+  // the intraday curve real and consistent with the headline 24h volume (same sales).
+  let end = -Infinity;
   for (const s of sales) {
     const t = Date.parse(s.date);
-    if (!Number.isFinite(t) || t < start || t > now) continue;
+    if (Number.isFinite(t) && t > end) end = t;
+  }
+  if (!Number.isFinite(end)) return out; // no dated sales → empty
+  const start = end - DAY;
+  const bucketMs = DAY / buckets;
+  for (const s of sales) {
+    const t = Date.parse(s.date);
+    if (!Number.isFinite(t) || t < start || t > end) continue;
     const idx = Math.min(buckets - 1, Math.floor((t - start) / bucketMs));
     out[idx] += s.priceUsd;
   }
@@ -388,7 +398,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v6"],
+  ["platform-detail:v7"], // v7: spark24h anchors to newest sale (QA-2)
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

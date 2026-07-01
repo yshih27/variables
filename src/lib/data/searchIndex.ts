@@ -7,9 +7,11 @@
  * pre-built card index — that's the next step.
  */
 import type { HomepagePayload } from "@/lib/types";
+import type { CardSearchHit } from "./cards";
 import { IP_CATALOG, OTHER_IP } from "./ipCatalog";
 import { PLATFORM_SOURCES } from "./sources";
 import { cardHref, cardSupported } from "@/lib/card/ids";
+import { formatCompactUsd } from "@/lib/format";
 
 export type SearchResult = {
   kind: "ip" | "platform" | "card";
@@ -47,6 +49,26 @@ function scoreMatch(haystack: string, q: string): number {
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Map a full-table card search hit (cards.searchCardsByName) into a SearchResult.
+ * Pure display shaping — the DB query lives in cards.ts; this keeps searchIndex free
+ * of the server-only db import (type-only import above), so it stays safe to reuse.
+ */
+export function cardHitToResult(hit: CardSearchHit): SearchResult {
+  const ip = [...IP_CATALOG, OTHER_IP].find((i) => i.key === hit.ip_key);
+  const bits: string[] = [ip?.name ?? hit.ip_key];
+  if (hit.grade_label && hit.grade_label !== "Ungraded") bits.push(hit.grade_label);
+  else if (hit.set_name) bits.push(hit.set_name);
+  if (hit.insured_value_usd && hit.insured_value_usd > 0) bits.push(formatCompactUsd(hit.insured_value_usd));
+  return {
+    kind: "card",
+    label: hit.name,
+    sub: bits.join(" · "),
+    href: cardSupported(hit.platform) ? cardHref(hit.platform, hit.token_id) : `/ip/${hit.ip_key}`,
+    score: 0.7,
+  };
 }
 
 export function buildSearch(home: HomepagePayload, rawQuery: string): GroupedResults {

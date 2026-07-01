@@ -31,6 +31,7 @@ import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { getResultsAutoRefresh } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_IDS } from "../src/lib/dune/queryIds";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
+import { sanitizeStockSeries } from "../src/lib/data/indices";
 import { readHolders } from "../src/lib/data/holders";
 import { readCardDims } from "../src/lib/data/cards";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
@@ -271,22 +272,37 @@ async function main() {
   const today = dayStartUtc(now);
   const mcap = await readMarketCap();
   if (mcap) {
-    push("market", "total", "mcap_usd", mcap.totals.mcapUsd, today);
+    // mcap is a STOCK metric — a $0 reading is never real (failed/empty scan), and
+    // it makes rebased charts dip to zero. Only record strictly-positive values.
+    if (mcap.totals.mcapUsd > 0) push("market", "total", "mcap_usd", mcap.totals.mcapUsd, today);
     for (const [ip, e] of Object.entries(mcap.byIp)) {
-      push("ip", ip, "mcap_usd", e.mcapUsd, today);
+      if (e.mcapUsd > 0) push("ip", ip, "mcap_usd", e.mcapUsd, today);
       if (e.floorUsd > 0) push("ip", ip, "floor_usd", e.floorUsd, today);
     }
     for (const [platform, e] of Object.entries(mcap.byPlatform ?? {})) {
-      push("platform", platform, "mcap_usd", e.mcapUsd, today);
+      if (e.mcapUsd > 0) push("platform", platform, "mcap_usd", e.mcapUsd, today);
     }
   }
   const holders = await readHolders();
   if (holders) {
-    for (const [key, n] of Object.entries(holders.platforms)) push("platform", key, "holders", n, today);
-    for (const [ip, e] of Object.entries(holders.byIp)) push("ip", ip, "holders", e.total, today);
+    // holders is a STOCK metric too — 0 for a live platform means "couldn't measure"
+    // (e.g. Helius outage), not "no holders". Skip zeros so the spine keeps the last
+    // real reading instead of a false drop to 0. (warm-holders itself now carries the
+    // last-known-good forward on scan failure — this is defense in depth.)
+    for (const [key, n] of Object.entries(holders.platforms)) {
+      if (n > 0) push("platform", key, "holders", n, today);
+    }
+    for (const [ip, e] of Object.entries(holders.byIp)) {
+      if (e.total > 0) push("ip", ip, "holders", e.total, today);
+    }
   }
 
   // ── Family 3: market + per-IP mcap history backfill (past days, ~30d) ──
+  // The marketcap-history blob can carry legacy junk: $0 totals from pre-guard
+  // empty-scan days, and an isolated seed reading weeks before continuous coverage.
+  // sanitizeStockSeries drops non-positive readings AND trims that leading orphan,
+  // so the spine's mcap series starts at its true continuous inception (no dip-to-0
+  // on rebased charts). Per-IP values are guarded > 0 the same way.
   const mcapHist = await readMarketCapHistory();
   const dayMcap = new Map<string, { total: number; byIp: Record<string, number> }>();
   for (const h of mcapHist.hourly) {
@@ -294,10 +310,15 @@ async function main() {
     if (!Number.isFinite(t)) continue;
     dayMcap.set(dayStartUtc(t), { total: h.totalMcapUsd, byIp: h.byIp }); // latest-of-day wins
   }
-  for (const [day, m] of dayMcap) {
-    if (day === today) continue; // today handled by Family 2
-    push("market", "total", "mcap_usd", m.total, day);
-    for (const [ip, v] of Object.entries(m.byIp)) push("ip", ip, "mcap_usd", v, day);
+  const keptMarket = sanitizeStockSeries(
+    [...dayMcap.entries()].map(([ts, m]) => ({ ts, value: m.total })),
+  );
+  for (const p of keptMarket) {
+    if (p.ts === today) continue; // today handled by Family 2
+    push("market", "total", "mcap_usd", p.value, p.ts);
+    for (const [ip, v] of Object.entries(dayMcap.get(p.ts)?.byIp ?? {})) {
+      if (v > 0) push("ip", ip, "mcap_usd", v, p.ts);
+    }
   }
 
   const written = await writeMetricSnapshots(rows);

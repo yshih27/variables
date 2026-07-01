@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { IPRow } from "@/lib/types";
+import { Section } from "./Section";
 import { IPIcon } from "./IPIcon";
 import { formatCompactUsd, formatCompactNumber, formatPct } from "@/lib/format";
 
@@ -209,22 +210,19 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
   const active = hover ? laid.find((t) => t.key === hover) : null;
 
   return (
-    <section className="mb-2 font-sans">
-      <header className="mb-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
-        <div>
-          <h2 className="text-[22px] font-semibold tracking-[-0.01em]">Market cap by IP</h2>
-          <div className="mt-1 text-[12px] text-ink-3">
-            Tiles sized by market cap. Click an IP to drill in.
-          </div>
-        </div>
+    <Section
+      title="Market cap by IP"
+      subtitle="Tiles sized by market cap. Click an IP to drill in."
+      right={
         <div className="flex items-baseline gap-2">
           <span className="text-[20px] font-semibold tabular">{formatCompactUsd(total)}</span>
           <span className="text-[12px] text-ink-3">
             across <span className="tabular">{count}</span> IPs
           </span>
         </div>
-      </header>
-
+      }
+      className="font-sans"
+    >
       {/* Treemap — tablet and up */}
       <div className="hidden sm:block">
         <div ref={ref} className="relative w-full select-none" style={{ height: h }}>
@@ -398,7 +396,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
           );
         })}
       </div>
-    </section>
+    </Section>
   );
 }
 

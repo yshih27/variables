@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
-import { NavBar } from "@/components/NavBar";
 import { PlatformRail } from "@/components/PlatformRail";
+import { SliceView } from "@/components/SliceView";
 import {
-  IPActivityChart,
   type ActivityMetric,
   type MetricWindow,
   type Timeframe,
@@ -18,18 +17,27 @@ import { formatCompactUsd, formatInt } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 /** Per-timeframe windows from a real daily series (metric_snapshots) + optional
- *  real 24h-hourly series. A window with <2 points has no history yet — the chart
- *  disables that metric for the window. We never fabricate a series. */
+ *  real 24h-hourly series. A window with <2 points — or an all-zero hourly (no sales
+ *  inside the data's own last-24h) — has no history yet, so the chart disables that
+ *  metric for the window ("no intraday data") instead of drawing a flat $0 line
+ *  (QA-2). We never fabricate a series. */
 function buildWindows(
   daily: SeriesPoint[],
   hourly: number[] | null,
 ): Record<Timeframe, MetricWindow> {
   const vals = daily.map((p) => p.value);
+  const ts = daily.map((p) => p.ts);
+  // 24h hourly buckets carry no stored timestamps — synthesize trailing-hour stamps
+  // from request time (deterministic server-side → no hydration drift).
+  const now = Date.now();
+  const hourlyTs = (n: number) =>
+    Array.from({ length: n }, (_, i) => new Date(now - (n - 1 - i) * 3_600_000).toISOString());
+  const hourlyOk = !!hourly && hourly.length >= 2 && hourly.some((v) => v > 0);
   return {
-    "24H": { points: hourly && hourly.length >= 2 ? hourly : [] },
-    "7D": { points: vals.slice(-7) },
-    "30D": { points: vals.slice(-30) },
-    ALL: { points: vals },
+    "24H": hourlyOk ? { points: hourly!, ts: hourlyTs(hourly!.length) } : { points: [] },
+    "7D": { points: vals.slice(-7), ts: ts.slice(-7) },
+    "30D": { points: vals.slice(-30), ts: ts.slice(-30) },
+    ALL: { points: vals, ts },
   };
 }
 
@@ -142,39 +150,32 @@ export default async function PlatformDetailPage({
   ];
 
   return (
-    <>
-      <NavBar />
-      <div className="mx-auto max-w-[1720px] px-7">
-        {/* Desktop: a viewport-height shell. The rail is static (never scrolls);
-            the right column is the ONLY scroll area. Mobile: normal page flow. */}
-        <div className="grid grid-cols-1 min-[860px]:grid-cols-[280px_1fr] min-[860px]:h-[calc(100vh-65px)] min-[860px]:overflow-hidden">
-          <PlatformRail detail={detail} mcapPct={null} />
-
-          <main className="scroll-y min-w-0 pb-24 pt-7 min-[860px]:h-full min-[860px]:min-h-0 min-[860px]:overflow-y-auto min-[860px]:pl-9">
-            <IPActivityChart metrics={metrics} />
-            {ipEntities.length > 0 && (
-              <section className="mb-12 font-sans">
-                <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seeAllHref={`/platform/${key}/ips`} />
-              </section>
-            )}
-            {ipRows.length > 0 && (
-              <IPByPlatform
-                rows={ipRows}
-                title="By IP"
-                subtitle="How this platform's 24h volume breaks down across IPs"
-                entityHeader="IP"
-                donutTitle="IP share"
-                showChain={false}
-                hrefBase="/ip/"
-              />
-            )}
-            <PlatformGachaPanel detail={detail} />
-            <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-            <RecentSalesTable rows={detail.recentSales} maxRows={12} seeAllHref={`/platform/${key}/sales`} />
-          </main>
-        </div>
-      </div>
-    </>
+    <SliceView
+      slice={{
+        rail: <PlatformRail detail={detail} mcapPct={null} />,
+        activity: metrics,
+      }}
+    >
+      {ipEntities.length > 0 && (
+        <section className="mb-12 font-sans">
+          <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seeAllHref={`/platform/${key}/ips`} />
+        </section>
+      )}
+      {ipRows.length > 0 && (
+        <IPByPlatform
+          rows={ipRows}
+          title="By IP"
+          subtitle="How this platform's 24h volume breaks down across IPs"
+          entityHeader="IP"
+          donutTitle="IP share"
+          showChain={false}
+          hrefBase="/ip/"
+        />
+      )}
+      <PlatformGachaPanel detail={detail} />
+      <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
+      <RecentSalesTable rows={detail.recentSales} maxRows={12} seeAllHref={`/platform/${key}/sales`} />
+    </SliceView>
   );
 }
 

@@ -60,6 +60,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [mobileSearch, setMobileSearch] = useState(false);
   const hasTicker = !!ticker && ticker.length > 0;
   const collapsed = useTickerCollapse(hasTicker);
 
@@ -67,6 +68,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
     e.preventDefault();
     const trimmed = q.trim();
     if (trimmed.length === 0) return;
+    setMobileSearch(false);
     router.push(`/search?q=${encodeURIComponent(trimmed)}`);
   }
 
@@ -151,7 +153,55 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
             </button>
           )}
         </form>
+
+        {/* Mobile: search is a toggle that drops a full-width input below the nav. */}
+        <button
+          type="button"
+          onClick={() => setMobileSearch((o) => !o)}
+          aria-label="Search"
+          aria-expanded={mobileSearch}
+          className="ml-auto flex h-9 w-9 items-center justify-center rounded-full border border-line/70 bg-bg-1 text-ink-3 transition-colors hover:text-ink md:hidden"
+        >
+          <SearchIcon />
+        </button>
       </nav>
+
+      {mobileSearch && (
+        <form
+          onSubmit={onSearchSubmit}
+          role="search"
+          aria-label="Search VARIABLE"
+          className="flex items-center gap-2.5 border-b border-line/70 px-6 py-3 md:hidden"
+        >
+          <span className="text-ink-3">
+            <SearchIcon />
+          </span>
+          <input
+            autoFocus
+            type="search"
+            name="q"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search cards, sets, IPs…"
+            className="h-9 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
+          />
+          <button
+            type="submit"
+            className="rounded-md bg-yellow px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-black hover:bg-yellow-2"
+          >
+            Go
+          </button>
+        </form>
+      )}
     </div>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
   );
 }

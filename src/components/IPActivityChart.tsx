@@ -10,19 +10,28 @@ import { formatCompactUsd, formatInt } from "@/lib/format";
  * counts) share one plot (DefiLlama-style). Metric chips toggle lines on/off
  * (≥1 always on); the timeframe control switches the window. Smooth lines,
  * volume gets a gradient area fill, end-of-line value labels, a pulsing latest
- * dot, and a hover crosshair + tooltip. Geometry is recomputed on container
- * resize (ResizeObserver) so lines never distort. Draw-in honors reduced motion.
+ * dot, and a hover crosshair + tooltip.
+ *
+ * AXES: the x-axis shows REAL dates (and clock times in the 24H window), read
+ * from each window's `ts` timestamps. The y-axis is labelled with the PRIMARY
+ * (first active) metric's real value scale — formatted by its kind ($ vs count)
+ * — so magnitude is legible, not just shape. Overlaid metrics keep their own
+ * normalization for trend comparison; the axis belongs to the primary metric.
  *
  * DATA: every series is REAL, read from the `metric_snapshots` spine (24H volume
  * from hourly buckets). A window with <2 points has no history yet — its chip is
  * disabled for that window and nothing is drawn; we never fabricate a series.
- * Chip headline values are the current figures from the live snapshot.
  */
 
 export type Timeframe = "24H" | "7D" | "30D" | "ALL";
 export const TIMEFRAMES: Timeframe[] = ["24H", "7D", "30D", "ALL"];
 
-export type MetricWindow = { points: number[] };
+export type MetricWindow = {
+  points: number[];
+  /** ISO timestamps aligned 1:1 with points (oldest→newest). Enables real date
+   *  axis labels; omit and the axis falls back to relative ("3d ago"). */
+  ts?: string[];
+};
 export type ActivityMetric = {
   key: string;
   label: string;
@@ -33,14 +42,59 @@ export type ActivityMetric = {
 };
 
 const H = 320;
-const PAD = { top: 16, right: 20, bottom: 30, left: 6 };
+const PAD = { top: 16, right: 20, bottom: 30, left: 52 };
 
-/** A metric has a drawable series for this window only with ≥2 real points. */
+/** A metric has a drawable series for this window only with ≥2 real points AND at
+ *  least one positive value. An all-$0 window (e.g. a platform whose hourly volume
+ *  series is empty/miswired) is "no data", not a real flat-zero line to plot. */
 function hasWindow(m: ActivityMetric, tf: Timeframe): boolean {
-  return (m.series[tf]?.points.length ?? 0) >= 2;
+  const pts = m.series[tf]?.points;
+  return !!pts && pts.length >= 2 && pts.some((p) => Number.isFinite(p) && p > 0);
 }
 
 const USD_KEYS = new Set(["volume", "marketCap", "avgTrade"]);
+const fmtByKey = (key: string, v: number) => (USD_KEYS.has(key) ? formatCompactUsd(v) : formatInt(v));
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Axis tick: real date, or clock time in the intraday window. */
+function fmtAxisDate(ts: string, tf: Timeframe): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  if (tf === "24H") {
+    let h = d.getHours();
+    const ap = h < 12 ? "am" : "pm";
+    h = h % 12 || 12;
+    return `${h}${ap}`;
+  }
+  return `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/** Hover label: full date, plus clock time in the intraday window. */
+function fmtHoverDate(ts: string, tf: Timeframe): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  if (tf === "24H") {
+    let h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, "0");
+    const ap = h < 12 ? "AM" : "PM";
+    h = h % 12 || 12;
+    return `${MON[d.getMonth()]} ${d.getDate()} · ${h}:${m} ${ap}`;
+  }
+  return `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
+}
+
+/** y-axis ticks spanning the primary metric's [min,max], real values. */
+function buildYTicks(min: number, max: number, key: string, segments = 3): { f: number; label: string }[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (min === max) return [{ f: 1, label: fmtByKey(key, max) }, { f: 0, label: fmtByKey(key, min) }];
+  const out: { f: number; label: string }[] = [];
+  for (let k = 0; k <= segments; k++) {
+    const f = k / segments;
+    out.push({ f, label: fmtByKey(key, min + f * (max - min)) });
+  }
+  return out;
+}
 
 /** Catmull-Rom → cubic Bézier for a smooth line through all points. */
 function smoothPath(pts: Array<[number, number]>): string {
@@ -75,8 +129,6 @@ export function IPActivityChart({
 }) {
   const [tf, setTf] = useState<Timeframe>(defaultTimeframe ?? timeframes[0] ?? "24H");
   const [active, setActive] = useState<Set<string>>(() => {
-    // Default to the metric with the most history in the opening window (so a
-    // sparse leading metric — e.g. market cap — doesn't open as an empty dot).
     const tf0 = defaultTimeframe ?? timeframes[0] ?? "24H";
     let best = metrics[0]?.key;
     let bestN = -1;
@@ -102,9 +154,6 @@ export function IPActivityChart({
     return () => ro.disconnect();
   }, []);
 
-  // If switching windows leaves no active metric with history, fall back to the
-  // first metric that does have history here (so the chart never goes blank when
-  // real data exists for the window).
   useEffect(() => {
     const avail = metrics.filter((m) => hasWindow(m, tf)).map((m) => m.key);
     if (avail.length === 0) return;
@@ -115,7 +164,7 @@ export function IPActivityChart({
     setActive((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
-        if (next.size > 1) next.delete(key); // keep at least one
+        if (next.size > 1) next.delete(key);
       } else next.add(key);
       return next;
     });
@@ -128,7 +177,8 @@ export function IPActivityChart({
     return metrics
       .filter((m) => active.has(m.key) && hasWindow(m, tf))
       .map((m) => {
-        const s = m.series[tf].points;
+        const win = m.series[tf];
+        const s = win.points;
         const n = s.length;
         const min = Math.min(...s);
         const max = Math.max(...s);
@@ -138,12 +188,14 @@ export function IPActivityChart({
           const y = PAD.top + (1 - (v - min) / span) * plotH;
           return [x, y];
         });
-        return { ...m, pts, n };
+        return { ...m, pts, n, min, max, ts: win.ts };
       });
   }, [metrics, active, tf, plotW, plotH]);
 
-  const hoverN = lines[0]?.n ?? 0;
-  const labels = xLabels(tf);
+  const primary = lines[0];
+  const hoverN = primary?.n ?? 0;
+  const yTicks = primary ? buildYTicks(primary.min, primary.max, primary.key) : [];
+  const xTickCount = primary ? Math.min(5, primary.n) : 0;
 
   return (
     <section className="mb-12 font-sans">
@@ -197,13 +249,9 @@ export function IPActivityChart({
                 style={{ background: m.color, boxShadow: on && avail ? `0 0 8px ${m.color}` : "none" }}
               />
               <span className="text-[12.5px] font-medium text-ink">{m.label}</span>
-              <span className="font-mono text-[12.5px] font-semibold tabular text-ink-2">
-                {m.value}
-              </span>
+              <span className="font-mono text-[12.5px] font-semibold tabular text-ink-2">{m.value}</span>
               {!avail && (
-                <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-4">
-                  no {tf}
-                </span>
+                <span className="font-mono text-[9px] uppercase tracking-[0.08em] text-ink-4">no {tf}</span>
               )}
             </button>
           );
@@ -219,16 +267,20 @@ export function IPActivityChart({
         onMouseMove={(e) => {
           if (hoverN < 2) return;
           const rect = e.currentTarget.getBoundingClientRect();
-          const x = e.clientX - rect.left - 16; // minus container padding
+          const x = e.clientX - rect.left - 16;
           const frac = Math.max(0, Math.min(1, (x - PAD.left) / plotW));
           setHover(Math.round(frac * (hoverN - 1)));
         }}
       >
         {lines.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-            <div className="font-mono text-[13px] text-ink-3">No {tf} history yet</div>
+            <div className="font-mono text-[13px] text-ink-3">
+              {tf === "24H" ? "No intraday data" : `No ${tf} history yet`}
+            </div>
             <div className="text-[12px] text-ink-4">
-              This metric is recorded daily — pick a longer window or check back as the spine fills.
+              {tf === "24H"
+                ? "Hourly volume isn't available for this window — try 7D or 30D."
+                : "This metric is recorded daily — pick a longer window or check back as the spine fills."}
             </div>
           </div>
         ) : (
@@ -240,18 +292,32 @@ export function IPActivityChart({
               </linearGradient>
             </defs>
 
-            {/* gridlines */}
-            {[0.25, 0.5, 0.75, 1].map((p) => (
-              <line
-                key={p}
-                x1={PAD.left}
-                x2={w - PAD.right}
-                y1={PAD.top + plotH * (1 - p)}
-                y2={PAD.top + plotH * (1 - p)}
-                stroke="var(--color-line)"
-                strokeDasharray="2 5"
-              />
-            ))}
+            {/* y-axis: labelled gridlines from the primary metric's real scale */}
+            {yTicks.map((t, i) => {
+              const y = PAD.top + plotH * (1 - t.f);
+              return (
+                <g key={i}>
+                  <line
+                    x1={PAD.left}
+                    x2={w - PAD.right}
+                    y1={y}
+                    y2={y}
+                    stroke="var(--color-line)"
+                    strokeDasharray={t.f === 0 ? undefined : "2 5"}
+                  />
+                  <text
+                    x={PAD.left - 8}
+                    y={y + 3.5}
+                    textAnchor="end"
+                    fontSize={11}
+                    fill="var(--color-ink-4)"
+                    fontFamily="var(--font-jetbrains-mono), monospace"
+                  >
+                    {t.label}
+                  </text>
+                </g>
+              );
+            })}
 
             {lines.map((m) => {
               const path = smoothPath(m.pts);
@@ -275,9 +341,7 @@ export function IPActivityChart({
                     strokeLinecap="round"
                     className={reduce ? "" : "act-draw"}
                   />
-                  {/* pulsing latest dot */}
                   <circle cx={last[0]} cy={last[1]} r={3.2} fill={m.color} className={reduce ? "" : "act-pulse"} />
-                  {/* hover dot */}
                   {hover != null && m.pts[hover] && (
                     <circle cx={m.pts[hover][0]} cy={m.pts[hover][1]} r={3.6} fill={m.color} stroke="var(--color-bg)" strokeWidth={1.5} />
                   )}
@@ -286,28 +350,32 @@ export function IPActivityChart({
             })}
 
             {/* crosshair */}
-            {hover != null && lines[0]?.pts[hover] && (
+            {hover != null && primary?.pts[hover] && (
               <line
-                x1={lines[0].pts[hover][0]}
-                x2={lines[0].pts[hover][0]}
+                x1={primary.pts[hover][0]}
+                x2={primary.pts[hover][0]}
                 y1={PAD.top}
                 y2={PAD.top + plotH}
                 stroke="var(--color-line-2)"
               />
             )}
 
-            {/* x-axis labels */}
-            {labels.map((lab, i) => {
+            {/* x-axis: real dates (clock times in the 24H window) */}
+            {Array.from({ length: xTickCount }, (_, k) => {
+              if (!primary) return null;
+              const n = primary.n;
+              const i = xTickCount <= 1 ? 0 : Math.round((k / (xTickCount - 1)) * (n - 1));
+              const x = PAD.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+              const lab = primary.ts?.[i] ? fmtAxisDate(primary.ts[i], tf) : "";
               if (!lab) return null;
-              const x = PAD.left + (i / (labels.length - 1)) * plotW;
               return (
                 <text
-                  key={i}
+                  key={k}
                   x={x}
                   y={H - 8}
                   fontSize={11}
                   fill="var(--color-ink-4)"
-                  textAnchor={i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle"}
+                  textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
                   fontFamily="var(--font-jetbrains-mono), monospace"
                 >
                   {lab}
@@ -318,16 +386,13 @@ export function IPActivityChart({
         )}
 
         {/* tooltip */}
-        {hover != null && lines.length > 0 && lines[0].pts[hover] && (
+        {hover != null && lines.length > 0 && primary?.pts[hover] && (
           <div
             className="pointer-events-none absolute z-10 min-w-[150px] rounded-lg border border-line-2 bg-bg-2/95 p-2.5 font-sans text-[12px] shadow-[0_8px_28px_rgba(0,0,0,0.5)] backdrop-blur"
-            style={{
-              left: Math.min(w - 170, Math.max(8, lines[0].pts[hover][0] + 14)),
-              top: 18,
-            }}
+            style={{ left: Math.min(w - 170, Math.max(8, primary.pts[hover][0] + 14)), top: 18 }}
           >
             <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-ink-3">
-              {hoverLabel(tf, hover, hoverN)}
+              {primary.ts?.[hover] ? fmtHoverDate(primary.ts[hover], tf) : hoverLabel(tf, hover, hoverN)}
             </div>
             {lines.map((m) => (
               <div key={m.key} className="flex items-center justify-between gap-4 py-0.5">
@@ -345,14 +410,7 @@ export function IPActivityChart({
   );
 }
 
-function xLabels(tf: Timeframe): string[] {
-  // 5 evenly spaced labels, oldest → "now".
-  if (tf === "24H") return ["23h ago", "17h ago", "11h ago", "5h ago", "now"];
-  if (tf === "7D") return ["7d ago", "5d ago", "3d ago", "1d ago", "now"];
-  if (tf === "30D") return ["30d ago", "22d ago", "15d ago", "7d ago", "now"];
-  return ["start", "", "", "", "now"];
-}
-
+/** Fallback hover label when a series carries no timestamps. */
 function hoverLabel(tf: Timeframe, idx: number, n: number): string {
   const ago = n - 1 - idx;
   if (tf === "24H") return ago === 0 ? "now" : `${ago}h ago`;
@@ -367,5 +425,5 @@ function hoverLabel(tf: Timeframe, idx: number, n: number): string {
 function pointValue(m: ActivityMetric, tf: Timeframe, idx: number): string {
   const raw = m.series[tf]?.points?.[idx];
   if (raw == null || !Number.isFinite(raw)) return "—";
-  return USD_KEYS.has(m.key) ? formatCompactUsd(raw) : formatInt(raw);
+  return fmtByKey(m.key, raw);
 }

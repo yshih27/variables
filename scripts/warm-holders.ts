@@ -27,7 +27,8 @@ import {
   extractCategoryHints,
 } from "../src/lib/data/beezieTraits";
 import { classifyIP } from "../src/lib/data/ipCatalog";
-import { writeHolders, type HoldersIPEntry } from "../src/lib/data/holders";
+import { readHolders, writeHolders, type HoldersIPEntry } from "../src/lib/data/holders";
+import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { raribleGet } from "../src/lib/rarible/client";
 import type { RaribleOwnershipsResponse } from "../src/lib/rarible/types";
 import { dasCall } from "../src/lib/helius/client";
@@ -240,40 +241,87 @@ async function main() {
   )
     throw new Error("holders: all sources failed");
 
-  // Combine per-IP across platforms
-  const byIp: Record<string, HoldersIPEntry> = {};
-  const allKeys = new Set([...beezie.byIp.keys(), ...cc.byIp.keys(), ...ph.byIp.keys()]);
-  for (const key of allKeys) {
-    const beezieOwners = beezie.byIp.get(key) ?? new Set<string>();
-    const ccOwners = cc.byIp.get(key) ?? new Set<string>();
-    const phOwners = ph.byIp.get(key) ?? new Set<string>();
-    const union = new Set([...beezieOwners, ...ccOwners, ...phOwners]);
-    byIp[key] = {
-      total: union.size,
-      perPlatform: {
-        beezie: beezieOwners.size,
-        "collector-crypt": ccOwners.size,
-        phygitals: phOwners.size,
-      },
-    };
+  // ── Carry-forward: don't let a failed scan zero out a platform ──────────────
+  // A Helius outage (quota/429) makes the CC & Phygitals scans return 0. Writing
+  // that 0 regressed "Collector Crypt: 12,709 holders" → "0" — a false, alarming
+  // drop. A scan is trustworthy only if it FULFILLED with a positive total; else we
+  // carry the last-known-good total forward (freshness still flags it stale).
+  //
+  // Last-known-good comes from the metric SPINE (platform/holders history), which
+  // survives even after the blob was already clobbered to 0 — the blob alone can't
+  // self-heal. Platform total is then exact; per-IP counts come from the prev blob
+  // (may be understated if the blob was clobbered) and self-correct on the next real
+  // scan, so total ≈ union of fresh platforms + carried counts (cross-chain owners
+  // don't overlap).
+  const prev = await readHolders();
+  const PLATS = [
+    ["beezie", beezie],
+    ["collector-crypt", cc],
+    ["phygitals", ph],
+  ] as const;
+  const lastGood: Record<string, number> = {};
+  for (const [key] of PLATS) {
+    const spine = await readMetricSeries("platform", key, "holders").catch(() => []);
+    let spineGood = 0;
+    for (let i = spine.length - 1; i >= 0; i--) {
+      if (spine[i].value > 0) { spineGood = spine[i].value; break; }
+    }
+    lastGood[key] = Math.max(prev?.platforms?.[key] ?? 0, spineGood);
   }
+  const carried = new Set<string>();
+  for (const [key, res] of PLATS) {
+    const ok = res.total > 0; // empty(rejected) or soft-fail(0) → not ok
+    if (!ok && lastGood[key] > 0) carried.add(key);
+  }
+
+  // Combine per-IP across platforms (fresh owner-sets for OK platforms; prev counts
+  // for carried ones).
+  const byIp: Record<string, HoldersIPEntry> = {};
+  const ipKeys = new Set<string>();
+  for (const [key, res] of PLATS) if (!carried.has(key)) for (const k of res.byIp.keys()) ipKeys.add(k);
+  if (prev) for (const key of carried) for (const [ip, e] of Object.entries(prev.byIp)) {
+    if ((e.perPlatform?.[key] ?? 0) > 0) ipKeys.add(ip);
+  }
+  for (const ip of ipKeys) {
+    const perPlatform: Record<string, number> = {};
+    const union = new Set<string>();
+    let carriedSum = 0;
+    for (const [key, res] of PLATS) {
+      if (carried.has(key)) {
+        const n = prev?.byIp[ip]?.perPlatform?.[key] ?? 0;
+        perPlatform[key] = n;
+        carriedSum += n;
+      } else {
+        const owners = res.byIp.get(ip) ?? new Set<string>();
+        perPlatform[key] = owners.size;
+        for (const o of owners) union.add(o);
+      }
+    }
+    byIp[ip] = { total: union.size + carriedSum, perPlatform };
+  }
+
+  const platTotal = (key: "beezie" | "collector-crypt" | "phygitals", res: ScanResult) =>
+    carried.has(key) ? lastGood[key] : res.total;
+  const tag = (key: "beezie" | "collector-crypt" | "phygitals", res: ScanResult) =>
+    carried.has(key) ? " (carried)" : res.total === 0 ? " (no data)" : res.complete ? "" : " (partial)";
 
   await writeHolders({
     generatedAt: new Date().toISOString(),
     platforms: {
-      beezie: beezie.total,
-      "collector-crypt": cc.total,
-      phygitals: ph.total,
+      beezie: platTotal("beezie", beezie),
+      "collector-crypt": platTotal("collector-crypt", cc),
+      phygitals: platTotal("phygitals", ph),
     },
     byIp,
   });
   console.log(
     `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
       `${Object.keys(byIp).length} IPs · ` +
-      `beezie=${beezie.total}${beezie.complete ? "" : " (partial)"} ` +
-      `cc=${cc.total}${cc.complete ? "" : " (partial)"} ` +
-      `phygitals=${ph.total}${ph.complete ? "" : " (partial)"}`,
+      `beezie=${platTotal("beezie", beezie)}${tag("beezie", beezie)} ` +
+      `cc=${platTotal("collector-crypt", cc)}${tag("collector-crypt", cc)} ` +
+      `phygitals=${platTotal("phygitals", ph)}${tag("phygitals", ph)}`,
   );
+  if (carried.size) console.log(`  carried-forward (scan failed): ${[...carried].join(", ")}`);
   return { rowsWritten: Object.keys(byIp).length };
 }
 

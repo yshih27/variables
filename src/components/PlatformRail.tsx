@@ -1,5 +1,6 @@
 import type { PlatformDetail } from "@/lib/data/fetchPlatform";
 import type { Chain } from "@/lib/types";
+import { RailActions } from "./RailActions";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
 const CHAIN_DOT: Record<Chain, string> = {
@@ -120,10 +121,7 @@ export function PlatformRail({ detail, mcapPct }: Props) {
         </div>
 
         {/* Actions */}
-        <div className="mt-auto flex gap-2 pt-[22px]">
-          <RailButton>★ Watchlist</RailButton>
-          <RailButton>↗ Share</RailButton>
-        </div>
+        <RailActions name={detail.source.name} />
       </div>
     </aside>
   );
@@ -158,16 +156,5 @@ function HeroStat({
         <div className="mt-2 h-[14px]" />
       )}
     </div>
-  );
-}
-
-function RailButton({ children }: { children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      className="flex h-[38px] flex-1 items-center justify-center gap-2 rounded-[11px] border border-line-2 bg-transparent text-[13px] font-semibold text-ink transition-colors hover:bg-bg-2"
-    >
-      {children}
-    </button>
   );
 }
