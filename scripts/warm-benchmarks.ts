@@ -56,8 +56,8 @@ async function main() {
     }
   }
 
-  // ── Equities: Stooq CSV → Yahoo fallback ──
-  for (const symbol of Object.keys(BENCHMARK_EQUITY) as ("SP100" | "NDX")[]) {
+  // ── Equities: FRED → Stooq → Yahoo fallback ──
+  for (const symbol of Object.keys(BENCHMARK_EQUITY) as ("SP500" | "NASDAQ")[]) {
     try {
       const before = rows.length;
       for (const c of await fetchEquityDailyCloses(symbol)) add(symbol, c.ts, c.close);

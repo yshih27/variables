@@ -23,6 +23,7 @@
     "backfill-history": "tsx scripts/backfill-history.ts",
     "warm-metric-snapshots": "tsx scripts/warm-metric-snapshots.ts",
     "warm-benchmarks": "tsx scripts/warm-benchmarks.ts",
+    "warm-sale-panel": "tsx scripts/warm-sale-panel.ts",
     "check-freshness": "tsx scripts/check-freshness.ts"
   },
   "dependencies": {

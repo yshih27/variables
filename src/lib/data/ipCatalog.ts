@@ -190,3 +190,46 @@ export function classifyIP(rawValues: (string | number | undefined)[]): IPMeta {
 }
 
 export { OTHER as OTHER_IP };
+
+// ─────────────────────────── Category SSOT (B5) ───────────────────────────
+
+export type IPCategory = "tcg" | "sports" | "other";
+
+/** Canonical ipKey → category. Single source of truth for the category page. */
+const CATEGORY_BY_IP: Record<string, IPCategory> = {
+  pokemon: "tcg",
+  one_piece: "tcg",
+  yugioh: "tcg",
+  magic: "tcg",
+  lorcana: "tcg",
+  dragon_ball: "tcg",
+  basketball: "sports",
+  baseball: "sports",
+  football: "sports",
+  soccer: "sports",
+  hockey: "sports",
+  f1: "sports",
+  // veefriends / wax / sneakers / comics → "other" (collectibles, not a TCG or league)
+};
+
+const _unmappedLogged = new Set<string>();
+
+/**
+ * Map an ipKey → its market category. An unmapped IP resolves to "other"
+ * EXPLICITLY and logs once (never a silent misclassification). B5 SSOT — both
+ * the indices roll-up and the frontend import this same map.
+ */
+export function categoryOf(ipKey: string): IPCategory {
+  const c = CATEGORY_BY_IP[ipKey];
+  if (c) return c;
+  if (ipKey && ipKey !== "other" && !_unmappedLogged.has(ipKey)) {
+    _unmappedLogged.add(ipKey);
+    console.warn(`[ipCatalog] categoryOf: unmapped IP "${ipKey}" → "other"`);
+  }
+  return "other";
+}
+
+/** All ipKeys in a category (for the cap-weighted roll-up). */
+export function ipsInCategory(category: IPCategory): string[] {
+  return Object.keys(CATEGORY_BY_IP).filter((k) => CATEGORY_BY_IP[k] === category);
+}
