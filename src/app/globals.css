@@ -215,6 +215,15 @@ a.ght-chip:hover {
   transform: scale(1.5);
   transform-origin: 50% 36%;
 }
+/* Sealed products (booster boxes / ETBs) are near-square — a squarer frame so the
+   box shows whole with padding instead of being letterboxed into the slab shape (R6-1). */
+.ght-art--sealed {
+  width: 76px;
+  height: 76px;
+}
+.ght-art--sealed img {
+  padding: 4px;
+}
 .ght-meta {
   display: flex;
   flex-direction: column;

@@ -119,6 +119,9 @@ jobs:
       - name: Beezie traits
         continue-on-error: true
         run: npx tsx scripts/warm-traits.ts
+      - name: Secondary sales feed (Beezie ≥30d → trending 7d + momentum)
+        continue-on-error: true
+        run: npx tsx scripts/warm-secondary-sales.ts
       - name: Gacha (fresh)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts
@@ -134,7 +137,7 @@ jobs:
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
       - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
-        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,gacha-dune,phygitals,core-volume,metric-snapshots
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,core-volume,metric-snapshots
 
   # ── Indices — benchmarks + price-index sale panel. Own job + tight timeout so a
   #    slow panel build can't starve the daily batch; runs at 06:00, after daily. ──

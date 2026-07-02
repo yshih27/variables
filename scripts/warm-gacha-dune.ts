@@ -14,10 +14,13 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { runGachaWarm } from "../src/lib/data/warmers/gacha";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 const cachedOnly = process.argv.includes("--cached");
 
-runGachaWarm({ cachedOnly, log: (m) => console.log(m) })
+// runWarmer records source_freshness on EVERY outcome (ok / soft-fail throw /
+// mid-run throw) and re-throws, so the Actions health gate sees a dead warmer.
+runWarmer("gacha-dune", () => runGachaWarm({ cachedOnly, log: (m) => console.log(m) }))
   .then((r) => {
     console.log(
       `\nWrote gacha snapshot to Postgres — ${r.platforms}/${r.totalPlatforms} platforms, ${r.bigHits} big hits, top hit $${Math.round(r.topHitUsd).toLocaleString()}`,

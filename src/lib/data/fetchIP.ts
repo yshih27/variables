@@ -6,6 +6,7 @@ import { getCCMetadataCachedOnly } from "./ccTraits";
 import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "./traits";
 import { readIpHistory, sumLast, pctChange } from "./history";
+import { readMarketCap } from "./marketcap";
 import { readMetricSeries, type SeriesPoint } from "./metricSnapshots";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 import type { Trend } from "@/lib/types";
@@ -174,8 +175,16 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
       : IP_CATALOG.find((i) => i.key === ipKey) ?? null;
   if (!ip) return null;
 
-  const buckets = await getPlatformBuckets();
+  const [buckets, mcap] = await Promise.all([getPlatformBuckets(), readMarketCap()]);
   const enriched = await enrichSales(buckets);
+
+  // REAL per-IP market cap from the full-collection rollup (sum of every card's
+  // insured/listing value), NOT just the cards traded in the last 24h. Low-volume
+  // IPs (basketball/football) barely trade, so the 24h-only proxy read $0 → "—"
+  // even though the rollup has a real figure (e.g. basketball ≈ $549K). Falls back
+  // to the 24h proxy only for IPs absent from the snapshot (e.g. Phygitals/Courtyard
+  // IPs, which aren't in the cards-table valuation).
+  const rollupMcapUsd = mcap?.byIp?.[ipKey]?.mcapUsd;
 
   // Filter to this IP using the same classification logic as homepage.
   const mine: EnrichedSale[] = [];
@@ -210,7 +219,8 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
       avgTradeUsd: 0,
       highSaleUsd: 0,
       lowSaleUsd: 0,
-      totalMcapUsd: 0,
+      // An IP with no 24h trades can still have a real market cap in the rollup.
+      totalMcapUsd: rollupMcapUsd ?? 0,
       spark24h: new Array(24).fill(0),
       trend: "flat",
       sets: [],
@@ -243,12 +253,11 @@ export async function fetchIP(ipKey: string): Promise<IPDetail | null> {
   const highSaleUsd = Math.max(...prices);
   const lowSaleUsd = Math.min(...prices);
 
-  // Mcap proxy: sum of insured values for cards seen (not strictly accurate
-  // — it's restricted to cards traded in the window — but a useful signal).
-  const totalMcapUsd = mine.reduce(
-    (s, e) => s + (e.traits.insuredValueUsd ?? 0),
-    0,
-  );
+  // Prefer the full-collection rollup; fall back to the 24h-traded insured sum
+  // only when this IP isn't in the marketcap snapshot (e.g. Phygitals/Courtyard-
+  // only IPs with no cards-table valuation).
+  const proxyMcapUsd = mine.reduce((s, e) => s + (e.traits.insuredValueUsd ?? 0), 0);
+  const totalMcapUsd = rollupMcapUsd && rollupMcapUsd > 0 ? rollupMcapUsd : proxyMcapUsd;
 
   const sparkBuckets = spark24h(mine, 24);
 
@@ -487,6 +496,8 @@ export const getIPActivitySeries = unstable_cache(
     ]);
     return { volume, mcap, wallets, trades, cards, marketMcap };
   },
-  ["ip-activity-series:v1"],
-  { revalidate: 3600, tags: ["ip-detail"] },
+  // v2 (R5-1): flush any cache from before the spine carried mcap_usd (same
+  // stale-empty-series class as the platform Market Cap tab).
+  ["ip-activity-series:v2"],
+  { revalidate: 3600, tags: ["ip-detail", "platform-buckets"] },
 );

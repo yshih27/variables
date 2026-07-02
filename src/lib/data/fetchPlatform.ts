@@ -367,7 +367,8 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const topCards = buildTopCards(enriched, key);
   const recentSales = buildRecentSales(enriched, key);
 
-  // Gacha-only split (excludes Courtyard's tokenization, which stays in primaryUsd).
+  // Gacha-only split. Courtyard is now classified gacha (R5), so its ~$1.5M/24h
+  // surfaces here as gachaVol24Usd instead of hiding in the primary residual.
   const g = gacha?.platforms?.[key];
 
   return {
@@ -423,8 +424,11 @@ export const getPlatformActivitySeries = unstable_cache(
     ]);
     return { volume, wallets, trades, mcap };
   },
-  ["platform-activity-series:v1"],
-  { revalidate: 3600, tags: ["platform-detail"] },
+  // v2 (R5-1): v1 cached an empty mcap series from before the spine carried
+  // per-platform mcap_usd; bumping the key forces a fresh read so the Market Cap
+  // tab populates for Beezie + Collector Crypt.
+  ["platform-activity-series:v2"],
+  { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 
 export { PLATFORM_SOURCES };

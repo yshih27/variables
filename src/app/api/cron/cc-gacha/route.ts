@@ -9,6 +9,7 @@
  */
 import { revalidateTag } from "next/cache";
 import { runCCGachaWarm } from "@/lib/data/warmers/ccGacha";
+import { runWarmer } from "@/lib/db/runWarmer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   try {
-    const result = await runCCGachaWarm();
+    const result = await runWarmer("cc-gacha", () => runCCGachaWarm());
     try {
       revalidateTag("gacha", "max");
     } catch {

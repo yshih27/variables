@@ -72,7 +72,7 @@ export default async function PlatformDetailPage({
   // with <2 points has no history yet (the chart disables it); never fabricated.
   const metrics: ActivityMetric[] = [
     { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
-    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—", series: buildWindows(mcapS, null) },
+    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—", note: "Market cap tracked for Beezie & Collector Crypt only", series: buildWindows(mcapS, null) },
     { key: "trades", label: "Trades", color: "#a78bfa", value: formatInt(detail.trades24h), series: buildWindows(tradesS, null) },
     { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
     { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null) },

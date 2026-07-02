@@ -13,6 +13,7 @@
  */
 import { revalidateTag } from "next/cache";
 import { runPhygitalsGachaWarm } from "@/lib/data/warmers/phygitalsGacha";
+import { runWarmer } from "@/lib/db/runWarmer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -28,7 +29,7 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   try {
-    const result = await runPhygitalsGachaWarm({});
+    const result = await runWarmer("phygitals-gacha", () => runPhygitalsGachaWarm({}));
     // The Phygitals odds/hits are merged into the gacha payload — bust that tag.
     try {
       revalidateTag("gacha", "max");

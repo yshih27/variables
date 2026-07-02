@@ -89,6 +89,35 @@ export const IP_CATALOG: IPMeta[] = [
     patterns: ["veefriends"],
   },
 
+  // ─── NFT-native collectible brands (R7: promoted out of "other") ──────────
+  // These carried the largest un-named clusters in the "other" bucket. Placed
+  // ABOVE the sealed-wax entry so a branded "… Booster Box" keeps its brand
+  // identity (Azuki/Pudgy sell sealed product too) instead of falling to WAX.
+  {
+    key: "azuki",
+    name: "Azuki TCG",
+    short: "AZK",
+    color: "#E4002B", // Azuki red-bean red
+    emoji: "🫘",
+    patterns: ["azuki"],
+  },
+  {
+    key: "moonbirds",
+    name: "Moonbirds",
+    short: "MOON",
+    color: "#6E56CF",
+    emoji: "🦉",
+    patterns: ["moonbird"],
+  },
+  {
+    key: "pudgy_penguins",
+    name: "Pudgy Penguins",
+    short: "PPG",
+    color: "#4FB4FF",
+    emoji: "🐧",
+    patterns: ["pudgy"], // catches "Pudgy Penguins …" and "Vibes (Pudgy) TCG …"
+  },
+
   // ─── Sealed wax / boxes (above sports so a "Topps Baseball Blaster Box" stays Sealed) ──
   {
     key: "wax",
@@ -203,13 +232,15 @@ const CATEGORY_BY_IP: Record<string, IPCategory> = {
   magic: "tcg",
   lorcana: "tcg",
   dragon_ball: "tcg",
+  azuki: "tcg", // Azuki TCG — a bona-fide trading-card game (starter decks / packs)
   basketball: "sports",
   baseball: "sports",
   football: "sports",
   soccer: "sports",
   hockey: "sports",
   f1: "sports",
-  // veefriends / wax / sneakers / comics → "other" (collectibles, not a TCG or league)
+  // veefriends / wax / sneakers / comics / moonbirds / pudgy_penguins → "other"
+  // (NFT-native collectible brands & sealed product, not a TCG or sports league)
 };
 
 const _unmappedLogged = new Set<string>();

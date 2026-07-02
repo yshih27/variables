@@ -6,6 +6,8 @@ import type { IPRow } from "@/lib/types";
 import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
+import { MetricInfo } from "./MetricInfo";
+import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
 type Props = {
@@ -153,15 +155,15 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
             <tr className="border-b border-line">
               <Th>#</Th>
               <Th>IP / Category</Th>
-              <SortTh align="right" {...sortProps("mcap")}>Market Cap</SortTh>
-              <SortTh align="right" className="hidden lg:table-cell" {...sortProps("dom")}>Dom %</SortTh>
+              <SortTh align="right" info="marketCap" {...sortProps("mcap")}>Market Cap</SortTh>
+              <SortTh align="right" className="hidden lg:table-cell" info="dominance" {...sortProps("dom")}>Dom %</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("d1")}>1d</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("d7")}>7d</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>30d</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("cards")}>Cards</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("holders")}>Holders</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("avgTrade")}>Avg Trade</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("vol")}>{vw} Vol</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="holders" {...sortProps("holders")}>Holders</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sortProps("avgTrade")}>Avg Trade</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="volume24h" {...sortProps("vol")}>{vw} Vol</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("buyers")}>24h Buyers</SortTh>
               <Th className="hidden md:table-cell">24h Chart</Th>
               <Th className="hidden md:table-cell">Top Card</Th>
@@ -269,6 +271,7 @@ function Th({ children, align, className = "" }: { children: React.ReactNode; al
 function SortTh({
   children,
   align,
+  info,
   active,
   dir,
   onClick,
@@ -276,6 +279,7 @@ function SortTh({
 }: {
   children: React.ReactNode;
   align?: "left" | "right";
+  info?: MetricKey;
   active: boolean;
   dir: 1 | -1;
   onClick: () => void;
@@ -283,17 +287,19 @@ function SortTh({
 }) {
   return (
     <th
-      onClick={onClick}
       aria-sort={active ? (dir === -1 ? "descending" : "ascending") : "none"}
-      className={`cursor-pointer select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
+      className={`select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
         active ? "text-ink" : "text-ink-3 hover:text-ink-2"
       } ${align === "right" ? "text-right" : "text-left"} ${className}`}
     >
       <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
-        <span className={active ? "text-yellow" : "text-ink-4"}>
-          {active ? (dir === -1 ? "▼" : "▲") : "↕"}
-        </span>
-        {children}
+        <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-1">
+          <span className={active ? "text-yellow" : "text-ink-4"}>
+            {active ? (dir === -1 ? "▼" : "▲") : "↕"}
+          </span>
+          {children}
+        </button>
+        {info && <MetricInfo metric={info} />}
       </span>
     </th>
   );

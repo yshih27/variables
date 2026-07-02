@@ -29,7 +29,6 @@ import {
   type PhygitalsGachaProduct,
 } from "../phygitalsGachaCache";
 import type { GachaBigHit, GachaOddsTier } from "../gachaDuneCache";
-import { recordFreshness } from "../../db/freshness";
 import { db } from "../../db/client";
 
 /** A pack needs at least this many pulls in the window to earn a "best-EV" claim. */
@@ -227,6 +226,8 @@ export type PhygitalsGachaWarmResult = {
   realizedEv: number | null;
   windowHours: number | null;
   generatedAt: string;
+  /** Provenance for the runWarmer freshness row. */
+  rowsWritten?: number;
 };
 
 /** Ingest pulls into the durable gacha_pulls spine (idempotent by txid). Shared
@@ -399,12 +400,11 @@ export async function runPhygitalsGachaWarm(
     log(`  spine aggregates FAILED (snapshot is still live): ${(err as Error).message}`);
   }
 
-  await recordFreshness("phygitals-gacha", {
-    status: windowPulls.length > 0 ? "ok" : "error",
-    rowsWritten: feed.pulls.length,
-    durationMs: Date.now() - startedAt,
-    generatedAt,
-  });
+  // Soft-fail: no pulls landed in the window → throw so the runWarmer wrapper
+  // records an error row (health gate) instead of a silent empty window.
+  if (windowPulls.length === 0) {
+    throw new Error("phygitals-gacha: 0 pulls in window (CLAW feed empty/unreachable?)");
+  }
 
   return {
     scannedPulls: feed.pulls.length,
@@ -415,5 +415,6 @@ export async function runPhygitalsGachaWarm(
     realizedEv: realizedEvMultiple,
     windowHours: actualHours,
     generatedAt,
+    rowsWritten: feed.pulls.length,
   };
 }

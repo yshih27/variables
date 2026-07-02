@@ -4,12 +4,12 @@
  *
  * DATA SOURCE: the spec assumed `entity_type:"card"` in the metric spine, but per-card
  * recording was deferred (series G) — the spine has no card rows. So we derive trending
- * from the row-level SALES feeds:
- *   • Collector Crypt — the 30d Dune secondary-sales feed (cached, fetchCCSecondarySales).
- *     30d of history means REAL momentum: current-window trades vs the PRIOR window.
- *   • Beezie / Phygitals — the 24h `core-volume` snapshot (their only cached per-card
- *     feed). 24h-only → no prior window, so their momentum is null. They appear in the
- *     "24h" view; the "7d" view is CC-only until a cached ≥14d feed exists for them.
+ * from row-level SALES feeds that each reach back ≥2×window → REAL momentum (current
+ * window vs the prior window) for every platform (R4-2):
+ *   • Collector Crypt — 30d Dune secondary-sales feed (cached, fetchCCSecondarySales).
+ *   • Beezie — 30d api.beezie.com/activity, cached by warm-secondary-sales (readSecondarySales).
+ *   • Phygitals is absent — its /sales feed is 100% gacha (CLAW/BUY, no P2P sales); its
+ *     real secondary trades live on Tensor/ME and need a Dune query (see secondarySalesCache).
  *
  * GROUPING: by card-TYPE (name × set × grade × IP × platform), not tokenId. The tracked
  * platforms hold 1-of-1 slabs, so a single tokenId trades ~once and has ≤1 listing —
@@ -27,9 +27,9 @@
  */
 import { unstable_cache } from "next/cache";
 import { db } from "../db/client";
-import { readCoreVolume } from "./coreVolumeCache";
 import { readListings } from "./listings";
 import { fetchCCSecondarySales } from "./warmers/core";
+import { readSecondarySales } from "./secondarySalesCache";
 import { readCardMeta, type CardMeta } from "./cards";
 import { buyLinks, type BuyLink } from "../links/buyLinks";
 import { cardHref, cardSupported } from "../card/ids";
@@ -42,6 +42,9 @@ export type TrendingCard = {
   ip: string;
   set: string | null;
   grade: string;
+  /** "slab" = a graded single card; "sealed" = a sealed product (booster/box/ETB/…).
+   *  Lets the frontend tab-split All | Slabs | Sealed (R4-2). */
+  kind: "slab" | "sealed";
   platform: string;
   trades: number;
   tradesPrev: number | null;
@@ -87,6 +90,23 @@ function nameOf(m: CardMeta | undefined, tokenId: string): string {
   return (m?.cardName || m?.name || `Card ${tokenId.slice(0, 6)}`).trim();
 }
 
+// Sealed-product name heuristic (R4-2 + R5). A card is "sealed" only when it's
+// UNGRADED (no PSA/CGC/BGS number) AND its name reads like a sealed product;
+// anything graded is a "slab" (a single card). \b word-boundaries avoid matching
+// e.g. "Boxer". Two signals:
+//   • prefix — Pokémon sealed products list as "Pokemon TCG: …" (R5).
+//   • keywords — product-type words. Added R5: upc / ultra premium / premium
+//     collection / display / collection box (tin + collection already matched).
+const SEALED_PREFIX_RE = /^\s*pokemon tcg:/i;
+const SEALED_RE =
+  /\b(booster|bundle|box|etb|elite trainer|pack|case|lot|tin|blister|collection|upc|ultra premium|premium collection|display|collection box)\b/i;
+function classifyKind(name: string, grade: string): "slab" | "sealed" {
+  const graded = !!grade && grade !== "Ungraded";
+  if (graded) return "slab";
+  if (SEALED_PREFIX_RE.test(name)) return "sealed";
+  return SEALED_RE.test(name) ? "sealed" : "slab";
+}
+
 type Group = {
   platform: string;
   key: string;
@@ -94,6 +114,7 @@ type Group = {
   ip: string;
   set: string | null;
   grade: string;
+  kind: "slab" | "sealed";
   trades: number;
   tradesPrev: number | null;
   volumeUsd: number;
@@ -107,90 +128,64 @@ async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
   const w = window === "7d" ? 7 * DAY : DAY;
   const { slice } = opts;
 
-  const [core, listings, ccSales] = await Promise.all([
-    readCoreVolume(),
+  const [listings, ccSales, beezieSales] = await Promise.all([
     readListings().catch(() => null),
     fetchCCSecondarySales({ cachedOnly: true }).catch(() => []),
+    readSecondarySales("beezie"),
   ]);
 
   const groups = new Map<string, Group>();
-  const metaByToken = new Map<string, CardMeta>(); // `${platform}:${tokenId}` → meta
 
-  // ── Collector Crypt: 30d Dune feed → current + prior window (real momentum) ──
-  if (cardSupported("collector-crypt") && slice?.platform !== "beezie" && slice?.platform !== "phygitals") {
+  // Row-level feeds that reach back ≥2×window, so BOTH the current and prior windows
+  // are real → momentum for EVERY platform here (no longer CC-only, R4-2):
+  //   • collector-crypt — 30d Dune secondary sales (fetchCCSecondarySales).
+  //   • beezie — 30d api.beezie.com/activity, cached by warm-secondary-sales.
+  // Phygitals is intentionally absent: its /sales feed is 100% gacha (no P2P), pending
+  // a Tensor/ME Dune query (see secondarySalesCache.ts).
+  const feeds: { platform: "collector-crypt" | "beezie"; sales: typeof ccSales }[] = [
+    { platform: "collector-crypt", sales: ccSales },
+    { platform: "beezie", sales: beezieSales },
+  ];
+
+  for (const { platform, sales } of feeds) {
+    if (!cardSupported(platform)) continue;
+    if (slice?.platform && slice.platform !== platform) continue;
+    if (!sales.length) continue;
+    // Anchor the windows to THIS feed's newest sale — feeds lag independently and a
+    // cached snapshot can trail wall-clock (same rationale as spark24h).
     let end = -Infinity;
-    for (const s of ccSales) {
+    for (const s of sales) {
       const t = Date.parse(s.date);
       if (Number.isFinite(t) && t > end) end = t;
     }
-    if (Number.isFinite(end)) {
-      const curFrom = end - w;
-      const prevFrom = end - 2 * w;
-      const windowed = ccSales.filter((s) => {
-        const t = Date.parse(s.date);
-        return Number.isFinite(t) && t >= prevFrom && t <= end;
-      });
-      const ccMeta = await readCardMeta("collector-crypt", [...new Set(windowed.map((s) => s.tokenId))]);
-      for (const [tid, m] of ccMeta) metaByToken.set(`collector-crypt:${tid}`, m);
-      for (const s of windowed) {
-        const t = Date.parse(s.date);
-        const m = ccMeta.get(s.tokenId);
-        const ip = m?.ip ?? "other";
-        const grade = m?.grade ?? "Ungraded";
-        if (slice?.ip && slice.ip !== ip) continue;
-        if (slice?.grade && slice.grade !== grade) continue;
-        const name = nameOf(m, s.tokenId);
-        const key = typeKey("collector-crypt", ip, m?.set ?? null, grade, name);
-        let g = groups.get(key);
-        if (!g) {
-          g = { platform: "collector-crypt", key, name, ip, set: m?.set ?? null, grade, trades: 0, tradesPrev: 0, volumeUsd: 0, topPriceUsd: 0, repToken: s.tokenId };
-          groups.set(key, g);
-        }
-        if (t >= curFrom) {
-          g.trades += 1;
-          g.volumeUsd += s.priceUsd;
-          if (s.priceUsd > g.topPriceUsd) { g.topPriceUsd = s.priceUsd; g.repToken = s.tokenId; }
-        } else {
-          g.tradesPrev = (g.tradesPrev ?? 0) + 1;
-        }
+    if (!Number.isFinite(end)) continue;
+    const curFrom = end - w;
+    const prevFrom = end - 2 * w;
+    const windowed = sales.filter((s) => {
+      const t = Date.parse(s.date);
+      return Number.isFinite(t) && t >= prevFrom && t <= end;
+    });
+    const meta = await readCardMeta(platform, [...new Set(windowed.map((s) => s.tokenId))]);
+    for (const s of windowed) {
+      const t = Date.parse(s.date);
+      const m = meta.get(s.tokenId);
+      const ip = m?.ip ?? "other";
+      const grade = m?.grade ?? "Ungraded";
+      if (slice?.ip && slice.ip !== ip) continue;
+      if (slice?.grade && slice.grade !== grade) continue;
+      const name = nameOf(m, s.tokenId);
+      const key = typeKey(platform, ip, m?.set ?? null, grade, name);
+      let g = groups.get(key);
+      if (!g) {
+        g = { platform, key, name, ip, set: m?.set ?? null, grade, kind: classifyKind(name, grade), trades: 0, tradesPrev: 0, volumeUsd: 0, topPriceUsd: 0, repToken: s.tokenId };
+        groups.set(key, g);
       }
-    }
-  }
-
-  // ── Beezie / Phygitals: 24h core-volume (no prior window → momentum null) ──
-  // Only for the 24h view; the 7d view is CC-only (no cached ≥14d feed for these yet).
-  if (window === "24h" && core) {
-    const secondaryPlatforms = ["beezie", "phygitals"] as const;
-    const tokensByPlatform = new Map<string, Set<string>>();
-    for (const p of secondaryPlatforms) {
-      if (!cardSupported(p) || (slice?.platform && slice.platform !== p)) continue;
-      for (const s of core.platforms[p]?.sales24h ?? []) {
-        if (s.tokenId) (tokensByPlatform.get(p) ?? tokensByPlatform.set(p, new Set()).get(p)!).add(s.tokenId);
-      }
-    }
-    for (const [p, tokens] of tokensByPlatform) {
-      const m = await readCardMeta(p as "beezie" | "phygitals", [...tokens]);
-      for (const [tid, meta] of m) metaByToken.set(`${p}:${tid}`, meta);
-    }
-    for (const p of secondaryPlatforms) {
-      if (slice?.platform && slice.platform !== p) continue;
-      for (const s of core.platforms[p]?.sales24h ?? []) {
-        if (!s.tokenId) continue;
-        const meta = metaByToken.get(`${p}:${s.tokenId}`);
-        const ip = meta?.ip ?? "other";
-        const grade = meta?.grade ?? "Ungraded";
-        if (slice?.ip && slice.ip !== ip) continue;
-        if (slice?.grade && slice.grade !== grade) continue;
-        const name = nameOf(meta, s.tokenId);
-        const key = typeKey(p, ip, meta?.set ?? null, grade, name);
-        let g = groups.get(key);
-        if (!g) {
-          g = { platform: p, key, name, ip, set: meta?.set ?? null, grade, trades: 0, tradesPrev: null, volumeUsd: 0, topPriceUsd: 0, repToken: s.tokenId };
-          groups.set(key, g);
-        }
+      if (t >= curFrom) {
         g.trades += 1;
         g.volumeUsd += s.priceUsd;
         if (s.priceUsd > g.topPriceUsd) { g.topPriceUsd = s.priceUsd; g.repToken = s.tokenId; }
+      } else {
+        g.tradesPrev = (g.tradesPrev ?? 0) + 1;
       }
     }
   }
@@ -235,6 +230,7 @@ async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
       ip: g.ip,
       set: g.set,
       grade: g.grade,
+      kind: g.kind,
       platform: g.platform,
       trades: g.trades,
       tradesPrev: g.tradesPrev,

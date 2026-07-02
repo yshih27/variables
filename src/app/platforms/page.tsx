@@ -13,10 +13,12 @@ const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist
   tags: ["homepage"],
 });
 
-/** Per-platform daily spine series (keyed by metric), for the by-platform trend. */
+/** Per-platform daily spine series (keyed by metric), for the by-platform trend.
+ *  v2 (R5-1): v1 cached an empty `mcap_usd` map from before the spine carried
+ *  per-platform market cap, which left the "Market cap" trend view blank. */
 const getPlatformSeries = unstable_cache(
   async (metric: string) => Object.fromEntries(await readMetricSeriesBulk("platform", metric)),
-  ["platforms-series:v1"],
+  ["platforms-series:v2"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
@@ -63,7 +65,7 @@ export default async function AllPlatformsPage() {
         <PlatformStatBar rows={data.platforms} />
         <div className="space-y-6">
           <CategoryTrendChart views={trendViews} defaultKey="volume" entityLabel="platform" />
-          <PlatformTable rows={data.platforms} />
+          <PlatformTable rows={data.platforms} chainFacets />
         </div>
       </div>
     </>

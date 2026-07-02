@@ -44,6 +44,15 @@ const getBenchmarkCloses = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
+/** Age of the listings snapshot behind Trending's Float, in words. Module-scope
+ *  so the once-per-request `Date.now()` isn't a render-time impurity (X6). */
+function floatAgeLabelOf(iso: string | null): string | null {
+  if (!iso) return null;
+  const h = Math.max(0, (Date.now() - Date.parse(iso)) / 3_600_000);
+  if (!Number.isFinite(h)) return null;
+  return h < 1 ? "from listings <1h old" : `from listings ~${Math.round(h)}h old`;
+}
+
 // ISR: serve cached HTML, revalidate every 30 min in the background. The underlying
 // data only changes every ~6h (warmers), so per-request re-rendering was pure waste
 // (R2-B1). All reads are unstable_cache-backed; no cookies/headers/searchParams here.
@@ -67,15 +76,7 @@ export default async function Home() {
   const useWeekly = !!trending7 && trending7.rows.length >= trending24.rows.length;
   const trending = useWeekly ? trending7! : trending24;
   const trendingWindow = useWeekly ? "7d" : "24h";
-  const floatAgeH = trending.floatAsOf
-    ? Math.max(0, (Date.now() - Date.parse(trending.floatAsOf)) / 3_600_000)
-    : null;
-  const floatAgeLabel =
-    floatAgeH == null || !Number.isFinite(floatAgeH)
-      ? null
-      : floatAgeH < 1
-        ? "from listings <1h old"
-        : `from listings ~${Math.round(floatAgeH)}h old`;
+  const floatAgeLabel = floatAgeLabelOf(trending.floatAsOf);
 
   // Market index rebased to 100 at inception. All change windows read off this
   // one series so the header never shows two disagreeing numbers for the market;
@@ -89,11 +90,14 @@ export default async function Home() {
     ? `since ${MON[inceptionTs.getUTCMonth()]} ${inceptionTs.getUTCDate()}`
     : null;
 
-  // Relative strength = market index return − benchmark return over the SAME window
-  // (index inception → latest). Rebase each benchmark to the index inception so both
-  // legs share one axis, then subtract. A row is "—" only if its benchmark is missing.
+  // Relative strength = market index return − benchmark return over the SAME window.
+  // R4-1: LEAD with the 30d spread (relatable) and carry the since-inception spread
+  // as a secondary line — a 6-month pp-spread (e.g. +168% vs BTC) is real but reads
+  // broken unlabeled. Both legs measured over one window so the subtraction is fair;
+  // a row is "—" only when its benchmark is missing for that window.
   const fromTs = marketIdx[0]?.ts ?? null;
   const marketRet = indexValue != null && Number.isFinite(indexValue) ? indexValue - 100 : null;
+  const market30 = pctChange(marketIdx, 30);
   const relStrength = (
     [
       ["vs BTC", "BTC"],
@@ -102,14 +106,24 @@ export default async function Home() {
       ["vs NASDAQ", "NASDAQ"],
     ] as const
   ).map(([label, sym]) => {
-    const rb = fromTs ? rebaseSeries(benchCloses[sym] ?? [], fromTs, 100) : [];
+    const closes = benchCloses[sym] ?? [];
+    // Since-inception spread (rebase both to the inception day, subtract returns).
+    const rb = fromTs ? rebaseSeries(closes, fromTs, 100) : [];
     const benchRet = rb.length ? rb[rb.length - 1].value - 100 : null;
-    return { label, pct: marketRet != null && benchRet != null ? marketRet - benchRet : null };
+    const sincePct = marketRet != null && benchRet != null ? marketRet - benchRet : null;
+    // 30d spread (both returns over the trailing 30d).
+    const bench30 = pctChange(closes, 30);
+    const pct = market30 != null && bench30 != null ? market30 - bench30 : null;
+    return { label, pct, sincePct };
   });
 
   const marketIndex = {
     value: indexValue,
     inceptionLabel,
+    // Benchmark column now leads with 30d; the header labels the window + tooltips
+    // the since-inception figure. Inception day is shared with the index caption.
+    relWindowLabel: "30d",
+    relSinceLabel: inceptionLabel, // e.g. "since Jan 12"
     deltas: [
       // Price index is weekly → no 24h resolution; null renders "—" rather than
       // mislabeling a weekly move as a 24h change (X3).

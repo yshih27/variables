@@ -8,6 +8,7 @@ import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
+import { isSealed } from "@/lib/card/sealed";
 
 const PLATFORM_LABELS: Record<string, string> = {
   beezie: "Beezie",
@@ -65,11 +66,17 @@ function SaleCard({ sale }: { sale: TopSale }) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [trimmed, setTrimmed] = useState<string | null>(null);
   const [corsBlocked, setCorsBlocked] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Sealed products (booster boxes, ETBs) are near-square white-bg shots — give
+  // them a squarer frame so they aren't letterboxed into a slab's portrait (R6-1).
+  const sealed = isSealed(sale.cardName);
 
   const analyze = () => {
-    if (trimmed) return;
     const el = imgRef.current;
-    if (el && el.complete && el.naturalWidth > 0) {
+    if (!el || !el.complete || el.naturalWidth === 0) return;
+    setLoaded(true);
+    if (!trimmed) {
       const cropped = autoTrim(el);
       if (cropped) setTrimmed(cropped);
     }
@@ -86,18 +93,26 @@ function SaleCard({ sale }: { sale: TopSale }) {
       href={cardLink}
       className="group flex flex-col overflow-hidden rounded-xl bg-bg-2 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5"
     >
-      {/* Image area: slab placeholder always behind, img fades in on top */}
+      {/* Image area: the glyph is the FAILURE fallback ONLY — never rendered behind a
+          photo (R7-4). While loading, the dark surface shows (img fades in); a photo
+          uses object-contain so white boxes / off-scale slabs show WHOLE, no crop. */}
       <div
-        className="relative aspect-[3/4] overflow-hidden"
+        className={`relative overflow-hidden ${sealed ? "aspect-[4/5]" : "aspect-[3/4]"}`}
         style={{
           background:
             "radial-gradient(circle at 50% 30%, rgba(255,255,255,0.04), transparent 65%), linear-gradient(180deg, #141414 0%, #0c0c0c 100%)",
         }}
       >
-        <div className="absolute inset-0 flex items-center justify-center px-4 py-5">
-          <CardSlabGlyph color={sale.ipColor} />
-        </div>
-        {trimmed ? (
+        {failed ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 pb-3 pt-4">
+            <span className="min-h-0 flex-1">
+              <CardSlabGlyph color={sale.ipColor} />
+            </span>
+            <span className="line-clamp-2 max-w-full text-center text-[10px] leading-tight text-ink-3">
+              {sale.cardName}
+            </span>
+          </div>
+        ) : trimmed ? (
           // Auto-trimmed crop: whole slab, uniform size across every tile.
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -106,16 +121,15 @@ function SaleCard({ sale }: { sale: TopSale }) {
             className="absolute inset-0 m-auto h-full w-full object-contain p-2 drop-shadow-[0_8px_18px_rgba(0,0,0,0.5)]"
           />
         ) : (
-          currentSrc &&
-          !failed && (
+          currentSrc && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               ref={imgRef}
               src={currentSrc}
               alt=""
               {...(corsBlocked ? {} : { crossOrigin: "anonymous" as const })}
-              className="absolute inset-0 h-full w-full object-cover object-center"
-              onLoad={corsBlocked ? undefined : analyze}
+              className={`absolute inset-0 h-full w-full object-contain p-3 transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
+              onLoad={() => (corsBlocked ? setLoaded(true) : analyze())}
               onError={() => {
                 // First failure is usually a host refusing cross-origin reads —
                 // retry the same src without crossOrigin so it still displays.
@@ -123,8 +137,10 @@ function SaleCard({ sale }: { sale: TopSale }) {
                   setCorsBlocked(true);
                   return;
                 }
-                if (srcIdx + 1 < sources.length) setSrcIdx(srcIdx + 1);
-                else setFailed(true);
+                if (srcIdx + 1 < sources.length) {
+                  setSrcIdx(srcIdx + 1);
+                  setLoaded(false);
+                } else setFailed(true);
               }}
               loading="lazy"
             />

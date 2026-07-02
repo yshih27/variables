@@ -30,12 +30,7 @@ export function PlatformRail({ detail, mcapPct }: Props) {
     { k: "7d Volume", sub: "rolling 7 days", v: formatCompactUsd(detail.vol7Usd) },
     {
       k: "Primary 24h",
-      sub:
-        detail.primaryUsd == null
-          ? "not tracked"
-          : detail.source.key === "courtyard"
-            ? "tokenization"
-            : "gacha / primary",
+      sub: detail.primaryUsd == null ? "not tracked" : "gacha / primary",
       v: detail.primaryUsd != null ? formatCompactUsd(detail.primaryUsd) : "—",
     },
     {

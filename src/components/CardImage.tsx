@@ -50,7 +50,6 @@ export function CardArtFallback({
         background:
           "radial-gradient(circle at 50% 30%, rgba(255,255,255,0.04), transparent 65%), linear-gradient(180deg, #141414 0%, #0c0c0c 100%)",
       }}
-      title={name}
     >
       <span className="min-h-0 flex-1">
         <CardSlabGlyph color={color} />

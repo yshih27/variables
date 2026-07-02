@@ -50,7 +50,8 @@ export type GachaPlatformRow = {
   name: string;
   short: string;
   chain: Chain;
-  /** "gacha" = randomized pull mechanic; "tokenization" = pay-to-vault (Courtyard). */
+  /** "gacha" = pack-pull spend (Courtyard included as of R5); "tokenization" =
+   *  pay-to-vault (reserved; unused after Courtyard was reclassified gacha). */
   kind: "gacha" | "tokenization";
   /** Pack prices the platform supports (from sources.ts `validAmounts`).
    *  Empty if the platform doesn't constrain pack prices. */
@@ -163,6 +164,10 @@ function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): G
     warning = "Not yet populated — run `npm run warm-gacha-dune`.";
   } else if (kind === "tokenization") {
     warning = "Tokenization, not a randomized pull.";
+  } else if (byAmount24h.length === 0 && !entry.odds && pulls24h > 0) {
+    // Aggregate-only gacha (Courtyard): real on-chain volume, but the Dune query
+    // returns one summary row — no per-pack tiers or realized odds to show.
+    warning = "Aggregate on-chain volume — per-pack odds not tracked yet.";
   }
 
   // Buyback / house economics (7d).
@@ -316,8 +321,8 @@ async function buildGacha(): Promise<GachaPayload> {
     .sort((a, b) => b.vol24Usd - a.vol24Usd)
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
-  // Hero counts only true gacha pulls — Courtyard tokenization is shown for
-  // comparison but excluded from "pull volume" so the headline isn't inflated.
+  // Hero counts every gacha platform with pulls. Courtyard is now gacha (R5) and
+  // included — its ~$64 avg pull is in-range, so it doesn't distort avg-pull.
   const gacha = rows.filter((r) => r.kind === "gacha" && r.pulls24h > 0);
   const totalVol24Usd = gacha.reduce((s, r) => s + r.vol24Usd, 0);
   const totalPulls24h = gacha.reduce((s, r) => s + r.pulls24h, 0);

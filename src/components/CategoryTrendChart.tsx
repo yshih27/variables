@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { CategoryTrend } from "@/lib/category/rollup";
 import { Section } from "./Section";
+import { MetricInfo } from "./MetricInfo";
 import { formatCompactUsd } from "@/lib/format";
 
 /**
@@ -116,12 +118,12 @@ export function CategoryTrendChart({
   const [rangeKey, setRangeKey] = useState<string>(defaultRange);
   const [mode, setMode] = useState<ChartMode>(defaultMode);
   const [hover, setHover] = useState<number | null>(null);
-  // Per-line visibility — ALL lines (incl. benchmarks) on by default (R2-F2) so
-  // the comparison shows without a click; each stays individually toggleable.
-  // Group names are stable across a chart's metric views, so one init covers all.
-  const [active, setActive] = useState<Set<string>>(
-    () => new Set(((views.find((v) => v.key === initialKey) ?? views[0])?.data.datasets ?? []).map((d) => d.group)),
-  );
+  // The user's intended off-set (groups they've explicitly hidden). Everything is
+  // ON by default (R2-F2); toggling a group adds it here. The EFFECTIVE visible set
+  // is derived per-view below so switching to a view with a DIFFERENT group set
+  // (e.g. Volume's "Marketplace/Gacha" → Market cap's "Beezie/CC") never leaves the
+  // chart blank because none of the old groups exist in the new view (R5-1).
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const wrapRef = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(820);
 
@@ -141,12 +143,27 @@ export function CategoryTrendChart({
   const plotW = w - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
+  // Effective visible set = this view's groups minus the ones the user hid; if the
+  // user hid all of them (or none apply to this view), fall back to all groups so a
+  // view is never blank. Keeps ≥1 line on.
+  const viewGroups = view?.data.datasets.map((d) => d.group) ?? [];
+  const viewGroupsKey = viewGroups.join("|");
+  const active = useMemo(() => {
+    const on = viewGroups.filter((g) => !hidden.has(g));
+    return new Set(on.length ? on : viewGroups);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hidden, viewGroupsKey]);
+
   function toggleSeries(group: string) {
-    setActive((prev) => {
+    setHidden((prev) => {
       const next = new Set(prev);
       if (next.has(group)) {
-        if (next.size > 1) next.delete(group); // keep at least one line on
-      } else next.add(group);
+        next.delete(group); // turn back on
+      } else {
+        // don't hide the last visible line in this view
+        const stillOn = viewGroups.filter((g) => g !== group && !next.has(g));
+        if (stillOn.length >= 1) next.add(group);
+      }
       return next;
     });
   }
@@ -272,19 +289,24 @@ export function CategoryTrendChart({
         </>
       }
     >
-      <div className="mb-2.5 flex flex-wrap items-center gap-x-2 font-mono text-[11px] text-ink-4">
+      <div className="mb-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-ink-4">
         {isRebased ? (
           <>
             <span>
               indexed to 100 at window start · {basis === "price" ? "constant-quality price index" : "market size, not price"}
             </span>
+            {basis === "price" && (
+              <span className="inline-flex items-center gap-1">
+                <MetricInfo metric="priceIndex" />
+                <Link href="/methodology" className="text-ink-3 underline decoration-line underline-offset-2 hover:text-yellow">
+                  how it&apos;s built
+                </Link>
+              </span>
+            )}
             {basis !== "price" && !hasBench && (
               <>
                 <span aria-hidden className="text-ink-4">·</span>
-                <span
-                  className="cursor-default rounded border border-line px-1.5 py-px text-ink-4"
-                  title="Benchmark overlay (vs BTC · ETH · S&P 500 · NASDAQ) arrives with the price index"
-                >
+                <span className="cursor-default rounded border border-line px-1.5 py-px text-ink-4">
                   benchmarks soon
                 </span>
               </>
@@ -296,7 +318,9 @@ export function CategoryTrendChart({
       </div>
 
       {view && view.data.datasets.length > 0 && (
-        <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {/* Every series toggles (R4-3) — pressed pill on, dimmed outline off,
+              ≥1 always kept on. Benchmarks read as dashed swatches. */}
           {view.data.datasets.map((d) => {
             const on = active.has(d.group);
             const last = lastByGroup.get(d.group);
@@ -306,15 +330,17 @@ export function CategoryTrendChart({
                 type="button"
                 onClick={() => toggleSeries(d.group)}
                 aria-pressed={on}
-                className={`flex items-center gap-1.5 text-[12px] transition-opacity ${on ? "" : "opacity-40 hover:opacity-70"}`}
-                title={d.benchmark ? "External benchmark" : undefined}
+                aria-label={`${d.group}${d.benchmark ? " (external benchmark)" : ""} — toggle`}
+                className={`flex items-center gap-1.5 rounded-[10px] border px-2.5 py-1 text-[12px] transition-colors ${
+                  on ? "border-line-2 bg-bg-2" : "border-line bg-transparent opacity-55 hover:opacity-100"
+                }`}
               >
                 {d.benchmark ? (
                   <span className="inline-block h-0 w-3.5 border-t-[2px] border-dashed" style={{ borderColor: d.color }} />
                 ) : (
                   <span className="h-2 w-2 rounded-[2px]" style={{ background: d.color }} />
                 )}
-                <span className={on ? "text-ink-3" : "text-ink-4"}>{d.group}</span>
+                <span className={on ? "text-ink-2" : "text-ink-4"}>{d.group}</span>
                 {on && last != null && (
                   <span className="font-mono tabular text-ink">
                     {isRebased ? last.toFixed(1) : formatCompactUsd(last)}

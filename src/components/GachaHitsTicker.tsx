@@ -3,6 +3,7 @@ import { proxyImg } from "@/lib/img";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 import { CardArt } from "./CardImage";
 import { Section } from "./Section";
+import { isSealed } from "@/lib/card/sealed";
 import type { CoverflowHit } from "@/lib/data/gachaHits";
 
 /**
@@ -72,9 +73,12 @@ export function GachaHitsTicker({
 function Chip({ hit, dup }: { hit: CoverflowHit; dup: boolean }) {
   const link = cardSupported(hit.platformKey) ? cardHref(hit.platformKey, hit.mint) : null;
   const pf = PF[hit.platformKey] ?? { short: "?", color: "#888", name: hit.platform };
+  // Sealed products get a squarer frame (no slab crop, no pedestal zoom) — R6-1.
+  const sealed = isSealed(hit.name, hit.grade);
+  const artClass = `ght-art${sealed ? " ght-art--sealed" : hit.platformKey === "phygitals" ? " ght-art--zoom" : ""}`;
   const body = (
     <>
-      <span className={`ght-art${hit.platformKey === "phygitals" ? " ght-art--zoom" : ""}`}>
+      <span className={artClass}>
         {/* Shared card-art fallback (D3): dead/missing prize art degrades to the
             platform-colored slab glyph instead of a blank box. */}
         <CardArt

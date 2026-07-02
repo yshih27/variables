@@ -57,8 +57,8 @@ export type PlatformRow = {
   /** Primary-market revenue (gacha pulls + tokenization mints), 24h, USD.
    *  null when we don't track a primary source for that platform. */
   primaryUsd: number | null;
-  /** Gacha-only volume (pack-pull spend), USD. null for non-gacha platforms
-   *  (e.g. Courtyard, whose primary is tokenization, not gacha).
+  /** Gacha-only volume (pack-pull spend), USD. null for platforms with no gacha
+   *  source. Courtyard's aggregate pack volume counts here as of R5.
    *  Pairs with vol24Usd/vol7Usd (marketplace resale) for the volume split. */
   gachaVol24Usd: number | null;
   gachaVol7Usd: number | null;

@@ -13,8 +13,11 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { runGachaPacksWarm } from "../src/lib/data/warmers/gachaPacks";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
-runGachaPacksWarm({ log: (m) => console.log(m) })
+// runWarmer records source_freshness on every outcome (ok / soft-fail throw /
+// mid-run throw) and re-throws, so the Actions health gate sees a dead warmer.
+runWarmer("gacha-packs", () => runGachaPacksWarm({ log: (m) => console.log(m) }))
   .then((r) => {
     console.log(
       `\nWrote gacha:packs — ${r.packs} packs ${JSON.stringify(r.byPlatform)} · top hit $${Math.round(r.topHitMax).toLocaleString()}`,

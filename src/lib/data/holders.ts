@@ -21,6 +21,14 @@ export type HoldersSnapshot = {
    * back-compat with older snapshots; readers fall back to the per-platform sum.
    */
   totalHolders?: number;
+  /**
+   * Circulating token SUPPLY per platform = every asset the holder scan enumerated
+   * (not wallets). Phygitals cards aren't fully indexed anywhere else (the
+   * marketplace crawl only sees LISTED cards), so this is the only true supply
+   * count we have — used for its floor×supply market cap. Optional (older snapshots
+   * predate it); carried forward when a scan fails so an outage can't zero it.
+   */
+  supply?: Record<string, number>;
 };
 
 export async function readHolders(): Promise<HoldersSnapshot | null> {

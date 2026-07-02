@@ -39,7 +39,7 @@ import { runWarmer } from "../src/lib/db/runWarmer";
 
 const SCAN_BUDGET_MS = 10 * 60 * 1000; // per-scan; parallel → total ≤ budget
 
-type ScanResult = { total: number; byIp: PerIPMap; complete: boolean };
+type ScanResult = { total: number; assets: number; byIp: PerIPMap; complete: boolean };
 type PerIPMap = Map<string, Set<string>>; // ipKey → ownerSet
 
 function recordOwner(map: PerIPMap, ipKey: string, owner: string) {
@@ -57,7 +57,7 @@ function guard(p: Promise<ScanResult>, label: string): Promise<ScanResult> {
   const backstop = new Promise<ScanResult>((resolve) => {
     timer = setTimeout(() => {
       console.warn(`  ⏱ ${label} hard-timeout backstop — skipping`);
-      resolve({ total: 0, byIp: new Map(), complete: false });
+      resolve({ total: 0, assets: 0, byIp: new Map(), complete: false });
     }, SCAN_BUDGET_MS + 60_000);
   });
   // clearTimeout when the scan wins, so the process exits promptly + no orphan log.
@@ -110,7 +110,7 @@ async function warmBeezie(deadline: number): Promise<ScanResult> {
   console.log(
     `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp, complete };
+  return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
 async function warmCC(deadline: number): Promise<ScanResult> {
@@ -160,7 +160,7 @@ async function warmCC(deadline: number): Promise<ScanResult> {
   console.log(
     `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp, complete };
+  return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
 async function warmPhygitals(deadline: number): Promise<ScanResult> {
@@ -210,7 +210,7 @@ async function warmPhygitals(deadline: number): Promise<ScanResult> {
   console.log(
     `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp, complete };
+  return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
 async function main() {
@@ -218,7 +218,7 @@ async function main() {
   // Resilient: a hang/failure in one source must not sink the other or leave the
   // snapshot unwritten. Each scan is budget-bounded + backstopped; we write whatever
   // we got. Only fail (so runWarmer records an error) when BOTH sources fail outright.
-  const empty: ScanResult = { total: 0, byIp: new Map(), complete: false };
+  const empty: ScanResult = { total: 0, assets: 0, byIp: new Map(), complete: false };
   const deadline = Date.now() + SCAN_BUDGET_MS;
   const [beezieR, ccR, phR] = await Promise.allSettled([
     guard(warmBeezie(deadline), "Beezie"),
@@ -325,6 +325,20 @@ async function main() {
   }
   const totalHolders = beezieN + solanaUnion;
 
+  // Circulating supply per platform = assets enumerated by the scan. Carry-forward
+  // like the holder totals: a failed scan (total 0) keeps the prev supply; a PARTIAL
+  // scan under-counts, so keep the larger of prev vs fresh rather than regressing.
+  // Feeds Phygitals' floor×supply market cap (warm-marketcap).
+  const supply: Record<string, number> = {};
+  for (const [key, res] of PLATS) {
+    const prevSupply = prev?.supply?.[key] ?? 0;
+    if (res.total > 0) {
+      supply[key] = res.complete ? res.assets : Math.max(prevSupply, res.assets);
+    } else if (prevSupply > 0) {
+      supply[key] = prevSupply; // scan failed → don't zero it out
+    }
+  }
+
   await writeHolders({
     generatedAt: new Date().toISOString(),
     platforms: {
@@ -334,6 +348,7 @@ async function main() {
     },
     byIp,
     totalHolders,
+    supply,
   });
   console.log(
     `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
@@ -344,6 +359,9 @@ async function main() {
       `· unique=${totalHolders} (sum ${beezieN + platTotal("collector-crypt", cc) + platTotal("phygitals", ph)})`,
   );
   if (carried.size) console.log(`  carried-forward (scan failed): ${[...carried].join(", ")}`);
+  console.log(
+    `  supply (assets): ${Object.entries(supply).map(([k, v]) => `${k}=${v.toLocaleString()}`).join(" ") || "—"}`,
+  );
   return { rowsWritten: Object.keys(byIp).length };
 }
 
