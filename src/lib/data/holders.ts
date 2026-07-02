@@ -13,6 +13,14 @@ export type HoldersSnapshot = {
   generatedAt: string;
   platforms: Record<string, number>;
   byIp: Record<string, HoldersIPEntry>;
+  /**
+   * TRUE cross-platform holder count (unique wallets), computed in the warmer.
+   * beezie (Base) can't overlap the Solana platforms, but CC + Phygitals are both
+   * Solana and share an address space, so this unions their owner sets rather than
+   * summing (a plain sum double-counts wallets active on both — X2). Optional for
+   * back-compat with older snapshots; readers fall back to the per-platform sum.
+   */
+  totalHolders?: number;
 };
 
 export async function readHolders(): Promise<HoldersSnapshot | null> {

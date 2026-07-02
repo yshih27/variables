@@ -159,9 +159,13 @@ export default async function PlatformDetailPage({
       }}
     >
       {ipEntities.length > 0 && (
-        <section className="mb-12 font-sans">
-          <DominancePanel title="IP dominance" source={{ entities: ipEntities }} defaultMetric="volume" seeAllHref={`/platform/${key}/ips`} />
-        </section>
+        <DominancePanel
+          title="IP dominance"
+          source={{ entities: ipEntities }}
+          defaultMetric="volume"
+          seeAllHref={`/platform/${key}/ips`}
+          className="mb-12 font-sans"
+        />
       )}
       {ipRows.length > 0 && (
         <IPByPlatform

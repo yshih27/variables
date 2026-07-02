@@ -2,48 +2,18 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { readWatchlist, subscribeWatchlist, toggleWatchlist } from "@/lib/watchlist";
 
 /**
  * Watchlist + Share actions for the IP / Platform rails (QA-1). Both were dead
  * no-op buttons; now real and frontend-only:
- *   • Watchlist — toggles this entity in a `localStorage` set (`ip:pokemon`,
- *     `platform:beezie`, …), keyed off the current route so the rails don't have
- *     to thread an id. Read through useSyncExternalStore so every mounted copy
- *     (and a future `/watchlist` view) stays in sync, hydration-safe.
+ *   • Watchlist — toggles this entity in the shared `lib/watchlist` localStorage
+ *     set (`ip:pokemon`, `platform:beezie`, …), keyed off the current route so
+ *     the rails don't have to thread an id. Read through useSyncExternalStore so
+ *     every mounted copy (and the /watchlist page) stays in sync, hydration-safe.
  *   • Share — Web Share sheet on devices that support it, else copy the link and
  *     flash "Copied". Cancelling the native sheet is a no-op (we don't then copy).
  */
-const STORE_KEY = "variable:watchlist";
-
-function readList(): string[] {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-// Tiny external store so same-tab writes notify subscribers (the `storage` event
-// only fires for OTHER tabs).
-const listeners = new Set<() => void>();
-function subscribe(cb: () => void): () => void {
-  listeners.add(cb);
-  window.addEventListener("storage", cb);
-  return () => {
-    listeners.delete(cb);
-    window.removeEventListener("storage", cb);
-  };
-}
-function writeList(next: string[]): void {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next));
-  } catch {
-    /* storage full / blocked — the button just won't persist */
-  }
-  for (const l of listeners) l();
-}
 
 const BTN =
   "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-[11px] border text-[13px] font-semibold transition-colors";
@@ -57,8 +27,8 @@ export function RailActions({ name }: { name: string }) {
   // Server + first client render return false (no mismatch); real state resolves
   // after hydration via the store snapshot.
   const saved = useSyncExternalStore(
-    subscribe,
-    () => (id ? readList().includes(id) : false),
+    subscribeWatchlist,
+    () => (id ? readWatchlist().includes(id) : false),
     () => false,
   );
   const [copied, setCopied] = useState(false);
@@ -72,9 +42,7 @@ export function RailActions({ name }: { name: string }) {
   );
 
   function toggleWatch() {
-    if (!id) return;
-    const list = readList();
-    writeList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+    if (id) toggleWatchlist(id);
   }
 
   async function share() {

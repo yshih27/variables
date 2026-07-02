@@ -11,6 +11,17 @@ import type { ReactNode } from "react";
  * `flush` lets a table's body run edge-to-edge (its own cells carry the inset)
  * while the header keeps the card's padding.
  */
+
+/** The bare card frame — for the rare headerless module (the homepage
+ *  MarketHeader hero) so even those share one source of frame truth (D1). */
+export function SectionShell({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <section className={`overflow-hidden rounded-2xl border border-line bg-bg-1 ${className ?? ""}`}>
+      {children}
+    </section>
+  );
+}
+
 export function Section({
   title,
   subtitle,
@@ -20,7 +31,7 @@ export function Section({
   className,
   children,
 }: {
-  title: string;
+  title: ReactNode;
   subtitle?: ReactNode;
   /** Right-aligned header slot — toggles, "see all →", a summary stat, etc. */
   right?: ReactNode;
@@ -32,7 +43,7 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section className={`overflow-hidden rounded-2xl border border-line bg-bg-1 ${className ?? ""}`}>
+    <SectionShell className={className}>
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 py-4 sm:px-5">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
@@ -44,6 +55,6 @@ export function Section({
         {right && <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">{right}</div>}
       </header>
       <div className={flush ? "pb-1" : "px-4 pb-4 sm:px-5 sm:pb-5"}>{children}</div>
-    </section>
+    </SectionShell>
   );
 }

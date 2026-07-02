@@ -16,6 +16,18 @@
  * PK (entity_type, entity_key, metric, ts) makes every write idempotent: a
  * re-run overwrites the same day rather than duplicating it, and late-indexed
  * sales self-correct on the next run.
+ *
+ * ── TWO-TIER WINDOWING RULE (read this before comparing numbers across surfaces) ──
+ * The app shows the same metric over two different windows, by design:
+ *   • LIVE tier — hero stats, tables, "24h" figures — read the ROLLING-24h `snapshots`
+ *     blobs (core-volume / marketcap / holders / gacha-dune). "Last 24 hours from now."
+ *   • CHART tier — every time-series chart — reads THIS spine, which is COMPLETE-
+ *     CALENDAR-DAY (UTC midnight buckets). "Whole days, yesterday and back."
+ * So a rolling-24h hero number and the latest calendar-day chart point legitimately
+ * differ (they cover different spans) — that's not a bug. Everything in the spine,
+ * including `gacha_volume_usd` (from the daily-bucketed Dune queries), is calendar-day;
+ * never mix a rolling-24h value into a spine chart. Label the window in the UI ("24h"
+ * vs "daily") so the two tiers never read as a contradiction.
  */
 import { db } from "../db/client";
 

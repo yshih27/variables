@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Section } from "./Section";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
 /**
@@ -225,17 +226,16 @@ export function IPActivityChart({
   })();
 
   return (
-    <section className="mb-12 font-sans">
-      {/* Header */}
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
-          <div className="mt-1 font-mono text-[12px] text-ink-3">
-            {tf === "24H" ? "24h history · hourly" : `${tf} history · daily`}
-            {multi ? " · normalized to compare shape · values at line ends" : " · overlay any metric"}
-          </div>
-        </div>
-        <div className="flex gap-0.5 rounded-[10px] border border-line bg-bg-1 p-[3px]">
+    <Section
+      title={title}
+      subtitle={
+        <>
+          {tf === "24H" ? "24h history · hourly" : `${tf} history · daily`}
+          {multi ? " · normalized to compare shape · values at line ends" : " · overlay any metric"}
+        </>
+      }
+      right={
+        <div className="flex gap-0.5 rounded-[10px] border border-line bg-bg-2 p-[3px]">
           {timeframes.map((t) => (
             <button
               key={t}
@@ -249,10 +249,11 @@ export function IPActivityChart({
             </button>
           ))}
         </div>
-      </div>
-
+      }
+      className="mb-12 font-sans"
+    >
       {/* Metric chips */}
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap gap-2 pt-1">
         {metrics.map((m) => {
           const on = active.has(m.key);
           const avail = hasWindow(m, tf);
@@ -289,7 +290,7 @@ export function IPActivityChart({
       {/* Chart */}
       <div
         ref={wrapRef}
-        className="relative rounded-2xl border border-line bg-bg-1 p-4"
+        className="relative p-4"
         style={{ height: H + 32 }}
         onMouseLeave={() => setHover(null)}
         onMouseMove={(e) => {
@@ -451,7 +452,7 @@ export function IPActivityChart({
           </div>
         )}
       </div>
-    </section>
+    </Section>
   );
 }
 

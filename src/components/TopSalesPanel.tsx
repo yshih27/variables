@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TopSale } from "@/lib/types";
 import { Section } from "./Section";
+import { CardSlabGlyph } from "./CardImage";
 import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd } from "@/lib/format";
@@ -94,7 +95,7 @@ function SaleCard({ sale }: { sale: TopSale }) {
         }}
       >
         <div className="absolute inset-0 flex items-center justify-center px-4 py-5">
-          <SlabPlaceholder color={sale.ipColor} />
+          <CardSlabGlyph color={sale.ipColor} />
         </div>
         {trimmed ? (
           // Auto-trimmed crop: whole slab, uniform size across every tile.
@@ -246,25 +247,4 @@ function autoTrim(img: HTMLImageElement): string | null {
   } catch {
     return null;
   }
-}
-
-function SlabPlaceholder({ color }: { color: string }) {
-  return (
-    <svg
-      viewBox="0 0 64 96"
-      className="h-full w-auto opacity-90"
-      aria-hidden
-      role="img"
-    >
-      <rect x="3" y="3" width="58" height="90" rx="6" fill="#0e0e0e" stroke={color} strokeWidth="1.25" opacity="0.7" />
-      <rect x="7" y="7" width="50" height="11" rx="2" fill={color} opacity="0.18" />
-      <rect x="10" y="11" width="22" height="2" fill={color} opacity="0.6" />
-      <rect x="10" y="14.5" width="14" height="1.5" fill={color} opacity="0.4" />
-      <rect x="7" y="22" width="50" height="58" rx="2" fill={color} opacity="0.08" />
-      <circle cx="32" cy="46" r="11" fill={color} opacity="0.35" />
-      <circle cx="32" cy="46" r="5" fill={color} opacity="0.55" />
-      <rect x="7" y="83" width="50" height="6" rx="1" fill={color} opacity="0.12" />
-      <rect x="10" y="85" width="18" height="2" fill={color} opacity="0.45" />
-    </svg>
-  );
 }

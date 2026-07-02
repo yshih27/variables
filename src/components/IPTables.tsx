@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { CardRow, SetRow } from "@/lib/data/fetchIP";
+import { Section } from "./Section";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
@@ -30,8 +31,13 @@ export function IPTopCards({
 }) {
   if (rows.length === 0) return null;
   return (
-    <section className="mb-12 font-sans">
-      <SectionHeader title="Top Cards" sub="Most traded in this window" seeAllHref={seeAllHref} seeAllLabel="See all cards →" />
+    <Section
+      title="Top Cards"
+      subtitle="Most traded in this window"
+      right={<SeeAll href={seeAllHref} label={`See all ${total} →`} />}
+      className="mb-12 font-sans"
+      flush
+    >
       <div className="scroll-x">
         <table className="w-full min-w-[760px] border-collapse text-[13px]">
           <thead>
@@ -96,7 +102,7 @@ export function IPTopCards({
           </tbody>
         </table>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -112,13 +118,13 @@ export function IPSets({
 }) {
   if (rows.length === 0) return null;
   return (
-    <section className="mb-12 font-sans">
-      <SectionHeader
-        title="Sets"
-        sub={`Top sets by 24h volume · ${total} total`}
-        seeAllHref={seeAllHref}
-        seeAllLabel={`See all ${total} →`}
-      />
+    <Section
+      title="Sets"
+      subtitle={`Top sets by 24h volume · ${total} total`}
+      right={<SeeAll href={seeAllHref} label={`See all ${total} →`} />}
+      className="mb-12 font-sans"
+      flush
+    >
       <div className="scroll-x">
         <table className="w-full min-w-[680px] border-collapse text-[13px]">
           <thead>
@@ -151,7 +157,7 @@ export function IPSets({
           </tbody>
         </table>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -167,27 +173,11 @@ function GradePill({ grade }: { grade: string }) {
   );
 }
 
-function SectionHeader({
-  title,
-  sub,
-  seeAllHref,
-  seeAllLabel,
-}: {
-  title: string;
-  sub: string;
-  seeAllHref: string;
-  seeAllLabel: string;
-}) {
+function SeeAll({ href, label }: { href: string; label: string }) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4">
-      <div>
-        <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
-        <div className="mt-1 font-mono text-[12px] text-ink-3">{sub}</div>
-      </div>
-      <Link href={seeAllHref} className="shrink-0 font-mono text-[12px] text-ink-3 transition-colors hover:text-yellow">
-        {seeAllLabel}
-      </Link>
-    </div>
+    <Link href={href} className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
+      {label}
+    </Link>
   );
 }
 

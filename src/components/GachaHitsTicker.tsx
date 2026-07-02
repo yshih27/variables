@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { proxyImg } from "@/lib/img";
 import { cardHref, cardSupported } from "@/lib/card/ids";
+import { CardArt } from "./CardImage";
+import { Section } from "./Section";
 import type { CoverflowHit } from "@/lib/data/gachaHits";
 
 /**
@@ -49,28 +51,37 @@ export function GachaHitsTicker({
   );
 
   return (
-    <section className="ght" aria-label={`Biggest gacha hits, ${windowLabel}`}>
-      <div className="ght-mask">
-        <div className="ght-track" style={{ ["--ght-dur" as string]: dur }}>
-          {row(false)}
-          {row(true)}
+    <Section
+      title="Live hits"
+      subtitle={`Biggest realized pulls · ${windowLabel}`}
+      className="mt-7 font-sans"
+      flush
+    >
+      <div className="ght" aria-label={`Biggest gacha hits, ${windowLabel}`}>
+        <div className="ght-mask">
+          <div className="ght-track" style={{ ["--ght-dur" as string]: dur }}>
+            {row(false)}
+            {row(true)}
+          </div>
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
 function Chip({ hit, dup }: { hit: CoverflowHit; dup: boolean }) {
-  const src = proxyImg(hit.image ?? hit.imageFallback ?? undefined);
   const link = cardSupported(hit.platformKey) ? cardHref(hit.platformKey, hit.mint) : null;
   const pf = PF[hit.platformKey] ?? { short: "?", color: "#888", name: hit.platform };
   const body = (
     <>
       <span className={`ght-art${hit.platformKey === "phygitals" ? " ght-art--zoom" : ""}`}>
-        {src && (
-          // eslint-disable-next-line @next/next/no-img-element -- external prize art, codebase convention
-          <img src={src} alt="" loading="lazy" />
-        )}
+        {/* Shared card-art fallback (D3): dead/missing prize art degrades to the
+            platform-colored slab glyph instead of a blank box. */}
+        <CardArt
+          sources={[proxyImg(hit.image ?? undefined), proxyImg(hit.imageFallback ?? undefined)]}
+          color={pf.color}
+          imgClassName=""
+        />
       </span>
       <span className="ght-meta">
         <span className="ght-val">

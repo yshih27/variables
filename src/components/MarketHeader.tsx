@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { HeroStats, IPRow } from "@/lib/types";
+import { SectionShell } from "./Section";
 import { IPIcon } from "./IPIcon";
 import { Sparkline } from "./Sparkline";
 import { MarketIndexChart } from "./MarketIndexChart";
@@ -81,7 +82,9 @@ export function MarketHeader({
       : "lg:grid-cols-[minmax(0,1fr)_auto]";
 
   return (
-    <section className="mb-9 overflow-hidden rounded-2xl border border-line bg-bg-1">
+    // The headerless variant of the shared Section frame (D1) — the hero number
+    // is its own title.
+    <SectionShell className="mb-9">
       {/* Row 1 — hero market cap, the index chart, its change, and vs-benchmarks. */}
       <div className={`grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-6 ${mdCols} ${lgCols}`}>
         <div className="min-w-0">
@@ -178,7 +181,7 @@ export function MarketHeader({
         />
         <EntityCell topIP={topIP} />
       </div>
-    </section>
+    </SectionShell>
   );
 }
 

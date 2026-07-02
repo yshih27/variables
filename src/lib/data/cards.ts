@@ -243,6 +243,52 @@ export async function readCardDims(
   return out;
 }
 
+export type CardMeta = {
+  name: string | null;
+  cardName: string | null;
+  ip: string;
+  set: string | null;
+  grade: string;
+  image: string | null;
+};
+
+/**
+ * Read display+grouping metadata for many tokenIds of one platform in one pass
+ * (name / ip / set / grade / image). Used by trending (fetchTrending) to group
+ * sales by card-TYPE and to attribute listings to types — cheaper than merging
+ * readCards + readCardDims. Chunked IN() so a big tokenId list stays under URL limits.
+ */
+export async function readCardMeta(
+  platform: CardPlatform,
+  tokenIds: string[],
+): Promise<Map<string, CardMeta>> {
+  const out = new Map<string, CardMeta>();
+  const ids = [...new Set(tokenIds)].filter(Boolean);
+  const CHUNK = 300;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await db()
+      .from("cards")
+      .select("token_id,name,card_name,ip_key,set_name,grade_label,image")
+      .eq("platform", platform)
+      .in("token_id", ids.slice(i, i + CHUNK));
+    if (error) {
+      console.warn(`[cards] meta read failed: ${error.message}`);
+      continue;
+    }
+    for (const r of data ?? []) {
+      out.set(r.token_id as string, {
+        name: (r.name as string | null) ?? null,
+        cardName: (r.card_name as string | null) ?? null,
+        ip: (r.ip_key as string) ?? "other",
+        set: (r.set_name as string | null) ?? null,
+        grade: (r.grade_label as string) ?? "Ungraded",
+        image: (r.image as string | null) ?? null,
+      });
+    }
+  }
+  return out;
+}
+
 /** Read metadata for many tokenIds of one platform (cache-only). */
 export async function readCards(
   platform: CardPlatform,

@@ -349,25 +349,32 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
   // history snapshot (last-known good); the freshness chip already discloses the
   // "as of" age. Only drops to "—" if we have never recorded a value.
   const currentMcap = mcap?.totals?.mcapUsd ?? NaN;
-  const lastKnownMcap = (() => {
+  // Last-known-good hourly mcap + its timestamp, so we can disclose the age when we
+  // fall back to it (X4) rather than showing a stale value unlabeled.
+  const lastKnown = (() => {
     for (let i = mcapHist.hourly.length - 1; i >= 0; i--) {
-      const v = mcapHist.hourly[i]?.totalMcapUsd;
-      if (Number.isFinite(v) && v > 0) return v;
+      const h = mcapHist.hourly[i];
+      if (h && Number.isFinite(h.totalMcapUsd) && h.totalMcapUsd > 0) return h;
     }
-    return NaN;
+    return null;
   })();
-  const totalMcapUsd = currentMcap > 0 ? currentMcap : lastKnownMcap;
+  const usingFallback = !(currentMcap > 0);
+  const totalMcapUsd = usingFallback ? (lastKnown?.totalMcapUsd ?? NaN) : currentMcap;
+  // Age (hours) of the mcap figure when it's the stale fallback; null when live.
+  const mcapAgeHours =
+    usingFallback && lastKnown?.at
+      ? Math.max(0, Math.round((Date.now() - Date.parse(lastKnown.at)) / 3_600_000))
+      : null;
   const rawTotalCards = mcap
     ? Object.values(mcap.byIp).reduce((s, e) => s + e.cards, 0)
     : NaN;
   // Never headline "0 cards" — treat an empty snapshot as unknown ("—").
   const totalCards = rawTotalCards > 0 ? rawTotalCards : NaN;
-  // Sum of platform holder counts. Up to a small over-count when one wallet
-  // holds on multiple platforms — but `Total Holders` here is per-platform sum,
-  // not a unique union (we don't currently snapshot the cross-platform owner
-  // union; the per-IP holders rows do that for their cohort).
+  // TRUE cross-platform unique holders (X2) — the warmer unions CC+Phygitals (both
+  // Solana) instead of summing, so a wallet on both isn't double-counted. Older
+  // snapshots without `totalHolders` fall back to the per-platform sum.
   const totalHolders = holders
-    ? Object.values(holders.platforms).reduce((s, n) => s + n, 0)
+    ? holders.totalHolders ?? Object.values(holders.platforms).reduce((s, n) => s + n, 0)
     : NaN;
 
   // Mcap 24h change: diff vs ~24h-old snapshot in .cache/marketcap-history.json.
@@ -407,6 +414,9 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
       ipsTracked: ipRows.length,
       updatedAt: dataUpdatedAt,
       totalMcapUsd,
+      /** Non-null only when totalMcapUsd is the stale last-known fallback — the UI
+       *  appends "(~Xh old)" so a stale market cap isn't shown as if it were live (X4). */
+      mcapAgeHours,
       vol7Usd: has7dForAll ? sumVol7 : NaN,
       totalCards,
       holders: totalHolders,

@@ -305,21 +305,43 @@ async function main() {
   const tag = (key: "beezie" | "collector-crypt" | "phygitals", res: ScanResult) =>
     carried.has(key) ? " (carried)" : res.total === 0 ? " (no data)" : res.complete ? "" : " (partial)";
 
+  // True cross-platform holder count (X2). beezie is on Base (0x… addresses) so it
+  // can't overlap the Solana platforms — it always adds separately. CC + Phygitals
+  // are BOTH Solana (same base58 address space) and DO share wallets, so union their
+  // owner sets instead of summing (a plain sum double-counts, the 1,074→41,318 bug).
+  // When a Solana scan is carried (no owner set to union), reconstruct the previous
+  // Solana union from the last snapshot rather than an inflated sum.
+  const beezieN = platTotal("beezie", beezie);
+  let solanaUnion: number;
+  if (!carried.has("collector-crypt") && !carried.has("phygitals")) {
+    const sol = new Set<string>();
+    for (const s of cc.byIp.values()) for (const o of s) sol.add(o);
+    for (const s of ph.byIp.values()) for (const o of s) sol.add(o);
+    solanaUnion = sol.size;
+  } else if (prev?.totalHolders != null) {
+    solanaUnion = Math.max(0, prev.totalHolders - (prev.platforms?.beezie ?? 0));
+  } else {
+    solanaUnion = platTotal("collector-crypt", cc) + platTotal("phygitals", ph);
+  }
+  const totalHolders = beezieN + solanaUnion;
+
   await writeHolders({
     generatedAt: new Date().toISOString(),
     platforms: {
-      beezie: platTotal("beezie", beezie),
+      beezie: beezieN,
       "collector-crypt": platTotal("collector-crypt", cc),
       phygitals: platTotal("phygitals", ph),
     },
     byIp,
+    totalHolders,
   });
   console.log(
     `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
       `${Object.keys(byIp).length} IPs · ` +
       `beezie=${platTotal("beezie", beezie)}${tag("beezie", beezie)} ` +
       `cc=${platTotal("collector-crypt", cc)}${tag("collector-crypt", cc)} ` +
-      `phygitals=${platTotal("phygitals", ph)}${tag("phygitals", ph)}`,
+      `phygitals=${platTotal("phygitals", ph)}${tag("phygitals", ph)} ` +
+      `· unique=${totalHolders} (sum ${beezieN + platTotal("collector-crypt", cc) + platTotal("phygitals", ph)})`,
   );
   if (carried.size) console.log(`  carried-forward (scan failed): ${[...carried].join(", ")}`);
   return { rowsWritten: Object.keys(byIp).length };

@@ -25,6 +25,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Section } from "./Section";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 import { proxyImg } from "@/lib/img";
 import { cardHref, cardSupported } from "@/lib/card/ids";
@@ -255,36 +256,38 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
   const pinned = pins.map((id) => byId.get(id)).filter(Boolean) as GachaPack[];
 
   return (
-    <section className="mt-14">
-      <div className="mb-5">
-        <h2 className="text-[24px] font-bold tracking-[-0.025em]">
-          Every pack, every platform — <em className="not-italic text-yellow">at a glance</em>
-        </h2>
-      </div>
-
-      {/* controls: IP tabs + legend */}
-      <div className="mb-6 flex flex-wrap items-center gap-3.5">
-        <div className="flex gap-1 rounded-xl border border-line bg-bg-1 p-1">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={`rounded-[9px] px-[15px] py-2 text-[13px] transition-colors ${
-                tab === t.key ? "bg-yellow font-bold text-black" : "font-medium text-ink-3 hover:text-ink"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
+    <section className="mt-10">
+      {/* One shared Section frame (D1); the IP tabs ride the header's right slot. */}
+      <Section
+        title={
+          <>
+            Every pack, every platform — <em className="not-italic text-yellow">at a glance</em>
+          </>
+        }
+        subtitle="Hit odds by price tier · best odds per column highlighted"
+        right={
+          <div className="flex gap-1 rounded-xl border border-line bg-bg-2 p-1">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`rounded-[9px] px-[15px] py-2 text-[13px] transition-colors ${
+                  tab === t.key ? "bg-yellow font-bold text-black" : "font-medium text-ink-3 hover:text-ink"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        }
+      >
       {/* matrix — pinned platform rail + scrollable tier grid. Uniform fixed
           row heights keep the two panes aligned; the scrollbar is hidden and a
-          right-edge fade signals the overflow instead. */}
-      <div className="flex">
-        <div className="z-[1] shrink-0 bg-bg pr-4">
+          right-edge fade signals the overflow instead. The rail + fade masks
+          match the Section card surface (bg-1). */}
+      <div className="flex pt-1">
+        <div className="z-[1] shrink-0 bg-bg-1 pr-4">
           <div className="flex h-[34px] items-end pb-2">
             <span className="text-[10.5px] uppercase tracking-[0.12em] text-ink-4">Platform</span>
           </div>
@@ -362,10 +365,10 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
               ))}
             </div>
           </div>
-          <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-bg to-transparent" />
+          <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-bg-1 to-transparent" />
         </div>
       </div>
-
+      </Section>
 
       <PrizeFinder prizes={prizes} packsById={byId} onOpenPack={(id) => setDrawerId(id)} />
 
@@ -551,20 +554,24 @@ function PrizeFinder({
   if (prizes.length === 0) return null;
 
   return (
-    <div className="mt-16">
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <h3 className="text-[20px] font-bold tracking-[-0.02em]">
+    <Section
+      title={
+        <>
           Find your <em className="not-italic text-yellow">chase</em>
-        </h3>
+        </>
+      }
+      subtitle="Every advertised pool prize — follow a card to the pack that pays it"
+      right={
         <span className="text-[11px] tabular text-ink-3">
           {groups.length === totalCards
             ? `${formatInt(totalCards)} cards in pools`
             : `${formatInt(groups.length)} of ${formatInt(totalCards)} cards`}
         </span>
-      </div>
-
+      }
+      className="mt-6"
+    >
       {/* controls — one line: search + three compact menus */}
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div className="mb-5 flex flex-wrap items-center gap-2 pt-1">
         <input
           type="search"
           value={q}
@@ -664,7 +671,7 @@ function PrizeFinder({
           onClose={() => setExpanded(null)}
         />
       )}
-    </div>
+    </Section>
   );
 }
 

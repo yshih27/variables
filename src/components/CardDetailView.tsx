@@ -83,18 +83,18 @@ export function CardDetailView({ card }: { card: CardDetail }) {
 
   return (
     <>
-      {/* Breadcrumb */}
-      <div className="mb-6 text-[12px] text-ink-3">
-        <Link href="/" className="transition-colors hover:text-yellow">
-          Home
+      {/* Breadcrumb — same "Rankings › X" trail as the IP/platform pages */}
+      <div className="mb-6 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
+        <Link href="/" className="hover:text-ink-2">
+          Rankings
         </Link>
-        <span className="mx-1.5">/</span>
+        <span>›</span>
         {t.category && (
           <>
-            <Link href="/ips" className="transition-colors hover:text-yellow">
+            <Link href="/ips" className="hover:text-ink-2">
               {t.category}
             </Link>
-            <span className="mx-1.5">/</span>
+            <span>›</span>
           </>
         )}
         <span className="text-ink-2">{card.name}</span>

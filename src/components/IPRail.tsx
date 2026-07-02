@@ -1,6 +1,8 @@
+import Link from "next/link";
 import type { IPDetail } from "@/lib/data/fetchIP";
 import { IPIcon } from "./IPIcon";
 import { RailActions } from "./RailActions";
+import { FreshnessChips } from "./FreshnessChip";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
 type Props = {
@@ -94,6 +96,15 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
 
         {/* Actions */}
         <RailActions name={detail.ip.name} />
+
+        {/* X7 — honest per-source freshness for what this page reads; /status
+            stays the deep view (no global "data as of" banner). */}
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <FreshnessChips sources={["core-volume", "marketcap", "holders"]} />
+          <Link href="/status" className="text-[11px] text-ink-4 transition-colors hover:text-yellow">
+            /status →
+          </Link>
+        </div>
       </div>
     </aside>
   );

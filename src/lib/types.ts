@@ -77,6 +77,8 @@ export type PlatformRow = {
 
 export type HeroStats = {
   totalMcapUsd: number;
+  /** Age (hours) of totalMcapUsd when it's the stale last-known fallback; null = live (X4). */
+  mcapAgeHours: number | null;
   mcapPct24h: number | null;
   vol24Usd: number;
   vol24Pct: number | null;
