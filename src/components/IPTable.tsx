@@ -160,7 +160,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("d1")}>1d</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("d7")}>7d</SortTh>
               <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>30d</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards 24h</SortTh>
               <SortTh align="right" className="hidden md:table-cell" info="holders" {...sortProps("holders")}>Holders</SortTh>
               <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sortProps("avgTrade")}>Avg Trade</SortTh>
               <SortTh align="right" className="hidden md:table-cell" info="volume24h" {...sortProps("vol")}>{vw} Vol</SortTh>

@@ -36,7 +36,8 @@ export const IP_CATALOG: IPMeta[] = [
     logo: "/ip-logos/pokemon.png",
     iconBlendMode: "screen", // dark outline blends into dark theme
     emoji: "⚡", // fallback if logo file is missing
-    patterns: ["pokemon", "pokémon"],
+    // "pocket monster(s)" = the Japanese-market name carried by JP graded slabs.
+    patterns: ["pokemon", "pokémon", "pocket monster"],
   },
   {
     key: "one_piece",
@@ -62,7 +63,9 @@ export const IP_CATALOG: IPMeta[] = [
     short: "MTG",
     color: "#a18cff",
     emoji: "🪄",
-    patterns: ["magic: the gathering", " mtg "],
+    // "magic the gathering" (no colon) is how CC/Phygitals name most MTG slabs;
+    // " mtg " stays space-bounded so it can't match inside another word.
+    patterns: ["magic: the gathering", "magic the gathering", " mtg "],
   },
   {
     key: "lorcana",
@@ -87,6 +90,14 @@ export const IP_CATALOG: IPMeta[] = [
     color: "#a18cff",
     emoji: "🎨",
     patterns: ["veefriends"],
+  },
+  {
+    key: "riftbound",
+    name: "Riftbound (LoL)",
+    short: "RFT",
+    color: "#c8963e",
+    emoji: "⚔️",
+    patterns: ["riftbound", "league of legends"],
   },
 
   // ─── NFT-native collectible brands (R7: promoted out of "other") ──────────
@@ -193,7 +204,9 @@ export const IP_CATALOG: IPMeta[] = [
     short: "CMX",
     color: "#a18cff",
     emoji: "📚",
-    patterns: ["comics", "marvel comic", "dc comic"],
+    // Bare "marvel" (Marvel-branded cards are comics/entertainment). Checked after
+    // every TCG/sports IP, so it only catches otherwise-unclassified cards.
+    patterns: ["comics", "marvel", "dc comic"],
   },
 ];
 
@@ -218,6 +231,53 @@ export function classifyIP(rawValues: (string | number | undefined)[]): IPMeta {
   return OTHER;
 }
 
+// ── Structured TCG-attribute fallbacks (for classifyIPFromMeta) ──────────────
+// Ungraded slabs often name themselves by CARD + SET ("Dugtrio Obsidian Flames")
+// with no franchise keyword, so keyword matching alone defaults them to "other"
+// (this stranded ~9.5K Phygitals holders). The on-chain metadata still carries a
+// `Set ID` / `Card Id` / `Type`, which pins the franchise. Only consulted AFTER
+// keyword matching returns "other", so it can't override a positive keyword hit.
+const OP_SETID_RE = /^(op|eb|prb|st)\d/; // One Piece TCG set codes (OP01-, EB0-, ST0-, PRB0-)
+// Pokémon set-id era prefixes + SV-era 3-letter set codes.
+const PKM_SETID_RE =
+  /^(sv|svp|swsh|sm|xy|bw|dp|hgss|pl|col|ex|base|gym|neo|dpp|pop|np|mcd|cel|pgo|paf|mew|obf|dri|jtg|ssp|sfa|scr|pre|tef|twm|rsv)/;
+const PKM_TYPE_RE = /pok[eé�.]?mon/i; // "Pokémon" Type — the é often arrives mojibake'd
+const PKM_SUPERTYPES = new Set(["trainer", "energy", "supporter", "stadium", "item"]);
+
+type MetaLike = {
+  name?: string | null;
+  attributes?: Array<{ trait_type?: unknown; value?: unknown }> | null;
+};
+
+/**
+ * Classify from structured token metadata: keyword-match over name+attribute
+ * VALUES first (same as classifyIP), then a TCG structured-attribute fallback for
+ * the ungraded cards keyword matching misses. Conservative — the fallback only
+ * fires when keywords yield "other", and each rule needs a real TCG set-id/type.
+ */
+export function classifyIPFromMeta(meta: MetaLike): IPMeta {
+  const attrs = meta.attributes ?? [];
+  const hints = [meta.name, ...attrs.map((a) => (a?.value == null ? "" : String(a.value)))].filter(
+    (v): v is string => Boolean(v),
+  );
+  const base = classifyIP(hints);
+  if (base.key !== "other") return base;
+
+  const byTrait = new Map<string, string>();
+  for (const a of attrs) {
+    if (a?.trait_type != null && a?.value != null) byTrait.set(String(a.trait_type).toLowerCase(), String(a.value).toLowerCase());
+  }
+  const type = byTrait.get("type") ?? "";
+  const setId = byTrait.get("set id") ?? "";
+  const anyId = setId || byTrait.get("card id") || "";
+  const ipFor = (key: string) => IP_CATALOG.find((i) => i.key === key) ?? OTHER;
+  if (OP_SETID_RE.test(anyId)) return ipFor("one_piece");
+  if (PKM_TYPE_RE.test(type)) return ipFor("pokemon");
+  if (PKM_SUPERTYPES.has(type) && anyId) return ipFor("pokemon");
+  if (PKM_SETID_RE.test(setId)) return ipFor("pokemon");
+  return OTHER;
+}
+
 export { OTHER as OTHER_IP };
 
 // ─────────────────────────── Category SSOT (B5) ───────────────────────────
@@ -233,6 +293,7 @@ const CATEGORY_BY_IP: Record<string, IPCategory> = {
   lorcana: "tcg",
   dragon_ball: "tcg",
   azuki: "tcg", // Azuki TCG — a bona-fide trading-card game (starter decks / packs)
+  riftbound: "tcg", // Riftbound — the League of Legends TCG
   basketball: "sports",
   baseball: "sports",
   football: "sports",

@@ -26,7 +26,7 @@ import {
   getBeezieMetadataCachedOnly,
   extractCategoryHints,
 } from "../src/lib/data/beezieTraits";
-import { classifyIP } from "../src/lib/data/ipCatalog";
+import { classifyIP, classifyIPFromMeta } from "../src/lib/data/ipCatalog";
 import { readHolders, writeHolders, type HoldersIPEntry } from "../src/lib/data/holders";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { raribleGet } from "../src/lib/rarible/client";
@@ -189,12 +189,12 @@ async function warmPhygitals(deadline: number): Promise<ScanResult> {
         const owner = asset.ownership?.owner;
         if (!owner) continue;
         totalOwners.add(owner);
-        // Same classification path as CC. Phygitals cNFT metadata may not always
-        // carry category hints (rarity is null feed-wide), so some owners land in
-        // "other" — the platform total stays exact; per-IP is best-effort v1.
-        const meta = dasAssetToTokenMetadata(asset);
-        const ip = classifyIP(extractCategoryHints(meta));
-        recordOwner(byIp, ip.key, owner);
+        // classifyIPFromMeta adds a TCG structured-attribute fallback (Set ID /
+        // Type) on top of keyword matching, recovering the ungraded Pokémon/One-
+        // Piece slabs whose names carry no franchise keyword — they used to
+        // default to "other" and stranded ~9.5K holders there.
+        const ipKey = classifyIPFromMeta(dasAssetToTokenMetadata(asset)).key;
+        recordOwner(byIp, ipKey, owner);
       }
       if (r.items.length < 1000) break;
       if (Date.now() > deadline) {
