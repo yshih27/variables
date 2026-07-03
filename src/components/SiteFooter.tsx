@@ -22,7 +22,7 @@ export function SiteFooter() {
               V
             </span>
             <span className="font-mono tracking-[0.04em]">VARIABLE</span>
-            <span className="font-normal text-ink-3">· the market for phygital collectibles</span>
+            <span className="font-normal text-ink-3">· real cards. real prices. one index</span>
           </div>
           <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-ink-3">
             {LINKS.map((l) => (

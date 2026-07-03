@@ -167,7 +167,7 @@ export default async function Home() {
       <div className="px-8 pt-8 pb-20 font-sans">
         <div className="mb-9">
           <h1 className="text-[30px] font-bold leading-[1.1] tracking-[-0.02em] md:text-[34px]">
-            The market for <span className="text-yellow">phygital</span> collectibles.
+            Real cards. Real <span className="text-yellow">prices</span>. One index.
           </h1>
           <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
             Live prices, volume, and holders across{" "}

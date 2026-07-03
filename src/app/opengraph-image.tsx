@@ -6,7 +6,7 @@ import { ImageResponse } from "next/og";
  */
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "VARIABLE — the market for tokenized phygital collectibles";
+export const alt = "VARIABLE — real cards, real prices, one index";
 
 export default function OpengraphImage() {
   return new ImageResponse(
@@ -71,9 +71,9 @@ export default function OpengraphImage() {
               maxWidth: 1040,
             }}
           >
-            <span>The market for</span>
-            <span style={{ color: "#f3ff42" }}>phygital</span>
-            <span>collectibles.</span>
+            <span>Real cards.</span>
+            <span style={{ color: "#f3ff42" }}>Real prices.</span>
+            <span>One index.</span>
           </div>
         </div>
 

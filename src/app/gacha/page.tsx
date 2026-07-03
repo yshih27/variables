@@ -38,7 +38,7 @@ export default async function GachaPage() {
       <NavBar ticker={ticker} />
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-24 font-sans">
         <h1 className="mb-2 text-[44px] font-bold leading-[1.05] tracking-[-0.02em]">
-          Find your best <span className="text-yellow">gacha</span> bet.
+          Find your best gacha <span className="text-yellow">crack</span>.
         </h1>
 
         <GachaHitsTicker hits={bigHits.hits} windowLabel={bigHits.windowLabel} />
