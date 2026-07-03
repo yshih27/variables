@@ -8,7 +8,7 @@ import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { readMetricSeriesBulk } from "@/lib/data/metricSnapshots";
 import { buildPlatformTrend, buildVolumeSplitTrend } from "@/lib/platform/rollup";
 
-const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v5"], {
+const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v6"], {
   revalidate: 3600,
   tags: ["homepage"],
 });

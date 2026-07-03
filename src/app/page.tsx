@@ -14,7 +14,7 @@ import { rebaseSeries, readIndexSeries } from "@/lib/data/indices";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
-  ["homepage:v40"],
+  ["homepage:v42"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
@@ -189,7 +189,7 @@ export default async function Home() {
           <TopSalesPanel items={data.topSales} />
           <TrendingCards cards={trending.rows} windowLabel={trendingWindow} floatAgeLabel={floatAgeLabel} />
           <IPTable rows={data.ips} maxRows={5} seeAllHref="/ips" teaser />
-          <PlatformTable rows={data.platforms} maxRows={4} seeAllHref="/platforms" />
+          <PlatformTable rows={data.platforms} maxRows={4} seeAllHref="/platforms" teaser />
         </div>
 
       </div>

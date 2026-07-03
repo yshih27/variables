@@ -24,9 +24,13 @@ type Props = {
   seeAllHref?: string;
   /** Show the chain facet tabs above the table (F4) — the full /platforms page. */
   chainFacets?: boolean;
+  /** Homepage teaser: only # · Platform · Chain · Total 24h · Share · Δ7d — the
+   *  marketplace/gacha/direct split + wallets/cards/holders live on /platforms
+   *  (that deeper breakdown is the reason to click through). */
+  teaser?: boolean;
 };
 
-type SortKey = "total" | "dom" | "vol24" | "gacha" | "primary" | "vol7" | "active" | "cards" | "holders" | "avgTrade";
+type SortKey = "total" | "dom" | "vol24" | "gacha" | "primary" | "vol7" | "active" | "cards" | "holders" | "avgTrade" | "pct7";
 
 /** Non-gacha primary revenue (tokenization mints, e.g. Courtyard). Marketplace +
  *  Gacha + Primary = Total; folds into Gacha once Courtyard is reclassified. */
@@ -56,6 +60,8 @@ function valueFor(p: PlatformRow, key: SortKey): number {
       return p.holders;
     case "avgTrade":
       return p.avgTradeUsd;
+    case "pct7":
+      return p.pct7d ?? NaN;
   }
 }
 
@@ -68,10 +74,11 @@ function cmp(a: number, b: number, dir: 1 | -1): number {
   return (a - b) * dir;
 }
 
-export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets }: Props) {
+export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [chain, setChain] = useState<Chain | "all">("all");
+  const full = !teaser;
 
   // Chain facets (F4) — one tab per chain present, in activity order, + All.
   const chains = useMemo(() => {
@@ -139,29 +146,34 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets }: Props)
         </div>
       )}
       <div className="scroll-x">
-        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1120px]">
+        <table className={`w-full min-w-0 border-collapse text-[13px] ${full ? "md:min-w-[1180px]" : ""}`}>
           <thead>
             <tr className="border-b border-line">
               <Th>#</Th>
               <Th>Platform</Th>
-              <Th className="hidden md:table-cell">Chain</Th>
+              <Th className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}>Chain</Th>
               <SortTh align="right" info="total24h" {...sp("total")}>Total 24h</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="share" {...sp("dom")}>Share</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="marketplace" {...sp("vol24")}>Marketplace</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="gacha" {...sp("gacha")}>Gacha</SortTh>
-              {showPrimary && (
+              <SortTh align="right" className={full ? "hidden md:table-cell" : "hidden sm:table-cell"} info="share" {...sp("dom")}>Share</SortTh>
+              <SortTh align="right" className={full ? "hidden md:table-cell" : "hidden sm:table-cell"} info="momentum7d" {...sp("pct7")}>Δ 7d</SortTh>
+              {full && <SortTh align="right" className="hidden md:table-cell" info="marketplace" {...sp("vol24")}>Marketplace</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" info="gacha" {...sp("gacha")}>Gacha</SortTh>}
+              {full && showPrimary && (
                 <SortTh align="right" className="hidden md:table-cell" info="directSales" {...sp("primary")}>Direct sales</SortTh>
               )}
-              <SortTh align="right" className="hidden md:table-cell" info="volume7d" {...sp("vol7")}>7d Vol</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sp("avgTrade")}>Avg Trade</SortTh>
+              {full && <SortTh align="right" className="hidden md:table-cell" info="volume7d" {...sp("vol7")}>7d Vol</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sp("avgTrade")}>Avg Trade</SortTh>}
+              {full && (
               <SortTh align="right" className="hidden md:table-cell" info="activeWallets" {...sp("active")}>
                 Active 24h
               </SortTh>
+              )}
+              {full && (
               <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sp("cards")}>
                 Cards 24h
               </SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="holders" {...sp("holders")}>Holders</SortTh>
-              <Th className="hidden md:table-cell">24h Chart</Th>
+              )}
+              {full && <SortTh align="right" className="hidden md:table-cell" info="holders" {...sp("holders")}>Holders</SortTh>}
+              {full && <Th className="hidden md:table-cell">24h Chart</Th>}
             </tr>
           </thead>
           <tbody>
@@ -194,31 +206,36 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets }: Props)
                     )}
                   </div>
                 </Td>
-                <Td className="hidden md:table-cell">
+                <Td className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}>
                   <span className="inline-flex h-[22px] items-center gap-1.5 text-[12px] text-ink-2">
                     <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[p.chain] }} />
                     {p.chain}
                   </span>
                 </Td>
                 <Td align="right" strong>{p.total24Usd > 0 ? formatCompactUsd(p.total24Usd) : "—"}</Td>
-                <Td align="right" muted className="hidden md:table-cell">{shareCell(p, totalActivity)}</Td>
-                <Td align="right" className="hidden md:table-cell">{p.vol24Usd > 0 ? formatCompactUsd(p.vol24Usd) : "—"}</Td>
-                <Td align="right" className="hidden md:table-cell">{p.gachaVol24Usd != null && p.gachaVol24Usd > 0 ? formatCompactUsd(p.gachaVol24Usd) : "—"}</Td>
-                {showPrimary && (
+                <Td align="right" muted className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}>{shareCell(p, totalActivity)}</Td>
+                <Td align="right" className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}><DeltaCell pct={p.pct7d} /></Td>
+                {full && <Td align="right" className="hidden md:table-cell">{p.vol24Usd > 0 ? formatCompactUsd(p.vol24Usd) : "—"}</Td>}
+                {full && <Td align="right" className="hidden md:table-cell">{p.gachaVol24Usd != null && p.gachaVol24Usd > 0 ? formatCompactUsd(p.gachaVol24Usd) : "—"}</Td>}
+                {full && showPrimary && (
                   <Td align="right" className="hidden md:table-cell">
                     {Number.isFinite(otherPrimary(p)) && otherPrimary(p) > 0 ? formatCompactUsd(otherPrimary(p)) : "—"}
                   </Td>
                 )}
+                {full && (
                 <Td align="right" muted className="hidden md:table-cell">
                   {Number.isFinite(p.vol7Usd) ? formatCompactUsd(p.vol7Usd) : "—"}
                 </Td>
-                <Td align="right" muted className="hidden md:table-cell">{p.avgTradeUsd > 0 ? formatCompactUsd(p.avgTradeUsd) : "—"}</Td>
-                <Td align="right" className="hidden md:table-cell">{formatInt(p.active24h)}</Td>
+                )}
+                {full && <Td align="right" muted className="hidden md:table-cell">{p.avgTradeUsd > 0 ? formatCompactUsd(p.avgTradeUsd) : "—"}</Td>}
+                {full && <Td align="right" className="hidden md:table-cell">{formatInt(p.active24h)}</Td>}
+                {full && (
                 <Td align="right" className="hidden md:table-cell">
                   {Number.isFinite(p.cards) && p.cards > 0 ? formatCompactNumber(p.cards) : "—"}
                 </Td>
-                <Td align="right" className="hidden md:table-cell">{formatInt(p.holders)}</Td>
-                <Td className="hidden md:table-cell">{p.spark.length > 0 ? <Sparkline data={p.spark} trend={p.trend} /> : "—"}</Td>
+                )}
+                {full && <Td align="right" className="hidden md:table-cell">{formatInt(p.holders)}</Td>}
+                {full && <Td className="hidden md:table-cell">{p.spark.length > 0 ? <Sparkline data={p.spark} trend={p.trend} /> : "—"}</Td>}
               </tr>
               );
             })}
@@ -233,6 +250,18 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets }: Props)
 function shareCell(p: PlatformRow, total: number): string {
   if (!(p.total24Usd > 0)) return "—";
   return `${((p.total24Usd / total) * 100).toFixed(1)}%`;
+}
+
+/** Colored 7-day % change ("—" when the bucket history can't reach back a week). */
+function DeltaCell({ pct }: { pct?: number | null }) {
+  if (pct == null || !Number.isFinite(pct)) return <span className="text-ink-4">—</span>;
+  const cls = pct > 0.05 ? "text-green" : pct < -0.05 ? "text-red" : "text-ink-3";
+  return (
+    <span className={`font-semibold ${cls}`}>
+      {pct > 0 ? "+" : ""}
+      {pct.toFixed(1)}%
+    </span>
+  );
 }
 
 function Th({

@@ -71,6 +71,9 @@ export type PlatformRow = {
   cards: number;
   holders: number;
   avgTradeUsd: number;
+  /** 7-day change (%) in the platform's 24h marketplace volume; null when the
+   *  bucket history doesn't reach back a full week. The teaser momentum column. */
+  pct7d?: number | null;
   spark: number[];
   trend: Trend;
 };

@@ -5,7 +5,7 @@ import {
   extractCategoryHints,
 } from "./beezieTraits";
 import { getCCMetadataCachedOnly } from "./ccTraits";
-import { classifyIP, type IPMeta } from "./ipCatalog";
+import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
 import { sumLast, pctChange, type HourBucket } from "./history";
 import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
 import { PLATFORM_SOURCES } from "./sources";
@@ -38,6 +38,17 @@ function spark24hFromSales(sales: NormalizedSale[], buckets = 24): number[] {
     out[idx] += s.priceUsd;
   }
   return out;
+}
+
+/** 7-day change (%) from a daily series: trailing-7-day sum vs the prior 7-day
+ *  sum. null until ~2 weeks of daily data exist (so the teaser shows "—" honestly). */
+function pct7dTrailing(daily: number[]): number | null {
+  const vals = daily.filter((v) => Number.isFinite(v));
+  if (vals.length < 14) return null;
+  const last7 = vals.slice(-7).reduce((a, b) => a + b, 0);
+  const prev7 = vals.slice(-14, -7).reduce((a, b) => a + b, 0);
+  if (prev7 <= 0) return null;
+  return ((last7 - prev7) / prev7) * 100;
 }
 
 function spark7dFromHistory(buckets: HourBucket[]): number[] {
@@ -224,14 +235,63 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
+/** A zero-activity IP row seeded from the market-cap rollup (identity from the
+ *  catalog; mcap/floor/holders filled by the caller). Lets an IP with a market
+ *  cap but NO 24h trades (e.g. sports on a quiet day) still appear on the
+ *  leaderboard, so the table reflects the whole byIp rollup, not just 24h sales. */
+function mcapOnlyIpRow(ip: IPMeta, cards: number): IPRow {
+  return {
+    rank: 0,
+    key: ip.key,
+    name: ip.name,
+    short: ip.short,
+    color: ip.color,
+    logo: ip.logo,
+    iconBlendMode: ip.iconBlendMode,
+    emoji: ip.emoji,
+    cards,
+    platforms: 0,
+    holders: NaN,
+    buyers24h: 0,
+    trades24h: 0,
+    vol24Usd: 0,
+    vol7Usd: NaN,
+    volTotalUsd: NaN,
+    mcapUsd: NaN,
+    pct7d: null,
+    trend: "flat",
+    spark: [],
+    topCard: null,
+    topCardHref: null,
+    floorUsd: NaN,
+    insuredUsd: 0,
+  };
+}
+
 export async function fetchHomepage(): Promise<HomepagePayload> {
-  const [buckets, holders, mcap, mcapHist, gacha] = await Promise.all([
+  const [buckets, holders, mcap, mcapHist, gacha, platVolHist, platGachaHist] = await Promise.all([
     getPlatformBuckets(),
     readHolders(),
     readMarketCap(),
     readMarketCapHistory(),
     readGachaDune(),
+    // Daily spine series for the platform teaser's Δ7d momentum — ~30d of history,
+    // far deeper than the hourly buckets (which don't reach a full week).
+    readMetricSeriesBulk("platform", "volume_usd"),
+    readMetricSeriesBulk("platform", "gacha_volume_usd"),
   ]);
+
+  // Δ7d = this platform's trailing-7d TOTAL activity (marketplace + gacha) vs the
+  // prior 7 days, from the daily spine. Smooths the day-to-day spikiness a
+  // point-vs-point change would show; null until ~2 weeks of history exist.
+  const pct7dByPlatform = new Map<string, number | null>();
+  for (const key of PLATFORM_SOURCES.map((s) => s.key)) {
+    const merged = new Map<string, number>();
+    for (const p of platVolHist.get(key) ?? []) merged.set(p.ts, (merged.get(p.ts) ?? 0) + p.value);
+    for (const p of platGachaHist.get(key) ?? []) merged.set(p.ts, (merged.get(p.ts) ?? 0) + p.value);
+    const daily = [...merged.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, v]) => v);
+    pct7dByPlatform.set(key, pct7dTrailing(daily));
+  }
 
   const platformRows: PlatformRow[] = buckets
     .map<PlatformRow>((b) => {
@@ -269,6 +329,7 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
         cards: cards.size,
         holders: holdersForPlatform(holders, b.source.key),
         avgTradeUsd: b.stats24h.avgTradeUsd,
+        pct7d: pct7dByPlatform.get(b.source.key) ?? null,
         spark,
         trend: trendOf(spark),
       };
@@ -280,7 +341,18 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
     .map((r, i) => ({ ...r, rank: i + 1 }));
 
   const baseIpRows = await buildAggregateIPRows(buckets);
-  const ipRows = baseIpRows
+  // Union the 24h-traded IPs with EVERY IP that has a market cap in the rollup, so
+  // an IP with mcap + holders but no trades today (e.g. baseball on a quiet day)
+  // still appears with its real market cap — the leaderboard reflects the whole
+  // readMarketCap byIp rollup, not just what changed hands in the last 24h.
+  const tradedKeys = new Set(baseIpRows.map((r) => r.key));
+  const rollupOnlyRows: IPRow[] = [];
+  for (const [key, entry] of Object.entries(mcap?.byIp ?? {})) {
+    if (tradedKeys.has(key) || !(entry.mcapUsd > 0)) continue;
+    const ip = key === OTHER_IP.key ? OTHER_IP : IP_CATALOG.find((i) => i.key === key);
+    if (ip) rollupOnlyRows.push(mcapOnlyIpRow(ip, entry.cards));
+  }
+  const ipRows = [...baseIpRows, ...rollupOnlyRows]
     .map((r) => {
       const entry = mcap?.byIp?.[r.key];
       return {

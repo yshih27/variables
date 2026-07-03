@@ -10,7 +10,7 @@ import { readMetricSeriesBulk } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
 import { buildPriceComparison, PRICE_RANGES } from "@/lib/data/perfCompare";
 
-const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v4"], {
+const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v6"], {
   revalidate: 3600,
   tags: ["homepage"],
 });

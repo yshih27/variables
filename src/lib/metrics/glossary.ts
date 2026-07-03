@@ -29,6 +29,10 @@ export const METRICS = {
     term: "7d volume",
     text: "USD value of secondary-market sales over the trailing 7 days.",
   },
+  momentum7d: {
+    term: "Δ 7d",
+    text: "Momentum: this platform's trailing-7-day total activity (marketplace + gacha) vs the prior 7 days. '—' until about two weeks of history exist.",
+  },
   marketplace: {
     term: "Marketplace (secondary)",
     text: "Collector↔collector resale — the platform takes a fee. The secondary market, and the clearest exit-liquidity signal.",

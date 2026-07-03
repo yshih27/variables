@@ -79,6 +79,9 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
   const [dir, setDir] = useState<1 | -1>(-1);
   const [vw, setVw] = useState<VolWindow>("24h");
   const [facet, setFacet] = useState<string>("All");
+  const full = !teaser;
+  // Kept-in-teaser columns show earlier (sm) than the deep full-table columns (md).
+  const keptCls = full ? "hidden md:table-cell" : "hidden sm:table-cell";
 
   if (rows.length === 0) return null;
 
@@ -150,23 +153,23 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
       )}
 
       <div className="scroll-x">
-        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1320px]">
+        <table className={`w-full min-w-0 border-collapse text-[13px] ${full ? "md:min-w-[1320px]" : ""}`}>
           <thead>
             <tr className="border-b border-line">
               <Th>#</Th>
               <Th>IP / Category</Th>
               <SortTh align="right" info="marketCap" {...sortProps("mcap")}>Market Cap</SortTh>
-              <SortTh align="right" className="hidden lg:table-cell" info="dominance" {...sortProps("dom")}>Dom %</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("d1")}>1d</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("d7")}>7d</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>30d</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards 24h</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="holders" {...sortProps("holders")}>Holders</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sortProps("avgTrade")}>Avg Trade</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" info="volume24h" {...sortProps("vol")}>{vw} Vol</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sortProps("buyers")}>24h Buyers</SortTh>
-              <Th className="hidden md:table-cell">24h Chart</Th>
-              <Th className="hidden md:table-cell">Top Card</Th>
+              <SortTh align="right" className={keptCls} info="volume24h" {...sortProps("vol")}>{teaser ? "24h Vol" : `${vw} Vol`}</SortTh>
+              {full && <SortTh align="right" className="hidden lg:table-cell" info="dominance" {...sortProps("dom")}>Dom %</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("d1")}>24h</SortTh>}
+              <SortTh align="right" className={keptCls} {...sortProps("d7")}>{teaser ? "Δ 7d" : "7d"}</SortTh>
+              {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>30d</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards 24h</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" info="holders" {...sortProps("holders")}>Holders</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sortProps("avgTrade")}>Avg Trade</SortTh>}
+              {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("buyers")}>24h Buyers</SortTh>}
+              {full && <Th className="hidden md:table-cell">24h Chart</Th>}
+              <Th className={keptCls}>Top Card</Th>
             </tr>
           </thead>
           <tbody>
@@ -196,21 +199,25 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
                     </Link>
                   </Td>
                   <Td align="right" strong>{formatMcap(ip.mcapUsd, ip.cards)}</Td>
-                  <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>
-                  <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct1d : null} /></Td>
-                  <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
-                  <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>
-                  <Td align="right" className="hidden md:table-cell">{formatCompactNumber(ip.cards)}</Td>
-                  <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>
+                  <Td align="right" className={keptCls}>{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
+                  {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
+                  {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct1d : null} /></Td>}
+                  <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
+                  {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}
+                  {full && <Td align="right" className="hidden md:table-cell">{formatCompactNumber(ip.cards)}</Td>}
+                  {full && <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>}
+                  {full && (
                   <Td align="right" muted className="hidden md:table-cell">
                     {ip.trades24h > 0 ? formatCompactUsd(ip.vol24Usd / ip.trades24h) : "—"}
                   </Td>
-                  <Td align="right" className="hidden md:table-cell">{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
-                  <Td align="right" muted className="hidden md:table-cell">{formatInt(ip.buyers24h)}</Td>
+                  )}
+                  {full && <Td align="right" muted className="hidden md:table-cell">{formatInt(ip.buyers24h)}</Td>}
+                  {full && (
                   <Td className="hidden md:table-cell">
                     <Sparkline data={ip.spark} trend={ip.trend} />
                   </Td>
-                  <Td className="hidden max-w-[280px] text-[12px] text-ink-2 md:table-cell">
+                  )}
+                  <Td className={`max-w-[280px] text-[12px] text-ink-2 ${keptCls}`}>
                     {ip.topCard ? (
                       ip.topCardHref ? (
                         <Link
