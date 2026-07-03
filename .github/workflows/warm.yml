@@ -92,6 +92,12 @@ jobs:
         # Must run AFTER phygitals-gacha and cc-gacha (reads what they write).
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-packs.ts
+      # Health gate — the steps above are continue-on-error (one flaky source can't
+      # block the rest), which also hid dead warmers behind a green run. This final
+      # step (NOT continue-on-error) fails the job if any of this batch's warmers
+      # errored, so the Actions run goes RED → built-in failure notification.
+      - name: Health gate
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,primary-revenue,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:
@@ -113,6 +119,9 @@ jobs:
       - name: Beezie traits
         continue-on-error: true
         run: npx tsx scripts/warm-traits.ts
+      - name: Secondary sales feed (Beezie ≥30d → trending 7d + momentum)
+        continue-on-error: true
+        run: npx tsx scripts/warm-secondary-sales.ts
       - name: Gacha (fresh)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts
@@ -127,6 +136,8 @@ jobs:
       - name: Metric snapshots (time-series spine)
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
+      - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,core-volume,metric-snapshots
 
   # ── Indices — benchmarks + price-index sale panel. Own job + tight timeout so a
   #    slow panel build can't starve the daily batch; runs at 06:00, after daily. ──
@@ -149,6 +160,8 @@ jobs:
       - name: Price index (sale panel → stratified-median indices)
         continue-on-error: true
         run: npx tsx scripts/warm-sale-panel.ts
+      - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
+        run: npx tsx scripts/check-freshness.ts --require=benchmarks,price-index
 
   # ── Weekly — full CC collection trait crawl (~122K assets, slow) ──
   # Its own job + a generous timeout: this crawl is what kept blowing the old
@@ -169,3 +182,5 @@ jobs:
       - name: CC trait crawl
         continue-on-error: true
         run: npx tsx scripts/warm-cc-traits.ts
+      - name: Health gate # fails the job (→ Actions notifies) if the crawl errored
+        run: npx tsx scripts/check-freshness.ts --require=cc-traits

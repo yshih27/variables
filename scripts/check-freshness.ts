@@ -38,11 +38,13 @@ async function main() {
   ).sort();
 
   const tally = { ok: 0, stale: 0, error: 0, untracked: 0 };
+  const stateBySource = new Map<string, string>();
   console.log("SOURCE FRESHNESS (warmer runs)");
   for (const source of sources) {
     const row = byId.get(source);
     const { state, ageMs } = freshnessState(source, row);
     tally[state] += 1;
+    stateBySource.set(source, state);
     const rowsTxt = row?.rows_written != null ? `${row.rows_written} rows` : "";
     const errTxt = row?.error ? `· ${row.error.slice(0, 60)}` : "";
     console.log(
@@ -64,10 +66,35 @@ async function main() {
   console.log(
     `\nSUMMARY  ${tally.ok} ok · ${tally.stale} stale · ${tally.error} error · ${tally.untracked} untracked\n`,
   );
+
+  // ── CI health gate ──────────────────────────────────────────────────────────
+  // `--require=a,b,c` makes the process EXIT 1 if any listed source is in "error"
+  // state. The warm.yml jobs run this as a final step with the batch's own source
+  // list, so a dead warmer turns the GitHub Actions run RED (→ built-in failure
+  // notification) instead of failing silently behind `continue-on-error`. Scoped
+  // per batch so one schedule's failure doesn't redden an unrelated batch's run.
+  const requireArg = process.argv.find((a) => a.startsWith("--require="));
+  if (requireArg) {
+    const required = requireArg
+      .slice("--require=".length)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const errored = required.filter((s) => stateBySource.get(s) === "error");
+    if (errored.length) {
+      console.error(
+        `✗ HEALTH GATE FAILED — warmer(s) errored this run: ${errored.join(", ")}\n` +
+          `   (see the error rows above / /status; this fails the Actions job on purpose)\n`,
+      );
+      process.exitCode = 1;
+    } else {
+      console.log(`✓ health gate passed — all ${required.length} required warmers ok\n`);
+    }
+  }
 }
 
 main()
-  .then(() => process.exit(0))
+  .then(() => process.exit(process.exitCode ?? 0))
   .catch((e) => {
     console.error(e);
     process.exit(1);

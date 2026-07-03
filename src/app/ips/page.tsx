@@ -28,7 +28,8 @@ const getIpSeries = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-export const dynamic = "force-dynamic";
+// ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
+export const revalidate = 1800;
 
 export const metadata = {
   title: "All IPs · VARIABLE",

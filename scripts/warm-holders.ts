@@ -26,7 +26,7 @@ import {
   getBeezieMetadataCachedOnly,
   extractCategoryHints,
 } from "../src/lib/data/beezieTraits";
-import { classifyIP } from "../src/lib/data/ipCatalog";
+import { classifyIP, classifyIPFromMeta } from "../src/lib/data/ipCatalog";
 import { readHolders, writeHolders, type HoldersIPEntry } from "../src/lib/data/holders";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { raribleGet } from "../src/lib/rarible/client";
@@ -39,7 +39,7 @@ import { runWarmer } from "../src/lib/db/runWarmer";
 
 const SCAN_BUDGET_MS = 10 * 60 * 1000; // per-scan; parallel → total ≤ budget
 
-type ScanResult = { total: number; byIp: PerIPMap; complete: boolean };
+type ScanResult = { total: number; assets: number; byIp: PerIPMap; complete: boolean };
 type PerIPMap = Map<string, Set<string>>; // ipKey → ownerSet
 
 function recordOwner(map: PerIPMap, ipKey: string, owner: string) {
@@ -57,7 +57,7 @@ function guard(p: Promise<ScanResult>, label: string): Promise<ScanResult> {
   const backstop = new Promise<ScanResult>((resolve) => {
     timer = setTimeout(() => {
       console.warn(`  ⏱ ${label} hard-timeout backstop — skipping`);
-      resolve({ total: 0, byIp: new Map(), complete: false });
+      resolve({ total: 0, assets: 0, byIp: new Map(), complete: false });
     }, SCAN_BUDGET_MS + 60_000);
   });
   // clearTimeout when the scan wins, so the process exits promptly + no orphan log.
@@ -110,7 +110,7 @@ async function warmBeezie(deadline: number): Promise<ScanResult> {
   console.log(
     `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp, complete };
+  return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
 async function warmCC(deadline: number): Promise<ScanResult> {
@@ -160,7 +160,7 @@ async function warmCC(deadline: number): Promise<ScanResult> {
   console.log(
     `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp, complete };
+  return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
 async function warmPhygitals(deadline: number): Promise<ScanResult> {
@@ -189,12 +189,12 @@ async function warmPhygitals(deadline: number): Promise<ScanResult> {
         const owner = asset.ownership?.owner;
         if (!owner) continue;
         totalOwners.add(owner);
-        // Same classification path as CC. Phygitals cNFT metadata may not always
-        // carry category hints (rarity is null feed-wide), so some owners land in
-        // "other" — the platform total stays exact; per-IP is best-effort v1.
-        const meta = dasAssetToTokenMetadata(asset);
-        const ip = classifyIP(extractCategoryHints(meta));
-        recordOwner(byIp, ip.key, owner);
+        // classifyIPFromMeta adds a TCG structured-attribute fallback (Set ID /
+        // Type) on top of keyword matching, recovering the ungraded Pokémon/One-
+        // Piece slabs whose names carry no franchise keyword — they used to
+        // default to "other" and stranded ~9.5K holders there.
+        const ipKey = classifyIPFromMeta(dasAssetToTokenMetadata(asset)).key;
+        recordOwner(byIp, ipKey, owner);
       }
       if (r.items.length < 1000) break;
       if (Date.now() > deadline) {
@@ -210,7 +210,7 @@ async function warmPhygitals(deadline: number): Promise<ScanResult> {
   console.log(
     `  done. ${tokens} tokens · ${totalOwners.size} unique owners · ${((Date.now() - t0) / 1000).toFixed(0)}s${complete ? "" : " (PARTIAL)"}`,
   );
-  return { total: totalOwners.size, byIp, complete };
+  return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
 async function main() {
@@ -218,7 +218,7 @@ async function main() {
   // Resilient: a hang/failure in one source must not sink the other or leave the
   // snapshot unwritten. Each scan is budget-bounded + backstopped; we write whatever
   // we got. Only fail (so runWarmer records an error) when BOTH sources fail outright.
-  const empty: ScanResult = { total: 0, byIp: new Map(), complete: false };
+  const empty: ScanResult = { total: 0, assets: 0, byIp: new Map(), complete: false };
   const deadline = Date.now() + SCAN_BUDGET_MS;
   const [beezieR, ccR, phR] = await Promise.allSettled([
     guard(warmBeezie(deadline), "Beezie"),
@@ -305,23 +305,63 @@ async function main() {
   const tag = (key: "beezie" | "collector-crypt" | "phygitals", res: ScanResult) =>
     carried.has(key) ? " (carried)" : res.total === 0 ? " (no data)" : res.complete ? "" : " (partial)";
 
+  // True cross-platform holder count (X2). beezie is on Base (0x… addresses) so it
+  // can't overlap the Solana platforms — it always adds separately. CC + Phygitals
+  // are BOTH Solana (same base58 address space) and DO share wallets, so union their
+  // owner sets instead of summing (a plain sum double-counts, the 1,074→41,318 bug).
+  // When a Solana scan is carried (no owner set to union), reconstruct the previous
+  // Solana union from the last snapshot rather than an inflated sum.
+  const beezieN = platTotal("beezie", beezie);
+  let solanaUnion: number;
+  if (!carried.has("collector-crypt") && !carried.has("phygitals")) {
+    const sol = new Set<string>();
+    for (const s of cc.byIp.values()) for (const o of s) sol.add(o);
+    for (const s of ph.byIp.values()) for (const o of s) sol.add(o);
+    solanaUnion = sol.size;
+  } else if (prev?.totalHolders != null) {
+    solanaUnion = Math.max(0, prev.totalHolders - (prev.platforms?.beezie ?? 0));
+  } else {
+    solanaUnion = platTotal("collector-crypt", cc) + platTotal("phygitals", ph);
+  }
+  const totalHolders = beezieN + solanaUnion;
+
+  // Circulating supply per platform = assets enumerated by the scan. Carry-forward
+  // like the holder totals: a failed scan (total 0) keeps the prev supply; a PARTIAL
+  // scan under-counts, so keep the larger of prev vs fresh rather than regressing.
+  // Feeds Phygitals' floor×supply market cap (warm-marketcap).
+  const supply: Record<string, number> = {};
+  for (const [key, res] of PLATS) {
+    const prevSupply = prev?.supply?.[key] ?? 0;
+    if (res.total > 0) {
+      supply[key] = res.complete ? res.assets : Math.max(prevSupply, res.assets);
+    } else if (prevSupply > 0) {
+      supply[key] = prevSupply; // scan failed → don't zero it out
+    }
+  }
+
   await writeHolders({
     generatedAt: new Date().toISOString(),
     platforms: {
-      beezie: platTotal("beezie", beezie),
+      beezie: beezieN,
       "collector-crypt": platTotal("collector-crypt", cc),
       phygitals: platTotal("phygitals", ph),
     },
     byIp,
+    totalHolders,
+    supply,
   });
   console.log(
     `\nWrote holders snapshot in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
       `${Object.keys(byIp).length} IPs · ` +
       `beezie=${platTotal("beezie", beezie)}${tag("beezie", beezie)} ` +
       `cc=${platTotal("collector-crypt", cc)}${tag("collector-crypt", cc)} ` +
-      `phygitals=${platTotal("phygitals", ph)}${tag("phygitals", ph)}`,
+      `phygitals=${platTotal("phygitals", ph)}${tag("phygitals", ph)} ` +
+      `· unique=${totalHolders} (sum ${beezieN + platTotal("collector-crypt", cc) + platTotal("phygitals", ph)})`,
   );
   if (carried.size) console.log(`  carried-forward (scan failed): ${[...carried].join(", ")}`);
+  console.log(
+    `  supply (assets): ${Object.entries(supply).map(([k, v]) => `${k}=${v.toLocaleString()}`).join(" ") || "—"}`,
+  );
   return { rowsWritten: Object.keys(byIp).length };
 }
 

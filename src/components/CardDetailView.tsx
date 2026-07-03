@@ -4,6 +4,7 @@ import { BuyLinks } from "./BuyLinks";
 import { formatCompactUsd } from "@/lib/format";
 import type { CardDetail } from "@/lib/card/fetchCard";
 import { buyLinks } from "@/lib/links/buyLinks";
+import { isSealed } from "@/lib/card/sealed";
 
 const GRADER_COLOR: Record<string, string> = {
   PSA: "#D62828",
@@ -57,6 +58,7 @@ function GradeBadge({
 
 export function CardDetailView({ card }: { card: CardDetail }) {
   const t = card.traits;
+  const sealed = isSealed(card.name, card.gradeLabel);
   // Buy venues only — the resolver's Solscan entry is dropped here because the
   // on-chain link already lives in the token footer below (and covers Basescan
   // for Beezie too, not just Solana).
@@ -83,26 +85,27 @@ export function CardDetailView({ card }: { card: CardDetail }) {
 
   return (
     <>
-      {/* Breadcrumb */}
-      <div className="mb-6 text-[12px] text-ink-3">
-        <Link href="/" className="transition-colors hover:text-yellow">
-          Home
+      {/* Breadcrumb — same "Rankings › X" trail as the IP/platform pages */}
+      <div className="mb-6 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
+        <Link href="/" className="hover:text-ink-2">
+          Rankings
         </Link>
-        <span className="mx-1.5">/</span>
+        <span>›</span>
         {t.category && (
           <>
-            <Link href="/ips" className="transition-colors hover:text-yellow">
+            <Link href="/ips" className="hover:text-ink-2">
               {t.category}
             </Link>
-            <span className="mx-1.5">/</span>
+            <span>›</span>
           </>
         )}
         <span className="text-ink-2">{card.name}</span>
       </div>
 
-      {/* Hero */}
+      {/* Hero — sealed products (booster boxes) get a squarer frame so they aren't
+          letterboxed into a slab's portrait aspect (R6-1). */}
       <div className="grid gap-8 md:grid-cols-[minmax(0,340px)_1fr]">
-        <div className="aspect-[5/7] w-full max-w-[340px]">
+        <div className={`${sealed ? "aspect-square" : "aspect-[5/7]"} w-full max-w-[340px]`}>
           <CardImage primary={card.image} fallback={card.imageFallback} alt={card.name} />
         </div>
 

@@ -19,6 +19,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { runPhygitalsGachaWarm } from "../src/lib/data/warmers/phygitalsGacha";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
 function intArg(flag: string): number | undefined {
   const i = process.argv.indexOf(flag);
@@ -29,12 +30,16 @@ function intArg(flag: string): number | undefined {
   return undefined;
 }
 
-runPhygitalsGachaWarm({
-  maxPages: intArg("--pages"),
-  maxPulls: intArg("--max"),
-  windowDays: intArg("--days"),
-  log: (m) => console.log(m),
-})
+// runWarmer records source_freshness on every outcome (ok / soft-fail throw /
+// mid-run throw) and re-throws, so the Actions health gate sees a dead warmer.
+runWarmer("phygitals-gacha", () =>
+  runPhygitalsGachaWarm({
+    maxPages: intArg("--pages"),
+    maxPulls: intArg("--max"),
+    windowDays: intArg("--days"),
+    log: (m) => console.log(m),
+  }),
+)
   .then((r) => {
     console.log(
       `\nWrote Phygitals gacha snapshot — ${r.scannedPulls} new pulls → ${r.windowPulls} in window · ${r.products} packs · realized EV ${r.realizedEv != null ? r.realizedEv.toFixed(2) + "×" : "—"} · ${r.bigHits} hits (top $${Math.round(r.topHitUsd).toLocaleString()}) · window ~${r.windowHours != null ? r.windowHours.toFixed(1) : "?"}h`,

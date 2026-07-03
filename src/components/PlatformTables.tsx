@@ -5,6 +5,7 @@ import type {
   RecentSaleRow,
 } from "@/lib/data/fetchPlatform";
 import { IPIcon } from "./IPIcon";
+import { Section as SectionFrame } from "./Section";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
@@ -40,6 +41,8 @@ type SectionProps = {
   children: React.ReactNode;
 };
 
+/** Thin adapter over the shared <Section> frame (D1) so all three platform
+ *  tables carry the app-wide card treatment without touching each call site. */
 function Section({
   title,
   sub,
@@ -50,23 +53,24 @@ function Section({
 }: SectionProps) {
   const overflow = totalRows - visibleRows;
   return (
-    <section className="mb-12 font-sans">
-      <div className="mb-4 flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
-          {sub && <div className="mt-1 font-mono text-[12px] text-ink-3">{sub}</div>}
-        </div>
-        {seeAllHref && overflow > 0 && (
+    <SectionFrame
+      title={title}
+      subtitle={sub}
+      right={
+        seeAllHref && overflow > 0 ? (
           <Link
             href={seeAllHref}
-            className="shrink-0 font-mono text-[12px] text-ink-3 transition-colors hover:text-yellow"
+            className="text-[12px] text-ink-3 transition-colors hover:text-yellow"
           >
             See all {totalRows} →
           </Link>
-        )}
-      </div>
+        ) : undefined
+      }
+      className="mb-12 font-sans"
+      flush
+    >
       <div className="scroll-x">{children}</div>
-    </section>
+    </SectionFrame>
   );
 }
 

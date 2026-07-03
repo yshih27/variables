@@ -41,7 +41,6 @@ import {
   type PackHit,
 } from "../gachaPacksCache";
 import { getBeezieMetadataBatch } from "../beezieTraits";
-import { recordFreshness } from "../../db/freshness";
 import { db } from "../../db/client";
 import type { Chain } from "@/lib/types";
 
@@ -649,13 +648,14 @@ export type GachaPacksWarmResult = {
   byPlatform: Record<string, number>;
   topHitMax: number;
   generatedAt: string;
+  /** Provenance for the runWarmer freshness row. */
+  rowsWritten?: number;
 };
 
 export async function runGachaPacksWarm(
   opts: { log?: (m: string) => void } = {},
 ): Promise<GachaPacksWarmResult> {
   const log = opts.log ?? (() => {});
-  const startedAt = Date.now();
   const asOf = new Date().toISOString();
   const packs: GachaPack[] = [];
   const prizes: GachaPrize[] = [];
@@ -782,13 +782,12 @@ export async function runGachaPacksWarm(
   for (const p of packs) byPlatform[p.platform] = (byPlatform[p.platform] ?? 0) + 1;
   const topHitMax = packs.reduce((m, p) => Math.max(m, p.topHitAvailableUsd ?? 0), 0);
 
-  await recordFreshness("gacha-packs", {
-    status: packs.length > 0 ? "ok" : "error",
-    rowsWritten: packs.length,
-    durationMs: Date.now() - startedAt,
-    generatedAt: asOf,
-  });
+  // Soft-fail: no packs assembled → throw so the runWarmer wrapper records an
+  // error row (health gate) instead of a silent empty catalog.
+  if (packs.length === 0) {
+    throw new Error("gacha-packs: 0 packs assembled (upstream gacha snapshots empty?)");
+  }
 
   log(`done: ${packs.length} packs ${JSON.stringify(byPlatform)} · top hit $${Math.round(topHitMax).toLocaleString()}`);
-  return { packs: packs.length, byPlatform, topHitMax, generatedAt: asOf };
+  return { packs: packs.length, byPlatform, topHitMax, generatedAt: asOf, rowsWritten: packs.length };
 }

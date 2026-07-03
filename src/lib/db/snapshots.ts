@@ -9,16 +9,25 @@
 import { db } from "./client";
 
 export async function readSnapshot<T>(key: string): Promise<T | null> {
-  const { data, error } = await db()
-    .from("snapshots")
-    .select("payload")
-    .eq("key", key)
-    .maybeSingle();
-  if (error) {
-    console.warn(`[snapshots] read "${key}" failed: ${error.message}`);
+  // Never throw — a read must degrade to null, not crash the caller. This also makes
+  // ISR build-time prerendering safe: if the DB/env is unavailable at build, the page
+  // renders empty and fills in on the first runtime revalidation (rather than failing
+  // the build). Covers both query errors AND a db() env-missing throw.
+  try {
+    const { data, error } = await db()
+      .from("snapshots")
+      .select("payload")
+      .eq("key", key)
+      .maybeSingle();
+    if (error) {
+      console.warn(`[snapshots] read "${key}" failed: ${error.message}`);
+      return null;
+    }
+    return (data?.payload as T) ?? null;
+  } catch (e) {
+    console.warn(`[snapshots] read "${key}" threw: ${(e as Error).message}`);
     return null;
   }
-  return (data?.payload as T) ?? null;
 }
 
 export async function writeSnapshot(

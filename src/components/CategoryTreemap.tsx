@@ -186,6 +186,8 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(0);
   const [hover, setHover] = useState<string | null>(null);
+  // Cursor position within the container — the single tooltip follows it (R4-4).
+  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -225,7 +227,19 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
     >
       {/* Treemap — tablet and up */}
       <div className="hidden sm:block">
-        <div ref={ref} className="relative w-full select-none" style={{ height: h }}>
+        <div
+          ref={ref}
+          className="relative w-full select-none"
+          style={{ height: h }}
+          onMouseMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setCursor({ x: e.clientX - r.left, y: e.clientY - r.top });
+          }}
+          onMouseLeave={() => {
+            setHover(null);
+            setCursor(null);
+          }}
+        >
           {laid.map((t) => {
             const ink = t.href ? inkOn(t.color) : { strong: "var(--color-ink-2)", soft: "var(--color-ink-3)" };
             const dimmed = hover != null && hover !== t.key;
@@ -322,14 +336,20 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
             );
           })}
 
-          {active && w > 0 && (
+          {active && cursor && w > 0 && (
             <div
-              className="pointer-events-none absolute z-10 w-[210px] rounded-lg border border-line-2 bg-bg-1/95 p-3 shadow-xl backdrop-blur"
-              style={{
-                left: Math.max(8, Math.min(active.x + active.w / 2 - 105, w - 218)),
-                top: active.y > 96 ? active.y - 8 : active.y + active.h + 8,
-                transform: active.y > 96 ? "translateY(-100%)" : undefined,
-              }}
+              className="pointer-events-none absolute z-50 w-[210px] rounded-lg border border-line-2 bg-bg-1/95 p-3 shadow-xl backdrop-blur"
+              style={(() => {
+                // Follow the cursor, clamped to the container; flip above when it
+                // would overflow the bottom edge so it's never clipped.
+                const TW = 210;
+                const estH = active.href ? 172 : 128;
+                const off = 14;
+                const left = Math.max(8, Math.min(cursor.x + off, w - TW - 8));
+                const top =
+                  cursor.y + off + estH > h ? Math.max(8, cursor.y - off - estH) : cursor.y + off;
+                return { left, top };
+              })()}
             >
               <div className="mb-2 flex items-center gap-2">
                 {active.href ? (

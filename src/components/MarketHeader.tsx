@@ -1,8 +1,11 @@
 import Link from "next/link";
 import type { HeroStats, IPRow } from "@/lib/types";
+import { SectionShell } from "./Section";
 import { IPIcon } from "./IPIcon";
 import { Sparkline } from "./Sparkline";
 import { MarketIndexChart } from "./MarketIndexChart";
+import { MetricInfo } from "./MetricInfo";
+import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
 /** 24h volume split — marketplace resale + gacha pulls + other primary = total. */
@@ -33,6 +36,9 @@ export type GachaKpi = { pulls: number; avgPullUsd: number };
  * from one series (the market mcap spine) so the windows never disagree.
  */
 export type MarketDelta = { label: string; pct: number | null };
+/** Relative-strength row: leads with the windowed spread (`pct`, e.g. 30d) and
+ *  carries the since-inception spread (`sincePct`) for the tooltip/secondary. */
+export type RelDelta = { label: string; pct: number | null; sincePct?: number | null };
 
 export type MarketIndex = {
   /** Market mcap rebased to 100 at inception; null until the spine has data. */
@@ -42,7 +48,11 @@ export type MarketIndex = {
   /** 24h / 7d / 30d change of the market index. */
   deltas: MarketDelta[];
   /** vs BTC / ETH / S&P / NASDAQ — hidden entirely until at least one is real. */
-  relStrength: MarketDelta[];
+  relStrength: RelDelta[];
+  /** Window the benchmark spreads are measured over (R4-1), e.g. "30d". */
+  relWindowLabel?: string;
+  /** Secondary window for the since-inception spread tooltip, e.g. "since Jan 12". */
+  relSinceLabel?: string | null;
   /** Full rebased-to-100 daily index series for the header's middle-band chart
    *  (QA-5); the desktop chart hides when this has <2 points. */
   series?: { ts: string; value: number }[];
@@ -81,11 +91,13 @@ export function MarketHeader({
       : "lg:grid-cols-[minmax(0,1fr)_auto]";
 
   return (
-    <section className="mb-9 overflow-hidden rounded-2xl border border-line bg-bg-1">
+    // The headerless variant of the shared Section frame (D1) — the hero number
+    // is its own title.
+    <SectionShell className="mb-9">
       {/* Row 1 — hero market cap, the index chart, its change, and vs-benchmarks. */}
       <div className={`grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-6 ${mdCols} ${lgCols}`}>
         <div className="min-w-0">
-          <Label>Total market cap</Label>
+          <Label info="marketCap">Total market cap</Label>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
             <span className="text-[40px] font-bold leading-none tracking-[-0.02em] tabular text-yellow">
               {formatCompactUsd(hero.totalMcapUsd)}
@@ -106,7 +118,7 @@ export function MarketHeader({
             {index.value != null && Number.isFinite(index.value) ? (
               <>
                 <span>
-                  index <span className="tabular font-semibold text-ink-2">{index.value.toFixed(1)}</span>
+                  price index <span className="tabular font-semibold text-ink-2">{index.value.toFixed(1)}</span>
                 </span>
                 {sinceInception != null && Number.isFinite(sinceInception) && (
                   <>
@@ -141,10 +153,17 @@ export function MarketHeader({
 
         {hasRel && (
           <div className="md:border-l md:border-line md:pl-8">
-            <Label>vs benchmarks</Label>
+            <div className="flex items-baseline gap-1.5">
+              <Label info="vsBenchmarks">vs benchmarks</Label>
+              {index.relWindowLabel && (
+                <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-ink-4">
+                  {index.relWindowLabel}
+                </span>
+              )}
+            </div>
             <div className="mt-3 flex flex-col gap-2.5">
               {relDeltas.map((d) => (
-                <DeltaRow key={d.label} label={d.label} pct={d.pct} />
+                <RelRow key={d.label} rel={d} sinceLabel={index.relSinceLabel ?? null} />
               ))}
             </div>
           </div>
@@ -178,7 +197,7 @@ export function MarketHeader({
         />
         <EntityCell topIP={topIP} />
       </div>
-    </section>
+    </SectionShell>
   );
 }
 
@@ -186,26 +205,31 @@ export function MarketHeader({
 const pct = (frac: number | null) => (frac != null && Number.isFinite(frac) ? frac * 100 : null);
 
 const VOL_SEGMENTS = [
-  { key: "marketplace", label: "Marketplace", color: "var(--color-blue)" },
-  { key: "gacha", label: "Gacha", color: "var(--color-yellow)" },
-  { key: "otherPrimary", label: "Other primary", color: "var(--color-purple)" },
+  { key: "marketplace", label: "Marketplace", color: "var(--color-blue)", info: "marketplace" },
+  { key: "gacha", label: "Gacha", color: "var(--color-yellow)", info: "gacha" },
+  { key: "otherPrimary", label: "Direct sales", color: "var(--color-purple)", info: "directSales" },
 ] as const;
 
 function VolumeBar({ vol, deltaPct }: { vol: VolBreakdown; deltaPct: number | null }) {
   const total = vol.total > 0 ? vol.total : 1;
   const segs = VOL_SEGMENTS.map((s) => ({ ...s, value: vol[s.key] })).filter((s) => s.value > 0);
+  // Not a whole-bar <Link> anymore (R6-6): the segment labels host ⓘ buttons,
+  // which can't nest inside an anchor — so the "platforms →" link is explicit.
   return (
-    <Link
-      href="/platforms"
-      className="group block border-t border-line px-6 py-5 transition-colors hover:bg-bg-2"
-    >
+    <div className="border-t border-line px-6 py-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <Label>24h volume</Label>
+        <div className="flex items-center gap-1">
+          <Label>24h volume</Label>
+          <MetricInfo metric="volume24h" />
+        </div>
         <div className="flex items-baseline gap-2.5">
-          <span className="text-[20px] font-bold leading-none tabular transition-colors group-hover:text-yellow">
+          <span className="text-[20px] font-bold leading-none tabular">
             {vol.total > 0 ? formatCompactUsd(vol.total) : "—"}
           </span>
           {deltaPct != null && <Delta pct={deltaPct} />}
+          <Link href="/platforms" className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
+            platforms →
+          </Link>
         </div>
       </div>
       {segs.length > 0 && (
@@ -221,12 +245,13 @@ function VolumeBar({ vol, deltaPct }: { vol: VolBreakdown; deltaPct: number | nu
                 <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: s.color }} />
                 <span className="text-ink-3">{s.label}</span>
                 <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
+                <MetricInfo metric={s.info} />
               </span>
             ))}
           </div>
         </div>
       )}
-    </Link>
+    </div>
   );
 }
 
@@ -306,8 +331,33 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return <div className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-3">{children}</div>;
+function Label({ children, info }: { children: React.ReactNode; info?: MetricKey }) {
+  return (
+    <div className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.07em] text-ink-3">
+      {children}
+      {info && <MetricInfo metric={info} />}
+    </div>
+  );
+}
+
+/** Benchmark spread row — leads with the windowed value; the since-inception
+ *  spread rides a title tooltip so the huge 6-month number is available but
+ *  doesn't dominate (R4-1). */
+function RelRow({ rel, sinceLabel }: { rel: RelDelta; sinceLabel: string | null }) {
+  const since =
+    rel.sincePct != null && Number.isFinite(rel.sincePct)
+      ? `${rel.sincePct > 0 ? "+" : ""}${rel.sincePct.toFixed(1)}% ${sinceLabel ?? "since inception"}`
+      : null;
+  return (
+    <div className="flex items-center justify-between gap-4 text-[13px]" title={since ?? undefined}>
+      <span className="text-ink-3">{rel.label}</span>
+      {rel.pct == null || !Number.isFinite(rel.pct) ? (
+        <span className="font-mono text-ink-4">—</span>
+      ) : (
+        <Delta pct={rel.pct} />
+      )}
+    </div>
+  );
 }
 
 function DeltaRow({ label, pct }: { label: string; pct: number | null }) {

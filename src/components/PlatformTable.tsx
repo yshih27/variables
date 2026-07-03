@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { PlatformRow, Chain } from "@/lib/types";
 import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
+import { MetricInfo } from "./MetricInfo";
+import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
 const CHAIN_DOT: Record<Chain, string> = {
@@ -20,9 +22,18 @@ type Props = {
   maxRows?: number;
   /** Where the See all link points. Omit to hide the link. */
   seeAllHref?: string;
+  /** Show the chain facet tabs above the table (F4) — the full /platforms page. */
+  chainFacets?: boolean;
 };
 
-type SortKey = "total" | "dom" | "vol24" | "gacha" | "vol7" | "active" | "cards" | "holders" | "avgTrade";
+type SortKey = "total" | "dom" | "vol24" | "gacha" | "primary" | "vol7" | "active" | "cards" | "holders" | "avgTrade";
+
+/** Non-gacha primary revenue (tokenization mints, e.g. Courtyard). Marketplace +
+ *  Gacha + Primary = Total; folds into Gacha once Courtyard is reclassified. */
+function otherPrimary(p: PlatformRow): number {
+  if (p.primaryUsd == null) return NaN;
+  return Math.max(0, p.primaryUsd - (p.gachaVol24Usd ?? 0));
+}
 
 function valueFor(p: PlatformRow, key: SortKey): number {
   switch (key) {
@@ -33,6 +44,8 @@ function valueFor(p: PlatformRow, key: SortKey): number {
       return p.vol24Usd;
     case "gacha":
       return p.gachaVol24Usd ?? NaN;
+    case "primary":
+      return otherPrimary(p);
     case "vol7":
       return p.vol7Usd;
     case "active":
@@ -55,14 +68,28 @@ function cmp(a: number, b: number, dir: 1 | -1): number {
   return (a - b) * dir;
 }
 
-export function PlatformTable({ rows, maxRows, seeAllHref }: Props) {
+export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [dir, setDir] = useState<1 | -1>(-1);
+  const [chain, setChain] = useState<Chain | "all">("all");
 
-  const totalActivity = rows.reduce((s, p) => s + (p.total24Usd > 0 ? p.total24Usd : 0), 0) || 1;
-  const sorted = [...rows].sort((a, b) => cmp(valueFor(a, sortKey), valueFor(b, sortKey), dir));
+  // Chain facets (F4) — one tab per chain present, in activity order, + All.
+  const chains = useMemo(() => {
+    const seen = new Map<Chain, number>();
+    for (const p of rows) seen.set(p.chain, (seen.get(p.chain) ?? 0) + Math.max(0, p.total24Usd));
+    return [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
+  }, [rows]);
+  const showFacets = !!chainFacets && chains.length > 1;
+  const activeChain = showFacets ? chain : "all";
+  const scoped = activeChain === "all" ? rows : rows.filter((p) => p.chain === activeChain);
+
+  // Any primary-only (tokenization) revenue in scope → show the Primary column.
+  const showPrimary = scoped.some((p) => Number.isFinite(otherPrimary(p)) && otherPrimary(p) > 0);
+
+  const totalActivity = scoped.reduce((s, p) => s + (p.total24Usd > 0 ? p.total24Usd : 0), 0) || 1;
+  const sorted = [...scoped].sort((a, b) => cmp(valueFor(a, sortKey), valueFor(b, sortKey), dir));
   const visible = maxRows ? sorted.slice(0, maxRows) : sorted;
-  const overflow = rows.length - visible.length;
+  const overflow = scoped.length - visible.length;
 
   function onSort(key: SortKey) {
     if (key === sortKey) setDir((d) => (d === -1 ? 1 : -1));
@@ -86,6 +113,31 @@ export function PlatformTable({ rows, maxRows, seeAllHref }: Props) {
       }
       flush
     >
+      {showFacets && (
+        <div className="flex flex-wrap gap-1 px-4 pb-1 pt-1 sm:px-4">
+          {(["all", ...chains] as const).map((c) => {
+            const on = activeChain === c;
+            const n = c === "all" ? rows.length : rows.filter((p) => p.chain === c).length;
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setChain(c)}
+                aria-pressed={on}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] transition-colors ${
+                  on ? "bg-bg-3 font-semibold text-ink" : "text-ink-3 hover:text-ink"
+                }`}
+              >
+                {c !== "all" && (
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[c] }} />
+                )}
+                {c === "all" ? "All chains" : c}
+                <span className="tabular text-[11px] text-ink-4">{n}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="scroll-x">
         <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1120px]">
           <thead>
@@ -93,20 +145,22 @@ export function PlatformTable({ rows, maxRows, seeAllHref }: Props) {
               <Th>#</Th>
               <Th>Platform</Th>
               <Th className="hidden md:table-cell">Chain</Th>
-              <Th className="hidden md:table-cell">Vault</Th>
-              <SortTh align="right" title="Total 24h activity — marketplace resale + gacha + other primary" {...sp("total")}>Total 24h</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" title="Share of total 24h activity across platforms" {...sp("dom")}>Share</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" title="Secondary-market resale volume, 24h" {...sp("vol24")}>Marketplace</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" title="Gacha pack-pull spend, 24h" {...sp("gacha")}>Gacha</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sp("vol7")}>7d Vol</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" title="Unique wallets (buyers ∪ sellers) active in 24h" {...sp("active")}>
+              <SortTh align="right" info="total24h" {...sp("total")}>Total 24h</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="share" {...sp("dom")}>Share</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="marketplace" {...sp("vol24")}>Marketplace</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="gacha" {...sp("gacha")}>Gacha</SortTh>
+              {showPrimary && (
+                <SortTh align="right" className="hidden md:table-cell" info="directSales" {...sp("primary")}>Direct sales</SortTh>
+              )}
+              <SortTh align="right" className="hidden md:table-cell" info="volume7d" {...sp("vol7")}>7d Vol</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sp("avgTrade")}>Avg Trade</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="activeWallets" {...sp("active")}>
                 Active 24h
               </SortTh>
-              <SortTh align="right" className="hidden md:table-cell" title="Unique cards traded in 24h" {...sp("cards")}>
+              <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sp("cards")}>
                 Cards 24h
               </SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sp("holders")}>Holders</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sp("avgTrade")}>Avg Trade</SortTh>
+              <SortTh align="right" className="hidden md:table-cell" info="holders" {...sp("holders")}>Holders</SortTh>
               <Th className="hidden md:table-cell">24h Chart</Th>
             </tr>
           </thead>
@@ -120,22 +174,25 @@ export function PlatformTable({ rows, maxRows, seeAllHref }: Props) {
               <tr key={p.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2">
                 <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                 <Td>
-                  <Link
-                    href={`/platform/${p.key}`}
-                    className="flex items-center gap-2.5 font-semibold before:absolute before:inset-0 before:content-['']"
-                  >
-                    <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-[11px] font-bold">
-                      {p.short}
-                    </span>
-                    <span className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <Link
+                      href={`/platform/${p.key}`}
+                      className="flex items-center gap-2.5 font-semibold before:absolute before:inset-0 before:content-['']"
+                    >
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-[11px] font-bold">
+                        {p.short}
+                      </span>
                       <span className="font-sans group-hover:text-yellow">{p.name}</span>
-                      {primaryOnly && (
-                        <span className="rounded border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
-                          primary only
-                        </span>
-                      )}
-                    </span>
-                  </Link>
+                    </Link>
+                    {/* Coverage disclosure — sits above the row-link overlay (z-10) so its
+                        ⓘ is clickable; explains we track primary but not secondary yet. */}
+                    {primaryOnly && (
+                      <span className="relative z-10 inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
+                        primary only
+                        <MetricInfo metric="primaryOnly" />
+                      </span>
+                    )}
+                  </div>
                 </Td>
                 <Td className="hidden md:table-cell">
                   <span className="inline-flex h-[22px] items-center gap-1.5 text-[12px] text-ink-2">
@@ -143,20 +200,24 @@ export function PlatformTable({ rows, maxRows, seeAllHref }: Props) {
                     {p.chain}
                   </span>
                 </Td>
-                <Td muted className="hidden md:table-cell">{p.vault ?? "—"}</Td>
                 <Td align="right" strong>{p.total24Usd > 0 ? formatCompactUsd(p.total24Usd) : "—"}</Td>
                 <Td align="right" muted className="hidden md:table-cell">{shareCell(p, totalActivity)}</Td>
                 <Td align="right" className="hidden md:table-cell">{p.vol24Usd > 0 ? formatCompactUsd(p.vol24Usd) : "—"}</Td>
                 <Td align="right" className="hidden md:table-cell">{p.gachaVol24Usd != null && p.gachaVol24Usd > 0 ? formatCompactUsd(p.gachaVol24Usd) : "—"}</Td>
+                {showPrimary && (
+                  <Td align="right" className="hidden md:table-cell">
+                    {Number.isFinite(otherPrimary(p)) && otherPrimary(p) > 0 ? formatCompactUsd(otherPrimary(p)) : "—"}
+                  </Td>
+                )}
                 <Td align="right" muted className="hidden md:table-cell">
                   {Number.isFinite(p.vol7Usd) ? formatCompactUsd(p.vol7Usd) : "—"}
                 </Td>
+                <Td align="right" muted className="hidden md:table-cell">{p.avgTradeUsd > 0 ? formatCompactUsd(p.avgTradeUsd) : "—"}</Td>
                 <Td align="right" className="hidden md:table-cell">{formatInt(p.active24h)}</Td>
                 <Td align="right" className="hidden md:table-cell">
                   {Number.isFinite(p.cards) && p.cards > 0 ? formatCompactNumber(p.cards) : "—"}
                 </Td>
                 <Td align="right" className="hidden md:table-cell">{formatInt(p.holders)}</Td>
-                <Td align="right" className="hidden md:table-cell">{p.avgTradeUsd > 0 ? formatCompactUsd(p.avgTradeUsd) : "—"}</Td>
                 <Td className="hidden md:table-cell">{p.spark.length > 0 ? <Sparkline data={p.spark} trend={p.trend} /> : "—"}</Td>
               </tr>
               );
@@ -200,7 +261,7 @@ function Th({
 function SortTh({
   children,
   align,
-  title,
+  info,
   active,
   dir,
   onClick,
@@ -208,7 +269,8 @@ function SortTh({
 }: {
   children: React.ReactNode;
   align?: "left" | "right";
-  title?: string;
+  /** Glossary key → an ⓘ MetricInfo affordance next to the label (R5-3). */
+  info?: MetricKey;
   active: boolean;
   dir: 1 | -1;
   onClick: () => void;
@@ -217,17 +279,19 @@ function SortTh({
   return (
     <th
       onClick={onClick}
-      title={title}
       aria-sort={active ? (dir === -1 ? "descending" : "ascending") : "none"}
-      className={`cursor-pointer select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
+      className={`select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
         active ? "text-ink" : "text-ink-3 hover:text-ink-2"
       } ${align === "right" ? "text-right" : "text-left"} ${className}`}
     >
       <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
-        <span className={active ? "text-yellow" : "text-ink-4"}>
-          {active ? (dir === -1 ? "▼" : "▲") : "↕"}
-        </span>
-        {children}
+        <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-1">
+          <span className={active ? "text-yellow" : "text-ink-4"}>
+            {active ? (dir === -1 ? "▼" : "▲") : "↕"}
+          </span>
+          {children}
+        </button>
+        {info && <MetricInfo metric={info} />}
       </span>
     </th>
   );

@@ -41,7 +41,6 @@ import {
 } from "../ccGachaCache";
 import { readGachaDune, type GachaBigHit } from "../gachaDuneCache";
 import { PHYGITALS_VALUE_BANDS } from "../phygitalsGachaCache";
-import { recordFreshness } from "../../db/freshness";
 import { db } from "../../db/client";
 
 const DEFAULT_PER_TIER = 100;
@@ -311,6 +310,8 @@ export type CCGachaWarmResult = {
   bigHits: number;
   topHitUsd: number;
   generatedAt: string;
+  /** Provenance for the runWarmer freshness row. */
+  rowsWritten?: number;
 };
 
 export async function runCCGachaWarm(
@@ -458,12 +459,11 @@ export async function runCCGachaWarm(
     `snapshot: ${packs.length} live public packs (${droppedArchived} archived dropped, ${withRealized} with realized stats) · ${bigHits.length} hits (top $${Math.round(topHitUsd).toLocaleString()})`,
   );
 
-  await recordFreshness("cc-gacha", {
-    status: packs.length > 0 ? "ok" : "error",
-    rowsWritten: winners.length,
-    durationMs: Date.now() - startedAt,
-    generatedAt,
-  });
+  // Soft-fail: no live public packs → throw so the runWarmer wrapper records an
+  // error row (health gate) rather than leaving a silent empty snapshot.
+  if (packs.length === 0) {
+    throw new Error("cc-gacha: 0 live public packs (catalog/winners feed empty?)");
+  }
 
   return {
     machines: catalog.length,
@@ -472,5 +472,6 @@ export async function runCCGachaWarm(
     bigHits: bigHits.length,
     topHitUsd,
     generatedAt,
+    rowsWritten: winners.length,
   };
 }

@@ -2,13 +2,15 @@ import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { MarketHeader } from "@/components/MarketHeader";
 import { TopSalesPanel } from "@/components/TopSalesPanel";
+import { TrendingCards } from "@/components/TrendingCards";
 import { IPTable } from "@/components/IPTable";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { getGachaData } from "@/lib/data/fetchGacha";
+import { getTrendingCards } from "@/lib/data/fetchTrending";
 import { formatCompactNumber } from "@/lib/format";
 import { readMetricSeries, pctChange } from "@/lib/data/metricSnapshots";
-import { rebaseSeries, sanitizeStockSeries } from "@/lib/data/indices";
+import { rebaseSeries, readIndexSeries } from "@/lib/data/indices";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
@@ -16,13 +18,15 @@ const getHomepageData = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-/** Internal market index = market `mcap_usd` from the spine, sanitized (drop $0
- *  failed-scan readings + a leading orphan seed point) so the rebase anchors to the
- *  true continuous inception rather than a stray pre-history point. */
+/** Homepage headline index = the constant-quality PRICE index for the whole market
+ *  (readIndexSeries kind:"price") — the SAME series /ips + the IP pages show, so the
+ *  two never disagree (X3). Market cap stays the separately-labeled "TOTAL MARKET CAP"
+ *  size stat, and vs-benchmarks becomes price-vs-price (apples-to-apples). The price
+ *  index is WEEKLY (stratified-median), so the 24h delta is nulled below. */
 const getMarketIndexSeries = unstable_cache(
-  async () => sanitizeStockSeries(await readMetricSeries("market", "total", "mcap_usd").catch(() => [])),
-  ["homepage-market-index:v2"],
-  { revalidate: 3600, tags: ["homepage"] },
+  async () => readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" }).catch(() => []),
+  ["homepage-market-index:v3"],
+  { revalidate: 1800, tags: ["homepage"] },
 );
 
 /** Raw daily closes for the 4 external benchmarks (BTC/ETH/S&P 500/NASDAQ) from the
@@ -40,15 +44,39 @@ const getBenchmarkCloses = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-export const dynamic = "force-dynamic";
+/** Age of the listings snapshot behind Trending's Float, in words. Module-scope
+ *  so the once-per-request `Date.now()` isn't a render-time impurity (X6). */
+function floatAgeLabelOf(iso: string | null): string | null {
+  if (!iso) return null;
+  const h = Math.max(0, (Date.now() - Date.parse(iso)) / 3_600_000);
+  if (!Number.isFinite(h)) return null;
+  return h < 1 ? "from listings <1h old" : `from listings ~${Math.round(h)}h old`;
+}
+
+// ISR: serve cached HTML, revalidate every 30 min in the background. The underlying
+// data only changes every ~6h (warmers), so per-request re-rendering was pure waste
+// (R2-B1). All reads are unstable_cache-backed; no cookies/headers/searchParams here.
+export const revalidate = 1800;
 
 export default async function Home() {
-  const [data, gacha, marketIdx, benchCloses] = await Promise.all([
+  const [data, gacha, marketIdx, benchCloses, trending24] = await Promise.all([
     getHomepageData(),
     getGachaData(),
     getMarketIndexSeries(),
     getBenchmarkCloses(),
+    getTrendingCards({ limit: 8 }),
   ]);
+
+  // X6 — a thin 24h window on 1-of-1 slabs ties whole tables at "2 trades", so
+  // the ranking reads arbitrary. When ties dominate, rank on the 7d window
+  // instead (CC-only coverage, but a real ordering) and say so in the panel.
+  const tieHeavy =
+    trending24.rows.length >= 4 && new Set(trending24.rows.map((r) => r.trades)).size <= 2;
+  const trending7 = tieHeavy ? await getTrendingCards({ window: "7d", limit: 8 }) : null;
+  const useWeekly = !!trending7 && trending7.rows.length >= trending24.rows.length;
+  const trending = useWeekly ? trending7! : trending24;
+  const trendingWindow = useWeekly ? "7d" : "24h";
+  const floatAgeLabel = floatAgeLabelOf(trending.floatAsOf);
 
   // Market index rebased to 100 at inception. All change windows read off this
   // one series so the header never shows two disagreeing numbers for the market;
@@ -62,11 +90,14 @@ export default async function Home() {
     ? `since ${MON[inceptionTs.getUTCMonth()]} ${inceptionTs.getUTCDate()}`
     : null;
 
-  // Relative strength = market index return − benchmark return over the SAME window
-  // (index inception → latest). Rebase each benchmark to the index inception so both
-  // legs share one axis, then subtract. A row is "—" only if its benchmark is missing.
+  // Relative strength = market index return − benchmark return over the SAME window.
+  // R4-1: LEAD with the 30d spread (relatable) and carry the since-inception spread
+  // as a secondary line — a 6-month pp-spread (e.g. +168% vs BTC) is real but reads
+  // broken unlabeled. Both legs measured over one window so the subtraction is fair;
+  // a row is "—" only when its benchmark is missing for that window.
   const fromTs = marketIdx[0]?.ts ?? null;
   const marketRet = indexValue != null && Number.isFinite(indexValue) ? indexValue - 100 : null;
+  const market30 = pctChange(marketIdx, 30);
   const relStrength = (
     [
       ["vs BTC", "BTC"],
@@ -75,16 +106,28 @@ export default async function Home() {
       ["vs NASDAQ", "NASDAQ"],
     ] as const
   ).map(([label, sym]) => {
-    const rb = fromTs ? rebaseSeries(benchCloses[sym] ?? [], fromTs, 100) : [];
+    const closes = benchCloses[sym] ?? [];
+    // Since-inception spread (rebase both to the inception day, subtract returns).
+    const rb = fromTs ? rebaseSeries(closes, fromTs, 100) : [];
     const benchRet = rb.length ? rb[rb.length - 1].value - 100 : null;
-    return { label, pct: marketRet != null && benchRet != null ? marketRet - benchRet : null };
+    const sincePct = marketRet != null && benchRet != null ? marketRet - benchRet : null;
+    // 30d spread (both returns over the trailing 30d).
+    const bench30 = pctChange(closes, 30);
+    const pct = market30 != null && bench30 != null ? market30 - bench30 : null;
+    return { label, pct, sincePct };
   });
 
   const marketIndex = {
     value: indexValue,
     inceptionLabel,
+    // Benchmark column now leads with 30d; the header labels the window + tooltips
+    // the since-inception figure. Inception day is shared with the index caption.
+    relWindowLabel: "30d",
+    relSinceLabel: inceptionLabel, // e.g. "since Jan 12"
     deltas: [
-      { label: "24h", pct: pctChange(marketIdx, 1) },
+      // Price index is weekly → no 24h resolution; null renders "—" rather than
+      // mislabeling a weekly move as a 24h change (X3).
+      { label: "24h", pct: null },
       { label: "7d", pct: pctChange(marketIdx, 7) },
       { label: "30d", pct: pctChange(marketIdx, 30) },
     ],
@@ -144,13 +187,11 @@ export default async function Home() {
 
         <div className="space-y-6">
           <TopSalesPanel items={data.topSales} />
+          <TrendingCards cards={trending.rows} windowLabel={trendingWindow} floatAgeLabel={floatAgeLabel} />
           <IPTable rows={data.ips} maxRows={5} seeAllHref="/ips" teaser />
           <PlatformTable rows={data.platforms} maxRows={4} seeAllHref="/platforms" />
         </div>
 
-        <div className="mt-20 text-center text-[12px] text-ink-3">
-          VARIABLE · tracking tokenized phygital collectibles across chains
-        </div>
       </div>
     </>
   );

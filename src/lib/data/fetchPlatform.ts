@@ -15,6 +15,7 @@ import { readHolders } from "./holders";
 import { readMarketCap, type MarketCapPlatformIP } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
 import { readHistory, sumLast, pctChange } from "./history";
+import { readMetricSeries, type SeriesPoint } from "./metricSnapshots";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import type { Chain, Trend } from "@/lib/types";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
@@ -227,8 +228,10 @@ function buildPlatformIPs(
       logo: ip.logo,
       iconBlendMode: ip.iconBlendMode,
       emoji: ip.emoji,
-      cards: comp?.cards ?? 0,
-      mcapUsd: comp?.mcapUsd ?? 0,
+      // NaN (not 0) for untracked composition — 0 renders as "$0 / 0 cards" (looks
+      // worthless), NaN renders as "—" (not tracked), matching every other reader (X5).
+      cards: comp?.cards ?? NaN,
+      mcapUsd: comp?.mcapUsd ?? NaN,
       holders: holdersByIp?.[key]?.perPlatform?.[platformKey] ?? 0,
       vol24Usd: vol,
       trades24h: trades,
@@ -237,7 +240,9 @@ function buildPlatformIPs(
       topCard: acc?.topCard?.name ?? null,
     });
   }
-  rows.sort((a, b) => b.mcapUsd - a.mcapUsd || b.vol24Usd - a.vol24Usd);
+  // NaN-safe sort: untracked-mcap IPs sink to the bottom instead of scrambling order.
+  const mc = (v: number) => (Number.isFinite(v) ? v : -Infinity);
+  rows.sort((a, b) => mc(b.mcapUsd) - mc(a.mcapUsd) || b.vol24Usd - a.vol24Usd);
   return rows.map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
@@ -334,9 +339,9 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
   // Real per-platform market cap from the cards table (CC = insured value, Beezie
   // = listing floor). Platforms whose cards we don't track yet (Courtyard/Phygitals)
-  // have no entry → 0, surfaced honestly as "—" rather than a fabricated estimate.
+  // have no entry → NaN, surfaced honestly as "—" (not a fabricated $0 = "worthless"; X5).
   const platformMcapEntry = mcap?.byPlatform?.[key];
-  const platformMcap = platformMcapEntry?.mcapUsd ?? 0;
+  const platformMcap = platformMcapEntry?.mcapUsd ?? NaN;
 
   // History → 7d (we only retain 7d of hourly buckets today)
   const history = await readHistory(key);
@@ -350,9 +355,9 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const rank = sortedByTotal.findIndex((b) => b.source.key === key) + 1;
 
   const platformHolders = holders?.platforms?.[key] ?? 0;
-  // Total cards held on this platform (cards table). 0 for platforms we don't
-  // crawl yet (Courtyard/Phygitals) — honest "—", not the old ~125K-everywhere bug.
-  const cards = platformMcapEntry?.cards ?? 0;
+  // Total cards held on this platform (cards table). NaN for platforms we don't
+  // crawl yet (Courtyard/Phygitals) → renders "—", not "0" (the old ~125K bug, X5).
+  const cards = platformMcapEntry?.cards ?? NaN;
 
   // This platform's share of total 24h secondary volume across all platforms.
   const totalSecVol = buckets.reduce((s, b) => s + b.stats24h.volumeUsd, 0);
@@ -362,7 +367,8 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const topCards = buildTopCards(enriched, key);
   const recentSales = buildRecentSales(enriched, key);
 
-  // Gacha-only split (excludes Courtyard's tokenization, which stays in primaryUsd).
+  // Gacha-only split. Courtyard is now classified gacha (R5), so its ~$1.5M/24h
+  // surfaces here as gachaVol24Usd instead of hiding in the primary residual.
   const g = gacha?.platforms?.[key];
 
   return {
@@ -399,6 +405,29 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
   ["platform-detail:v7"], // v7: spark24h anchors to newest sale (QA-2)
+  { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
+);
+
+/**
+ * Activity-chart daily series for a platform (metric_snapshots spine). Cached so
+ * the platform page reads them through ONE memoized call instead of 4 uncached
+ * `readMetricSeries` round-trips per request (R2-B1 perf). Same 1h revalidate +
+ * "platform-detail" tag as the detail, so both refresh together.
+ */
+export const getPlatformActivitySeries = unstable_cache(
+  async (key: string): Promise<{ volume: SeriesPoint[]; wallets: SeriesPoint[]; trades: SeriesPoint[]; mcap: SeriesPoint[] }> => {
+    const [volume, wallets, trades, mcap] = await Promise.all([
+      readMetricSeries("platform", key, "volume_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "active_wallets").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "trades").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
+    ]);
+    return { volume, wallets, trades, mcap };
+  },
+  // v2 (R5-1): v1 cached an empty mcap series from before the spine carried
+  // per-platform mcap_usd; bumping the key forces a fresh read so the Market Cap
+  // tab populates for Beezie + Collector Crypt.
+  ["platform-activity-series:v2"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

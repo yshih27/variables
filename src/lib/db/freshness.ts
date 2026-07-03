@@ -86,6 +86,7 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "beezie-traits": DAY_MS,
   phygitals: DAY_MS,
   "metric-snapshots": DAY_MS,
+  "secondary-sales": DAY_MS,
   // weekly batch — every 7d
   "cc-traits": 7 * DAY_MS,
 };

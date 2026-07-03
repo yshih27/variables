@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Dropdown } from "./Dropdown";
+import { Section } from "./Section";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
 export type PlatformRow = {
@@ -63,14 +64,10 @@ export function IPByPlatform({
   const shares = rows.map((r) => ({ ...r, share: metricValue(r, metric) / total }));
 
   return (
-    <section className="mb-12 font-sans">
-      <div className="grid grid-cols-1 gap-10 min-[1024px]:grid-cols-[1.7fr_1fr] min-[1024px]:gap-0 min-[1024px]:divide-x min-[1024px]:divide-line">
+    <Section title={title} subtitle={subtitle} className="mb-12 font-sans">
+      <div className="grid grid-cols-1 gap-10 pt-1 min-[1024px]:grid-cols-[1.7fr_1fr] min-[1024px]:gap-0 min-[1024px]:divide-x min-[1024px]:divide-line">
         {/* Left — table */}
         <div className="min-[1024px]:pr-8">
-          <header className="mb-4">
-            <h2 className="text-[22px] font-bold tracking-[-0.02em]">{title}</h2>
-            <div className="mt-1 font-mono text-[12px] text-ink-3">{subtitle}</div>
-          </header>
           <div className="scroll-x">
             <table className="w-full min-w-[680px] border-collapse text-[13px]">
               <thead>
@@ -148,7 +145,7 @@ export function IPByPlatform({
         <div className="min-[1024px]:pl-8">
           <header className="mb-4 flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-[16px] font-semibold">{donutTitle}</h3>
+              <h3 className="text-[13px] font-semibold text-ink-2">{donutTitle}</h3>
               <div className="mt-1 font-mono text-[12px] text-ink-3">% dominance</div>
             </div>
             <Dropdown value={metric} options={METRIC_OPTS} onChange={setMetric} />
@@ -156,7 +153,7 @@ export function IPByPlatform({
           <Donut shares={shares} hover={hover} setHover={setHover} metricLabel={METRIC_OPTS.find((o) => o.value === metric)!.label} />
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -222,7 +219,7 @@ function Donut({
             key={s.key}
             onMouseEnter={() => setHover(s.key)}
             onMouseLeave={() => setHover(null)}
-            className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 transition-colors ${hover === s.key ? "bg-bg-1" : ""}`}
+            className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 transition-colors ${hover === s.key ? "bg-bg-2" : ""}`}
           >
             <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: s.color }} />
             <span className="flex-1 truncate text-[13px] text-ink-2">{s.name}</span>

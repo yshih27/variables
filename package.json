@@ -24,6 +24,7 @@
     "warm-metric-snapshots": "tsx scripts/warm-metric-snapshots.ts",
     "warm-benchmarks": "tsx scripts/warm-benchmarks.ts",
     "warm-sale-panel": "tsx scripts/warm-sale-panel.ts",
+    "warm-secondary-sales": "tsx scripts/warm-secondary-sales.ts",
     "check-freshness": "tsx scripts/check-freshness.ts"
   },
   "dependencies": {

@@ -1,6 +1,8 @@
+import Link from "next/link";
 import type { PlatformDetail } from "@/lib/data/fetchPlatform";
 import type { Chain } from "@/lib/types";
 import { RailActions } from "./RailActions";
+import { FreshnessChips } from "./FreshnessChip";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
 const CHAIN_DOT: Record<Chain, string> = {
@@ -28,12 +30,7 @@ export function PlatformRail({ detail, mcapPct }: Props) {
     { k: "7d Volume", sub: "rolling 7 days", v: formatCompactUsd(detail.vol7Usd) },
     {
       k: "Primary 24h",
-      sub:
-        detail.primaryUsd == null
-          ? "not tracked"
-          : detail.source.key === "courtyard"
-            ? "tokenization"
-            : "gacha / primary",
+      sub: detail.primaryUsd == null ? "not tracked" : "gacha / primary",
       v: detail.primaryUsd != null ? formatCompactUsd(detail.primaryUsd) : "—",
     },
     {
@@ -122,6 +119,15 @@ export function PlatformRail({ detail, mcapPct }: Props) {
 
         {/* Actions */}
         <RailActions name={detail.source.name} />
+
+        {/* X7 — honest per-source freshness for what this page reads; /status
+            stays the deep view (no global "data as of" banner). */}
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <FreshnessChips sources={["core-volume", "marketcap", "listings", "holders"]} />
+          <Link href="/status" className="text-[11px] text-ink-4 transition-colors hover:text-yellow">
+            /status →
+          </Link>
+        </div>
       </div>
     </aside>
   );

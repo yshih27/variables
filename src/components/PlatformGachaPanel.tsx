@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PlatformDetail } from "@/lib/data/fetchPlatform";
+import { Section } from "./Section";
 import { formatCompactUsd } from "@/lib/format";
 
 /**
@@ -26,23 +27,17 @@ export function PlatformGachaPanel({ detail }: { detail: PlatformDetail }) {
   const primaryShare = total > 0 ? primary / total : 0;
 
   return (
-    <section className="mb-12 font-sans">
-      <header className="mb-4 flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[22px] font-bold tracking-[-0.02em]">Gacha sales</h2>
-          <div className="mt-1 font-mono text-[12px] text-ink-3">
-            Pack-pull spend on this platform · realized on-chain
-          </div>
-        </div>
-        <Link
-          href="/gacha"
-          className="shrink-0 font-mono text-[12px] text-ink-3 transition-colors hover:text-yellow"
-        >
+    <Section
+      title="Gacha sales"
+      subtitle="Pack-pull spend on this platform · realized on-chain"
+      right={
+        <Link href="/gacha" className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
           Full gacha breakdown →
         </Link>
-      </header>
-
-      <div className="grid grid-cols-1 gap-6 rounded-2xl border border-line bg-bg-1 p-6 min-[760px]:grid-cols-[1fr_1px_1fr] min-[760px]:gap-8">
+      }
+      className="mb-12 font-sans"
+    >
+      <div className="grid grid-cols-1 gap-6 pt-1 min-[760px]:grid-cols-[1fr_1px_1fr] min-[760px]:gap-8">
         {/* Pull volume + pace */}
         <div>
           <div className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-3">
@@ -84,7 +79,7 @@ export function PlatformGachaPanel({ detail }: { detail: PlatformDetail }) {
           </div>
         </div>
       </div>
-    </section>
+    </Section>
   );
 }
 

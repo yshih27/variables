@@ -3,8 +3,12 @@
  *
  *   • Collector Crypt: priced by the "Insured Value" trait (cards.insured_value_usd)
  *   • Beezie:          priced by the cheapest active listing (listings snapshot)
+ *   • Phygitals:       floor × supply (no per-card valuation exists — see
+ *                      processPhygitals); platform-level only, kept out of totals
+ *   • Courtyard:       BLOCKED — 0 cards in the `cards` table (the cards gap), so
+ *                      neither a per-card sum nor a floor×supply can be computed
  *   • Floor:           min per-token value within the group
- *   • mcap:            sum of per-token values
+ *   • mcap:            sum of per-token values (Phygitals: floor × supply)
  *
  *   npx tsx scripts/warm-marketcap.ts
  *
@@ -28,7 +32,9 @@ import {
   type MarketCapPlatformIP,
 } from "../src/lib/data/marketcap";
 import { readCardValuations } from "../src/lib/data/cards";
+import { readHolders } from "../src/lib/data/holders";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
+import { db } from "../src/lib/db/client";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 type Acc = {
@@ -123,6 +129,56 @@ async function processBeezie(byPlatform: Map<string, PlatAcc>) {
   console.log(`→ Beezie: ${cards.length} cards · ${priced} matched a listing`);
 }
 
+/** Phygitals' platform floor (min active listing) as written by warm-phygitals. */
+async function readPhygitalsFloorUsd(): Promise<number | null> {
+  const { data, error } = await db()
+    .from("entity_metrics")
+    .select("floor_usd")
+    .eq("entity_type", "platform")
+    .eq("entity_id", "phygitals")
+    .eq("period", "all")
+    .maybeSingle();
+  if (error) {
+    console.warn(`  phygitals floor read failed: ${error.message}`);
+    return null;
+  }
+  const f = (data as { floor_usd?: number } | null)?.floor_usd;
+  return typeof f === "number" && Number.isFinite(f) && f > 0 ? f : null;
+}
+
+/**
+ * Phygitals market cap = floor × supply. Unlike CC (insured value per card) and
+ * Beezie (per-listing price), we have NO per-card valuation over Phygitals' full
+ * supply — the marketplace crawl only indexes LISTED cards. So we estimate:
+ *   • floor  — min active listing (entity_metrics, from warm-phygitals)
+ *   • supply — every cNFT the holder scan enumerated (holders snapshot, R5)
+ * Recorded at the PLATFORM level only. byIp is left empty on purpose: a blended
+ * floor can't be honestly split per-IP, and mixing this floor-estimate into the
+ * cross-platform byIp/totals would distort the precise CC+Beezie market cap. So
+ * Phygitals gets its own `platform/phygitals/mcap_usd` spine point without moving
+ * the headline TOTAL MARKET CAP.
+ */
+async function processPhygitals(byPlatform: Map<string, PlatAcc>) {
+  const [holders, floor] = await Promise.all([readHolders(), readPhygitalsFloorUsd()]);
+  const supply = holders?.supply?.["phygitals"] ?? 0;
+  if (!(supply > 0) || floor == null) {
+    console.log(
+      `→ Phygitals: skipped mcap (supply=${supply || "—"}, floor=${floor ?? "—"}) — needs warm-holders(supply) + warm-phygitals(floor)`,
+    );
+    return;
+  }
+  const mcap = floor * supply;
+  const pAcc = platAccFor(byPlatform, "phygitals");
+  pAcc.cards = supply;
+  pAcc.cardsValued = supply;
+  pAcc.mcap = mcap;
+  pAcc.floor = floor;
+  // byIp intentionally empty — see doc above.
+  console.log(
+    `→ Phygitals: floor $${floor.toFixed(2)} × supply ${supply.toLocaleString()} = $${Math.round(mcap).toLocaleString()} mcap (platform-level floor estimate)`,
+  );
+}
+
 const finalFloor = (floor: number): number => (Number.isFinite(floor) ? floor : 0);
 
 async function main() {
@@ -131,8 +187,11 @@ async function main() {
 
   await processBeezie(byPlatform);
   await processCC(byPlatform);
+  await processPhygitals(byPlatform);
 
-  // Derive cross-platform byIp from byPlatform (single source of truth).
+  // Derive cross-platform byIp from byPlatform (single source of truth). Phygitals
+  // contributes a platform-level mcap only (empty byIp), so it doesn't fold into
+  // the cross-platform byIp/totals — see processPhygitals.
   const byIpAcc = new Map<string, Acc>();
   for (const pAcc of byPlatform.values()) {
     for (const [ip, ipAcc] of pAcc.byIp) {

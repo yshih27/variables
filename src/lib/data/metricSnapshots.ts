@@ -16,6 +16,18 @@
  * PK (entity_type, entity_key, metric, ts) makes every write idempotent: a
  * re-run overwrites the same day rather than duplicating it, and late-indexed
  * sales self-correct on the next run.
+ *
+ * ── TWO-TIER WINDOWING RULE (read this before comparing numbers across surfaces) ──
+ * The app shows the same metric over two different windows, by design:
+ *   • LIVE tier — hero stats, tables, "24h" figures — read the ROLLING-24h `snapshots`
+ *     blobs (core-volume / marketcap / holders / gacha-dune). "Last 24 hours from now."
+ *   • CHART tier — every time-series chart — reads THIS spine, which is COMPLETE-
+ *     CALENDAR-DAY (UTC midnight buckets). "Whole days, yesterday and back."
+ * So a rolling-24h hero number and the latest calendar-day chart point legitimately
+ * differ (they cover different spans) — that's not a bug. Everything in the spine,
+ * including `gacha_volume_usd` (from the daily-bucketed Dune queries), is calendar-day;
+ * never mix a rolling-24h value into a spine chart. Label the window in the UI ("24h"
+ * vs "daily") so the two tiers never read as a contradiction.
  */
 import { db } from "../db/client";
 
@@ -56,24 +68,41 @@ export async function writeMetricSnapshots(rows: MetricRow[]): Promise<number> {
 
 export type SeriesPoint = { ts: string; value: number };
 
+// PostgREST caps a response at 1000 rows by default. With `order(ts asc)` that
+// silently drops the NEWEST rows once a series exceeds 1000 points (Courtyard's
+// volume_usd is already ~950 days), which quietly truncates charts. Page past it.
+const PAGE = 1000;
+
 /** One metric's full series, oldest → newest. The frontend chart read path. */
 export async function readMetricSeries(
   entityType: MetricEntityType,
   entityKey: string,
   metric: string,
 ): Promise<SeriesPoint[]> {
-  const { data, error } = await db()
-    .from("metric_snapshots")
-    .select("ts,value")
-    .eq("entity_type", entityType)
-    .eq("entity_key", entityKey)
-    .eq("metric", metric)
-    .order("ts", { ascending: true });
-  if (error) {
-    console.warn(`[metric_snapshots] read "${entityType}/${entityKey}/${metric}" failed: ${error.message}`);
-    return [];
+  const out: SeriesPoint[] = [];
+  try {
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await db()
+        .from("metric_snapshots")
+        .select("ts,value")
+        .eq("entity_type", entityType)
+        .eq("entity_key", entityKey)
+        .eq("metric", metric)
+        .order("ts", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        console.warn(`[metric_snapshots] read "${entityType}/${entityKey}/${metric}" failed: ${error.message}`);
+        return out; // return whatever we have (empty on the first page)
+      }
+      const rows = data ?? [];
+      for (const r of rows) out.push({ ts: r.ts as string, value: Number(r.value) });
+      if (rows.length < PAGE) break; // last page — a <1000 series costs one round-trip
+    }
+  } catch (e) {
+    // Never throw (e.g. a db() env-missing throw at build) — degrade to what we have.
+    console.warn(`[metric_snapshots] read "${entityType}/${entityKey}/${metric}" threw: ${(e as Error).message}`);
   }
-  return (data ?? []).map((r) => ({ ts: r.ts as string, value: Number(r.value) }));
+  return out;
 }
 
 /**
@@ -85,22 +114,31 @@ export async function readMetricSeriesBulk(
   metric: string,
 ): Promise<Map<string, SeriesPoint[]>> {
   const out = new Map<string, SeriesPoint[]>();
-  const { data, error } = await db()
-    .from("metric_snapshots")
-    .select("entity_key,ts,value")
-    .eq("entity_type", entityType)
-    .eq("metric", metric)
-    .order("ts", { ascending: true });
-  if (error) {
-    console.warn(`[metric_snapshots] bulk read "${entityType}/${metric}" failed: ${error.message}`);
-    return out;
-  }
-  for (const r of data ?? []) {
-    const key = r.entity_key as string;
-    const arr = out.get(key);
-    const point = { ts: r.ts as string, value: Number(r.value) };
-    if (arr) arr.push(point);
-    else out.set(key, [point]);
+  try {
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await db()
+        .from("metric_snapshots")
+        .select("entity_key,ts,value")
+        .eq("entity_type", entityType)
+        .eq("metric", metric)
+        .order("ts", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) {
+        console.warn(`[metric_snapshots] bulk read "${entityType}/${metric}" failed: ${error.message}`);
+        return out;
+      }
+      const rows = data ?? [];
+      for (const r of rows) {
+        const key = r.entity_key as string;
+        const arr = out.get(key);
+        const point = { ts: r.ts as string, value: Number(r.value) };
+        if (arr) arr.push(point);
+        else out.set(key, [point]);
+      }
+      if (rows.length < PAGE) break;
+    }
+  } catch (e) {
+    console.warn(`[metric_snapshots] bulk read "${entityType}/${metric}" threw: ${(e as Error).message}`);
   }
   return out;
 }

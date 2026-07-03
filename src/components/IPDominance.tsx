@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Dropdown } from "./Dropdown";
+import { Section } from "./Section";
 
 export type DomMetric = "volume" | "cards" | "trades" | "avgTrade";
 export type DomEntity = { name: string; color: string; values: Record<DomMetric, number> };
@@ -21,6 +22,9 @@ const METRICS: ReadonlyArray<{ value: DomMetric; label: string }> = [
  * historical trend is drawn: the backend doesn't record per-set/grade/IP daily
  * history yet, and we don't fabricate one. (When metric_snapshots grows that
  * history, this can regain a real trend.)
+ *
+ * Each panel renders inside the shared <Section> frame (D1) — IPDominance is
+ * just the IP page's side-by-side pair of them.
  */
 export function IPDominance({
   sets,
@@ -34,16 +38,10 @@ export function IPDominance({
   gradesSeeAllHref?: string;
 }) {
   return (
-    <section className="mb-12 font-sans">
-      <div className="grid grid-cols-1 gap-10 min-[1024px]:grid-cols-2 min-[1024px]:gap-0 min-[1024px]:divide-x min-[1024px]:divide-line">
-        <div className="min-[1024px]:pr-8">
-          <DominancePanel title="Set dominance" source={sets} defaultMetric="volume" seeAllHref={setsSeeAllHref} />
-        </div>
-        <div className="min-[1024px]:pl-8">
-          <DominancePanel title="Grade dominance" source={grades} defaultMetric="cards" seeAllHref={gradesSeeAllHref} />
-        </div>
-      </div>
-    </section>
+    <div className="mb-12 grid grid-cols-1 gap-6 font-sans min-[1024px]:grid-cols-2">
+      <DominancePanel title="Set dominance" source={sets} defaultMetric="volume" seeAllHref={setsSeeAllHref} />
+      <DominancePanel title="Grade dominance" source={grades} defaultMetric="cards" seeAllHref={gradesSeeAllHref} />
+    </div>
   );
 }
 
@@ -52,11 +50,13 @@ export function DominancePanel({
   source,
   defaultMetric,
   seeAllHref,
+  className,
 }: {
   title: string;
   source: DominanceSource;
   defaultMetric: DomMetric;
   seeAllHref?: string;
+  className?: string;
 }) {
   const [metric, setMetric] = useState<DomMetric>(defaultMetric);
   const [hi, setHi] = useState<string | null>(null);
@@ -86,33 +86,32 @@ export function DominancePanel({
   const active = hi ? segments.find((s) => s.name === hi) : null;
 
   return (
-    <div>
-      <header className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-[16px] font-semibold">{title}</h3>
-          <div className="mt-1 font-mono text-[12px] text-ink-3">
-            current share of {metricLabel}
-            {seeAllHref && (
-              <>
-                {" · "}
-                <Link href={seeAllHref} className="text-ink-3 transition-colors hover:text-yellow">
-                  view all →
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-        <Dropdown value={metric} options={METRICS} onChange={setMetric} />
-      </header>
-
+    <Section
+      title={title}
+      subtitle={
+        <>
+          current share of {metricLabel}
+          {seeAllHref && (
+            <>
+              {" · "}
+              <Link href={seeAllHref} className="text-ink-3 transition-colors hover:text-yellow">
+                view all →
+              </Link>
+            </>
+          )}
+        </>
+      }
+      right={<Dropdown value={metric} options={METRICS} onChange={setMetric} />}
+      className={className}
+    >
       {segments.length === 0 ? (
-        <div className="flex h-11 items-center rounded-xl border border-line bg-bg-1 px-3 font-mono text-[12px] text-ink-4">
+        <div className="flex h-11 items-center rounded-xl border border-line bg-bg-2 px-3 font-mono text-[12px] text-ink-4">
           No data
         </div>
       ) : (
         <>
           {/* 100%-stacked share bar — real current shares */}
-          <div className="flex h-11 w-full overflow-hidden rounded-xl border border-line bg-bg-1">
+          <div className="flex h-11 w-full overflow-hidden rounded-xl border border-line bg-bg-2">
             {segments.map((s) => (
               <button
                 key={s.name}
@@ -164,6 +163,6 @@ export function DominancePanel({
           </div>
         </>
       )}
-    </div>
+    </Section>
   );
 }

@@ -29,7 +29,6 @@ import {
 } from "../gachaDuneCache";
 import { getCCMetadataCachedOnly } from "../ccTraits";
 import { normalizeTraits } from "../traits";
-import { recordFreshness } from "../../db/freshness";
 
 /** Rarity order, rarest → commonest, for display. */
 const TIER_ORDER = ["SPrT", "LGND", "Epic", "High", "Mid", "Low"];
@@ -89,10 +88,18 @@ function buildGachaPlatform(rows: DuneRow[]): GachaDunePlatform {
   };
 }
 
-function buildTokenization(rows: DuneRow[]): GachaDunePlatform {
+// Courtyard's Dune query returns a single AGGREGATE row (txns_/volume_ per
+// window), not the per-price-tier rows the other platforms give — so it has no
+// `byPrice` breakdown. It IS gacha (pack pulls: ~23K/24h at a ~$64 avg, not
+// variable-size vault deposits), just measured in aggregate. Classifying it
+// "gacha" folds its ~$1.5M/24h into the homepage/platform Gacha lane instead of
+// leaving it invisible under "Other primary" (the 6/25 ticket). Kept a separate
+// builder because the row SHAPE differs; the empty byPrice is honestly surfaced
+// downstream as "aggregate volume — per-pack odds not tracked yet".
+function buildAggregateGacha(rows: DuneRow[]): GachaDunePlatform {
   const r = rows[0] ?? {};
   return {
-    kind: "tokenization",
+    kind: "gacha",
     pulls24h: num(r.txns_24h),
     vol24h: num(r.volume_24h),
     pulls7d: num(r.txns_7d),
@@ -109,18 +116,20 @@ export type GachaWarmResult = {
   bigHits: number;
   topHitUsd: number;
   generatedAt: string;
+  /** Provenance for the runWarmer freshness row. */
+  rowsWritten?: number;
 };
 
 /**
  * Run the gacha warm: execute the Dune queries, build the snapshot, persist it
- * to Postgres, and record freshness. Pass `cachedOnly` to read Dune's last
- * cached results (zero credits) instead of forcing fresh executions.
+ * to Postgres. Freshness is recorded by the runWarmer wrapper at each entry point
+ * (CLI script + cron route); a 0-platform result THROWS so that wrapper logs an
+ * error row. Pass `cachedOnly` to read Dune's last cached results (zero credits).
  */
 export async function runGachaWarm(
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
 ): Promise<GachaWarmResult> {
   const log = opts.log ?? (() => {});
-  const startedAt = Date.now();
   // Gacha queries are refreshed daily and move slowly; self-heal the cache only
   // once it's clearly missed a daily fresh run (so it can't rot like cc-secondary did).
   const GACHA_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
@@ -144,7 +153,7 @@ export async function runGachaWarm(
     try {
       const rows = await fetchRows(queryId);
       const platform =
-        key === "courtyard" ? buildTokenization(rows) : buildGachaPlatform(rows);
+        key === "courtyard" ? buildAggregateGacha(rows) : buildGachaPlatform(rows);
       platforms[key] = platform;
       const dt = ((Date.now() - t0) / 1000).toFixed(0);
       log(
@@ -238,20 +247,19 @@ export async function runGachaWarm(
   };
   await writeGachaDune(snap);
 
-  const result: GachaWarmResult = {
-    platforms: Object.keys(platforms).length,
+  const platformCount = Object.keys(platforms).length;
+  // Soft-fail: every Dune platform query failed → throw so the runWarmer wrapper
+  // records an "error" row (health gate) instead of leaving a silent 0-platform run.
+  if (platformCount === 0) {
+    throw new Error("gacha-dune: 0 platforms produced (all Dune queries failed)");
+  }
+
+  return {
+    platforms: platformCount,
     totalPlatforms: Object.keys(GACHA_QUERY_IDS).length,
     bigHits: bigHits.length,
     topHitUsd: bigHits[0]?.valueUsd ?? 0,
     generatedAt: snap.generatedAt,
+    rowsWritten: platformCount,
   };
-
-  await recordFreshness("gacha-dune", {
-    status: result.platforms > 0 ? "ok" : "error",
-    rowsWritten: result.platforms,
-    durationMs: Date.now() - startedAt,
-    generatedAt: snap.generatedAt,
-  });
-
-  return result;
 }

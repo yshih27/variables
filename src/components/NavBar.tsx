@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
-const LINKS: Array<{ label: string; href: string; matchPrefix?: string }> = [
+const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLabel?: string }> = [
   { label: "Categories", href: "/ips", matchPrefix: "/ip" },
   { label: "Platforms", href: "/platforms", matchPrefix: "/platform" },
   { label: "Gacha", href: "/gacha" },
+  // shortLabel keeps the row from overflowing small phones (4 links + search).
+  { label: "Watchlist", href: "/watchlist", shortLabel: "★" },
 ];
 
 /** A single clickable stat in the top ticker. */
@@ -120,7 +122,16 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
                   active ? "bg-bg-2 text-ink" : "text-ink-3 hover:text-ink"
                 }`}
               >
-                {link.label}
+                {link.shortLabel ? (
+                  <>
+                    <span className="sm:hidden" aria-label={link.label}>
+                      {link.shortLabel}
+                    </span>
+                    <span className="hidden sm:inline">{link.label}</span>
+                  </>
+                ) : (
+                  link.label
+                )}
               </Link>
             );
           })}

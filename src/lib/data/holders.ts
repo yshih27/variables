@@ -13,6 +13,22 @@ export type HoldersSnapshot = {
   generatedAt: string;
   platforms: Record<string, number>;
   byIp: Record<string, HoldersIPEntry>;
+  /**
+   * TRUE cross-platform holder count (unique wallets), computed in the warmer.
+   * beezie (Base) can't overlap the Solana platforms, but CC + Phygitals are both
+   * Solana and share an address space, so this unions their owner sets rather than
+   * summing (a plain sum double-counts wallets active on both — X2). Optional for
+   * back-compat with older snapshots; readers fall back to the per-platform sum.
+   */
+  totalHolders?: number;
+  /**
+   * Circulating token SUPPLY per platform = every asset the holder scan enumerated
+   * (not wallets). Phygitals cards aren't fully indexed anywhere else (the
+   * marketplace crawl only sees LISTED cards), so this is the only true supply
+   * count we have — used for its floor×supply market cap. Optional (older snapshots
+   * predate it); carried forward when a scan fails so an outage can't zero it.
+   */
+  supply?: Record<string, number>;
 };
 
 export async function readHolders(): Promise<HoldersSnapshot | null> {

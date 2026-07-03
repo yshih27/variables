@@ -48,7 +48,9 @@ export type GachaOddsMeta = {
 };
 
 export type GachaDunePlatform = {
-  /** "gacha" = randomized pull mechanic; "tokenization" = pay-to-vault (Courtyard). */
+  /** "gacha" = pack-pull spend (Courtyard included: aggregate on-chain volume,
+   *  no per-tier rows); "tokenization" = pay-to-vault (reserved; unused as of R5
+   *  after Courtyard was reclassified gacha per the product owner + $64-avg data). */
   kind: "gacha" | "tokenization";
   pulls24h: number;
   vol24h: number;
@@ -56,7 +58,8 @@ export type GachaDunePlatform = {
   vol7d: number;
   pulls30d: number;
   vol30d: number;
-  /** Per-price-tier breakdown, sorted by 30d volume desc. Empty for tokenization. */
+  /** Per-price-tier breakdown, sorted by 30d volume desc. Empty for aggregate-only
+   *  platforms (Courtyard), whose Dune query returns one summary row, not tiers. */
   byPrice: GachaPriceBucket[];
   /** Realized odds, rarest/best→commonest. CC: rarity tiers (on-chain wallets);
    *  Phygitals: prize-value bands (from the CLAW feed). null where neither exists. */

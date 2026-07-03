@@ -117,13 +117,7 @@ export function PlatformDetailStats({ detail }: { detail: PlatformDetail }) {
       <Cell
         label="Primary"
         value={detail.primaryUsd != null ? formatCompactUsd(detail.primaryUsd) : "—"}
-        sub={
-          detail.primaryUsd == null
-            ? "not tracked"
-            : detail.source.key === "courtyard"
-              ? "tokenization · 24h est"
-              : "primary market · 24h"
-        }
+        sub={detail.primaryUsd == null ? "not tracked" : "primary market · 24h"}
       />
       <Cell label="24h Trades" value={formatInt(detail.trades24h)} sub="secondary sales" />
       <Cell

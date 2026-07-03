@@ -11,6 +11,7 @@
  */
 import { revalidateTag } from "next/cache";
 import { runGachaWarm } from "@/lib/data/warmers/gacha";
+import { runWarmer } from "@/lib/db/runWarmer";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Dune runQuery can take up to ~3 min per query
@@ -26,7 +27,7 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   try {
-    const result = await runGachaWarm({ cachedOnly: false });
+    const result = await runWarmer("gacha-dune", () => runGachaWarm({ cachedOnly: false }));
     // Mark the gacha data stale (stale-while-revalidate on next visit).
     try {
       revalidateTag("gacha", "max");

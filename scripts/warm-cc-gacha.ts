@@ -12,8 +12,11 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { runCCGachaWarm } from "../src/lib/data/warmers/ccGacha";
+import { runWarmer } from "../src/lib/db/runWarmer";
 
-runCCGachaWarm({ log: (m) => console.log(m) })
+// runWarmer records source_freshness on every outcome (ok / soft-fail throw /
+// mid-run throw) and re-throws, so the Actions health gate sees a dead warmer.
+runWarmer("cc-gacha", () => runCCGachaWarm({ log: (m) => console.log(m) }))
   .then((r) => {
     console.log(
       `\nWrote gacha:cc — ${r.publicPacks} public packs (${r.machines} machines) · ${r.sampledPulls} pulls sampled · top hit $${Math.round(r.topHitUsd).toLocaleString()}`,

@@ -6,21 +6,25 @@ import { CategoryTrendChart } from "@/components/CategoryTrendChart";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { readMetricSeriesBulk } from "@/lib/data/metricSnapshots";
-import { buildPlatformTrend } from "@/lib/platform/rollup";
+import { buildPlatformTrend, buildVolumeSplitTrend } from "@/lib/platform/rollup";
 
 const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v5"], {
   revalidate: 3600,
   tags: ["homepage"],
 });
 
-/** Per-platform daily spine series (keyed by metric), for the by-platform trend. */
+/** Per-platform daily spine series (keyed by metric), for the by-platform trend.
+ *  v2 (R5-1): v1 cached an empty `mcap_usd` map from before the spine carried
+ *  per-platform market cap, which left the "Market cap" trend view blank. */
 const getPlatformSeries = unstable_cache(
   async (metric: string) => Object.fromEntries(await readMetricSeriesBulk("platform", metric)),
-  ["platforms-series:v1"],
+  ["platforms-series:v2"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-export const dynamic = "force-dynamic";
+// ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
+// All reads are unstable_cache-backed; no cookies/headers/searchParams here.
+export const revalidate = 1800;
 
 export const metadata = {
   title: "All Platforms · VARIABLE",
@@ -28,19 +32,18 @@ export const metadata = {
 };
 
 export default async function AllPlatformsPage() {
-  const [data, mktSeries, mcapSeries] = await Promise.all([
+  const [data, mktSeries, gachaSeries, mcapSeries] = await Promise.all([
     getData(),
     getPlatformSeries("volume_usd"),
+    getPlatformSeries("gacha_volume_usd"),
     getPlatformSeries("mcap_usd"),
   ]);
 
-  // Marketplace (secondary resale) + market cap only — both reconciled/reliable.
-  // The spine's `gacha_volume_usd` runs ~60× below the live gacha 24h figures
-  // (and spiky), so it's not trustworthy to chart yet; the StatBar + table show
-  // the accurate live gacha numbers. Re-add a gacha trend once the backend
-  // reconciles that series the way `volume_usd` was reconciled in PR #17.
+  // Primary metric = Volume | Market cap (R2-F3). Volume decomposes by TYPE into
+  // Marketplace (secondary resale) + Gacha (primary) rather than mixing a volume
+  // sub-type against a stock metric in one toggle. Market cap stays per-platform.
   const trendViews = [
-    { key: "marketplace", label: "Marketplace", data: buildPlatformTrend(mktSeries, "zero") },
+    { key: "volume", label: "Volume", data: buildVolumeSplitTrend(mktSeries, gachaSeries) },
     { key: "mcap", label: "Market cap", data: buildPlatformTrend(mcapSeries, "hold") },
   ];
 
@@ -61,8 +64,8 @@ export default async function AllPlatformsPage() {
         </div>
         <PlatformStatBar rows={data.platforms} />
         <div className="space-y-6">
-          <CategoryTrendChart views={trendViews} defaultKey="marketplace" entityLabel="platform" />
-          <PlatformTable rows={data.platforms} />
+          <CategoryTrendChart views={trendViews} defaultKey="volume" entityLabel="platform" />
+          <PlatformTable rows={data.platforms} chainFacets />
         </div>
       </div>
     </>
