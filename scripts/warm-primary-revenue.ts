@@ -11,7 +11,9 @@
  *
  *   npx tsx scripts/warm-primary-revenue.ts
  *
- * Run every 6h (core batch, alongside warm-listings / warm-marketcap).
+ * Run DAILY (moved off the 6h core batch 7/3: the Solana enhanced-tx crawl is a
+ * heavy Helius credit-burner — see tallySolana). CC/Phygitals primary now comes
+ * from the Dune gacha-daily feeds instead; only the EVM (Etherscan) legs remain here.
  *
  * Sources used:
  *   EVM (Polygon, Base):  Etherscan v2 unified API
@@ -30,7 +32,6 @@ config({ path: ".env.local" });
 
 import { PLATFORM_SOURCES, type PlatformSource, type PrimaryWalletConfig } from "../src/lib/data/sources";
 import { getTokenTransfers } from "../src/lib/etherscan/client";
-import { getProgramTransactionsPage } from "../src/lib/helius/queries";
 import {
   writePrimaryRevenue,
   type PrimaryPlatformEntry,
@@ -196,78 +197,11 @@ async function tallyEvm(
   return accumulate(allTransfers, cutoff24, cutoff7, cfg, receiversLower, exclusionsLower, complete7d);
 }
 
-// ─── Solana (Collector Crypt, Phygitals) ──────────────────────────────
-
-async function tallySolana(
-  source: PlatformSource,
-  cfg: PrimaryWalletConfig,
-  nowS: number,
-): Promise<Tally> {
-  const cutoff24 = nowS - DAY_S;
-  const cutoff7 = nowS - WEEK_S;
-  const receiversLower = new Set(cfg.receivers.map(lc));
-  const exclusionsLower = new Set(cfg.internalExclusions.map(lc));
-
-  const allTransfers: { amount: number; sender: string; ts: number }[] = [];
-  let complete7d = true;
-
-  for (const receiver of cfg.receivers) {
-    // Walk enhanced-tx pages until we cross the 7d cutoff. Each enhanced tx
-    // surfaces all SPL transfers in `tokenTransfers`; we keep ones where
-    // the mint matches our currency and `toUserAccount` is this receiver.
-    //
-    // MAX_PAGES is generous so high-volume wallets (CC's GachaNgyXT can do
-    // 100K+ enhanced-tx per week) actually walk back the full 7d window.
-    const MAX_PAGES = 1000;
-    const PAGE_SIZE = 100;
-    let before: string | undefined;
-    let pages = 0;
-    let received = 0;
-    let crossed = false;
-    let endOfHistory = false;
-    while (pages < MAX_PAGES) {
-      const page = await getProgramTransactionsPage(receiver, { before, limit: PAGE_SIZE });
-      if (page.length === 0) {
-        endOfHistory = true;
-        break;
-      }
-      for (const tx of page) {
-        if (tx.timestamp < cutoff7) {
-          crossed = true;
-          break;
-        }
-        if (tx.transactionError) continue;
-        for (const t of tx.tokenTransfers) {
-          if (t.mint !== cfg.currencyAddress) continue;
-          if (!t.toUserAccount || lc(t.toUserAccount) !== lc(receiver)) continue;
-          if (!t.fromUserAccount) continue;
-          const amount = t.tokenAmount; // Helius enhanced amounts are already human-units
-          if (!Number.isFinite(amount) || amount <= 0) continue;
-          allTransfers.push({
-            amount,
-            sender: lc(t.fromUserAccount),
-            ts: tx.timestamp,
-          });
-          received += 1;
-        }
-      }
-      if (crossed) break;
-      if (page.length < PAGE_SIZE) {
-        endOfHistory = true;
-        break;
-      }
-      before = page[page.length - 1].signature;
-      pages += 1;
-    }
-    // We're confident about 7d for this receiver iff we either crossed the
-    // cutoff OR ran out of history. Hitting the page cap = undercount.
-    const receiverComplete = crossed || endOfHistory;
-    if (!receiverComplete) complete7d = false;
-    const flag = receiverComplete ? "" : "  ⚠ hit page cap, 7d undercounted";
-    process.stdout.write(`    ${receiver.slice(0, 10)}…  +${received} tx (${pages + 1} pages)${flag}\n`);
-  }
-  return accumulate(allTransfers, cutoff24, cutoff7, cfg, receiversLower, exclusionsLower, complete7d);
-}
+// Solana enhanced-tx tally REMOVED 7/3: it walked up to 1000 pages of Helius
+// getEnhancedTransactions per receiver every run (~350K credits/day) to compute
+// CC/Phygitals primary volume that resolvePrimaryUsd already reads from the Dune
+// gacha feed. Restore from git history only alongside a since-cursor + credit
+// budget (see the Helius credit meter in src/lib/helius/client.ts) if ever needed.
 
 // ─── Main ─────────────────────────────────────────────────────────────
 
@@ -280,13 +214,19 @@ async function main() {
       console.log(`→ ${source.key}: no primary config, skipping`);
       continue;
     }
+    // Solana primary (CC, Phygitals) is now sourced from the Dune gacha feeds
+    // (GACHA_QUERY_IDS → resolvePrimaryUsd reads gacha-dune first for these), so we
+    // SKIP the Helius enhanced-tx crawl that used to walk 7d of getEnhancedTransactions
+    // per receiver every run — a ~350K-credit/day burner. Only the cheap EVM legs
+    // (Etherscan) run here now, as a fallback for when the Dune feed lacks a platform.
+    if (source.chain === "Solana") {
+      console.log(`→ ${source.key}: Solana primary now from the Dune gacha feed — skipping the Helius enhanced-tx crawl`);
+      continue;
+    }
     console.log(`→ ${source.key} (${source.chain}): ${source.primary.receivers.length} receivers`);
     const t0 = Date.now();
     try {
-      const tally =
-        source.chain === "Solana"
-          ? await tallySolana(source, source.primary, nowS)
-          : await tallyEvm(source, source.primary, nowS);
+      const tally = await tallyEvm(source, source.primary, nowS);
       platforms[source.key] = tallyToEntry(tally);
       const dt = ((Date.now() - t0) / 1000).toFixed(1);
       console.log(

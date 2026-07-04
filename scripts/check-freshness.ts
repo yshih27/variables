@@ -16,6 +16,13 @@ import {
   freshnessState,
   SOURCE_INTERVALS_MS,
 } from "../src/lib/db/freshness";
+import { readSnapshot } from "../src/lib/db/snapshots";
+import type { HeliusCreditsSnapshot } from "../src/lib/db/runWarmer";
+
+// A single warmer run over this many Helius credits is almost certainly a runaway
+// crawl (legit heaviest = holders ≈ 285). Flagged in the report; the HARD stop is
+// the per-run budget in the Helius client (a breach throws → error → gate red).
+const HELIUS_BURN_WARN = 50_000;
 
 function fmtAge(ms: number | null): string {
   if (ms == null) return "—";
@@ -61,6 +68,22 @@ async function main() {
   for (const s of snaps ?? []) {
     const ageMs = Date.now() - new Date(s.generated_at as string).getTime();
     console.log(`  ${(s.key as string).padEnd(24)} ${fmtAge(ageMs).padStart(4)} ago`);
+  }
+
+  // ── Helius credit burn (per warmer run) — catch a runaway crawl in the report,
+  //    not on the invoice. Recorded by runWarmer from the client's credit meter. ──
+  const credits = await readSnapshot<HeliusCreditsSnapshot>("helius-credits").catch(() => null);
+  const creditEntries = Object.entries(credits?.bySource ?? {}).sort((a, b) => b[1].credits - a[1].credits);
+  if (creditEntries.length) {
+    console.log("\nHELIUS CREDIT BURN (last run per source)");
+    let total = 0;
+    for (const [source, { credits: c, at }] of creditEntries) {
+      total += c;
+      const ageMs = Date.now() - new Date(at).getTime();
+      const flag = c >= HELIUS_BURN_WARN ? "  ⚠ RUNAWAY?" : "";
+      console.log(`  ${source.padEnd(20)} ~${c.toLocaleString().padStart(9)} cr  ${fmtAge(ageMs).padStart(4)} ago${flag}`);
+    }
+    console.log(`  ${"TOTAL".padEnd(20)} ~${total.toLocaleString().padStart(9)} cr / cycle`);
   }
 
   console.log(

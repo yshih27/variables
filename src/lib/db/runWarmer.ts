@@ -15,9 +15,36 @@
  * staleness verdict can't drift between the warmer, the script, and the UI.
  */
 import { recordFreshness, SOURCE_INTERVALS_MS } from "./freshness";
+import { heliusCreditsUsed } from "../helius/client";
+import { readSnapshot, writeSnapshot } from "./snapshots";
 
 /** A warmer may return its row count for provenance, or nothing. */
 export type WarmerOutcome = { rowsWritten?: number } | void;
+
+/** Per-source Helius credit spend, so check-freshness can flag a runaway crawl in
+ *  the health gate instead of leaving it to show up on the Helius invoice. Kept in
+ *  the `snapshots` table (no schema change); each Helius warmer's run overwrites its
+ *  own source. Recorded even on a throw (a budget-exceeded run is exactly when we
+ *  most want the number). Metering must never sink a warmer, so it swallows errors. */
+export type HeliusCreditsSnapshot = {
+  generatedAt: string;
+  bySource: Record<string, { credits: number; at: string }>;
+};
+
+async function recordHeliusCredits(source: string): Promise<void> {
+  const credits = heliusCreditsUsed();
+  if (credits <= 0) return; // non-Helius warmer — nothing to record
+  try {
+    const now = new Date().toISOString();
+    const cur =
+      (await readSnapshot<HeliusCreditsSnapshot>("helius-credits")) ?? { generatedAt: now, bySource: {} };
+    cur.bySource[source] = { credits, at: now };
+    cur.generatedAt = now;
+    await writeSnapshot("helius-credits", cur, now);
+  } catch (e) {
+    console.warn(`[helius-credits] record failed for "${source}": ${(e as Error).message}`);
+  }
+}
 
 export async function runWarmer<T extends WarmerOutcome>(
   source: string,
@@ -50,5 +77,7 @@ export async function runWarmer<T extends WarmerOutcome>(
       nextExpectedAt,
     });
     throw err;
+  } finally {
+    await recordHeliusCredits(source);
   }
 }

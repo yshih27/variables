@@ -73,7 +73,6 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   marketcap: 6 * HOUR_MS,
   listings: 6 * HOUR_MS,
   "courtyard-primary": 6 * HOUR_MS,
-  "primary-revenue": 6 * HOUR_MS,
   history: 6 * HOUR_MS,
   "gacha-dune": 6 * HOUR_MS,
   "phygitals-gacha": 6 * HOUR_MS,
@@ -85,6 +84,7 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   holders: DAY_MS,
   "beezie-traits": DAY_MS,
   phygitals: DAY_MS,
+  "primary-revenue": DAY_MS, // moved off the 6h batch (Helius credit-burner)
   "metric-snapshots": DAY_MS,
   "secondary-sales": DAY_MS,
   // weekly batch — every 7d

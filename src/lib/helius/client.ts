@@ -18,6 +18,39 @@ function apiKey(): string {
   return k;
 }
 
+// ─────────────────────────── Credit meter ───────────────────────────
+// Every Helius call is metered so a runaway crawl surfaces in check-freshness and
+// trips a HARD per-run budget — instead of silently landing on the Helius bill (a
+// dormant enhanced-tx warmer woke on the 7/1 key rotation and burned ~350K
+// credits/day). The Enhanced Transactions REST API is the pricey path (~100× a DAS
+// RPC call); weights are approximate but the ratio is what catches a burner.
+const CREDIT_PER_CALL = { das: 1, enhanced: 100 } as const;
+// Generous vs legit usage (holders ≈ 285 credits/run) but far under a runaway (the
+// removed enhanced-tx crawl was ~500K/run) — so a re-introduced or accidental
+// burner THROWS → runWarmer records an "error" → the health gate reddens. Tune with
+// HELIUS_CREDIT_BUDGET (unset = the default; set a small value to stress-test).
+const CREDIT_BUDGET = (() => {
+  const raw = Number(process.env.HELIUS_CREDIT_BUDGET);
+  return Number.isFinite(raw) && raw > 0 ? raw : 250_000;
+})();
+
+let creditsUsed = 0;
+
+/** Estimated Helius credits this process (≈ this warmer run) has spent. */
+export function heliusCreditsUsed(): number {
+  return creditsUsed;
+}
+
+function charge(kind: keyof typeof CREDIT_PER_CALL): void {
+  creditsUsed += CREDIT_PER_CALL[kind];
+  if (creditsUsed > CREDIT_BUDGET) {
+    throw new Error(
+      `Helius credit budget exceeded this run: ~${creditsUsed} > ${CREDIT_BUDGET} credits. ` +
+        `A crawl is walking too far — bound it (since-cursor / page cap) or raise HELIUS_CREDIT_BUDGET.`,
+    );
+  }
+}
+
 /**
  * Single retry with short backoff. We deliberately don't retry many times in
  * the request path because Server Components have a tight time budget; long
@@ -42,6 +75,7 @@ async function withRetry<T>(fn: () => Promise<Response>, path: string, maxRetrie
 }
 
 export async function dasCall<T>(method: string, params: unknown): Promise<T> {
+  charge("das");
   const body = await withRetry<{ result?: T; error?: { message: string } }>(
     () =>
       fetch(RPC_URL(apiKey()), {
@@ -57,6 +91,7 @@ export async function dasCall<T>(method: string, params: unknown): Promise<T> {
 }
 
 export async function enhancedGet<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+  charge("enhanced");
   const url = new URL(`${ENHANCED_BASE}${path}`);
   url.searchParams.set("api-key", apiKey());
   if (params) {
