@@ -87,6 +87,9 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "primary-revenue": DAY_MS, // moved off the 6h batch (Helius credit-burner)
   "metric-snapshots": DAY_MS,
   "secondary-sales": DAY_MS,
+  // indices batch — daily 06:00 (its own job, after the daily batch)
+  benchmarks: DAY_MS,
+  "price-index": DAY_MS,
   // weekly batch — every 7d
   "cc-traits": 7 * DAY_MS,
 };

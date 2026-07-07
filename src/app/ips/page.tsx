@@ -10,6 +10,9 @@ import { readMetricSeriesBulk } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
 import { buildPriceComparison, PRICE_RANGES } from "@/lib/data/perfCompare";
 
+// BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
+// the old shape). v6: added platform pct7d. Wraps the same fetchHomepage() as
+// homepage:v42 (src/app/page.tsx) — keep the two versions moving in lockstep.
 const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v6"], {
   revalidate: 3600,
   tags: ["homepage"],

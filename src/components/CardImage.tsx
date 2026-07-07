@@ -100,11 +100,14 @@ export function CardImage({
   fallback,
   alt,
   color,
+  // Default lazy (F8-5); above-fold callers (the card-page hero) opt into eager.
+  loading = "lazy",
 }: {
   primary?: string;
   fallback?: string;
   alt: string;
   color?: string;
+  loading?: "lazy" | "eager";
 }) {
   const sources = [primary, fallback].filter(Boolean) as string[];
   const [idx, setIdx] = useState(0);
@@ -124,7 +127,7 @@ export function CardImage({
       src={src}
       alt={alt}
       className="h-full w-full rounded-xl border border-line/60 bg-bg-1 object-contain p-2 drop-shadow-[0_10px_24px_rgba(0,0,0,0.5)]"
-      loading="eager"
+      loading={loading}
       onError={() => setIdx((i) => i + 1)}
     />
   );

@@ -21,7 +21,7 @@ type Props = {
   teaser?: boolean;
 };
 
-type SortKey = "mcap" | "dom" | "d1" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers";
+type SortKey = "mcap" | "dom" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers";
 type VolWindow = "24h" | "7d";
 
 function mcapValue(ip: IPRow): number {
@@ -35,8 +35,6 @@ function valueFor(ip: IPRow, key: SortKey, vw: VolWindow): number {
     case "mcap":
     case "dom":
       return mcapValue(ip); // dominance ranks identically to market cap
-    case "d1":
-      return ip.pct1d ?? NaN;
     case "d7":
       return ip.pct7d ?? NaN;
     case "d30":
@@ -161,7 +159,9 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
               <SortTh align="right" info="marketCap" {...sortProps("mcap")}>Market Cap</SortTh>
               <SortTh align="right" className={keptCls} info="volume24h" {...sortProps("vol")}>{teaser ? "24h Vol" : `${vw} Vol`}</SortTh>
               {full && <SortTh align="right" className="hidden lg:table-cell" info="dominance" {...sortProps("dom")}>Dom %</SortTh>}
-              {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("d1")}>24h</SortTh>}
+              {/* 24h Δ dropped (F8-1): it derived from mcap_usd, which is ~static
+                  day-to-day, so the column read "+0.0%" everywhere. mcap Δ needs a
+                  multi-day base to mean anything — keep 7d/30d only. */}
               <SortTh align="right" className={keptCls} {...sortProps("d7")}>{teaser ? "Δ 7d" : "7d"}</SortTh>
               {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>30d</SortTh>}
               {full && <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards 24h</SortTh>}
@@ -201,7 +201,6 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
                   <Td align="right" strong>{formatMcap(ip.mcapUsd, ip.cards)}</Td>
                   <Td align="right" className={keptCls}>{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
                   {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
-                  {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct1d : null} /></Td>}
                   <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
                   {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}
                   {full && <Td align="right" className="hidden md:table-cell">{formatCompactNumber(ip.cards)}</Td>}

@@ -1,5 +1,9 @@
 import { NavBar } from "@/components/NavBar";
 
+// Static hand-authored content — cache it and revalidate hourly instead of
+// re-rendering per request (F8-4).
+export const revalidate = 3600;
+
 export const metadata = {
   title: "Methodology · VARIABLE",
   description:

@@ -14,6 +14,10 @@ import { rebaseSeries, readIndexSeries } from "@/lib/data/indices";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
+  // BUMP this version on ANY change to fetchHomepage's payload shape — a stale
+  // cache would otherwise serve the old shape and break the page. v42: added
+  // platform pct7d (7d momentum). Keep in lockstep with ips-fulllist:v6 (src/app/
+  // ips/page.tsx), which wraps the same fetchHomepage() and must move together.
   ["homepage:v42"],
   { revalidate: 3600, tags: ["homepage"] },
 );

@@ -6,7 +6,9 @@ import { GachaPackMatrix } from "@/components/GachaPackMatrix";
 import { getGachaPayload } from "@/lib/data/fetchGacha";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
-export const dynamic = "force-dynamic";
+// ISR: gacha data lands on ~6h warmers, so cached HTML with hourly background
+// revalidate is plenty fresh and spares a full re-fetch per request (F8-3).
+export const revalidate = 3600;
 
 export const metadata = {
   title: "Gacha · VARIABLE",

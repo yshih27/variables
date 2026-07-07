@@ -106,7 +106,7 @@ export function CardDetailView({ card }: { card: CardDetail }) {
           letterboxed into a slab's portrait aspect (R6-1). */}
       <div className="grid gap-8 md:grid-cols-[minmax(0,340px)_1fr]">
         <div className={`${sealed ? "aspect-square" : "aspect-[5/7]"} w-full max-w-[340px]`}>
-          <CardImage primary={card.image} fallback={card.imageFallback} alt={card.name} />
+          <CardImage primary={card.image} fallback={card.imageFallback} alt={card.name} loading="eager" />
         </div>
 
         <div className="min-w-0">
