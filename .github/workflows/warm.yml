@@ -19,13 +19,14 @@ on:
     - cron: "30 5 * * *" # daily 05:30 UTC — holders, beezie traits, fresh gacha
     - cron: "0 6 * * *" # daily 06:00 UTC — indices (benchmarks + sale-panel), after the daily batch
     - cron: "0 4 * * 1" # Mondays 04:00 UTC — full CC trait crawl (heavy)
+    - cron: "0 8 * * 1" # Mondays 08:00 UTC — weekly report (after cc-traits/daily/indices are done)
   workflow_dispatch:
     inputs:
       batch:
         description: Which batch to run
         type: choice
         default: core
-        options: [core, daily, indices, cc-traits]
+        options: [core, daily, indices, cc-traits, weekly-report]
 
 # One run at a time; never cancel an in-flight warm (cancelling mid-write is
 # what used to lose data — keep cancel-in-progress false).
@@ -89,12 +90,17 @@ jobs:
         # Must run AFTER phygitals-gacha and cc-gacha (reads what they write).
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-packs.ts
+      - name: Homepage payload precompute
+        # Pure derivation of the one-row blob fetchHomepage serves (B9-1). Runs
+        # LAST — it reads what every step above wrote.
+        continue-on-error: true
+        run: npx tsx scripts/warm-homepage.ts
       # Health gate — the steps above are continue-on-error (one flaky source can't
       # block the rest), which also hid dead warmers behind a green run. This final
       # step (NOT continue-on-error) fails the job if any of this batch's warmers
       # errored, so the Actions run goes RED → built-in failure notification.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,homepage
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:
@@ -136,8 +142,11 @@ jobs:
       - name: Metric snapshots (time-series spine)
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
+      - name: Homepage payload precompute # re-derive off the fresh daily data (B9-1)
+        continue-on-error: true
+        run: npx tsx scripts/warm-homepage.ts
       - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
-        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,homepage
 
   # ── Indices — benchmarks + price-index sale panel. Own job + tight timeout so a
   #    slow panel build can't starve the daily batch; runs at 06:00, after daily. ──
@@ -162,6 +171,29 @@ jobs:
         run: npx tsx scripts/warm-sale-panel.ts
       - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
         run: npx tsx scripts/check-freshness.ts --require=benchmarks,price-index
+
+  # ── Weekly report — movers ranker + composer → `weekly-report` snapshot (B9-2).
+  #    Mondays 08:00, covering the just-completed Mon→Mon UTC week. Pure derivation
+  #    over the spine + cached feeds; scheduled after cc-traits (04:00) / daily
+  #    (05:30) / indices (06:00) so it reads a fully-refreshed week. ──
+  weekly-report:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 8 * * 1')
+      || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'weekly-report')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Weekly report (movers + composer)
+        continue-on-error: true
+        run: npx tsx scripts/warm-weekly-report.ts
+      - name: Health gate # fails the job (→ Actions notifies) if the composer errored
+        run: npx tsx scripts/check-freshness.ts --require=weekly-report
 
   # ── Weekly — full CC collection trait crawl (~122K assets, slow) ──
   # Its own job + a generous timeout: this crawl is what kept blowing the old

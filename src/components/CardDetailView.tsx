@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { CardImage } from "./CardImage";
 import { BuyLinks } from "./BuyLinks";
+import { CardPriceHistory } from "./CardPriceHistory";
 import { formatCompactUsd } from "@/lib/format";
 import type { CardDetail } from "@/lib/card/fetchCard";
+import type { CardSalesHistory } from "@/lib/data/cardSales";
 import { buyLinks } from "@/lib/links/buyLinks";
 import { isSealed } from "@/lib/card/sealed";
 
@@ -21,8 +23,8 @@ const CHAIN_COLOR: Record<string, string> = {
   Ethereum: "#b8b8b8",
 };
 
+// "Price history" graduated out of this list into its own real section (F9-3).
 const SOON = [
-  ["Price history", "Hourly snapshots → real 7D / 30D / 1Y charts"],
   ["Across platforms", "Cheapest copy of this card on Beezie, Collector Crypt & Courtyard"],
   ["Sales & holders", "Per-card sales log, holder count and grade ladder"],
 ] as const;
@@ -56,7 +58,7 @@ function GradeBadge({
   );
 }
 
-export function CardDetailView({ card }: { card: CardDetail }) {
+export function CardDetailView({ card, salesHistory }: { card: CardDetail; salesHistory: CardSalesHistory }) {
   const t = card.traits;
   const sealed = isSealed(card.name, card.gradeLabel);
   // Buy venues only — the resolver's Solscan entry is dropped here because the
@@ -178,13 +180,16 @@ export function CardDetailView({ card }: { card: CardDetail }) {
         </div>
       </div>
 
+      {/* Real price history (F9-3) — sparse-honest realized sales. */}
+      <CardPriceHistory history={salesHistory} />
+
       {/* Roadmap / honest "soon" states */}
       <section className="mt-14">
         <h2 className="text-[20px] font-semibold tracking-[-0.005em]">Card analytics</h2>
         <div className="mt-1 text-[12px] text-ink-3">
           These unlock as the new data pipeline comes online.
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {SOON.map(([title, desc]) => (
             <div key={title} className="rounded-xl border border-line/60 bg-bg-1 p-4">
               <div className="flex items-center justify-between gap-2">

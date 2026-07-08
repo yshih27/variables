@@ -93,22 +93,29 @@ function buildBucket(
 }
 
 /**
+ * Uncached builder — for warmers running OUTSIDE the Next server (unstable_cache
+ * throws "Invariant: incrementalCache missing" there, e.g. under `npx tsx`).
+ * In-app callers use getPlatformBuckets below.
+ */
+export async function buildPlatformBuckets(): Promise<PlatformBucket[]> {
+  const core = await readCoreVolume();
+  return Promise.all(
+    PLATFORM_SOURCES.map(async (source) => {
+      const [history, primaryUsd] = await Promise.all([
+        readHistory(source.key).then((h) => h?.buckets ?? null),
+        resolvePrimaryUsd(source.key),
+      ]);
+      return buildBucket(source, core, history, primaryUsd);
+    }),
+  );
+}
+
+/**
  * Cached for 1h. Homepage, IP, and platform pages share this fetch. Pure
  * snapshot reads — zero request-time network calls.
  */
 export const getPlatformBuckets = unstable_cache(
-  async (): Promise<PlatformBucket[]> => {
-    const core = await readCoreVolume();
-    return Promise.all(
-      PLATFORM_SOURCES.map(async (source) => {
-        const [history, primaryUsd] = await Promise.all([
-          readHistory(source.key).then((h) => h?.buckets ?? null),
-          resolvePrimaryUsd(source.key),
-        ]);
-        return buildBucket(source, core, history, primaryUsd);
-      }),
-    );
-  },
+  buildPlatformBuckets,
   ["platform-buckets:v6"],
   { revalidate: 3600, tags: ["platform-buckets"] },
 );

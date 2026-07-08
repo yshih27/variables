@@ -78,6 +78,8 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "phygitals-gacha": 6 * HOUR_MS,
   "cc-gacha": 6 * HOUR_MS,
   "gacha-packs": 6 * HOUR_MS,
+  // derived homepage blob (B9-1) — recomputed at the end of the core batch
+  homepage: 6 * HOUR_MS,
   // always-on listener (scripts/listen-gacha.ts) — heartbeats every ~5min
   "gacha-live": 15 * 60 * 1000,
   // daily batch — every 24h
@@ -92,6 +94,7 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "price-index": DAY_MS,
   // weekly batch — every 7d
   "cc-traits": 7 * DAY_MS,
+  "weekly-report": 7 * DAY_MS, // Mondays 08:00 — movers + composer (B9-2)
 };
 
 export type FreshnessState = "ok" | "stale" | "error" | "untracked";

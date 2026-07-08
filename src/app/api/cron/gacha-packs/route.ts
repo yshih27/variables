@@ -9,18 +9,13 @@
 import { revalidateTag } from "next/cache";
 import { runGachaPacksWarm } from "@/lib/data/warmers/gachaPacks";
 import { runWarmer } from "@/lib/db/runWarmer";
+import { cronAuthorized } from "@/lib/api/auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-function authorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   try {

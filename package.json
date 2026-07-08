@@ -25,6 +25,8 @@
     "warm-benchmarks": "tsx scripts/warm-benchmarks.ts",
     "warm-sale-panel": "tsx scripts/warm-sale-panel.ts",
     "warm-secondary-sales": "tsx scripts/warm-secondary-sales.ts",
+    "warm-homepage": "tsx scripts/warm-homepage.ts",
+    "warm-weekly-report": "tsx scripts/warm-weekly-report.ts",
     "check-freshness": "tsx scripts/check-freshness.ts"
   },
   "dependencies": {

@@ -6,7 +6,7 @@ import { ImageResponse } from "next/og";
  */
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "VARIABLE — real cards, real prices, one index";
+export const alt = "VARIABLE — real cards, real prices, indexed";
 
 export default function OpengraphImage() {
   return new ImageResponse(
@@ -73,7 +73,7 @@ export default function OpengraphImage() {
           >
             <span>Real cards.</span>
             <span style={{ color: "#f3ff42" }}>Real prices.</span>
-            <span>One index.</span>
+            <span>Indexed.</span>
           </div>
         </div>
 

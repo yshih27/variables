@@ -12,18 +12,13 @@
 import { revalidateTag } from "next/cache";
 import { runGachaWarm } from "@/lib/data/warmers/gacha";
 import { runWarmer } from "@/lib/db/runWarmer";
+import { cronAuthorized } from "@/lib/api/auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // Dune runQuery can take up to ~3 min per query
 
-function authorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!authorized(req)) {
+  if (!cronAuthorized(req)) {
     return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   try {

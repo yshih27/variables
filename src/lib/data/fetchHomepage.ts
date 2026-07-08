@@ -13,6 +13,7 @@ import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
 import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
 import { readMetricSeriesBulk, pctChange as spinePctChange } from "./metricSnapshots";
+import { readSnapshot } from "../db/snapshots";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
@@ -268,9 +269,21 @@ function mcapOnlyIpRow(ip: IPMeta, cards: number): IPRow {
   };
 }
 
-export async function fetchHomepage(): Promise<HomepagePayload> {
+/** Snapshot key for the precomputed homepage blob (written by scripts/warm-homepage.ts). */
+export const HOMEPAGE_SNAPSHOT_KEY = "homepage-payload";
+
+/**
+ * Build the full homepage payload from the underlying snapshots + spine. This is
+ * the EXPENSIVE aggregation (~15-20s cold: bulk spine reads + per-sale metadata
+ * lookups) — it runs in the warmers (B9-1), not per request. `getBuckets` is
+ * injectable so the warmer script can pass the uncached buildPlatformBuckets
+ * (unstable_cache throws outside the Next server).
+ */
+export async function buildHomepagePayload(
+  getBuckets: () => Promise<PlatformBucket[]> = getPlatformBuckets,
+): Promise<HomepagePayload> {
   const [buckets, holders, mcap, mcapHist, gacha, platVolHist, platGachaHist] = await Promise.all([
-    getPlatformBuckets(),
+    getBuckets(),
     readHolders(),
     readMarketCap(),
     readMarketCapHistory(),
@@ -503,4 +516,52 @@ export async function fetchHomepage(): Promise<HomepagePayload> {
     ips,
     platforms: platformRows,
   };
+}
+
+// The payload uses NaN as the "no data yet" sentinel (holders, mcap, vol7…), but
+// JSONB can't hold NaN — the snapshot round-trip turns it into null. Revive the
+// known NaN-able numeric fields so consumers see the exact shape the live builder
+// returns (sort comparators coerce null to 0, which would mis-rank missing data).
+const nn = (v: unknown): number => (typeof v === "number" ? v : NaN);
+
+function reviveHomepagePayload(p: HomepagePayload): HomepagePayload {
+  return {
+    ...p,
+    hero: {
+      ...p.hero,
+      totalMcapUsd: nn(p.hero.totalMcapUsd),
+      vol7Usd: nn(p.hero.vol7Usd),
+      totalCards: nn(p.hero.totalCards),
+      holders: nn(p.hero.holders),
+    },
+    ips: p.ips.map((r) => ({
+      ...r,
+      holders: nn(r.holders),
+      vol7Usd: nn(r.vol7Usd),
+      volTotalUsd: nn(r.volTotalUsd),
+      mcapUsd: nn(r.mcapUsd),
+      floorUsd: nn(r.floorUsd),
+    })),
+    platforms: p.platforms.map((r) => ({
+      ...r,
+      vol7Usd: nn(r.vol7Usd),
+      holders: nn(r.holders),
+      avgTradeUsd: nn(r.avgTradeUsd),
+    })),
+  };
+}
+
+/**
+ * Homepage payload — ONE snapshot-row read (B9-1). The warmers precompute the
+ * whole payload every cycle (scripts/warm-homepage.ts, core + daily batches);
+ * this fixes the 14–22s cold render the live aggregation caused. Falls back to
+ * building live only when the blob has never been written (fresh DB / dev),
+ * so the page keeps working before the first warm.
+ */
+export async function fetchHomepage(): Promise<HomepagePayload> {
+  const snap = await readSnapshot<HomepagePayload>(HOMEPAGE_SNAPSHOT_KEY);
+  if (snap?.hero && Array.isArray(snap.ips) && Array.isArray(snap.platforms)) {
+    return reviveHomepagePayload(snap);
+  }
+  return buildHomepagePayload();
 }
