@@ -9,11 +9,15 @@
  *   from    ISO date the series rebases to 100 at (default 2000-01-01 = inception)
  *   freq    daily | weekly                (mcap only; price is natively weekly)
  *
+ * Every response carries the index's `ticker` (e.g. "V-PKM") + `indexName` from the
+ * naming SSOT — the API is the canonical ticker registry (docs/api-v1.md).
+ *
  * Auth: Authorization: Bearer <key> (or ?api_key=). Attribution required — see meta.terms.
  */
 import { readIndexSeries, indexStats } from "@/lib/data/indices";
 import { requireApiKey } from "@/lib/api/auth";
 import { v1Ok, v1Error, v1Options, pickParam } from "@/lib/api/v1";
+import { tickerOf, indexDisplayName } from "@/lib/indices/naming";
 
 export const dynamic = "force-dynamic";
 
@@ -38,5 +42,19 @@ export async function GET(req: Request) {
   // Scorecard stats only exist for the constant-quality price index.
   const stats = kind === "price" ? await indexStats(entity, key, { from }) : null;
 
-  return v1Ok({ entity, key, kind, from, freq, rebasedTo: 100, points, stats }, auth);
+  return v1Ok(
+    {
+      entity,
+      key,
+      ticker: tickerOf(entity, key),
+      indexName: indexDisplayName(entity, key),
+      kind,
+      from,
+      freq,
+      rebasedTo: 100,
+      points,
+      stats,
+    },
+    auth,
+  );
 }

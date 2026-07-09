@@ -1,6 +1,7 @@
 import { fetchIP } from "@/lib/data/fetchIP";
 import { formatCompactUsd } from "@/lib/format";
 import { renderOgCard, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/ogCard";
+import { tickerOf } from "@/lib/indices/naming";
 
 // Per-IP share image (F9-1). Node runtime — fetchIP reads the DB-backed snapshots.
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export default async function Image({ params }: { params: Promise<{ key: string 
   const hasVol = Number.isFinite(ip.vol24Usd) && ip.vol24Usd > 0;
 
   return renderOgCard({
-    eyebrow: `IP · Rank #${ip.rank}`,
+    eyebrow: `${tickerOf("ip", key)} · IP · Rank #${ip.rank}`,
     title: ip.ip.name,
     stat: hasMcap
       ? { value: formatCompactUsd(mcap), label: "Market cap" }

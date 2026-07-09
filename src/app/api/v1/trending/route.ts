@@ -15,6 +15,7 @@
 import { getTrendingCards } from "@/lib/data/fetchTrending";
 import { requireApiKey } from "@/lib/api/auth";
 import { v1Ok, v1Error, v1Options, pickParam } from "@/lib/api/v1";
+import { tickerOf, indexDisplayName } from "@/lib/indices/naming";
 
 export const dynamic = "force-dynamic";
 
@@ -41,5 +42,9 @@ export async function GET(req: Request) {
 
   const { rows, floatAsOf } = await getTrendingCards({ window, limit: rawLimit, sort, slice });
 
-  return v1Ok({ window, sort, floatAsOf, cards: rows }, auth);
+  // When trending is scoped to an IP, name the index it sits under (V-PKM …). A
+  // platform/grade-only slice references no index → null.
+  const index = ip ? { ticker: tickerOf("ip", ip), indexName: indexDisplayName("ip", ip) } : null;
+
+  return v1Ok({ window, sort, slice: slice ?? null, index, floatAsOf, cards: rows }, auth);
 }

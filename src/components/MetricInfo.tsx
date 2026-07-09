@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { METRICS, METHODOLOGY, type MetricKey } from "@/lib/metrics/glossary";
+import { metricDef, METHODOLOGY, type MetricKey } from "@/lib/metrics/glossary";
 
 /**
  * MetricInfo (R5-3, R6-2) — the ONE ⓘ affordance for metric definitions, used on
@@ -18,7 +18,7 @@ import { METRICS, METHODOLOGY, type MetricKey } from "@/lib/metrics/glossary";
  * bug R4-4 fixed for the treemap) and clamps to the viewport.
  */
 export function MetricInfo({ metric, className = "" }: { metric: MetricKey; className?: string }) {
-  const def = METRICS[metric];
+  const def = metricDef(metric);
   const ref = useRef<HTMLButtonElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -28,6 +28,9 @@ export function MetricInfo({ metric, className = "" }: { metric: MetricKey; clas
   }, []);
 
   if (!def) return null;
+
+  // Per-entry methodology anchor (e.g. a ticker → /methodology#naming); else the top.
+  const href = def.href ?? METHODOLOGY;
 
   const open = () => {
     if (timer.current) {
@@ -76,14 +79,14 @@ export function MetricInfo({ metric, className = "" }: { metric: MetricKey; clas
             <div className="mb-1 font-sans text-[12.5px] font-semibold text-ink">{def.term}</div>
             <p className="font-sans text-[11.5px] leading-relaxed text-ink-2">{def.text}</p>
             <span className="mt-1.5 inline-block font-sans text-[11px] text-ink-3">
-              Full method on <span className="text-yellow">/methodology</span>
+              Full method on <span className="text-yellow">{href}</span>
             </span>
           </div>,
           document.body,
         )}
       {/* Anchor link for keyboard/no-JS: the ⓘ is a button (tooltip), this hidden
           link makes the definition reachable at /methodology. */}
-      <Link href={METHODOLOGY} className="sr-only">
+      <Link href={href} className="sr-only">
         {def.term} methodology
       </Link>
     </span>

@@ -340,7 +340,9 @@ export function CategoryTrendChart({
                 ) : (
                   <span className="h-2 w-2 rounded-[2px]" style={{ background: d.color }} />
                 )}
-                <span className={on ? "text-ink-2" : "text-ink-4"}>{d.group}</span>
+                {/* Legend shows the V- ticker for index series (falls back to the
+                    plain label for benchmarks); the hover tooltip carries the full name. */}
+                <span className={on ? "text-ink-2" : "text-ink-4"}>{d.ticker ?? d.group}</span>
                 {on && last != null && (
                   <span className="font-mono tabular text-ink">
                     {isRebased ? last.toFixed(1) : formatCompactUsd(last)}

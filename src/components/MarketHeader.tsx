@@ -5,6 +5,7 @@ import { IPIcon } from "./IPIcon";
 import { Sparkline } from "./Sparkline";
 import { MarketIndexChart } from "./MarketIndexChart";
 import { MetricInfo } from "./MetricInfo";
+import { tickerOf } from "@/lib/indices/naming";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
@@ -117,8 +118,10 @@ export function MarketHeader({
           <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ink-3">
             {index.value != null && Number.isFinite(index.value) ? (
               <>
-                <span>
-                  price index <span className="tabular font-semibold text-ink-2">{index.value.toFixed(1)}</span>
+                <span className="inline-flex items-center gap-1">
+                  {tickerOf("market", "total")}{" "}
+                  <span className="tabular font-semibold text-ink-2">{index.value.toFixed(1)}</span>
+                  <MetricInfo metric="variableIndex" />
                 </span>
                 {sinceInception != null && Number.isFinite(sinceInception) && (
                   <>

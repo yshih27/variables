@@ -1,6 +1,7 @@
 import { readWeeklyReport } from "@/lib/data/weeklyReport";
 import { formatPct } from "@/lib/format";
 import { renderOgCard, OG_SIZE, OG_CONTENT_TYPE } from "@/lib/og/ogCard";
+import { tickerOf } from "@/lib/indices/naming";
 
 // Share image for the weekly report (F9-2). Node runtime — reads the DB snapshot.
 export const runtime = "nodejs";
@@ -20,6 +21,6 @@ export default async function Image() {
   return renderOgCard({
     eyebrow: "Weekly Report",
     title: "The market, this week",
-    stat: wow != null ? { value: formatPct(wow), label: "Index · week over week" } : undefined,
+    stat: wow != null ? { value: formatPct(wow), label: `${tickerOf("market", "total")} · week over week` } : undefined,
   });
 }

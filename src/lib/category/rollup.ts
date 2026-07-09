@@ -166,7 +166,16 @@ export function rollupByCategory(
 /** `group` is a free string so this shape is reusable for platform trends too.
  *  `benchmark` marks an external reference line (BTC/S&P/…) so the chart can draw
  *  it dashed and default it off (QA-6). */
-export type CategoryTrendDataset = { group: string; color: string; points: number[]; benchmark?: boolean };
+export type CategoryTrendDataset = {
+  group: string;
+  color: string;
+  points: number[];
+  benchmark?: boolean;
+  /** Variable Index ticker (e.g. "V-PKM") for internal index series; the legend
+   *  shows this while the tooltip keeps the full `group` name. Absent on
+   *  benchmarks + non-index series. */
+  ticker?: string;
+};
 export type CategoryTrend = { labels: string[]; datasets: CategoryTrendDataset[] };
 
 /**

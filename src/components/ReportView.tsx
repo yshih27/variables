@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Section } from "./Section";
 import { formatCompactUsd, formatPct } from "@/lib/format";
 import { cardHref } from "@/lib/card/ids";
+import { tickerOf, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
 import type {
   MoverBoard,
   ReportBenchmark,
@@ -54,9 +55,13 @@ export function ReportView({ report }: { report: WeeklyReport }) {
   return (
     <div className="flex flex-col gap-6">
       {/* Headline: index / market cap / weekly volume */}
-      <Section title="The market this week" subtitle="Week over week, all figures on-chain" flush>
+      <Section
+        title="The market this week"
+        subtitle={`${INDEX_FAMILY_SHORT[0].toUpperCase()}${INDEX_FAMILY_SHORT.slice(1)}, market cap and volume — week over week, all on-chain`}
+        flush
+      >
         <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl bg-line sm:grid-cols-3">
-          <StatTile label="Price index" value={formatPct(report.index.wowPct)} tone={report.index.wowPct} sub="week over week" big />
+          <StatTile label={tickerOf("market", "total")} value={formatPct(report.index.wowPct)} tone={report.index.wowPct} sub="week over week" big />
           <StatTile
             label="Market cap"
             value={report.mcap.totalUsd != null ? formatCompactUsd(report.mcap.totalUsd) : "—"}

@@ -35,6 +35,7 @@ import { readSecondarySales } from "./secondarySalesCache";
 import { readCardMeta, type CardPlatform } from "./cards";
 import { readGachaDune } from "./gachaDuneCache";
 import { readSnapshot } from "../db/snapshots";
+import { tickerOf, indexDisplayName } from "../indices/naming";
 import type { NormalizedSale } from "../rarible/queries";
 
 const DAY = 86_400_000;
@@ -44,6 +45,9 @@ export const WEEKLY_REPORT_SNAPSHOT_KEY = "weekly-report";
 export type ReportMover = {
   key: string;
   name: string;
+  /** Index ticker (e.g. "V-PKM") for IP movers; null for platform/set boards,
+   *  which aren't indices. From the naming SSOT (src/lib/indices/naming.ts). */
+  ticker: string | null;
   /** Completed-week figure (volume sum, or last mcap reading in the week). */
   currentUsd: number;
   /** Prior-week figure — always > 0 (new entrants are skipped, see header). */
@@ -83,8 +87,9 @@ export type WeeklyReport = {
   weekStart: string;
   /** Exclusive end (= Monday 00:00 UTC of the running week). */
   weekEnd: string;
-  /** Constant-quality price index: completed-week level (rebased, 100 = inception) + WoW. */
-  index: { level: number | null; wowPct: number | null; asOf: string | null };
+  /** Constant-quality price index: ticker + name (naming SSOT), completed-week level
+   *  (rebased, 100 = inception) + WoW. The market index is V-MKT. */
+  index: { ticker: string; name: string; level: number | null; wowPct: number | null; asOf: string | null };
   mcap: { totalUsd: number | null; wowPct: number | null };
   /** Total tracked activity (marketplace + gacha) for the week vs the prior week. */
   volume: { weekUsd: number; prevWeekUsd: number; wowPct: number | null };
@@ -172,8 +177,14 @@ function stockTotals(
   return out;
 }
 
-/** Rank totals into top-N gainers/losers by % change (prior week as the base). */
-function pickMovers(totals: Totals, nameOf: (key: string) => string): MoverBoard {
+/** Rank totals into top-N gainers/losers by % change (prior week as the base).
+ *  `tickerFn` supplies a ticker for index-backed boards (IPs); omit for
+ *  platform/set boards, which aren't indices. */
+function pickMovers(
+  totals: Totals,
+  nameOf: (key: string) => string,
+  tickerFn?: (key: string) => string,
+): MoverBoard {
   const rows: ReportMover[] = [];
   for (const [key, { cur, prev }] of totals) {
     if (cur < MIN_WEEK_USD && prev < MIN_WEEK_USD) continue; // noise floor
@@ -181,6 +192,7 @@ function pickMovers(totals: Totals, nameOf: (key: string) => string): MoverBoard
     rows.push({
       key,
       name: nameOf(key),
+      ticker: tickerFn ? tickerFn(key) : null,
       currentUsd: cur,
       previousUsd: prev,
       pct: ((cur - prev) / prev) * 100,
@@ -297,6 +309,8 @@ export async function buildWeeklyReport(nowMs: number = Date.now()): Promise<Wee
   // report week would silently compare two old weeks.
   const p1Fresh = p1 && Date.parse(p1.ts) >= weekStartMs;
   const index = {
+    ticker: tickerOf("market", "total"), // V-MKT
+    name: indexDisplayName("market", "total"),
     level: p1Fresh ? p1.value : null,
     wowPct: p1Fresh && p0 && p0.value > 0 ? (p1.value / p0.value - 1) * 100 : null,
     asOf: p1Fresh ? p1.ts : null,
@@ -334,11 +348,12 @@ export async function buildWeeklyReport(nowMs: number = Date.now()): Promise<Wee
     readMetricSeriesBulk("platform", "gacha_volume_usd"),
   ]);
   const platTotals = flowTotals([platVolBulk, platGachaBulk], weekStartMs, weekEndMs);
+  const ipTicker = (k: string) => tickerOf("ip", k);
   const movers = {
-    ipVolume: pickMovers(flowTotals([ipVolBulk], weekStartMs, weekEndMs), ipName),
-    ipMcap: pickMovers(stockTotals(ipMcapBulk, weekStartMs, weekEndMs), ipName),
-    platformVolume: pickMovers(platTotals, platformName),
-    setVolume: pickMovers(flowTotals([setVolBulk], weekStartMs, weekEndMs), setName),
+    ipVolume: pickMovers(flowTotals([ipVolBulk], weekStartMs, weekEndMs), ipName, ipTicker),
+    ipMcap: pickMovers(stockTotals(ipMcapBulk, weekStartMs, weekEndMs), ipName, ipTicker),
+    platformVolume: pickMovers(platTotals, platformName), // platforms aren't indices — no ticker
+    setVolume: pickMovers(flowTotals([setVolBulk], weekStartMs, weekEndMs), setName), // sets aren't indices
   };
 
   // ── Total tracked activity for the week (marketplace + gacha, all platforms) ──

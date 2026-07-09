@@ -35,7 +35,7 @@ async function main() {
   console.log(
     `Weekly report ${report.weekStart.slice(0, 10)} → ${report.weekEnd.slice(0, 10)} ` +
       `(${((Date.now() - t0) / 1000).toFixed(1)}s)\n` +
-      `  index ${fmtPct(report.index.wowPct)} WoW · volume $${Math.round(report.volume.weekUsd).toLocaleString()} (${fmtPct(report.volume.wowPct)}) · ` +
+      `  ${report.index.ticker} ${fmtPct(report.index.wowPct)} WoW · volume $${Math.round(report.volume.weekUsd).toLocaleString()} (${fmtPct(report.volume.wowPct)}) · ` +
       `mcap ${fmtPct(report.mcap.wowPct)}\n` +
       `  ${moverCount} movers · ${report.biggestSales.length} biggest sales · ${report.notablePulls.length} notable pulls`,
   );

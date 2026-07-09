@@ -12,6 +12,7 @@ import { IPDominance, type DominanceSource } from "@/components/IPDominance";
 import { IPTopCards, IPSets } from "@/components/IPTables";
 import { getIPDetail, getIPActivitySeries } from "@/lib/data/fetchIP";
 import { readMarketCap } from "@/lib/data/marketcap";
+import { tickerOf } from "@/lib/indices/naming";
 import { readHolders } from "@/lib/data/holders";
 import { type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd, formatInt } from "@/lib/format";
@@ -181,7 +182,7 @@ export default async function IPDetailPage({
         <div className="mb-12">
           <CategoryTrendChart
             views={[{ key: "cmp", label: "Market cap", data: vsMarket }]}
-            title={`${detail.ip.name} vs market`}
+            title={`${tickerOf("ip", key)} vs ${tickerOf("market", "total")}`}
             defaultMode="rebased"
             allowRebase={false}
             basis={ipHasPrice ? "price" : "size"}

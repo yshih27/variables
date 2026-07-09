@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
+import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (F8-4).
@@ -16,7 +18,7 @@ export default function MethodologyPage() {
       <NavBar />
       <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24 font-sans">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <a href="/" className="hover:text-ink-2">Rankings</a>
+          <Link href="/" className="hover:text-ink-2">Rankings</Link>
           <span>›</span>
           <span className="text-ink-2">Methodology</span>
         </div>
@@ -62,6 +64,56 @@ export default function MethodologyPage() {
               chain="Solana"
               source="SPL-USDC transfer indexing for gacha pull revenue. NFT collection not yet wired."
             />
+          </ul>
+        </Section>
+
+        <Section title="Index naming">
+          <p>
+            Every index we publish belongs to the{" "}
+            <span className="font-semibold text-ink">{INDEX_FAMILY}</span> family
+            ({INDEX_FAMILY_SHORT}). Each has a ticker{" "}
+            <code className="rounded bg-bg-2 px-1.5 py-0.5">V-&lt;CODE&gt;</code> and a
+            name of the form <em>{INDEX_FAMILY.replace(/ Index$/, "")} &lt;X&gt; Index</em>{" "}
+            — e.g. <span className="tabular text-ink">V-MKT</span> is{" "}
+            {INDEX_FAMILY.replace(/ Index$/, "")} Market Index, and{" "}
+            <span className="tabular text-ink">V-PKM</span> is the Pokémon index. Codes are
+            derived from the IP catalog&apos;s short codes, so the registry extends itself as
+            coverage grows (no hand-maintained list). The public API echoes each index&apos;s
+            ticker, making it the canonical registry.
+          </p>
+          <ul className="mt-3 grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+            {indexRegistry().map((r) => (
+              <li
+                key={r.ticker}
+                className="flex items-baseline justify-between gap-3 border-b border-line/40 py-1"
+              >
+                <span className="tabular text-[12.5px] font-medium text-ink">{r.ticker}</span>
+                <span className="text-right text-[12px] text-ink-3">{r.name}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+
+        <Section title="Index naming" id="naming">
+          <p>
+            Every index we publish belongs to one family:{" "}
+            <span className="font-semibold text-ink">{INDEX_FAMILY}</span> (nickname &quot;
+            {INDEX_FAMILY_SHORT}&quot;). Each is a constant-quality price index — the trade-weighted
+            stratified-median sale price within set×grade cells, rebased to 100 at inception — and
+            carries a <code>V-</code> ticker derived from the entity&apos;s short code, so the scheme
+            never drifts as the catalog grows. The whole market is <code>V-MKT</code>; each category
+            and named IP has its own.
+          </p>
+          <ul className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
+            {indexRegistry().map((idx) => (
+              <li
+                key={idx.ticker}
+                className="flex items-baseline justify-between gap-3 border-b border-line/50 py-1 text-[13px]"
+              >
+                <code className="text-yellow">{idx.ticker}</code>
+                <span className="text-ink-3">{idx.name}</span>
+              </li>
+            ))}
           </ul>
         </Section>
 
@@ -195,9 +247,9 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <section className="mt-10 border-t border-line/60 pt-8">
+    <section id={id} className="mt-10 scroll-mt-20 border-t border-line/60 pt-8">
       <h2 className="mb-3 text-[20px] font-semibold tracking-[-0.005em]">{title}</h2>
       <div className="flex flex-col gap-2 text-[13.5px] leading-relaxed text-ink-2">
         {children}

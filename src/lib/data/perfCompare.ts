@@ -1,6 +1,7 @@
 import type { CategoryTrend } from "../category/rollup";
 import { readIndexSeries, rebaseSeries, resampleWeekly } from "./indices";
 import { readMetricSeries } from "./metricSnapshots";
+import { tickerOf } from "../indices/naming";
 
 /**
  * Rebased PRICE-index comparison for the /ips + /ip[key] charts (QA-6): the given
@@ -36,7 +37,7 @@ const BENCHMARKS = [
 // week with enough graded sales), and benchmarks are windowed to that inception.
 const FROM = "2025-06-01";
 
-type Line = { group: string; color: string; benchmark: boolean; series: { ts: string; value: number }[] };
+type Line = { group: string; color: string; benchmark: boolean; ticker?: string; series: { ts: string; value: number }[] };
 
 export async function buildPriceComparison(entities: PriceEntity[]): Promise<CategoryTrend> {
   const internal = (
@@ -45,6 +46,9 @@ export async function buildPriceComparison(entities: PriceEntity[]): Promise<Cat
         group: e.label,
         color: e.color,
         benchmark: false,
+        // Internal index series carry a V- ticker (chart legend shows it; tooltip
+        // keeps the plain `group` name). Benchmarks intentionally have none.
+        ticker: tickerOf(e.entity, e.key),
         series: await readIndexSeries(e.entity, e.key, { kind: "price", from: FROM }),
       })),
     )
@@ -90,7 +94,7 @@ function alignSparse(items: Line[]): CategoryTrend {
         const i = idx.get(p.ts);
         if (i != null && Number.isFinite(p.value)) arr[i] = p.value;
       }
-      return { group: it.group, color: it.color, benchmark: it.benchmark, points: arr };
+      return { group: it.group, color: it.color, benchmark: it.benchmark, ticker: it.ticker, points: arr };
     });
   return { labels, datasets };
 }
