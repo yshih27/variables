@@ -26,7 +26,12 @@ type VolWindow = "24h" | "7d";
 
 function mcapValue(ip: IPRow): number {
   // Mirror the display rule so the sort matches what's shown ("—" sinks).
-  if (!Number.isFinite(ip.mcapUsd) || ip.mcapUsd < 1000 || ip.cards < 5) return NaN;
+  // Suppress only meaningless caps: below the $1k floor, or a *trading* IP whose
+  // 24h trade set is too thin to trust. A no-trade (mcap-only) IP keeps its real
+  // rollup market cap — `cards` counts cards TRADED (0 when nothing changed
+  // hands, see D10-2), so it must never gate a stock metric like market cap.
+  if (!Number.isFinite(ip.mcapUsd) || ip.mcapUsd < 1000) return NaN;
+  if (ip.trades24h > 0 && ip.cards < 5) return NaN;
   return ip.mcapUsd;
 }
 
@@ -40,7 +45,9 @@ function valueFor(ip: IPRow, key: SortKey, vw: VolWindow): number {
     case "d30":
       return ip.pct30d ?? NaN;
     case "cards":
-      return ip.cards;
+      // Cards TRADED in 24h — 0 when nothing traded, regardless of the row's
+      // rollup collection size (matches the displayed "0", see cell below).
+      return ip.trades24h > 0 ? ip.cards : 0;
     case "holders":
       return ip.holders;
     case "avgTrade":
@@ -198,12 +205,12 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
                       <span className="font-sans font-semibold group-hover:text-yellow">{ip.name}</span>
                     </Link>
                   </Td>
-                  <Td align="right" strong>{formatMcap(ip.mcapUsd, ip.cards)}</Td>
+                  <Td align="right" strong>{formatMcap(ip)}</Td>
                   <Td align="right" className={keptCls}>{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
                   {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
                   <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
                   {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}
-                  {full && <Td align="right" className="hidden md:table-cell">{formatCompactNumber(ip.cards)}</Td>}
+                  {full && <Td align="right" className="hidden md:table-cell">{ip.trades24h > 0 ? formatCompactNumber(ip.cards) : "0"}</Td>}
                   {full && <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>}
                   {full && (
                   <Td align="right" muted className="hidden md:table-cell">
@@ -333,15 +340,10 @@ function Td({
   );
 }
 
-/**
- * Suppress meaningless mcap values caused by tiny/sparse data:
- *   - NaN or non-finite → "—"
- *   - <$1,000 total mcap → "—"
- *   - <5 cards in the IP → "—" (too few to be meaningful)
- */
-function formatMcap(mcap: number, cards: number): string {
-  if (!Number.isFinite(mcap) || mcap < 1000 || cards < 5) return "—";
-  return formatCompactUsd(mcap);
+/** Display the market cap, or "—" when mcapValue suppresses it (single source of
+ *  truth for the suppress rule, so the cell always matches the sort/dominance). */
+function formatMcap(ip: IPRow): string {
+  return Number.isFinite(mcapValue(ip)) ? formatCompactUsd(ip.mcapUsd) : "—";
 }
 
 /** Dominance = this IP's (suppressed-rule) market cap as a % of the total. */

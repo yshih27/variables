@@ -211,6 +211,7 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
       iconBlendMode: acc.ip.iconBlendMode,
       emoji: acc.ip.emoji,
       cards: acc.cardIds.size,
+      cardsTracked: NaN, // filled from the mcap rollup in the merge below
       platforms: acc.platforms.size,
       holders: NaN, // filled in below from .cache/holders.json
       buyers24h: acc.holders.size,
@@ -239,8 +240,10 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
 /** A zero-activity IP row seeded from the market-cap rollup (identity from the
  *  catalog; mcap/floor/holders filled by the caller). Lets an IP with a market
  *  cap but NO 24h trades (e.g. sports on a quiet day) still appear on the
- *  leaderboard, so the table reflects the whole byIp rollup, not just 24h sales. */
-function mcapOnlyIpRow(ip: IPMeta, cards: number): IPRow {
+ *  leaderboard, so the table reflects the whole byIp rollup, not just 24h sales.
+ *  `cards` (24h-traded) is 0 — nothing traded; the collection size goes in
+ *  `cardsTracked`, its own metric, so the two are never conflated (D10-2). */
+function mcapOnlyIpRow(ip: IPMeta, cardsTracked: number): IPRow {
   return {
     rank: 0,
     key: ip.key,
@@ -250,7 +253,8 @@ function mcapOnlyIpRow(ip: IPMeta, cards: number): IPRow {
     logo: ip.logo,
     iconBlendMode: ip.iconBlendMode,
     emoji: ip.emoji,
-    cards,
+    cards: 0,
+    cardsTracked,
     platforms: 0,
     holders: NaN,
     buyers24h: 0,
@@ -374,6 +378,9 @@ export async function buildHomepagePayload(
         mcapUsd: entry?.mcapUsd ?? NaN,
         floorUsd: entry?.floorUsd ?? NaN,
         insuredUsd: entry?.insuredUsd ?? 0,
+        // Total collection size from the rollup — its own column (D10-2). Traded
+        // rows get it here; mcap-only rows already carry it. NaN when unknown.
+        cardsTracked: entry?.cards ?? r.cardsTracked ?? NaN,
       };
     })
     // Sort by Market Cap desc. NaN (no mcap data yet) sinks to the bottom.
@@ -537,6 +544,7 @@ function reviveHomepagePayload(p: HomepagePayload): HomepagePayload {
     ips: p.ips.map((r) => ({
       ...r,
       holders: nn(r.holders),
+      cardsTracked: nn(r.cardsTracked),
       vol7Usd: nn(r.vol7Usd),
       volTotalUsd: nn(r.volTotalUsd),
       mcapUsd: nn(r.mcapUsd),

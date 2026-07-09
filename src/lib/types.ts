@@ -14,7 +14,12 @@ export type IPRow = {
   iconBlendMode?: "normal" | "screen" | "lighten";
   /** Single emoji for sports/streetwear/other. */
   emoji?: string;
+  /** Distinct cards TRADED in the 24h window. 0 for an IP with a market cap but no
+   *  24h trades (mcap-only rows) — never the total collection size (D10-2). */
   cards: number;
+  /** Total tracked collection size for this IP, from the market-cap rollup — its own
+   *  metric, do NOT conflate with `cards` (24h-traded). NaN when unknown. */
+  cardsTracked: number;
   platforms: number;
   /** Real holder count: unique on-chain owners of any card in this IP.
    *  NaN until `npm run warm-holders` has populated `.cache/holders.json`. */

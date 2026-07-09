@@ -11,6 +11,10 @@
  *   npx tsx scripts/backfill-ip-keys.ts            # dry run (report only)
  *   npx tsx scripts/backfill-ip-keys.ts --apply    # write the changes
  *   npx tsx scripts/backfill-ip-keys.ts --apply --platform collector-crypt
+ *
+ * ⚠ AFTER a real reclassification, you MUST also migrate the metric spine's STOCK
+ * history (scripts/migrate-taxonomy-spine.ts) or the leaderboard deltas read the
+ * taxonomy shift as a fake ±90% move (D10-3). See docs/runbook-taxonomy-migration.md.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });

@@ -27,7 +27,9 @@
     "warm-secondary-sales": "tsx scripts/warm-secondary-sales.ts",
     "warm-homepage": "tsx scripts/warm-homepage.ts",
     "warm-weekly-report": "tsx scripts/warm-weekly-report.ts",
-    "check-freshness": "tsx scripts/check-freshness.ts"
+    "check-freshness": "tsx scripts/check-freshness.ts",
+    "check-invariants": "tsx scripts/check-invariants.ts",
+    "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",

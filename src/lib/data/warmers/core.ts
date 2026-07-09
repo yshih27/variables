@@ -12,6 +12,7 @@
  */
 import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
 import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../../dune/queryIds";
+import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
 
 // Self-heal a cached Dune secondary result older than this. Kept below 24h so the
 // headline 24h window can never silently collapse to $0 while a scheduled fresh
@@ -107,7 +108,7 @@ async function fetchDuneSecondarySales(
   } else {
     rows = await runQuery(queryId, { maxWaitMs: 480_000, maxRows: 250_000 });
   }
-  return rows
+  const mapped = rows
     .map((r) => ({
       date: duneTimeToIso(r.block_time),
       tokenId: String(r.nft_mint ?? ""),
@@ -116,6 +117,13 @@ async function fetchDuneSecondarySales(
       priceUsd: num(r.price_usd),
     }))
     .filter((s) => s.priceUsd > 0 && s.tokenId);
+  // D10-1: strip fan-out dupes, self-trades, and ring-wash at the source, so every
+  // downstream reader (core volume, spine, trending, sale panel / price index,
+  // getCardSales) sees the same clean feed. See secondaryHygiene.ts.
+  const { sales, stats } = cleanSecondarySales(mapped);
+  const line = formatHygiene(label, stats);
+  if (line) (opts.log ?? console.log)(line);
+  return sales;
 }
 
 /** CC secondary sales (Dune). Shared by the core warmer, the spine, and backfill. */

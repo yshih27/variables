@@ -8,7 +8,9 @@ const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLab
   { label: "Categories", href: "/ips", matchPrefix: "/ip" },
   { label: "Platforms", href: "/platforms", matchPrefix: "/platform" },
   { label: "Gacha", href: "/gacha" },
-  // shortLabel keeps the row from overflowing small phones (4 links + search).
+  { label: "Report", href: "/report" },
+  // shortLabel keeps the row compact on small phones; the row also scrolls
+  // horizontally on mobile (5 links + search) so nothing gets clipped.
   { label: "Watchlist", href: "/watchlist", shortLabel: "★" },
 ];
 
@@ -110,7 +112,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
           <span className="hidden font-mono tracking-[0.04em] sm:inline">VARIABLE</span>
         </Link>
 
-        <div className="flex gap-1">
+        <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] sm:flex-none sm:overflow-visible [&::-webkit-scrollbar]:hidden">
           {LINKS.map((link) => {
             const active = isActive(pathname, link);
             return (
@@ -118,7 +120,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
                 key={link.label}
                 href={link.href}
                 aria-current={active ? "page" : undefined}
-                className={`rounded-lg px-2.5 py-1.5 text-[13px] transition-colors sm:px-3 ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[13px] transition-colors sm:px-3 ${
                   active ? "bg-bg-2 text-ink" : "text-ink-3 hover:text-ink"
                 }`}
               >

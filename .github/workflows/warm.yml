@@ -145,8 +145,13 @@ jobs:
       - name: Homepage payload precompute # re-derive off the fresh daily data (B9-1)
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
-      - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
+      - name: Freshness gate # fails the job (→ Actions notifies) if any warmer errored
         run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,homepage
+      # Data-integrity gate (D10-4) — everything above is fresh now. A HARD invariant
+      # violation (fan-out dupes, holders union>sum, hero≠Σrows, avgTrade≠vol/trades,
+      # cards>0 while vol=0) fails the run red; SOFT heuristics only warn.
+      - name: Invariants gate
+        run: npx tsx scripts/check-invariants.ts
 
   # ── Indices — benchmarks + price-index sale panel. Own job + tight timeout so a
   #    slow panel build can't starve the daily batch; runs at 06:00, after daily. ──
