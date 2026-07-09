@@ -94,7 +94,9 @@ export function buyLinks(card: BuyLinkCard): BuyLink[] {
     links.push({
       platform: "rarible",
       label: "Buy on Rarible",
-      url: `https://rarible.com/token/${raribleSlug}/${contract}:${encodeURIComponent(tokenId)}`,
+      // Canonical item URL: rarible.com/{chain}/items/{contract}:{tokenId} —
+      // the /token/ form resolves via og.rarible.com and isn't the storefront page.
+      url: `https://rarible.com/${raribleSlug}/items/${contract}:${encodeURIComponent(tokenId)}`,
       isRarible: true,
     });
   }
