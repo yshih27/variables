@@ -17,7 +17,7 @@ The market terminal and price indices for tokenized collectibles.
 ## 3. The solution
 
 **Variable** — one neutral terminal over the whole category:
-- **The indices**: a family of constant-quality price indices — **per IP (Pokémon, One Piece…), per category, and market-wide** — built from actual on-chain sales: weekly stratified medians within set × grade cells, trade-weighted, wash-filtered, with liquidity floors. Methodology published at /methodology.
+- **The indices — "The Variable Index" family ("the V")**: ticker-named, constant-quality price indices — **V-MKT (market-wide), V-TCG (category), V-PKM / V-OP (per IP)** — built from actual on-chain sales: weekly stratified medians within set × grade cells, trade-weighted, wash-filtered, with liquidity floors. Methodology published at /methodology.
 - **Benchmarked**: every index charts against BTC, ETH, S&P 500, NASDAQ, and gold on one axis. For the first time, "is tokenized TCG beating the market?" has a data answer. (Currently: **+145% since January, over a period when BTC fell.**)
 - **The terminal**: market cap, volume split by type (resale / gacha / direct), trending cards, per-IP and per-platform deep dives, gacha odds & EV, and buy links into every marketplace.
 

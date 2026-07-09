@@ -12,8 +12,8 @@ import { buildPriceComparison, PRICE_RANGES } from "@/lib/data/perfCompare";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
 // the old shape). v6: added platform pct7d. Wraps the same fetchHomepage() as
-// homepage:v42 (src/app/page.tsx) — keep the two versions moving in lockstep.
-const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v6"], {
+// homepage:v43 (src/app/page.tsx) — keep the two versions moving in lockstep.
+const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v7"], {
   revalidate: 3600,
   tags: ["homepage"],
 });
