@@ -27,7 +27,7 @@ export default async function ReportPage() {
   return (
     <>
       <NavBar />
-      <div className="mx-auto max-w-[1040px] px-4 pb-24 pt-8 sm:px-6">
+      <div className="mx-auto max-w-[1760px] px-8 pb-24 pt-8">
         <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
           <Link href="/" className="hover:text-ink-2">
             Rankings

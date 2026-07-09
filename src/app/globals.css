@@ -17,6 +17,10 @@
   --color-ink-4: #4a4a4a;
   --color-yellow: #f3ff42;
   --color-yellow-2: #fdff8c;
+  /* Explicit black — the @theme palette replaces Tailwind defaults, so without
+     this token every `text-black` (yellow CTAs, price badges) silently no-ops
+     to inherited white. */
+  --color-black: #0a0a0a;
   --color-green: #6cf48a;
   --color-red: #ff4d8d;
   --color-purple: #a18cff;
@@ -51,9 +55,14 @@ body {
   min-height: 100vh;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Layered so utilities (e.g. text-black on yellow CTAs) can override — an
+   unlayered rule beats every Tailwind layer and was silently forcing all
+   anchor text to inherited white. */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 button {
