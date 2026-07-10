@@ -38,14 +38,14 @@ Core features: market-wide statistics (market cap, volume, holders); **price ind
 - **Analytics: Vercel Web Analytics is enabled** (as of launch) — a cookieless, aggregate measurement service (page views, referrers, countries, device class, performance metrics). No cross-site tracking, no user-level profiles, no advertising identifiers. ⚖️ Privacy policy should name it in one line.
 - **No other tracking SDKs** (no Google Analytics, no Meta pixel, no Sentry). **No cookies set by our code.**
 - **Server logs:** standard hosting logs (Vercel) — IP addresses in transient infrastructure logs; we do not build user profiles.
-- **API partners:** `/api/v1` requires an API key we issue manually; we log request counts per key for quota enforcement. Key holders are business partners, not consumers.
+- **API (not in service):** a keyed read-only JSON API exists in the codebase but is **not activated at launch** — no keys have been issued to anyone, and without a key every request is rejected. If/when partner access begins, keys will be issued under written terms and this brief updated; no consumer data is involved either way.
 - **Email signup (live at launch):** users may submit an email to receive the weekly market report. We store: email address, consent timestamp, signup source, and an unsubscribe token. Used **solely** to send the weekly report; one-click unsubscribe; never sold or shared. Sending itself starts post-launch (collection first). ⚖️ Privacy policy must cover this at launch: lawful basis/consent wording, unsubscribe mechanics, retention period [product to confirm retention — proposal: delete on unsubscribe].
 
 ## 5. Charges & commercial model
 
 - **The site is entirely free.** No payments, subscriptions, paywalls, or in-app purchases. We hold no user funds.
 - **Buy-links** ("Buy on Rarible / Collector Crypt / …") are plain outbound hyperlinks to third-party marketplaces. **No affiliate/referral fees are collected — confirmed; pure redirection.** (If affiliate terms are ever introduced, the Terms will be amended with a compensation disclosure first.)
-- **API:** free tier with mandatory attribution ("Data: Variable" + link), enforced per-key daily quota. Commercial licensing contemplated but not live.
+- **API:** built but **dormant at launch** (no keys issued, all requests rejected). Planned model when activated: free tier with mandatory attribution, per-key quotas; commercial licensing contemplated. Terms for it can wait until activation.
 - ⚖️ Rarible-first ordering of buy-links (Rarible listed first/highlighted when the item is available there) is a design choice by a Rarible project — counsel may want a brief affiliation disclosure.
 
 ## 6. Third-party IP displayed
