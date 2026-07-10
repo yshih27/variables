@@ -35,16 +35,16 @@ Core features: market-wide statistics (market cap, volume, holders); **price ind
 
 - **No accounts, no login, no wallet connection.** Nothing to sign up for.
 - **Watchlist** is stored in the browser's localStorage only — **never transmitted to or stored by us**.
-- **No analytics/tracking SDKs installed by us** (no Google Analytics, no Meta pixel, no Sentry). [CONFIRM: whether Vercel Web Analytics/Speed Insights toggles are enabled in the Vercel dashboard — if on, Vercel collects aggregate, cookieless page metrics.]
-- **No cookies set by our code.** [CONFIRM as above — Vercel infrastructure may set functional cookies.]
+- **Analytics: Vercel Web Analytics is enabled** (as of launch) — a cookieless, aggregate measurement service (page views, referrers, countries, device class, performance metrics). No cross-site tracking, no user-level profiles, no advertising identifiers. ⚖️ Privacy policy should name it in one line.
+- **No other tracking SDKs** (no Google Analytics, no Meta pixel, no Sentry). **No cookies set by our code.**
 - **Server logs:** standard hosting logs (Vercel) — IP addresses in transient infrastructure logs; we do not build user profiles.
 - **API partners:** `/api/v1` requires an API key we issue manually; we log request counts per key for quota enforcement. Key holders are business partners, not consumers.
-- **PLANNED (not yet live):** email signup for the weekly report — would collect email + consent timestamp + unsubscribe token, stored in our database, used solely to send the report. ⚖️ Privacy policy should cover this before launch (lawful basis/consent, unsubscribe, retention).
+- **Email signup (live at launch):** users may submit an email to receive the weekly market report. We store: email address, consent timestamp, signup source, and an unsubscribe token. Used **solely** to send the weekly report; one-click unsubscribe; never sold or shared. Sending itself starts post-launch (collection first). ⚖️ Privacy policy must cover this at launch: lawful basis/consent wording, unsubscribe mechanics, retention period [product to confirm retention — proposal: delete on unsubscribe].
 
 ## 5. Charges & commercial model
 
 - **The site is entirely free.** No payments, subscriptions, paywalls, or in-app purchases. We hold no user funds.
-- **Buy-links** ("Buy on Rarible / Collector Crypt / …") are plain outbound hyperlinks to third-party marketplaces. **No affiliate/referral fees are currently collected.** [CONFIRM roadmap: affiliate terms are contemplated in the business plan — terms should either cover future affiliate disclosure or be amended when it starts.]
+- **Buy-links** ("Buy on Rarible / Collector Crypt / …") are plain outbound hyperlinks to third-party marketplaces. **No affiliate/referral fees are collected — confirmed; pure redirection.** (If affiliate terms are ever introduced, the Terms will be amended with a compensation disclosure first.)
 - **API:** free tier with mandatory attribution ("Data: Variable" + link), enforced per-key daily quota. Commercial licensing contemplated but not live.
 - ⚖️ Rarible-first ordering of buy-links (Rarible listed first/highlighted when the item is available there) is a design choice by a Rarible project — counsel may want a brief affiliation disclosure.
 
@@ -76,6 +76,6 @@ Core features: market-wide statistics (market cap, volume, holders); **price ind
 2. **Jurisdictions of concern** for the gacha/odds content (§7.4) — any markets where displaying EV for randomized products needs gating or removal?
 3. **DMCA/takedown agent**: use Rarible's existing agent/process for card-image complaints, or a Variable-specific contact?
 4. **Platform-API posture** (§2): comfortable operating read-only on observed endpoints while partnerships are negotiated, or should any source be paused pending agreements?
-5. **Email capture** (§4): should the privacy policy pre-cover it now, or do we ship the policy update together with the feature?
-6. **Analytics intent** [product]: do we plan to enable Vercel Analytics/Sentry? If yes, the privacy policy should cover it from day one.
+5. **Email capture** (§4) — RESOLVED: ships at launch; privacy policy must cover it from day one. Open sub-question: retention period (proposal: delete on unsubscribe).
+6. **Analytics** — RESOLVED: Vercel Web Analytics enabled (cookieless, aggregate); one privacy-policy line needed.
 7. **Benchmark redistribution** (§2): the API re-serves rebased benchmark *series* (derived values, not raw quotes) — confirm this derivation posture satisfies CoinGecko/FRED terms.
