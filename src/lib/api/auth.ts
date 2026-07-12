@@ -1,10 +1,13 @@
 /**
- * Shared API auth (B9-3).
+ * Shared API auth + throttling (B9-3).
  *
  *   • cronAuthorized — the CRON_SECRET bearer check every /api/cron/* route
  *     shares (extracted from the previously per-route inline copies).
  *   • requireApiKey  — /api/v1/* key check + per-key daily quota, for the
  *     attribution-required free tier.
+ *   • rateLimitByIp  — coarse per-IP fixed-window throttle (same snapshots-KV
+ *     fail-open mechanism as the quota), for unauthenticated write endpoints
+ *     like /api/subscribe.
  *
  * API keys live in the API_V1_KEYS env var as comma-separated `label:secret`
  * pairs — e.g. `acme:vk_9f2…,press:vk_a41…`. The label is the key's identity
@@ -94,4 +97,43 @@ export async function requireApiKey(req: Request): Promise<ApiKeyResult> {
     console.warn(`[api-v1] quota bookkeeping failed for "${label}": ${(e as Error).message}`);
   }
   return { ok: true, label, limit, remaining: Math.max(0, limit - used) };
+}
+
+/** Best-effort client IP for rate limiting — first x-forwarded-for hop (Vercel sets it). */
+export function clientIp(req: Request): string {
+  const xff = req.headers.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.headers.get("x-real-ip")?.trim() || "unknown";
+}
+
+export type RateLimitResult = { ok: true; remaining: number } | { ok: false; error: string };
+
+/**
+ * Coarse per-IP rate limit, same mechanism as the API-v1 daily quota: one
+ * `snapshots` KV row per (bucket, ip, fixed-window), read-modify-write, FAILS OPEN.
+ * Not atomic (a burst can slip one or two through) — fine for abuse-throttling a
+ * write endpoint, not a security control. Windows are fixed (floor(now/window)),
+ * so old counter rows just go stale.
+ */
+export async function rateLimitByIp(
+  req: Request,
+  opts: { bucket: string; limit: number; windowSec: number },
+): Promise<RateLimitResult> {
+  const ip = clientIp(req);
+  const windowId = Math.floor(Date.now() / (opts.windowSec * 1000));
+  const kvKey = `ratelimit:${opts.bucket}:${ip}:${windowId}`;
+  try {
+    const used = (await readSnapshot<{ count: number }>(kvKey))?.count ?? 0;
+    if (used >= opts.limit) {
+      return { ok: false, error: "Too many requests — please try again in a few minutes." };
+    }
+    await writeSnapshot(kvKey, { count: used + 1 });
+    return { ok: true, remaining: Math.max(0, opts.limit - used - 1) };
+  } catch (e) {
+    console.warn(`[ratelimit] bookkeeping failed for "${opts.bucket}/${ip}": ${(e as Error).message}`);
+    return { ok: true, remaining: opts.limit }; // fail open
+  }
 }

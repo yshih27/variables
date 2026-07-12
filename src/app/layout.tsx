@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { GoogleAnalytics } from "@next/third-parties/google";
 import { SiteFooter } from "@/components/SiteFooter";
 import "./globals.css";
 
@@ -28,11 +30,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // GA4 only when the id is configured (keeps dev/preview clean); never hardcoded.
+  const gaId = process.env.NEXT_PUBLIC_GA_ID;
   return (
     <html lang="en" className={`${jetbrainsMono.variable} ${inter.variable}`}>
       <body>
         {children}
         <SiteFooter />
+        <Analytics />
+        {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>
     </html>
   );

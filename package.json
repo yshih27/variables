@@ -32,7 +32,9 @@
     "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts"
   },
   "dependencies": {
+    "@next/third-parties": "^16.2.10",
     "@supabase/supabase-js": "^2.107.0",
+    "@vercel/analytics": "^2.0.1",
     "next": "16.2.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"

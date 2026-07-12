@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
-import { SiteFooter } from "@/components/SiteFooter";
 import { Section } from "@/components/Section";
 import { ReportView } from "@/components/ReportView";
+import { SubscribeForm } from "@/components/SubscribeForm";
 import { readWeeklyReport } from "@/lib/data/weeklyReport";
 
 // ISR: the report is written weekly (Monday cron, B9-2); hourly revalidate picks
@@ -49,8 +49,11 @@ export default async function ReportPage() {
         </header>
 
         {report ? <ReportView report={report} /> : <EmptyState />}
+
+        <div className="mx-auto mt-10 max-w-[720px]">
+          <SubscribeForm source="report" variant="full" />
+        </div>
       </div>
-      <SiteFooter />
     </>
   );
 }
