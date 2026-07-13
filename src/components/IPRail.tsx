@@ -79,7 +79,7 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
           {rows.map((r) => (
             <div
               key={r.k}
-              className="flex items-baseline justify-between gap-3 border-b border-line py-[15px]"
+              className="flex items-baseline justify-between gap-3 border-b border-line py-[15px] last:border-0"
             >
               <div className="text-[14px] font-medium text-ink">
                 {r.k}
