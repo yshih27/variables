@@ -295,6 +295,14 @@ async function main() {
     for (const [ip, e] of Object.entries(holders.byIp)) {
       if (e.total > 0) push("ip", ip, "holders", e.total, today);
     }
+    // market/total = the TRUE cross-platform UNIQUE-holder UNION (dedupes wallets on
+    // both CC + Phygitals, which are both Solana) — the SAME figure the homepage hero
+    // shows (fetchHomepage.ts), NOT a platform-sum (that re-introduces the double-count
+    // we deliberately removed). Forward-only: there's no per-day wallet-set history to
+    // backfill a past union from, so the /ips holders bar fills forward (~2 weeks).
+    const holderUnion =
+      holders.totalHolders ?? Object.values(holders.platforms).reduce((s, n) => s + (Number(n) || 0), 0);
+    if (holderUnion > 0) push("market", "total", "holders", holderUnion, today);
   }
 
   // ── Family 3: market + per-IP mcap history backfill (past days, ~30d) ──

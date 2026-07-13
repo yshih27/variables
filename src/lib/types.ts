@@ -88,8 +88,14 @@ export type HeroStats = {
   /** Age (hours) of totalMcapUsd when it's the stale last-known fallback; null = live (X4). */
   mcapAgeHours: number | null;
   mcapPct24h: number | null;
+  /** 24h MARKETPLACE resale volume (Σ platform stats24h) + its Σ-based day-over-day
+   *  %Δ from the daily spine (null until 2 complete days / base ≤ 0). */
   vol24Usd: number;
   vol24Pct: number | null;
+  /** 24h GACHA-pull volume (Σ platform gacha vol24h) + its Σ-based day-over-day %Δ.
+   *  Level pairs with `vol24Usd` (marketplace) for the /ips Overview metric column. */
+  gachaVol24Usd: number;
+  gachaVol24Pct: number | null;
   vol7Usd: number;
   vol7Pct: number | null;
   totalCards: number;

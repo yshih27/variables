@@ -6,13 +6,13 @@ import {
 } from "./beezieTraits";
 import { getCCMetadataCachedOnly } from "./ccTraits";
 import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
-import { sumLast, pctChange, type HourBucket } from "./history";
+import { sumLast, type HourBucket } from "./history";
 import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
 import { PLATFORM_SOURCES } from "./sources";
 import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
 import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
-import { readMetricSeriesBulk, pctChange as spinePctChange } from "./metricSnapshots";
+import { readMetricSeriesBulk, pctChange as spinePctChange, type SeriesPoint } from "./metricSnapshots";
 import { readSnapshot } from "../db/snapshots";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
@@ -273,6 +273,28 @@ function mcapOnlyIpRow(ip: IPMeta, cardsTracked: number): IPRow {
   };
 }
 
+/**
+ * Σ-based 24h % change from a daily spine bulk (one metric across all platforms):
+ * sum every platform's value per UTC day, then compare the latest COMPLETE day to
+ * the prior one. Unlike a mean-of-per-platform-ratios (the old vol24Pct), this is a
+ * true market-wide Σ change. The spine excludes today, so "24h" here = the most
+ * recent complete-day-over-complete-day move — the best real prior period we have
+ * (gacha has no hourly feed for a rolling prior-24h). null until 2 days exist / base ≤ 0.
+ */
+function dayOverDayPct(bulk: Map<string, SeriesPoint[]>): number | null {
+  const perDay = new Map<string, number>();
+  for (const series of bulk.values()) {
+    for (const p of series) {
+      if (Number.isFinite(p.value)) perDay.set(p.ts, (perDay.get(p.ts) ?? 0) + p.value);
+    }
+  }
+  const days = [...perDay.keys()].sort();
+  if (days.length < 2) return null;
+  const cur = perDay.get(days[days.length - 1])!;
+  const prev = perDay.get(days[days.length - 2])!;
+  return prev > 0 ? ((cur - prev) / prev) * 100 : null;
+}
+
 /** Snapshot key for the precomputed homepage blob (written by scripts/warm-homepage.ts). */
 export const HOMEPAGE_SNAPSHOT_KEY = "homepage-payload";
 
@@ -428,12 +450,16 @@ export async function buildHomepagePayload(
   );
   const has7dForAll = buckets.every((b) => b.history && b.history.length >= 24 * 7);
 
-  const vol24Pct = has7dForAll
-    ? buckets
-        .map((b) => pctChange(b.history!, 24))
-        .filter((v): v is number => v != null)
-        .reduce((acc, v, _, arr) => acc + v / arr.length, 0)
-    : null;
+  // Marketplace + gacha 24h %Δ — real Σ-based day-over-day from the daily spine
+  // (replaces the old mean-of-per-platform-ratios, which was statistically wrong and
+  // null unless every platform had 7d of hourly history). platVolHist/platGachaHist
+  // are the per-platform daily series already read above.
+  const vol24Pct = dayOverDayPct(platVolHist);
+  const gachaVol24Pct = dayOverDayPct(platGachaHist);
+  // Gacha 24h volume LEVEL = Σ each platform's gacha-only vol24h (mirrors the
+  // homepage volume-split; pairs with gachaVol24Pct so the /ips metric cell is
+  // self-contained). Marketplace level is already `vol24Usd` (= sumVol24).
+  const gachaVol24Usd = platformRows.reduce((s, p) => s + (p.gachaVol24Usd ?? 0), 0);
 
   // Hero aggregates from the disk caches we already populated.
   // A stale/empty marketcap snapshot can report totals of 0 — which must NEVER
@@ -513,7 +539,10 @@ export async function buildHomepagePayload(
       totalCards,
       holders: totalHolders,
       mcapPct24h,
-      vol24Pct: Number.isFinite(vol24Pct as number) ? (vol24Pct as number) : null,
+      vol24Pct,
+      /** 24h gacha-pull volume (Σ each platform's gacha vol24h) + its Σ-based day-over-day %Δ. */
+      gachaVol24Usd,
+      gachaVol24Pct,
       vol7Pct: null,
       holdersPct7d: null,
       trades24hPct: null,
