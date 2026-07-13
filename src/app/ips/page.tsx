@@ -1,5 +1,4 @@
 import { unstable_cache } from "next/cache";
-import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { CategoryTrendChart } from "@/components/CategoryTrendChart";
@@ -111,11 +110,6 @@ export default async function AllIPsPage() {
     <>
       <NavBar />
       <div className="px-8 pt-8 pb-20 font-sans">
-        <div className="mb-3 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <Link href="/" className="hover:text-ink-2">Rankings</Link>
-          <span>›</span>
-          <span className="text-ink-2">Overview</span>
-        </div>
         <h1 className="mb-4 text-[20px] font-bold leading-none tracking-[-0.01em]">Market Overview</h1>
 
         <CategoryStatBar rows={data.ips} categories={categories} />
