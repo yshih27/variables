@@ -4,10 +4,13 @@ import { formatCompactUsd } from "@/lib/format";
 /**
  * OverviewMetricColumn — the LEFT rail of the /ips overview's top zone: the
  * market's headline levels stacked beside the composite index chart. Market Cap
- * is the hero (yellow) and carries its real 24h %Δ; the two 24h volume LEVELS are
- * real now but their deltas are a Phase-2 backend deliverable, so they render an
- * honest "—" rather than a fabricated change. Stretches to the chart's height on
- * wide screens (parent grid is items-stretch).
+ * is the hero (yellow); each row carries its real 24h %Δ when available and falls
+ * back to an honest "—" when the delta is null. Stretches to the chart's height
+ * on wide screens (parent grid is items-stretch).
+ *
+ * ⚠️ UNIT: mcapPct24h is a FRACTION (×100 below), but marketplacePct24h /
+ * gachaPct24h are ALREADY percent (hero.vol24Pct / hero.gachaVol24Pct) — passed
+ * straight into the percent-based row deltaPct, NOT scaled.
  */
 type MetricRowData = {
   label: string;
@@ -22,12 +25,18 @@ export function OverviewMetricColumn({
   mcapPct24h,
   marketplaceVol,
   gachaVol,
+  marketplacePct24h = null,
+  gachaPct24h = null,
 }: {
   mcapUsd: number;
   /** Fraction (e.g. 0.05 = +5%), or null. */
   mcapPct24h: number | null;
   marketplaceVol: number;
   gachaVol: number;
+  /** ALREADY percent (hero.vol24Pct, marketplace-only), or null. Not a fraction. */
+  marketplacePct24h?: number | null;
+  /** ALREADY percent (hero.gachaVol24Pct, gacha-only), or null. Not a fraction. */
+  gachaPct24h?: number | null;
 }) {
   const rows: MetricRowData[] = [
     {
@@ -36,8 +45,10 @@ export function OverviewMetricColumn({
       deltaPct: mcapPct24h != null && Number.isFinite(mcapPct24h) ? mcapPct24h * 100 : null,
       hero: true,
     },
-    { label: "24h Marketplace Vol", value: marketplaceVol, deltaPct: null },
-    { label: "24h Gacha Vol", value: gachaVol, deltaPct: null },
+    // vol deltas are already percent → pass straight through (MetricRow guards
+    // null/non-finite → "—"). No ×100 here; that would render 100× too high.
+    { label: "24h Marketplace Vol", value: marketplaceVol, deltaPct: marketplacePct24h },
+    { label: "24h Gacha Vol", value: gachaVol, deltaPct: gachaPct24h },
   ];
 
   return (

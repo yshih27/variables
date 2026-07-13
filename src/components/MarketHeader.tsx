@@ -313,7 +313,11 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
     );
   }
   return (
-    <Link href={`/ip/${topIP.key}`} className="group flex flex-col gap-2 px-5 py-4 transition-colors hover:bg-bg-2">
+    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col gap-2 px-5 py-4 transition-colors hover:bg-bg-2">
+      {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
+      <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
+        ↗
+      </span>
       <Label>Most traded · 24h</Label>
       <div className="flex items-center gap-2.5">
         <IPIcon

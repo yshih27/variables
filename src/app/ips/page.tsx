@@ -93,7 +93,8 @@ export default async function AllIPsPage() {
   const hasComposite = compositeTrend.datasets.some((d) => !d.benchmark);
 
   // Zone 1 (left) — 24h volume LEVELS split by source, lifted from the homepage
-  // reduce (each platform row carries the components). Deltas are Phase 2 → "—".
+  // reduce (each platform row carries the components). Their 24h %Δ now come from
+  // the Σ-based hero fields (vol24Pct = marketplace-only, gachaVol24Pct = gacha).
   const vol24 = data.platforms.reduce(
     (a, p) => ({
       marketplace: a.marketplace + (p.vol24Usd || 0),
@@ -122,6 +123,8 @@ export default async function AllIPsPage() {
               mcapPct24h={data.hero.mcapPct24h}
               marketplaceVol={vol24.marketplace}
               gachaVol={vol24.gacha}
+              marketplacePct24h={data.hero.vol24Pct}
+              gachaPct24h={data.hero.gachaVol24Pct}
             />
             {hasComposite ? (
               <CategoryTrendChart
