@@ -129,7 +129,7 @@ export function TrendingCards({
       subtitle={`Selling faster than they're listed · ${notes.join(" · ")}`}
       right={
         <>
-          <span className="rounded-md border border-line bg-bg-2 px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.05em] text-ink-2">
+          <span className="rounded-md border border-line bg-bg-2 px-2 py-1 text-[11px] font-semibold tracking-[0.05em] text-ink-2">
             {windowLabel}
           </span>
           {seeAllHref && (
@@ -177,7 +177,7 @@ export function TrendingCards({
           </thead>
           <tbody>
             {sorted.map((c, i) => (
-              <tr key={c.cardId} className="group relative cursor-pointer transition-colors hover:bg-bg-2">
+              <tr key={c.cardId} className="group relative cursor-pointer transition-colors hover:bg-bg-2 [&:last-child>td]:border-b-0">
                 <Td className="w-[40px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                 <Td>
                   <Link

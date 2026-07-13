@@ -49,17 +49,17 @@ export function WatchlistView({ ips, platforms }: { ips: IPRow[]; platforms: Pla
   if (savedIps.length === 0 && savedPlatforms.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-line px-8 py-16 text-center">
-        <div className="text-[15px] font-semibold">Nothing watchlisted yet</div>
+        <div className="text-[15px] font-semibold">No watchlisted items yet.</div>
         <p className="mx-auto mt-2 max-w-md text-[12.5px] leading-relaxed text-ink-3">
-          Hit <span className="text-ink-2">☆ Watchlist</span> on any{" "}
+          Visit any{" "}
           <Link href="/ips" className="text-ink-2 underline decoration-line underline-offset-2 hover:text-yellow">
-            category
+            Categories
           </Link>{" "}
           or{" "}
           <Link href="/platforms" className="text-ink-2 underline decoration-line underline-offset-2 hover:text-yellow">
-            platform
+            Platforms
           </Link>{" "}
-          page and it shows up here. Saved in this browser — no account needed.
+          page and click <span className="text-ink-2">☆ Watchlist</span> to add them here.
         </p>
       </div>
     );
@@ -67,8 +67,8 @@ export function WatchlistView({ ips, platforms }: { ips: IPRow[]; platforms: Pla
 
   return (
     <div className="space-y-6">
-      {savedIps.length > 0 && <IPTable rows={savedIps} seeAllHref="/ips" teaser />}
-      {savedPlatforms.length > 0 && <PlatformTable rows={savedPlatforms} seeAllHref="/platforms" />}
+      {savedIps.length > 0 && <IPTable rows={savedIps} seeAllHref="/ips" teaser title="IPs" />}
+      {savedPlatforms.length > 0 && <PlatformTable rows={savedPlatforms} seeAllHref="/platforms" title="Platforms" />}
       {orphans.length > 0 && (
         <p className="text-[11.5px] text-ink-4">
           {orphans.length} saved {orphans.length === 1 ? "entry is" : "entries are"} no longer

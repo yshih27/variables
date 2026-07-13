@@ -19,6 +19,8 @@ type Props = {
   /** Homepage teaser: drop the facet tabs + window toggle so the top-N reads as
    *  a clean preview; the full controls live on the canonical /ips page. */
   teaser?: boolean;
+  /** Override the section title (default "Top N IPs"). Watchlist passes "IPs". */
+  title?: string;
 };
 
 type SortKey = "mcap" | "dom" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers";
@@ -79,7 +81,7 @@ function categoryGroup(key: string): string {
   return "Other";
 }
 
-export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
+export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("mcap");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [vw, setVw] = useState<VolWindow>("24h");
@@ -123,7 +125,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
 
   return (
     <Section
-      title={`Top ${visible.length} IPs`}
+      title={title ?? `Top ${visible.length} IPs`}
       subtitle="Breakdown by IP across tracked platforms."
       right={
         <>
@@ -186,7 +188,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser }: Props) {
               // (a tiny/suppressed IP would show a wild % off a near-zero base).
               const hasMcap = Number.isFinite(mcapValue(ip));
               return (
-                <tr key={ip.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2">
+                <tr key={ip.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2 [&:last-child>td]:border-b-0">
                   <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                   <Td>
                     <Link

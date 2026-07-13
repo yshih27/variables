@@ -278,8 +278,12 @@ function StatCell({
   return (
     <Link
       href={href}
-      className="group flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
+      className="group relative flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
     >
+      {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
+      <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
+        ↗
+      </span>
       <Label>{label}</Label>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span

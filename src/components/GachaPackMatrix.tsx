@@ -259,12 +259,8 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
     <section className="mt-10">
       {/* One shared Section frame (D1); the IP tabs ride the header's right slot. */}
       <Section
-        title={
-          <>
-            Every pack, every platform — <em className="not-italic text-yellow">at a glance</em>
-          </>
-        }
-        subtitle="Hit odds by price tier · best odds per column highlighted"
+        title="Compare packs across platforms"
+        subtitle="Compare hit odds, top prizes, and expected returns by price tier."
         right={
           <div className="flex gap-1 rounded-xl border border-line bg-bg-2 p-1">
             {tabs.map((t) => (
@@ -748,7 +744,9 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
   const prize = group.top;
   const multi = group.packs.length > 1;
   const src = proxyImg(prize.image ?? undefined);
-  const link = cardSupported(prize.platform) ? cardHref(prize.platform, prize.id) : null;
+  // B1 (design-r1): the card-page ↗ is disabled — `prize.id` is a pool/prize id,
+  // not a resolvable card token, so cardHref(...) 404s. Re-enable once the backend
+  // exposes a verified card id (or resolvable flag) on GachaPrize. See PR summary.
 
   return (
     <div className="group relative rounded-xl border border-line bg-bg-1 transition-[border-color,transform] duration-100 hover:-translate-y-0.5 hover:border-line-2">
@@ -825,17 +823,7 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
           </div>
         </div>
       </div>
-
-      {link && (
-        <Link
-          href={link}
-          onClick={(e) => e.stopPropagation()}
-          title="Open card page"
-          className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-md border border-line-2 bg-black/70 text-[11px] text-ink-2 opacity-0 transition-opacity hover:text-yellow group-hover:opacity-100"
-        >
-          ↗
-        </Link>
-      )}
+      {/* card-page ↗ removed (B1) — pending a resolvable prize→card id from backend */}
     </div>
   );
 }
@@ -863,7 +851,8 @@ function PrizeModal({
   onClose: () => void;
 }) {
   const prize = group.top;
-  const link = cardSupported(prize.platform) ? cardHref(prize.platform, prize.id) : null;
+  // B1 (design-r1): card-page link disabled — `prize.id` is a pool/prize id, not a
+  // resolvable card token (cardHref 404s). Re-enable with a verified backend card id.
   const src = proxyImg(prize.image ?? undefined);
 
   useEffect(() => {
@@ -1060,11 +1049,8 @@ function PrizeModal({
               </div>
               <h3 className="mt-2.5 text-[16px] font-semibold leading-snug text-ink">{prize.name ?? "Graded card (name pending)"}</h3>
               <div className="mt-1 text-[12px] text-ink-3">{catLabelOf(prize.category)}</div>
-              {link && (
-                <Link href={link} className="mt-3 inline-flex items-center gap-1 text-[12.5px] font-semibold text-yellow hover:underline">
-                  Full card page <span aria-hidden>↗</span>
-                </Link>
-              )}
+              {/* "Full card page ↗" removed (B1) — prize.id isn't a resolvable card
+                  token; re-enable when the backend provides a verified card id. */}
               <div className="mt-5 text-[12.5px] text-ink-2">
                 {prize.pulled ? (
                   <>Collector Crypt doesn&apos;t publish its pools — this is a real pull from the machine below.</>
@@ -1587,7 +1573,7 @@ function PackDrawer({
               {bands.map((b) => {
                 const m = bandsStated ? measuredByLabel.get(b.label) : undefined;
                 return (
-                  <div key={b.label} className="grid grid-cols-[64px_1fr_88px] items-center gap-3 py-1.5 text-[13px]">
+                  <div key={b.label} className="grid grid-cols-[96px_1fr_88px] items-center gap-3 py-1.5 text-[13px]">
                     <span className="flex items-center gap-[9px] text-ink">
                       <span
                         className="h-[7px] w-[7px] rounded-full"
