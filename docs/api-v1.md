@@ -99,3 +99,32 @@ Trending cards (grouped by card type: name × set × grade × IP × platform).
 huntPressure, volumeUsd, buyLinks…); `data.floatAsOf` = listings-snapshot age
 behind `activeListings`. When sliced by `ip`, `data.index` = `{ ticker, indexName }`
 for that IP's index (e.g. `V-PKM`); a platform/grade-only slice sets `data.index` null.
+
+### GET /api/v1/series
+
+Raw metric-spine series on demand — the underlying daily time-series behind the
+indices (for building custom charts). `/index` + `/benchmarks` give rebased index +
+benchmark series; this gives the raw metric.
+
+| param | values | default |
+|---|---|---|
+| `entity` | `market` \| `platform` \| `ip` \| `card` \| `set` \| `grade` \| `platform_ip` \| `benchmark` | `market` |
+| `key` | entity key; **omit for the whole leaderboard** (all keys) | — |
+| `metric` | `volume_usd` \| `gacha_volume_usd` \| `trades` \| `active_wallets` \| `cards_traded` \| `cards` \| `mcap_usd` \| `floor_usd` \| `holders` | `volume_usd` |
+| `from` | ISO date lower bound (takes precedence over `window`) | — |
+| `window` | `7d` \| `14d` \| `30d` \| `90d` \| `180d` \| `6m` \| `365d` \| `1y` \| `all` | `all` |
+| `freq` | `daily` \| `weekly` | `daily` |
+| `rebase` | `true` → rebase to 100 at window start | `false` |
+
+**Composite keys** (dominance entities):
+- `set` → `"{ip}:{setName}"` — e.g. `pokemon:Obsidian Flames`
+- `grade` → `"{ip}:{gradeLabel}"` — e.g. `pokemon:PSA 10`
+- `platform_ip` → `"{platform}:{ip}"` — e.g. `collector-crypt:pokemon`
+
+With a `key`: `data` = `{ entity, key, metric, unit, from, freq, rebasedTo?, points: [{ ts, value }] }`.
+Without a `key`: `data.series` = `{ "<entity_key>": [{ ts, value }] }` for every key.
+
+Notes: `weekly` resamples per ISO week (Monday) — **sum** for flow metrics
+(volume/trades/wallets/cards), **last** for stock (mcap/floor/holders). `rebase`
+uses the index rebase (daily, forward-filled, drops non-positive) — best for
+stock/positive metrics. `unit` is `usd` or `count`.
