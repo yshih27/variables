@@ -15,10 +15,11 @@ import { rebaseSeries, readIndexSeries } from "@/lib/data/indices";
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
   // BUMP this version on ANY change to fetchHomepage's payload shape — a stale
-  // cache would otherwise serve the old shape and break the page. v42: added
-  // platform pct7d (7d momentum). Keep in lockstep with ips-fulllist:v7 (src/app/
-  // ips/page.tsx), which wraps the same fetchHomepage() and must move together.
-  ["homepage:v43"],
+  // cache would otherwise serve the old shape and break the page. v44: added hero
+  // gachaVol24Usd + gachaVol24Pct (Σ-based 24h gacha) and Σ-based vol24Pct. Keep in
+  // lockstep with ips-fulllist:v8 (src/app/ips/page.tsx), which wraps the same
+  // fetchHomepage() and must move together.
+  ["homepage:v44"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
