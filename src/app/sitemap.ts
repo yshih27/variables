@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { IP_CATALOG } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { GACHA_ENABLED } from "@/lib/flags";
 
 /**
  * Dynamic sitemap. Lists every static page + every known IP detail page
@@ -15,7 +16,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/`, lastModified: now, changeFrequency: "hourly", priority: 1 },
     { url: `${baseUrl}/ips`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
     { url: `${baseUrl}/platforms`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
-    { url: `${baseUrl}/gacha`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
+    // /gacha omitted while the section is gated — don't index a coming-soon page.
+    ...(GACHA_ENABLED
+      ? [{ url: `${baseUrl}/gacha`, lastModified: now, changeFrequency: "hourly" as const, priority: 0.9 }]
+      : []),
     { url: `${baseUrl}/methodology`, lastModified: now, changeFrequency: "monthly", priority: 0.4 },
   ];
 

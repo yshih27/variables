@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
+import { GACHA_ENABLED } from "@/lib/flags";
 
 /**
  * Custom 404. Replaces Next.js's stark "404 This page could not be found."
@@ -24,7 +25,7 @@ export default function NotFound() {
           <Pill href="/">Homepage</Pill>
           <Pill href="/ips">All IPs</Pill>
           <Pill href="/platforms">All Platforms</Pill>
-          <Pill href="/gacha">Gacha</Pill>
+          {GACHA_ENABLED && <Pill href="/gacha">Gacha</Pill>}
           <Pill href="/methodology">Methodology</Pill>
         </div>
       </main>

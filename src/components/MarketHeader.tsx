@@ -8,6 +8,7 @@ import { MetricInfo } from "./MetricInfo";
 import { tickerOf } from "@/lib/indices/naming";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
+import { GACHA_ENABLED } from "@/lib/flags";
 
 /** 24h volume split — marketplace resale + gacha pulls + other primary = total. */
 export type VolBreakdown = {
@@ -178,8 +179,10 @@ export function MarketHeader({
 
       {/* Row 3 — slim secondary-signal strip; every cell links into its page. */}
       <div className="grid grid-cols-2 border-t border-line md:grid-cols-4">
+        {/* Gacha section gated → keep the market signal as a plain stat, but drop the
+            link into the gated /gacha surface (href undefined → no anchor). */}
         <StatCell
-          href="/gacha"
+          href={GACHA_ENABLED ? "/gacha" : undefined}
           label="Gacha rips · 24h"
           value={gacha.pulls > 0 ? formatInt(gacha.pulls) : "—"}
           sub={gacha.avgPullUsd > 0 ? `avg ${formatCompactUsd(gacha.avgPullUsd)}` : undefined}
@@ -287,7 +290,8 @@ function StatCell({
   sub,
   accent,
 }: {
-  href: string;
+  /** Omit to render a plain stat (no navigation) — used for the gated gacha cell. */
+  href?: string;
   label: string;
   value: string;
   deltaPct?: number | null;
@@ -295,15 +299,8 @@ function StatCell({
   sub?: string;
   accent?: boolean;
 }) {
-  return (
-    <Link
-      href={href}
-      className="group relative flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
-    >
-      {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
-      <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
-        ↗
-      </span>
+  const inner = (
+    <>
       <Label>{label}</Label>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span
@@ -319,6 +316,27 @@ function StatCell({
         )}
         {sub && <span className="text-[11.5px] text-ink-3">{sub}</span>}
       </div>
+    </>
+  );
+  // No href → a plain stat, not a link: same figure, no navigation into the gated
+  // surface, no hover affordance. Keeps the 4-up strip balanced.
+  if (!href) {
+    return (
+      <div className="flex flex-col gap-2 border-line px-5 py-4 odd:border-r md:[&:not(:last-child)]:border-r">
+        {inner}
+      </div>
+    );
+  }
+  return (
+    <Link
+      href={href}
+      className="group relative flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
+    >
+      {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
+      <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
+        ↗
+      </span>
+      {inner}
     </Link>
   );
 }

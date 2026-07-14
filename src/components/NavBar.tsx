@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
+import { GACHA_ENABLED } from "@/lib/flags";
 
 const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLabel?: string }> = [
   { label: "Categories", href: "/ips", matchPrefix: "/ip" },
@@ -113,7 +114,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         </Link>
 
         <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] sm:flex-none sm:overflow-visible [&::-webkit-scrollbar]:hidden">
-          {LINKS.map((link) => {
+          {LINKS.filter((link) => GACHA_ENABLED || link.href !== "/gacha").map((link) => {
             const active = isActive(pathname, link);
             return (
               <Link
