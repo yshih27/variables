@@ -5,6 +5,7 @@ import { Section } from "./Section";
 import { MetricInfo } from "./MetricInfo";
 import { type MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatInt } from "@/lib/format";
+import { monotonePath } from "@/lib/chart/path";
 
 /** Metric key → glossary entry for the ⓘ in the Metrics menu (R5-3). */
 const GLOSSARY_BY_KEY: Record<string, MetricKey> = {
@@ -110,41 +111,6 @@ function fmtHoverDate(ts: string | undefined, tf: Timeframe): string {
   return `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
-/** Monotone cubic (Fritsch–Carlson) — smooth without overshoot between samples. */
-function monotonePath(pts: Array<[number, number]>): string {
-  const n = pts.length;
-  if (n === 0) return "";
-  if (n === 1) return `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-  if (n === 2) return `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} L${pts[1][0].toFixed(1)} ${pts[1][1].toFixed(1)}`;
-  const dx: number[] = [];
-  const m: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    const hx = pts[i + 1][0] - pts[i][0];
-    dx.push(hx);
-    m.push(hx !== 0 ? (pts[i + 1][1] - pts[i][1]) / hx : 0);
-  }
-  const t = new Array<number>(n);
-  t[0] = m[0];
-  t[n - 1] = m[n - 2];
-  for (let i = 1; i < n - 1; i++) {
-    if (m[i - 1] * m[i] <= 0) t[i] = 0;
-    else {
-      const w1 = 2 * dx[i] + dx[i - 1];
-      const w2 = dx[i] + 2 * dx[i - 1];
-      t[i] = (w1 + w2) / (w1 / m[i - 1] + w2 / m[i]);
-    }
-  }
-  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-  for (let i = 0; i < n - 1; i++) {
-    const hx = dx[i];
-    const c1x = pts[i][0] + hx / 3;
-    const c1y = pts[i][1] + (t[i] * hx) / 3;
-    const c2x = pts[i + 1][0] - hx / 3;
-    const c2y = pts[i + 1][1] - (t[i + 1] * hx) / 3;
-    d += ` C${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${pts[i + 1][0].toFixed(1)} ${pts[i + 1][1].toFixed(1)}`;
-  }
-  return d;
-}
 
 function axisTicks(lo: number, hi: number, unit: MetricUnit, segs = 3): { f: number; label: string }[] {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return [];

@@ -1,7 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
-import { CategoryTrendChart } from "@/components/CategoryTrendChart";
+import { IndexStudio } from "@/components/IndexStudio";
 import { CategoryTreemap } from "@/components/CategoryTreemap";
 import { OverviewMetricColumn } from "@/components/OverviewMetricColumn";
 import { MetricBarCard } from "@/components/MetricBarCard";
@@ -9,7 +9,6 @@ import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
-import { buildPriceComparison, PRICE_RANGES } from "@/lib/data/perfCompare";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
 // the old shape). v8: added hero gachaVol24Usd + gachaVol24Pct + Σ-based vol24Pct.
@@ -64,11 +63,6 @@ export const metadata = {
     "The tokenized trading-card market at a glance — composite index vs benchmarks, 24h volume, cards traded, and market cap by IP.",
 };
 
-// Keep only these two benchmarks on the overview chart (buildPriceComparison
-// appends all five). Both share the weekly axis the dropped three do, so filtering
-// them out leaves no stray x-labels — the composite index + BTC + S&P read clean.
-const KEEP_BENCHMARKS = new Set(["BTC", "S&P 500"]);
-
 export default async function AllIPsPage() {
   const [data, volSeries, cardsSeries, platVol, platGacha] = await Promise.all([
     getData(),
@@ -79,18 +73,6 @@ export default async function AllIPsPage() {
   ]);
 
   const categories = rollupByCategory(data.ips, volSeries);
-
-  // Zone 1 (right) — the composite collectibles PRICE index (V-MKT, the same
-  // series the homepage plots) vs BTC + S&P 500, rebased to 100. Gate on the
-  // composite being present, not on any per-IP series.
-  const marketTrend = await buildPriceComparison([
-    { entity: "market", key: "total", label: "Collectibles Index", color: "#f3ff42" },
-  ]);
-  const compositeTrend = {
-    ...marketTrend,
-    datasets: marketTrend.datasets.filter((d) => !d.benchmark || KEEP_BENCHMARKS.has(d.group)),
-  };
-  const hasComposite = compositeTrend.datasets.some((d) => !d.benchmark);
 
   // Zone 1 (left) — 24h volume LEVELS split by source, lifted from the homepage
   // reduce (each platform row carries the components). Their 24h %Δ now come from
@@ -116,8 +98,8 @@ export default async function AllIPsPage() {
         <CategoryStatBar rows={data.ips} categories={categories} />
 
         <div className="space-y-4">
-          {/* ZONE 1 — left metric column + composite index chart. */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-stretch">
+          {/* ZONE 1 — left metric column + interactive Index Studio chart. */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
             <OverviewMetricColumn
               mcapUsd={data.hero.totalMcapUsd}
               mcapPct24h={data.hero.mcapPct24h}
@@ -126,21 +108,7 @@ export default async function AllIPsPage() {
               marketplacePct24h={data.hero.vol24Pct}
               gachaPct24h={data.hero.gachaVol24Pct}
             />
-            {hasComposite ? (
-              <CategoryTrendChart
-                views={[{ key: "price", label: "Price", data: compositeTrend }]}
-                title="Collectibles index vs benchmarks"
-                defaultMode="rebased"
-                allowRebase={false}
-                basis="price"
-                ranges={PRICE_RANGES}
-                defaultRange="90D"
-              />
-            ) : (
-              <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-line bg-bg-1 text-[13px] text-ink-3">
-                Composite index building
-              </div>
-            )}
+            <IndexStudio />
           </div>
 
           {/* ZONE 2 — three 14-day daily bar cards. */}
