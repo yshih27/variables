@@ -18,12 +18,11 @@
  *   window   7d | 14d | 30d | 90d | 180d | 6m | 365d | 1y | all   (default all)
  *   freq     daily | weekly (default daily). weekly resamples per ISO week (Mon):
  *            SUM for flow metrics, LAST for stock metrics (mcap/floor/holders).
- *   rebase   true → rebase to 100 at the window start via rebaseSeries (daily,
- *            forward-filled, drops non-positive — intended for stock/positive
- *            metrics + index-style overlays). Default false = raw values.
+ *   rebase   true → rebase to 100 at the window start.  Default false = raw values.
  *
  * Returns { entity, key?, metric, unit, from, freq, rebasedTo?, points | series }.
  * Auth: Authorization: Bearer <key> (or ?api_key=). Attribution required — see meta.terms.
+ * The internal, unauthed, same-origin twin is /api/internal/chart/series.
  */
 import {
   readMetricSeries,
@@ -31,10 +30,9 @@ import {
   type MetricEntityType,
   type SeriesPoint,
 } from "@/lib/data/metricSnapshots";
-import { rebaseSeries } from "@/lib/data/indices";
-import { weekStartUtc } from "@/lib/data/priceIndex";
 import { requireApiKey } from "@/lib/api/auth";
 import { v1Ok, v1Error, v1Options, pickParam } from "@/lib/api/v1";
+import { ENTITIES, METRIC_UNIT, METRICS, shapeSeries } from "@/lib/api/chartSeries";
 
 export const dynamic = "force-dynamic";
 
@@ -42,43 +40,7 @@ export const OPTIONS = v1Options;
 
 const DAY = 86_400_000;
 
-// Keep in sync with MetricEntityType (the `readonly MetricEntityType[]` annotation
-// makes tsc reject an INVALID member, though not a MISSING one).
-const ENTITIES: readonly MetricEntityType[] = [
-  "market",
-  "platform",
-  "ip",
-  "card",
-  "set",
-  "grade",
-  "platform_ip",
-  "benchmark",
-];
-
-/** Allowlisted spine metrics → display unit. */
-const METRIC_UNIT: Record<string, "usd" | "count"> = {
-  volume_usd: "usd",
-  gacha_volume_usd: "usd",
-  trades: "count",
-  active_wallets: "count",
-  cards_traded: "count",
-  cards: "count",
-  mcap_usd: "usd",
-  floor_usd: "usd",
-  holders: "count",
-};
-const METRICS = Object.keys(METRIC_UNIT);
-// FLOW = additive per day (sum over a week); the rest are STOCK (last-in-week).
-const FLOW_METRICS = new Set([
-  "volume_usd",
-  "gacha_volume_usd",
-  "trades",
-  "active_wallets",
-  "cards_traded",
-  "cards",
-]);
-
-/** window → lookback days (null = all history). */
+/** window → lookback days (null = all history). Public-only convenience param. */
 const WINDOW_DAYS: Record<string, number | null> = {
   "7d": 7,
   "14d": 14,
@@ -90,50 +52,6 @@ const WINDOW_DAYS: Record<string, number | null> = {
   "1y": 365,
   all: null,
 };
-
-/** Resample a daily series to ISO-weekly (Monday-keyed). */
-function resampleWeekly(points: SeriesPoint[], agg: "sum" | "last"): SeriesPoint[] {
-  const byWeek = new Map<string, { sum: number; last: number; lastTs: string }>();
-  for (const p of points) {
-    const t = Date.parse(p.ts);
-    if (!Number.isFinite(t) || !Number.isFinite(p.value)) continue;
-    const wk = weekStartUtc(t);
-    const cur = byWeek.get(wk);
-    if (!cur) byWeek.set(wk, { sum: p.value, last: p.value, lastTs: p.ts });
-    else {
-      cur.sum += p.value;
-      if (p.ts >= cur.lastTs) {
-        cur.last = p.value;
-        cur.lastTs = p.ts;
-      }
-    }
-  }
-  return [...byWeek.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([wk, v]) => ({ ts: wk, value: agg === "sum" ? v.sum : v.last }));
-}
-
-/** window → freq → optional rebase. Pure; `fromMs`/`fromIso` already resolved. */
-function shapeSeries(
-  raw: SeriesPoint[],
-  opts: { fromMs: number; fromIso: string; freq: "daily" | "weekly"; rebase: boolean; metric: string },
-): SeriesPoint[] {
-  if (opts.rebase) {
-    // rebaseSeries windows to `from` itself, forward-fills daily, drops ≤0, =100 at start.
-    let pts: SeriesPoint[] = rebaseSeries(raw, opts.fromIso, 100).map((p) => ({ ts: p.ts, value: p.value }));
-    // Rebased values are index levels (stock-like) → LAST-in-week when weekly.
-    if (opts.freq === "weekly") pts = resampleWeekly(pts, "last");
-    return pts;
-  }
-  const windowed = raw.filter((p) => {
-    const t = Date.parse(p.ts);
-    return Number.isFinite(t) && t >= opts.fromMs;
-  });
-  if (opts.freq === "weekly") {
-    return resampleWeekly(windowed, FLOW_METRICS.has(opts.metric) ? "sum" : "last");
-  }
-  return windowed;
-}
 
 export async function GET(req: Request) {
   const auth = await requireApiKey(req);
@@ -167,14 +85,7 @@ export async function GET(req: Request) {
   const rebase = ["1", "true", "yes"].includes((url.searchParams.get("rebase") ?? "").toLowerCase());
 
   const shape = (raw: SeriesPoint[]) => shapeSeries(raw, { fromMs, fromIso, freq, rebase, metric });
-  const common = {
-    entity,
-    metric,
-    unit,
-    from: fromIso,
-    freq,
-    ...(rebase ? { rebasedTo: 100 } : {}),
-  };
+  const common = { entity, metric, unit, from: fromIso, freq, ...(rebase ? { rebasedTo: 100 } : {}) };
 
   const key = url.searchParams.get("key");
   if (key) {
