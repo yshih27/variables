@@ -3,10 +3,10 @@ import type { IPRow } from "@/lib/types";
 import { concentrationHHI, type CategoryAggregate } from "@/lib/category/rollup";
 
 /**
- * Category structure strip for the /ips overview — concentration + breadth, the
+ * Category structure ribbon for the /ips overview — concentration + breadth, the
  * questions the homepage's totals don't answer. Deliberately NOT market cap /
- * 24h volume (those are the homepage's quick answers). A thin Rarible-style bar,
- * not chunky tiles.
+ * 24h volume (those are the overview's headline levels). A single compact line of
+ * label·value pairs (was a 4-tile strip) so the top of the page stays dense.
  */
 function liquidCount(rows: IPRow[]): { liquid: number; total: number } {
   let liquid = 0;
@@ -27,46 +27,49 @@ export function CategoryStatBar({ rows, categories }: { rows: IPRow[]; categorie
   const { liquid, total } = liquidCount(rows);
   const top = categories[0] ?? null;
   const hhi = concentrationHHI(categories);
+  const items: { label: string; value: ReactNode }[] = [
+    { label: "Categories", value: <span className="tabular">{categories.length}</span> },
+    {
+      label: "Liquid IPs",
+      value: (
+        <span className="tabular">
+          {liquid} <span className="text-ink-3">/ {total}</span>
+        </span>
+      ),
+    },
+    {
+      label: "Dominance",
+      value: top ? (
+        <span>
+          {top.group}{" "}
+          <span className="tabular" style={{ color: top.color }}>
+            {Math.round(top.sharePct)}%
+          </span>
+        </span>
+      ) : (
+        "—"
+      ),
+    },
+    {
+      label: "Concentration",
+      value: (
+        <span>
+          {hhiLabel(hhi)} <span className="tabular text-ink-3">· HHI {hhi.toFixed(2)}</span>
+        </span>
+      ),
+    },
+  ];
   return (
-    <section className="mb-7 flex flex-wrap overflow-hidden rounded-xl border border-line">
-      <Stat label="Categories" value={<span className="tabular">{categories.length}</span>} />
-      <Stat
-        label="Liquid IPs"
-        value={
-          <span className="tabular">
-            {liquid} <span className="text-ink-3">/ {total}</span>
+    <section className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line px-4 py-2.5 text-[12.5px]">
+      {items.map((it, i) => (
+        <div key={it.label} className="flex items-center gap-x-3">
+          {i > 0 && <span aria-hidden className="text-ink-4">·</span>}
+          <span className="flex items-baseline gap-1.5">
+            <span className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-4">{it.label}</span>
+            <span className="font-semibold text-ink-2">{it.value}</span>
           </span>
-        }
-      />
-      <Stat
-        label="Dominance"
-        value={
-          top ? (
-            <span>
-              {top.group} <span className="tabular" style={{ color: top.color }}>{Math.round(top.sharePct)}%</span>
-            </span>
-          ) : (
-            "—"
-          )
-        }
-      />
-      <Stat
-        label="Concentration"
-        value={
-          <span>
-            {hhiLabel(hhi)} <span className="tabular text-[12px] text-ink-3">· HHI {hhi.toFixed(2)}</span>
-          </span>
-        }
-      />
+        </div>
+      ))}
     </section>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="min-w-[150px] flex-1 border-line px-4 py-3 [&:not(:last-child)]:border-r">
-      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.07em] text-ink-3">{label}</div>
-      <div className="text-[15px] font-semibold">{value}</div>
-    </div>
   );
 }

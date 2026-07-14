@@ -173,8 +173,8 @@ export function MarketHeader({
         )}
       </div>
 
-      {/* Row 2 — 24h volume, split by source. */}
-      <VolumeBar vol={vol} deltaPct={pct(hero.vol24Pct)} />
+      {/* Row 2 — 24h volume, split by source (per-segment 24h %Δ). */}
+      <VolumeBar vol={vol} marketplacePct={hero.vol24Pct} gachaPct={hero.gachaVol24Pct} />
 
       {/* Row 3 — slim secondary-signal strip; every cell links into its page. */}
       <div className="grid grid-cols-2 border-t border-line md:grid-cols-4">
@@ -213,9 +213,26 @@ const VOL_SEGMENTS = [
   { key: "otherPrimary", label: "Direct sales", color: "var(--color-purple)", info: "directSales" },
 ] as const;
 
-function VolumeBar({ vol, deltaPct }: { vol: VolBreakdown; deltaPct: number | null }) {
+function VolumeBar({
+  vol,
+  marketplacePct,
+  gachaPct,
+}: {
+  vol: VolBreakdown;
+  /** ALREADY percent (hero.vol24Pct, marketplace-only Σ-based). Not a fraction. */
+  marketplacePct: number | null;
+  /** ALREADY percent (hero.gachaVol24Pct, gacha-only Σ-based). Not a fraction. */
+  gachaPct: number | null;
+}) {
   const total = vol.total > 0 ? vol.total : 1;
   const segs = VOL_SEGMENTS.map((s) => ({ ...s, value: vol[s.key] })).filter((s) => s.value > 0);
+  // Per-segment 24h %Δ lives on the breakdown, not the total: a marketplace-only
+  // delta can't honestly sit beside the grand total. "Direct sales" has no delta yet.
+  const segPct: Record<string, number | null> = {
+    marketplace: marketplacePct,
+    gacha: gachaPct,
+    otherPrimary: null,
+  };
   // Not a whole-bar <Link> anymore (R6-6): the segment labels host ⓘ buttons,
   // which can't nest inside an anchor — so the "platforms →" link is explicit.
   return (
@@ -229,7 +246,6 @@ function VolumeBar({ vol, deltaPct }: { vol: VolBreakdown; deltaPct: number | nu
           <span className="text-[20px] font-bold leading-none tabular">
             {vol.total > 0 ? formatCompactUsd(vol.total) : "—"}
           </span>
-          {deltaPct != null && <Delta pct={deltaPct} />}
           <Link href="/platforms" className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
             platforms →
           </Link>
@@ -243,14 +259,18 @@ function VolumeBar({ vol, deltaPct }: { vol: VolBreakdown; deltaPct: number | nu
             ))}
           </div>
           <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
-            {segs.map((s) => (
-              <span key={s.key} className="flex items-center gap-1.5 text-[12px]">
-                <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: s.color }} />
-                <span className="text-ink-3">{s.label}</span>
-                <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
-                <MetricInfo metric={s.info} />
-              </span>
-            ))}
+            {segs.map((s) => {
+              const d = segPct[s.key];
+              return (
+                <span key={s.key} className="flex items-center gap-1.5 text-[12px]">
+                  <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: s.color }} />
+                  <span className="text-ink-3">{s.label}</span>
+                  <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
+                  {d != null && Number.isFinite(d) && <Delta pct={d} />}
+                  <MetricInfo metric={s.info} />
+                </span>
+              );
+            })}
           </div>
         </div>
       )}
@@ -278,8 +298,12 @@ function StatCell({
   return (
     <Link
       href={href}
-      className="group flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
+      className="group relative flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
     >
+      {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
+      <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
+        ↗
+      </span>
       <Label>{label}</Label>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span
@@ -309,7 +333,11 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
     );
   }
   return (
-    <Link href={`/ip/${topIP.key}`} className="group flex flex-col gap-2 px-5 py-4 transition-colors hover:bg-bg-2">
+    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col gap-2 px-5 py-4 transition-colors hover:bg-bg-2">
+      {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
+      <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
+        ↗
+      </span>
       <Label>Most traded · 24h</Label>
       <div className="flex items-center gap-2.5">
         <IPIcon

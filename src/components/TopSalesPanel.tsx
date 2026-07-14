@@ -23,11 +23,6 @@ export function TopSalesPanel({ items }: Props) {
   return (
     <Section
       title="Top Sales"
-      badge={
-        <span className="inline-flex h-6 items-center gap-1.5 rounded-md bg-green px-2 text-[11px] font-bold uppercase tracking-[0.04em] text-black">
-          Sales
-        </span>
-      }
       right={<span className="text-[11.5px] text-ink-3">top {items.length} cards · 24h</span>}
       className="font-sans"
       flush
@@ -106,7 +101,9 @@ function SaleCard({ sale }: { sale: TopSale }) {
         {failed ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 pb-3 pt-4">
             <span className="min-h-0 flex-1">
-              <CardSlabGlyph color={sale.ipColor} />
+              {/* Neutral gray so a missing image reads as a skeleton, not artwork
+                  (Q8) — card-detail already uses the neutral fallback. */}
+              <CardSlabGlyph color="#8b8b94" />
             </span>
             <span className="line-clamp-2 max-w-full text-center text-[10px] leading-tight text-ink-3">
               {sale.cardName}

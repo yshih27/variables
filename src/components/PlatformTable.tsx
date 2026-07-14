@@ -28,6 +28,8 @@ type Props = {
    *  marketplace/gacha/direct split + wallets/cards/holders live on /platforms
    *  (that deeper breakdown is the reason to click through). */
   teaser?: boolean;
+  /** Override the section title (default "Top Platforms"). Watchlist passes "Platforms". */
+  title?: string;
 };
 
 type SortKey = "total" | "dom" | "vol24" | "gacha" | "primary" | "vol7" | "active" | "cards" | "holders" | "avgTrade" | "pct7";
@@ -74,7 +76,7 @@ function cmp(a: number, b: number, dir: 1 | -1): number {
   return (a - b) * dir;
 }
 
-export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser }: Props) {
+export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, title }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [chain, setChain] = useState<Chain | "all">("all");
@@ -109,7 +111,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser }
 
   return (
     <Section
-      title="Top Platforms"
+      title={title ?? "Top Platforms"}
       subtitle="Where the trading happens."
       right={
         seeAllHref && overflow > 0 ? (
@@ -183,7 +185,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser }
               // intentional rather than broken data.
               const primaryOnly = !(p.vol24Usd > 0) && p.primaryUsd != null && p.primaryUsd > 0;
               return (
-              <tr key={p.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2">
+              <tr key={p.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2 [&:last-child>td]:border-b-0">
                 <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                 <Td>
                   <div className="flex items-center gap-2.5">
