@@ -48,7 +48,11 @@ export function Section({
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             {badge}
-            <h2 className="text-[16px] font-semibold leading-tight tracking-[-0.01em]">{title}</h2>
+            {/* Contrast, not size: the title competes with 18–40px numbers inside
+                the module, so it earns weight + an explicit `text-ink` (it had no
+                colour class and merely inherited). Deliberately NOT bigger — the
+                Overview's density budget is tight (D1). */}
+            <h2 className="text-[16px] font-bold leading-tight tracking-[-0.01em] text-ink">{title}</h2>
           </div>
           {subtitle && <div className="mt-1 text-[12px] text-ink-3">{subtitle}</div>}
         </div>

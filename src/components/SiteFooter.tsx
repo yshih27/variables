@@ -18,7 +18,7 @@ const LINKS: Array<{ label: string; href: string }> = [
 
 export function SiteFooter() {
   return (
-    <footer className="border-t border-line/70 px-8 py-8 font-sans">
+    <footer className="mt-auto border-t border-line/70 px-8 py-8 font-sans">
       <div className="mx-auto flex max-w-[1760px] flex-col gap-5">
         <div className="flex flex-col gap-4 border-b border-line/50 pb-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-[420px] text-[13px] text-ink-2">

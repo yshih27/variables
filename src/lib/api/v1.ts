@@ -7,8 +7,9 @@
  * every payload — a consumer can't miss them.
  */
 import type { ApiKeyResult } from "./auth";
+import { SITE_ORIGIN } from "@/lib/site";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tcg.market";
+const SITE_URL = SITE_ORIGIN;
 
 // Server-side per-key quota already gates access; let browser apps call it too.
 // CORS headers must ride on EVERY response (including errors — a browser shows

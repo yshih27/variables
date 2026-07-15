@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { IP_CATALOG } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { GACHA_ENABLED } from "@/lib/flags";
+import { SITE_ORIGIN } from "@/lib/site";
 
 /**
  * Dynamic sitemap. Lists every static page + every known IP detail page
@@ -9,7 +10,7 @@ import { GACHA_ENABLED } from "@/lib/flags";
  * yet — we'll add /card/[id] entries once that route ships.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tcg.market";
+  const baseUrl = SITE_ORIGIN;
   const now = new Date();
 
   const staticRoutes: MetadataRoute.Sitemap = [

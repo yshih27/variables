@@ -286,10 +286,10 @@ function SortTh({
         active ? "text-ink" : "text-ink-3 hover:text-ink-2"
       } ${align === "right" ? "text-right" : "text-left"} ${className}`}
     >
-      <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
+      <span className="inline-flex items-center gap-1">
         <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-1">
-          <span className={active ? "text-yellow" : "text-ink-4"}>{active ? (dir === -1 ? "▼" : "▲") : "↕"}</span>
           {children}
+          <span className={active ? "text-yellow" : "text-ink-4"}>{active ? (dir === -1 ? "▼" : "▲") : "↕"}</span>
         </button>
         {info && <MetricInfo metric={info} />}
       </span>

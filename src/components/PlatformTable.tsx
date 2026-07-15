@@ -309,18 +309,19 @@ function SortTh({
 }) {
   return (
     <th
-      onClick={onClick}
+      // No onClick here — the inner button owns sorting. Carrying it on the <th>
+      // too made every label click fire twice (button + bubble), so the direction
+      // toggled straight back; and clicking the ⓘ re-sorted the table (D3).
+      // IPTable/TrendingCards never had it.
       aria-sort={active ? (dir === -1 ? "descending" : "ascending") : "none"}
       className={`select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
         active ? "text-ink" : "text-ink-3 hover:text-ink-2"
       } ${align === "right" ? "text-right" : "text-left"} ${className}`}
     >
-      <span className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}>
+      <span className="inline-flex items-center gap-1">
         <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-1">
-          <span className={active ? "text-yellow" : "text-ink-4"}>
-            {active ? (dir === -1 ? "▼" : "▲") : "↕"}
-          </span>
           {children}
+          <span className={active ? "text-yellow" : "text-ink-4"}>{active ? (dir === -1 ? "▼" : "▲") : "↕"}</span>
         </button>
         {info && <MetricInfo metric={info} />}
       </span>
