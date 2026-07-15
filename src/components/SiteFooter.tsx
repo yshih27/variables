@@ -11,6 +11,8 @@ const LINKS: Array<{ label: string; href: string }> = [
   { label: "Methodology", href: "/methodology" },
   { label: "Data status", href: "/status" },
   { label: "Watchlist", href: "/watchlist" },
+  { label: "Terms", href: "/terms" },
+  { label: "Privacy", href: "/privacy" },
 ];
 
 export function SiteFooter() {
