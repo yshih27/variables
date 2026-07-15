@@ -44,7 +44,16 @@ export function holdersForIp(snap: HoldersSnapshot | null, ipKey: string): numbe
   return snap.byIp[ipKey]?.total ?? 0;
 }
 
+/**
+ * NaN when this platform is absent from the snapshot — warm-holders only scans
+ * beezie / collector-crypt / phygitals, so Courtyard was reporting a confident
+ * "0 holders" for a platform we never counted. A scanned platform with genuinely
+ * zero holders writes an explicit 0 and keeps it.
+ *
+ * fetchPlatform already made this call for the detail page; doing it here too is
+ * what stops /platforms and /platform/courtyard disagreeing (0 vs "—").
+ */
 export function holdersForPlatform(snap: HoldersSnapshot | null, platformKey: string): number {
   if (!snap) return NaN;
-  return snap.platforms[platformKey] ?? 0;
+  return snap.platforms[platformKey] ?? NaN;
 }

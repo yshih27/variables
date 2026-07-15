@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TopSale } from "@/lib/types";
 import { Section } from "./Section";
+import { MetricInfo } from "./MetricInfo";
 import { CardSlabGlyph } from "./CardImage";
 import { IPIcon } from "./IPIcon";
 import { proxyImg } from "@/lib/img";
@@ -22,7 +23,14 @@ export function TopSalesPanel({ items }: Props) {
   if (items.length === 0) return null;
   return (
     <Section
-      title="Top Sales"
+      // The price tags read as prices but not as REALIZED sale prices — the ⓘ
+      // says so (a listing/appraisal would be a very different number). D4.
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          Top Sales
+          <MetricInfo metric="salePrice" />
+        </span>
+      }
       right={<span className="text-[11.5px] text-ink-3">top {items.length} cards · 24h</span>}
       className="font-sans"
       flush

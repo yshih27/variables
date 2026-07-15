@@ -25,21 +25,43 @@ export type PlatformBucket = {
   source: PlatformSource;
   stats24h: CollectionStats;
   sales24h: NormalizedSale[];
+  /**
+   * False when this platform has NO secondary-sales source at all — `core-volume`
+   * carries no entry for it (Phygitals: its listings aggregate Tensor + Magic
+   * Eden + native, which needs a Dune query that doesn't exist yet).
+   *
+   * ⚠️ This flag is load-bearing and can't be inferred from `sales24h.length`:
+   * an empty array means "we measured and there were no sales" for a tracked
+   * platform (a legitimately quiet 24h → a real 0) and "we never measured" for
+   * an untracked one (→ unknown). Readers that derive their own figures from
+   * `sales24h` MUST branch on this, or they re-fabricate the zero that
+   * `unknownStats` exists to prevent.
+   */
+  hasSecondarySource: boolean;
   history: HourBucket[] | null;
   /** 24h primary-market USD volume (tokenization fees etc). Null if N/A. */
   primaryUsd: number | null;
 };
 
-function emptyStats(collectionId: string): CollectionStats {
+/**
+ * Stats for a platform we have NO secondary-sales source for. Every figure is
+ * NaN — UNKNOWN, not zero. Previously these were literal 0s, which every
+ * `Number.isFinite` guard in the codebase waved through as a confident "$0 /
+ * 0 trades" for a platform we have simply never measured (sources.ts:247 states
+ * the intent: "honestly absent — not a fabricated $0"). NaN is the codebase's
+ * established not-tracked sentinel (X5) and renders "—" through formatCompactUsd
+ * / formatInt.
+ */
+function unknownStats(collectionId: string): CollectionStats {
   return {
     collectionId,
     windowFrom: new Date(Date.now() - DAY).toISOString(),
     windowTo: new Date().toISOString(),
-    salesCount: 0,
-    volumeUsd: 0,
-    uniqueBuyers: 0,
-    uniqueSellers: 0,
-    avgTradeUsd: 0,
+    salesCount: NaN,
+    volumeUsd: NaN,
+    uniqueBuyers: NaN,
+    uniqueSellers: NaN,
+    avgTradeUsd: NaN,
   };
 }
 
@@ -85,8 +107,9 @@ function buildBucket(
     source.kind === "helius" ? source.collectionAddress : source.collectionId;
   return {
     source,
-    stats24h: cv?.stats24h ?? emptyStats(collectionId || source.key),
+    stats24h: cv?.stats24h ?? unknownStats(collectionId || source.key),
     sales24h: cv?.sales24h ?? [],
+    hasSecondarySource: !!cv,
     history,
     primaryUsd,
   };

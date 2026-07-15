@@ -330,7 +330,13 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const enriched = await enrichSales(bucket);
 
   const allSales = bucket.sales24h;
-  const volumeUsd = allSales.reduce((s, x) => s + x.priceUsd, 0);
+  // ⚠️ This page derives its secondary figures from `sales24h`, NOT `stats24h`,
+  // so `unknownStats` alone doesn't reach it. For an untracked platform
+  // `sales24h` is [] — and reducing [] gives a confident 0. `tracked` is the
+  // only thing that separates "measured, no sales" from "never measured".
+  const tracked = bucket.hasSecondarySource;
+  const unknown = (n: number) => (tracked ? n : NaN);
+  const volumeUsd = unknown(allSales.reduce((s, x) => s + x.priceUsd, 0));
   const buyers = new Set(allSales.map((s) => s.buyer));
   const sellers = new Set(allSales.map((s) => s.seller));
   const wallets = new Set<string>([...buyers, ...sellers]);
@@ -350,7 +356,11 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const vol24Pct = histBuckets ? pctChange(histBuckets, 24) : null;
 
   // Rank by TOTAL 24h activity (resale + primary), consistent with the homepage.
-  const totalOf = (pb: PlatformBucket) => pb.stats24h.volumeUsd + (pb.primaryUsd ?? 0);
+  // An untracked platform's secondary volume is NaN — counted as 0 here so it
+  // ranks on the primary volume we DO have, rather than NaN-ing the comparator
+  // (which would make the sort order arbitrary for every platform).
+  const totalOf = (pb: PlatformBucket) =>
+    (Number.isFinite(pb.stats24h.volumeUsd) ? pb.stats24h.volumeUsd : 0) + (pb.primaryUsd ?? 0);
   const sortedByTotal = [...buckets].sort((a, b) => totalOf(b) - totalOf(a));
   const rank = sortedByTotal.findIndex((b) => b.source.key === key) + 1;
 
@@ -365,7 +375,14 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const cards = platformMcapEntry?.cards ?? NaN;
 
   // This platform's share of total 24h secondary volume across all platforms.
-  const totalSecVol = buckets.reduce((s, b) => s + b.stats24h.volumeUsd, 0);
+  // The denominator skips untracked platforms (Σ of what we measure — the same
+  // total as before); the numerator does NOT, so an untracked platform's own
+  // share stays NaN → "—". We don't know its secondary volume, so we can't know
+  // its share; claiming 0% would be a fabrication.
+  const totalSecVol = buckets.reduce(
+    (s, b) => s + (Number.isFinite(b.stats24h.volumeUsd) ? b.stats24h.volumeUsd : 0),
+    0,
+  );
   const marketSharePct = totalSecVol > 0 ? bucket.stats24h.volumeUsd / totalSecVol : 0;
 
   const ips = buildPlatformIPs(enriched, platformMcapEntry?.byIp, holders?.byIp ?? null, key);
@@ -386,13 +403,13 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : null,
     gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : null,
     total24Usd: volumeUsd + (bucket.primaryUsd ?? 0),
-    trades24h: allSales.length,
-    uniqueBuyers: buyers.size,
-    uniqueSellers: sellers.size,
-    uniqueWallets: wallets.size,
-    avgTradeUsd: allSales.length ? volumeUsd / allSales.length : 0,
-    highSaleUsd: prices.length ? Math.max(...prices) : 0,
-    lowSaleUsd: prices.length ? Math.min(...prices) : 0,
+    trades24h: unknown(allSales.length),
+    uniqueBuyers: unknown(buyers.size),
+    uniqueSellers: unknown(sellers.size),
+    uniqueWallets: unknown(wallets.size),
+    avgTradeUsd: allSales.length ? volumeUsd / allSales.length : unknown(0),
+    highSaleUsd: prices.length ? Math.max(...prices) : unknown(0),
+    lowSaleUsd: prices.length ? Math.min(...prices) : unknown(0),
     cards,
     holders: platformHolders,
     mcapUsd: platformMcap,
@@ -420,19 +437,34 @@ export const getPlatformDetail = unstable_cache(
  * "platform-detail" tag as the detail, so both refresh together.
  */
 export const getPlatformActivitySeries = unstable_cache(
-  async (key: string): Promise<{ volume: SeriesPoint[]; wallets: SeriesPoint[]; trades: SeriesPoint[]; mcap: SeriesPoint[] }> => {
-    const [volume, wallets, trades, mcap] = await Promise.all([
+  async (
+    key: string,
+  ): Promise<{
+    volume: SeriesPoint[];
+    wallets: SeriesPoint[];
+    trades: SeriesPoint[];
+    mcap: SeriesPoint[];
+    gacha: SeriesPoint[];
+    holders: SeriesPoint[];
+  }> => {
+    const [volume, wallets, trades, mcap, gacha, holders] = await Promise.all([
       readMetricSeries("platform", key, "volume_usd").catch(() => [] as SeriesPoint[]),
       readMetricSeries("platform", key, "active_wallets").catch(() => [] as SeriesPoint[]),
       readMetricSeries("platform", key, "trades").catch(() => [] as SeriesPoint[]),
       readMetricSeries("platform", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "gacha_volume_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "holders").catch(() => [] as SeriesPoint[]),
     ]);
-    return { volume, wallets, trades, mcap };
+    return { volume, wallets, trades, mcap, gacha, holders };
   },
   // v2 (R5-1): v1 cached an empty mcap series from before the spine carried
   // per-platform mcap_usd; bumping the key forces a fresh read so the Market Cap
   // tab populates for Beezie + Collector Crypt.
-  ["platform-activity-series:v2"],
+  // v3: + gacha_volume_usd and holders — the Overview rail derives its gacha and
+  // holders %Δ from these (no such delta field exists on PlatformDetail), and the
+  // holders bar card plots them. BUMP THE KEY on any shape change here: v2 rows
+  // have no `gacha`/`holders` and would deserialize as undefined.
+  ["platform-activity-series:v3"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 
