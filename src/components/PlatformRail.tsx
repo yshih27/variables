@@ -36,7 +36,11 @@ export function PlatformRail({ detail, mcapPct }: Props) {
     {
       k: "Market Share",
       sub: "of tracked 24h vol",
-      v: `${Math.round(detail.marketSharePct * 100)}%`,
+      // NaN when this platform has no secondary-sales source: we don't know its
+      // volume, so we can't know its share. Math.round(NaN) would print "NaN%".
+      v: Number.isFinite(detail.marketSharePct)
+        ? `${Math.round(detail.marketSharePct * 100)}%`
+        : "—",
     },
     { k: "24h Trades", sub: "secondary sales", v: formatInt(detail.trades24h) },
     {

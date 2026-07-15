@@ -347,6 +347,10 @@ export async function buildHomepagePayload(
         wallets.add(s.seller);
         cards.add(s.tokenId);
       }
+      // ⚠️ These two are derived from sales24h, which is [] BOTH for a tracked
+      // platform with a quiet 24h (a real 0) and for one we have no secondary
+      // source for (unknown). Only `hasSecondarySource` separates them.
+      const secondary = <T,>(v: T) => (b.hasSecondarySource ? v : NaN);
       // Gacha-only volume (excludes Courtyard's tokenization), for the
       // marketplace-vs-gacha split.
       const g = gacha?.platforms?.[b.source.key];
@@ -363,9 +367,16 @@ export async function buildHomepagePayload(
         primaryUsd: b.primaryUsd ?? null,
         gachaVol24Usd: isGacha ? g!.vol24h : null,
         gachaVol7Usd: isGacha ? g!.vol7d : null,
-        total24Usd: b.stats24h.volumeUsd + (b.primaryUsd ?? 0),
-        active24h: wallets.size,
-        cards: cards.size,
+        // Σ of the components we actually measure — unknown secondary counts as
+        // 0 here, exactly as it did when it WAS 0, so this total is unchanged by
+        // the honest-absence pass and keeps ranking a live platform on the
+        // primary volume we do have. (Rendering "—" would sink Phygitals to the
+        // bottom of the default sort and hide its very real gacha volume; the
+        // Marketplace column is where its absence is stated.)
+        total24Usd:
+          (Number.isFinite(b.stats24h.volumeUsd) ? b.stats24h.volumeUsd : 0) + (b.primaryUsd ?? 0),
+        active24h: secondary(wallets.size),
+        cards: secondary(cards.size),
         holders: holdersForPlatform(holders, b.source.key),
         avgTradeUsd: b.stats24h.avgTradeUsd,
         pct7d: pct7dByPlatform.get(b.source.key) ?? null,
@@ -442,8 +453,14 @@ export async function buildHomepagePayload(
 
   const topSales = await buildTopSales(buckets);
 
-  const sumVol24 = buckets.reduce((s, b) => s + b.stats24h.volumeUsd, 0);
-  const sumTrades24 = buckets.reduce((s, b) => s + b.stats24h.salesCount, 0);
+  // Σ SKIPS untracked platforms rather than being poisoned by them. An untracked
+  // platform's stats are NaN (unknownStats) — without this guard a single one
+  // turns the whole market's headline volume into NaN → "—". Skipping keeps
+  // these totals byte-identical to when they were 0s: Σ over the platforms we
+  // actually measure, which is what they always were.
+  const fin = (n: number) => (Number.isFinite(n) ? n : 0);
+  const sumVol24 = buckets.reduce((s, b) => s + fin(b.stats24h.volumeUsd), 0);
+  const sumTrades24 = buckets.reduce((s, b) => s + fin(b.stats24h.salesCount), 0);
   const sumVol7 = buckets.reduce(
     (s, b) => s + (b.history ? sumLast(b.history, 24 * 7).volumeUsd : 0),
     0,
@@ -584,6 +601,13 @@ function reviveHomepagePayload(p: HomepagePayload): HomepagePayload {
       vol7Usd: nn(r.vol7Usd),
       holders: nn(r.holders),
       avgTradeUsd: nn(r.avgTradeUsd),
+      // Untracked-secondary fields (Phygitals) are NaN at build time and come
+      // back from JSONB as null. They MUST be revived: null is not NaN, and
+      // `null + x` silently evaluates to x — which is the exact 0-coercion this
+      // whole honest-absence pass exists to remove.
+      vol24Usd: nn(r.vol24Usd),
+      active24h: nn(r.active24h),
+      cards: nn(r.cards),
     })),
   };
 }
