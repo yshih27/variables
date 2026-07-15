@@ -7,6 +7,8 @@ import type { CardDetail } from "@/lib/card/fetchCard";
 import type { CardSalesHistory } from "@/lib/data/cardSales";
 import { buyLinks } from "@/lib/links/buyLinks";
 import { isSealed } from "@/lib/card/sealed";
+import { parseGrade, parseGradeLabel } from "@/lib/card/grade";
+import { GradeChip } from "./GradeChip";
 
 const CHAIN_COLOR: Record<string, string> = {
   Solana: "#14f195",
@@ -37,6 +39,13 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
   );
   const byLabel = new Map(card.attributes.map((a) => [a.label.toLowerCase(), a.value]));
   const attr = (k: string) => byLabel.get(k.toLowerCase()) ?? null;
+
+  // Does the visible title already state the grade? If so the chip beside the
+  // price would just repeat it. `gradeLabel` is never null — it degrades to the
+  // literal "Ungraded", which parseGradeLabel correctly rejects, so an ungraded
+  // card gets no chip either.
+  const titleHasGrade = parseGrade(card.name) != null;
+  const gradeChipLabel = parseGradeLabel(card.gradeLabel) ? card.gradeLabel : null;
 
   const insured = t.insuredValueUsd != null && t.insuredValueUsd > 0 ? t.insuredValueUsd : null;
   const insuredLabel =
@@ -113,9 +122,13 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
                 </div>
               </div>
             )}
-            {/* The grade badge lived here and made three prints of the same fact
-                on one screen (title, this chip, the GRADE row below). Dropped —
-                the title carries it and the metadata table states it (R2). */}
+            {/* A grade chip here was THREE prints of one fact for Collector
+                Crypt, whose names embed the grade ("…Articuno PSA 9 Jtg EN-") —
+                so it stays dropped for them. But Beezie names often don't
+                (/card/bz-19000 is just "Snom"), and there the grade would fall
+                all the way to a metadata row despite being a primary price
+                determinant. So: show it only when the TITLE doesn't already. */}
+            {titleHasGrade || !gradeChipLabel ? null : <GradeChip label={gradeChipLabel} />}
           </div>
 
           {/* Primary CTA — buy this card (Rarible-first). */}

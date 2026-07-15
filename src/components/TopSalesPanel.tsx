@@ -10,6 +10,8 @@ import { proxyImg } from "@/lib/img";
 import { formatCompactUsd } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 import { isSealed } from "@/lib/card/sealed";
+import { parseGrade } from "@/lib/card/grade";
+import { GradeChip } from "./GradeChip";
 
 const PLATFORM_LABELS: Record<string, string> = {
   beezie: "Beezie",
@@ -74,6 +76,8 @@ function SaleCard({ sale }: { sale: TopSale }) {
   // Sealed products (booster boxes, ETBs) are near-square white-bg shots — give
   // them a squarer frame so they aren't letterboxed into a slab's portrait (R6-1).
   const sealed = isSealed(sale.cardName);
+  // The grade is inline in the card name — no feed gives us a separate field.
+  const grade = parseGrade(sale.cardName);
 
   const analyze = () => {
     const el = imgRef.current;
@@ -151,17 +155,30 @@ function SaleCard({ sale }: { sale: TopSale }) {
             />
           )
         )}
-        <span className="absolute right-2.5 top-2.5 z-10 rounded-md bg-yellow px-2 py-[3px] text-[11px] font-bold text-black tabular shadow-[0_2px_8px_rgba(0,0,0,0.4)]">
-          {formatCompactUsd(sale.priceUsd)}
-        </span>
       </div>
 
-      {/* Fixed-height meta block */}
-      <div className="flex h-[110px] flex-col border-t border-line px-4 pt-3.5 pb-4">
-        <div className="line-clamp-2 h-[34px] text-[12.5px] font-semibold leading-[1.35]">
+      {/* Meta — price + grade, then title, then platform/IP. Adopts the gacha
+          PrizeCard's anatomy so the two card surfaces read as one system (R1).
+          The price used to print TWICE: a chip over the image and again at the
+          bottom. It now appears once, here, where the grade gives it context.
+          No fixed outer height any more — the title reserves two lines
+          (min-h, not h, so a long name grows instead of clipping) and the grid
+          row equalises the rest. */}
+      <div className="flex flex-col border-t border-line px-4 pb-3.5 pt-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="tabular text-[16px] font-bold leading-none text-yellow">
+            {formatCompactUsd(sale.priceUsd)}
+          </span>
+          {/* Omitted entirely when the name carries no parseable grade (Beezie
+              names often don't) — a chip would imply a grade we don't have. */}
+          {grade ? <GradeChip label={grade.label} /> : null}
+        </div>
+
+        <div className="mt-2 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35]">
           {sale.cardName}
         </div>
-        <div className="mt-2 flex h-[16px] items-center gap-1.5 text-[11px] leading-none text-ink-3">
+
+        <div className="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11px] leading-none text-ink-3">
           <IPIcon
             name={sale.ipName}
             short={sale.ipShort}
@@ -172,9 +189,6 @@ function SaleCard({ sale }: { sale: TopSale }) {
             size={14}
           />
           <span className="truncate text-ink-2">{platformLabel}</span>
-        </div>
-        <div className="mt-auto text-[15px] font-bold tabular leading-none">
-          {formatCompactUsd(sale.priceUsd)}
         </div>
       </div>
     </a>
