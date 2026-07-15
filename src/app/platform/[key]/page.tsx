@@ -1,47 +1,20 @@
 import { notFound } from "next/navigation";
-import { PlatformRail } from "@/components/PlatformRail";
-import { SliceView } from "@/components/SliceView";
-import {
-  type ActivityMetric,
-  type MetricWindow,
-  type Timeframe,
-} from "@/components/IPActivityChart";
+import { NavBar } from "@/components/NavBar";
+import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
+import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { MetricBarCard } from "@/components/MetricBarCard";
+import { IndexStudio } from "@/components/IndexStudio";
 import { DominancePanel, type DomEntity } from "@/components/IPDominance";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
-import { type SeriesPoint } from "@/lib/data/metricSnapshots";
-import { formatCompactUsd, formatInt } from "@/lib/format";
+import { pctChange, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { formatCompactUsd } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
 // Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
 export const revalidate = 1800;
-
-/** Per-timeframe windows from a real daily series (metric_snapshots) + optional
- *  real 24h-hourly series. A window with <2 points — or an all-zero hourly (no sales
- *  inside the data's own last-24h) — has no history yet, so the chart disables that
- *  metric for the window ("no intraday data") instead of drawing a flat $0 line
- *  (QA-2). We never fabricate a series. */
-function buildWindows(
-  daily: SeriesPoint[],
-  hourly: number[] | null,
-): Record<Timeframe, MetricWindow> {
-  const vals = daily.map((p) => p.value);
-  const ts = daily.map((p) => p.ts);
-  // 24h hourly buckets carry no stored timestamps — synthesize trailing-hour stamps
-  // from request time (deterministic server-side → no hydration drift).
-  const now = Date.now();
-  const hourlyTs = (n: number) =>
-    Array.from({ length: n }, (_, i) => new Date(now - (n - 1 - i) * 3_600_000).toISOString());
-  const hourlyOk = !!hourly && hourly.length >= 2 && hourly.some((v) => v > 0);
-  return {
-    "24H": hourlyOk ? { points: hourly!, ts: hourlyTs(hourly!.length) } : { points: [] },
-    "7D": { points: vals.slice(-7), ts: ts.slice(-7) },
-    "30D": { points: vals.slice(-30), ts: ts.slice(-30) },
-    ALL: { points: vals, ts },
-  };
-}
 
 export default async function PlatformDetailPage({
   params,
@@ -56,27 +29,79 @@ export default async function PlatformDetailPage({
     getPlatformActivitySeries(key),
   ]);
   if (!detail) notFound();
-  const { volume: volS, wallets: walletsS, trades: tradesS, mcap: mcapS } = series;
+  const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
 
-  // Avg-trade daily series = volume / trades, aligned by day.
-  const tradesByTs = new Map(tradesS.map((p) => [p.ts, p.value]));
-  const avgS: SeriesPoint[] = volS
-    .map((p) => {
-      const t = tradesByTs.get(p.ts) ?? 0;
-      return { ts: p.ts, value: t > 0 ? p.value / t : NaN };
-    })
-    .filter((p) => Number.isFinite(p.value));
-
-  // Activity metrics — chip headline values are the live current figures; series
-  // are real from metric_snapshots (24h volume from hourly buckets). A window
-  // with <2 points has no history yet (the chart disables it); never fabricated.
-  const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
-    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—", note: "Market cap tracked for Beezie & Collector Crypt only", series: buildWindows(mcapS, null) },
-    { key: "trades", label: "Trades", color: "#a78bfa", value: formatInt(detail.trades24h), series: buildWindows(tradesS, null) },
-    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null) },
+  // ── Zone-1 rail rows ────────────────────────────────────────────────────────
+  // Built here, not in OverviewMetricColumn, because delta units are a property
+  // of the producer. Both producers used here return PERCENT already:
+  //   • detail.vol24Pct        ← history.pctChange       (percent)
+  //   • pctChange(series, n)   ← metricSnapshots         (percent)
+  // so NOTHING is scaled by 100 on this page. (/ips does scale mcapPct24h,
+  // because marketcap.pctChangeOverHours returns a FRACTION. Do not copy that
+  // ×100 here — it would render 100× too high.)
+  //
+  // Honest absence, per platform:
+  //   • vol24Pct is null for a platform with no secondary source (Phygitals).
+  //   • gacha/trades/mcap/holders have NO delta field on PlatformDetail at all;
+  //     they are derived from the spine here, and pctChange returns null rather
+  //     than inventing a number when there is < 2 points of history.
+  //   • mcap_usd and holders are FORWARD-ONLY (no backfill), so those deltas
+  //     stay "—" until two days have accumulated. Courtyard has no mcap at all.
+  //
+  // ⚠️ TIER MIX: the levels are LIVE (rolling-24h blobs) while these deltas come
+  // from the CHART tier (complete calendar days, excludes today). That is the
+  // same pairing /ips uses; the "24h"/"7d" suffix is what keeps it honest.
+  const railRows: OverviewMetricRow[] = [
+    {
+      label: "24h Marketplace Vol",
+      metric: "marketplace",
+      value: detail.vol24Usd,
+      unit: "usd",
+      deltaPct: detail.vol24Pct,
+      window: "24h",
+      detail:
+        Number.isFinite(detail.vol7Usd) && detail.vol7Usd > 0
+          ? [{ label: "7d volume", value: formatCompactUsd(detail.vol7Usd) }]
+          : undefined,
+    },
+    {
+      label: "24h Gacha Vol",
+      metric: "gacha",
+      value: detail.gachaVol24Usd ?? NaN,
+      unit: "usd",
+      deltaPct: pctChange(gachaS, 1),
+      window: "24h",
+    },
+    {
+      label: "Market Cap",
+      metric: "marketCap",
+      value: detail.mcapUsd,
+      unit: "usd",
+      deltaPct: pctChange(mcapS, 1),
+      window: "24h",
+      hero: true,
+    },
+    {
+      label: "Holders",
+      metric: "holders",
+      value: detail.holders,
+      unit: "count",
+      deltaPct: pctChange(holdersS, 7),
+      window: "7d",
+    },
+    {
+      label: "24h Trades",
+      metric: "trades",
+      value: detail.trades24h,
+      unit: "count",
+      deltaPct: pctChange(tradesS, 1),
+      window: "24h",
+    },
   ];
+
+  // Zone 2 — last 14 complete days per metric. An empty array is an honest
+  // "building history" card, never a fabricated flat line.
+  const last14 = (s: SeriesPoint[]) => s.slice(-14);
 
   // IP composition — real per-IP volume/trades/mcap/cards/holders. Top N + an
   // "Other" bucket so the donut and dominance stay honest (sum to 100%) without
@@ -152,12 +177,49 @@ export default async function PlatformDetailPage({
   ];
 
   return (
-    <SliceView
-      slice={{
-        rail: <PlatformRail detail={detail} mcapPct={null} />,
-        activity: metrics,
-      }}
-    >
+    <>
+      <NavBar />
+      <div className="px-8 pt-6 pb-20 font-sans">
+        <PlatformOverviewHeader detail={detail} />
+
+        <div className="space-y-3">
+          {/* ZONE 1 — platform levels + the Index Studio scoped to this platform. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
+            <OverviewMetricColumn rows={railRows} />
+            <IndexStudio scope={{ entity: "platform", key }} />
+          </div>
+
+          {/* ZONE 2 — 14d dailies for THIS platform. Volume and trades are flows
+              (bars off zero); holders is a stock → line, headline = latest level.
+              Coverage is uneven by design and says so: volume/trades are absent
+              for Phygitals (no secondary source), holders is forward-only, and
+              Courtyard has no mcap at all. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <MetricBarCard
+              label="Volume"
+              metric="marketplace"
+              data={last14(volS)}
+              unit="usd"
+              emptyDetail="no secondary-sales source yet"
+            />
+            <MetricBarCard
+              label="Trades"
+              metric="trades"
+              data={last14(tradesS)}
+              unit="count"
+              emptyDetail="no secondary-sales source yet"
+            />
+            <MetricBarCard
+              label="Holders"
+              metric="holders"
+              data={last14(holdersS)}
+              unit="count"
+              variant="line"
+              emptyDetail="forward-only series — no backfill"
+            />
+          </div>
+
+          {/* ZONE 3 — composition + activity, unchanged. */}
       {ipEntities.length > 0 && (
         <DominancePanel
           title="IP dominance"
@@ -180,8 +242,10 @@ export default async function PlatformDetailPage({
       )}
       <PlatformGachaPanel detail={detail} />
       <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-      <RecentSalesTable rows={detail.recentSales} maxRows={12} seeAllHref={`/platform/${key}/sales`} />
-    </SliceView>
+          <RecentSalesTable rows={detail.recentSales} maxRows={12} seeAllHref={`/platform/${key}/sales`} />
+        </div>
+      </div>
+    </>
   );
 }
 

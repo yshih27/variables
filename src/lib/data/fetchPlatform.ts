@@ -437,19 +437,34 @@ export const getPlatformDetail = unstable_cache(
  * "platform-detail" tag as the detail, so both refresh together.
  */
 export const getPlatformActivitySeries = unstable_cache(
-  async (key: string): Promise<{ volume: SeriesPoint[]; wallets: SeriesPoint[]; trades: SeriesPoint[]; mcap: SeriesPoint[] }> => {
-    const [volume, wallets, trades, mcap] = await Promise.all([
+  async (
+    key: string,
+  ): Promise<{
+    volume: SeriesPoint[];
+    wallets: SeriesPoint[];
+    trades: SeriesPoint[];
+    mcap: SeriesPoint[];
+    gacha: SeriesPoint[];
+    holders: SeriesPoint[];
+  }> => {
+    const [volume, wallets, trades, mcap, gacha, holders] = await Promise.all([
       readMetricSeries("platform", key, "volume_usd").catch(() => [] as SeriesPoint[]),
       readMetricSeries("platform", key, "active_wallets").catch(() => [] as SeriesPoint[]),
       readMetricSeries("platform", key, "trades").catch(() => [] as SeriesPoint[]),
       readMetricSeries("platform", key, "mcap_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "gacha_volume_usd").catch(() => [] as SeriesPoint[]),
+      readMetricSeries("platform", key, "holders").catch(() => [] as SeriesPoint[]),
     ]);
-    return { volume, wallets, trades, mcap };
+    return { volume, wallets, trades, mcap, gacha, holders };
   },
   // v2 (R5-1): v1 cached an empty mcap series from before the spine carried
   // per-platform mcap_usd; bumping the key forces a fresh read so the Market Cap
   // tab populates for Beezie + Collector Crypt.
-  ["platform-activity-series:v2"],
+  // v3: + gacha_volume_usd and holders — the Overview rail derives its gacha and
+  // holders %Δ from these (no such delta field exists on PlatformDetail), and the
+  // holders bar card plots them. BUMP THE KEY on any shape change here: v2 rows
+  // have no `gacha`/`holders` and would deserialize as undefined.
+  ["platform-activity-series:v3"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 
