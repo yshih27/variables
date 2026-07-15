@@ -1,23 +1,42 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { metricDef, METHODOLOGY, type MetricKey } from "@/lib/metrics/glossary";
 
 /**
- * MetricInfo (R5-3, R6-2) — the ONE ⓘ affordance for metric definitions, used on
+ * MetricInfo (R5-3, R6-2) — the ONE affordance for metric definitions, used on
  * table headers, KPI labels, chart legends and the volume-bar. Hover/focus opens
  * the brand popover INSTANTLY (no delay in) with a short grace period out so it
  * doesn't flicker on a wobbly cursor. No native `title=` — the grey OS tooltip
  * must never double-stack with the branded one (R6-2). aria-label carries the
  * full definition for a11y.
  *
+ * TWO presentations, one popover:
+ *   <MetricInfo metric="holders" />          → the ⓘ button. For table headers,
+ *                                              where the label is a sort control
+ *                                              and the ⓘ needs its own hit area.
+ *   <MetricInfo metric="holders">Holders</…> → the LABEL itself becomes the
+ *                                              trigger, marked by a dotted
+ *                                              underline. For metric rows and KPI
+ *                                              cards, where a column of ⓘ dots
+ *                                              next to every label is noise.
+ *
  * The popover renders through a portal to <body> with fixed positioning computed
  * from the trigger's rect, so it's NEVER clipped by a table's `overflow` (the
  * bug R4-4 fixed for the treemap) and clamps to the viewport.
  */
-export function MetricInfo({ metric, className = "" }: { metric: MetricKey; className?: string }) {
+export function MetricInfo({
+  metric,
+  className = "",
+  children,
+}: {
+  metric: MetricKey;
+  className?: string;
+  /** Present → label mode: these become the trigger, dotted-underlined. */
+  children?: ReactNode;
+}) {
   const def = metricDef(metric);
   const ref = useRef<HTMLButtonElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -64,9 +83,15 @@ export function MetricInfo({ metric, className = "" }: { metric: MetricKey; clas
         onFocus={open}
         onBlur={closeNow}
         onClick={(e) => e.stopPropagation()}
-        className="grid h-[13px] w-[13px] cursor-help place-items-center rounded-full border border-line text-[9px] font-bold leading-none text-ink-4 transition-colors hover:border-ink-4 hover:text-ink-2"
+        className={
+          children
+            ? // Label mode: inherits the label's own type; the dotted rule is the
+              // only thing that says "there's a definition behind this".
+              "cursor-help border-b border-dotted border-ink-4 pb-[1px] text-left transition-colors hover:border-ink-2 hover:text-ink-2"
+            : "grid h-[13px] w-[13px] cursor-help place-items-center rounded-full border border-line text-[9px] font-bold leading-none text-ink-4 transition-colors hover:border-ink-4 hover:text-ink-2"
+        }
       >
-        i
+        {children ?? "i"}
       </button>
       {pos &&
         typeof document !== "undefined" &&

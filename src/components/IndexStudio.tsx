@@ -639,6 +639,38 @@ export function IndexStudio() {
         ) : (
           <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove} onWheel={onWheel}>
             <rect x={0} y={0} width={w} height={PH} fill="#0a0a0c" />
+            {/* Grid gradients: the boards fade their hairline grid out at the
+                edges rather than butting it against the frame.
+                ⚠️ gradientUnits MUST be userSpaceOnUse — the default
+                objectBoundingBox degenerates on a horizontal <line> (zero-height
+                bbox) and the stroke would not paint at all. */}
+            <defs>
+              <linearGradient id="is-grid" gradientUnits="userSpaceOnUse" x1={PAD.l} y1={0} x2={w - PAD.r} y2={0}>
+                <stop offset="0%" stopColor="var(--color-line)" stopOpacity={0} />
+                <stop offset="10%" stopColor="var(--color-line)" stopOpacity={1} />
+                <stop offset="90%" stopColor="var(--color-line)" stopOpacity={1} />
+                <stop offset="100%" stopColor="var(--color-line)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="is-grid-base" gradientUnits="userSpaceOnUse" x1={PAD.l} y1={0} x2={w - PAD.r} y2={0}>
+                <stop offset="0%" stopColor="var(--color-line-2)" stopOpacity={0} />
+                <stop offset="8%" stopColor="var(--color-line-2)" stopOpacity={1} />
+                <stop offset="92%" stopColor="var(--color-line-2)" stopOpacity={1} />
+                <stop offset="100%" stopColor="var(--color-line-2)" stopOpacity={0} />
+              </linearGradient>
+              {/* Soft bloom under the primary series, in its own colour (lime for
+                  V-MKT). Drawn as a shadow so the crisp line still reads on top. */}
+              {model.primary && (
+                <filter id="is-glow" x="-10%" y="-25%" width="120%" height="150%">
+                  <feDropShadow
+                    dx="0"
+                    dy="0"
+                    stdDeviation="3"
+                    floodColor={model.primary.item.color}
+                    floodOpacity="0.5"
+                  />
+                </filter>
+              )}
+            </defs>
             {/* grid + y labels */}
             {Array.from({ length: 6 }, (_, g) => {
               const v = model.lo + ((model.hi - model.lo) * g) / 5;
@@ -646,7 +678,7 @@ export function IndexStudio() {
               const is100 = mode === "rebase" && Math.abs(v - 100) < (model.hi - model.lo) / 10;
               return (
                 <g key={g}>
-                  <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} stroke={is100 ? "var(--color-line-2)" : "var(--color-line)"} strokeDasharray={is100 ? "4 3" : "2 5"} />
+                  <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} stroke={is100 ? "url(#is-grid-base)" : "url(#is-grid)"} strokeDasharray={is100 ? "4 3" : "2 5"} />
                   <text x={w - PAD.r + 6} y={y + 3} fontSize={10} fill={is100 ? "var(--color-ink-3)" : "var(--color-ink-4)"} fontFamily="var(--font-jetbrains-mono), monospace">
                     {mode === "abs" ? axisLabel(model.lines, v) : v.toFixed(0)}
                   </text>
@@ -683,7 +715,7 @@ export function IndexStudio() {
               const isPrim = L.id === model.primary?.id;
               return (
                 <g key={L.id}>
-                  <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" />
+                  <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" filter={isPrim ? "url(#is-glow)" : undefined} />
                   {end && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
                 </g>
               );
@@ -695,7 +727,7 @@ export function IndexStudio() {
               const y = model.Y(end.v);
               return (
                 <g>
-                  <rect x={w - PAD.r + 2} y={y - 8} width={PAD.r - 4} height={16} fill="#0a0a0c" rx={3} />
+                  <rect x={w - PAD.r + 2} y={y - 8} width={PAD.r - 4} height={16} fill="#0a0a0c" />
                   <text x={w - PAD.r + 6} y={y + 3} fontSize={11} fontWeight={700} fill={model.primary.item.color} fontFamily="var(--font-jetbrains-mono), monospace">
                     {mode === "rebase" ? end.v.toFixed(1) : fmtVal(model.primary.item.unit, end.raw)}
                   </text>
