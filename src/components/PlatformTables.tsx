@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GradeChip } from "./GradeChip";
 import type {
   PlatformIPRow,
   PlatformCardRow,
@@ -10,27 +11,7 @@ import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
-const GRADER_COLOR: Record<string, string> = {
-  PSA: "#D62828",
-  CGC: "#5b9bff",
-  BGS: "#f5c451",
-  SGC: "#a18cff",
-  AGS: "#6cf48a",
-  TAG: "#a78bfa",
-};
 
-/** Grade chip — colored grader prefix + mono number (e.g. PSA 10). */
-function GradePill({ grade }: { grade: string }) {
-  const m = grade.match(/^([A-Za-z]+)\s*([\d.]+)$/);
-  if (!m) return <span className="font-mono text-[12px] text-ink-3">{grade || "—"}</span>;
-  const color = GRADER_COLOR[m[1].toUpperCase()] ?? "#707070";
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-2 px-2 py-1 font-mono text-[11px] font-bold">
-      <span style={{ color }}>{m[1]}</span>
-      <span className="text-ink">{m[2]}</span>
-    </span>
-  );
-}
 
 type SectionProps = {
   title: string;
@@ -264,7 +245,7 @@ export function PlatformTopCardsTable({
                 {r.set ?? "—"}
               </Td>
               <Td>
-                <GradePill grade={r.grade} />
+                <GradeChip label={r.grade} />
               </Td>
               <Td>
                 <Link

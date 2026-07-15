@@ -43,14 +43,13 @@ import {
 import { getBeezieMetadataBatch } from "../beezieTraits";
 import { db } from "../../db/client";
 import type { Chain } from "@/lib/types";
+import { parseGrade } from "@/lib/card/grade";
 
 const TOP_HITS = 12;
-const GRADE_RE = /\b(PSA|CGC|BGS|SGC|TAG|CGA|BECKETT)\s?(?:GEM\s?MT\s?|MINT\s?|PRISTINE\s?)?(\d{1,2}(?:\.5)?)\b/i;
-function gradeOf(name: string | null): string | null {
-  if (!name) return null;
-  const m = name.match(GRADE_RE);
-  return m ? `${m[1].toUpperCase()} ${m[2]}` : null;
-}
+/** Grade parsing lives in @/lib/card/grade. NOTE: BECKETT now folds to BGS —
+ *  same grader, two names in the feeds — so this warmer's output labels change
+ *  from "BECKETT 9.5" to "BGS 9.5". */
+const gradeOf = (name: string | null) => parseGrade(name)?.label ?? null;
 function catLabel(cat: string | null): string {
   if (cat === "pokemon") return "Pokémon";
   if (cat === "one_piece") return "One Piece";

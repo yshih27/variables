@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GradeChip } from "./GradeChip";
 import type { SetRow, GradeRow, CardRow } from "@/lib/data/fetchIP";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
@@ -109,7 +110,7 @@ export function GradesTable({
             <tr key={r.label} className="transition-colors hover:bg-bg-2">
               <Td className="w-[44px] text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
-                <GradePill grader={r.grader} gradeNum={r.gradeNum} label={r.label} />
+                <GradeChip label={r.label} />
               </Td>
               <Td align="right">{formatCompactNumber(r.cards)}</Td>
               <Td align="right">{formatInt(r.trades)}</Td>
@@ -127,34 +128,7 @@ export function GradesTable({
   );
 }
 
-const GRADER_COLOR: Record<string, string> = {
-  PSA: "#D62828",
-  CGC: "#5fa3ff",
-  BGS: "#fdff8c",
-  SGC: "#a18cff",
-  AGS: "#6cf48a",
-};
 
-function GradePill({
-  grader,
-  gradeNum,
-  label,
-}: {
-  grader: string | null;
-  gradeNum: number | null;
-  label: string;
-}) {
-  if (!grader || gradeNum == null) {
-    return <span className="text-ink-2">{label}</span>;
-  }
-  const color = GRADER_COLOR[grader.toUpperCase()] ?? "#707070";
-  return (
-    <span className="inline-flex items-center gap-2 rounded-md border border-line bg-bg-2 px-2 py-1 text-[12px] font-bold tabular">
-      <span style={{ color }}>{grader}</span>
-      <span className="text-ink">{gradeNum}</span>
-    </span>
-  );
-}
 
 // ─────────────────────────── Top Cards ────────────────────────────
 
