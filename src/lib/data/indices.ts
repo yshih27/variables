@@ -62,16 +62,39 @@ export function rebaseSeries(
   return out;
 }
 
-/** Resample a daily series to weekly (Monday week-start key, last value in week). */
-export function resampleWeekly(daily: IndexPoint[]): IndexPoint[] {
-  const byWeek = new Map<string, IndexPoint>();
-  for (const p of daily) {
+/**
+ * Resample a daily series to ISO-weekly (Monday week-start key). The single
+ * canonical implementation — also used by the /api/v1 + /api/internal chart series
+ * routes (they used to carry a copy). `agg`:
+ *   • "last" (default) — the chronologically-last value in the week (stock/index
+ *     levels, benchmarks — the prior behaviour of this function).
+ *   • "sum"            — adds the week's values (flow metrics: volume/trades/…).
+ * Order-independent: picks the last value by `ts`, not by array position, and
+ * skips non-finite values. Accepts any {ts,value} (bands are dropped — no caller
+ * feeds banded points through here).
+ */
+export function resampleWeekly(
+  points: { ts: string; value: number }[],
+  agg: "sum" | "last" = "last",
+): { ts: string; value: number }[] {
+  const byWeek = new Map<string, { sum: number; last: number; lastTs: string }>();
+  for (const p of points) {
     const t = Date.parse(p.ts);
-    if (!Number.isFinite(t)) continue;
+    if (!Number.isFinite(t) || !Number.isFinite(p.value)) continue;
     const wk = weekStartUtc(t);
-    byWeek.set(wk, { ...p, ts: wk }); // later day in the week overwrites → week's last
+    const cur = byWeek.get(wk);
+    if (!cur) byWeek.set(wk, { sum: p.value, last: p.value, lastTs: p.ts });
+    else {
+      cur.sum += p.value;
+      if (p.ts >= cur.lastTs) {
+        cur.last = p.value;
+        cur.lastTs = p.ts;
+      }
+    }
   }
-  return [...byWeek.values()].sort((a, b) => a.ts.localeCompare(b.ts));
+  return [...byWeek.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([wk, v]) => ({ ts: wk, value: agg === "sum" ? v.sum : v.last }));
 }
 
 /** Window to `from` + rescale so the first in-window point = `rebaseTo`, preserving

@@ -45,6 +45,18 @@ export function v1Error(status: number, error: string): Response {
   return Response.json({ ok: false, error }, { status, headers: CORS_HEADERS });
 }
 
+/**
+ * Internal (first-party, same-origin) success — same body shape as v1Ok, but
+ * deliberately NO CORS headers and no per-key quota headers. Same-origin only is
+ * the whole point: the /api/internal/chart/* endpoints are unauthed + IP-rate-
+ * limited so the live chart doesn't burn the public per-key quota; leaving CORS
+ * off keeps external browser apps from using them to dodge the keyed /api/v1 tier.
+ * Lighter meta (no attribution/terms — those are the public free-tier's contract).
+ */
+export function v1OkInternal(data: unknown): Response {
+  return Response.json({ ok: true, meta: { generatedAt: new Date().toISOString() }, data });
+}
+
 /** Preflight response — every v1 route re-exports this as its OPTIONS handler. */
 export function v1Options(): Response {
   return new Response(null, { status: 204, headers: CORS_HEADERS });
