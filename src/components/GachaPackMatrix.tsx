@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The Gacha MATRIX + COMPARE (design handoff "Variable — Gacha Matrix").
+ * The Gacha MATRIX + COMPARE (design handoff "Varible — Gacha Matrix").
  *
  * Screen 1 — Matrix: platforms × price tiers for one IP at a glance. Each cell
  * is the platform's pack at that price (best-odds pack when several share the

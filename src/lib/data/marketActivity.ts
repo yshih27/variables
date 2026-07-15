@@ -56,7 +56,7 @@ export async function buildMarketActivity(
 
   return [
     { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: formatCompactUsd(currentMcapUsd), series: windows(mcap) },
-    { key: "volume", label: "Marketplace Vol", color: "#f3ff42", value: lastUsd(volD), series: windows(volD) },
+    { key: "volume", label: "Marketplace Vol", color: "#bfef01", value: lastUsd(volD), series: windows(volD) },
     { key: "trades", label: "Trades", color: "#a78bfa", value: lastNum(tradesD), series: windows(tradesD) },
     { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: lastNum(walletsD), series: windows(walletsD) },
   ];

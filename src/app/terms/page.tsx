@@ -6,9 +6,9 @@ import { NavBar } from "@/components/NavBar";
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Terms of Service · VARIABLE",
+  title: "Terms of Service · VARIBLE",
   description:
-    "The terms on which VARIABLE — a read-only market-data terminal for tokenized collectibles, a Rarible project — provides information. Draft pending legal review.",
+    "The terms on which VARIBLE — a read-only market-data terminal for tokenized collectibles, a Rarible project — provides information. Draft pending legal review.",
 };
 
 // Fixed publication date for this draft (see work package). Not derived from
@@ -34,7 +34,7 @@ export default function TermsPage() {
             Terms of Service
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
-            VARIABLE is a read-only market-data terminal for tokenized physical
+            VARIBLE is a read-only market-data terminal for tokenized physical
             collectibles, published as a Rarible project. These terms describe
             what the service is, what it is not, and the basis on which the
             information is provided.
@@ -44,19 +44,19 @@ export default function TermsPage() {
 
         <DraftNotice />
 
-        <Section title="What VARIABLE is">
+        <Section title="What VARIBLE is">
           <p>
-            VARIABLE is a market-data website (a &quot;terminal&quot;) for
+            VARIBLE is a market-data website (a &quot;terminal&quot;) for
             tokenized physical collectibles — real graded trading cards held in
             professional vaults and traded as blockchain tokens. It displays
             market statistics and links out to third-party marketplaces.
           </p>
           <p className="mt-3">
-            VARIABLE is <span className="font-semibold text-ink">not</span> a
+            VARIBLE is <span className="font-semibold text-ink">not</span> a
             marketplace, exchange, broker, wallet, or custodian. You cannot buy,
-            sell, list, bid, deposit, or connect a wallet on VARIABLE. Core
+            sell, list, bid, deposit, or connect a wallet on VARIBLE. Core
             features include market-wide statistics (market cap, volume,
-            holders), the VARIABLE Index family of price indices, comparisons
+            holders), the VARIBLE Index family of price indices, comparisons
             against financial benchmarks, trending and recently-sold cards,
             per-marketplace and per-franchise analytics, gacha (pack-opening)
             statistics, outbound &quot;Buy on X&quot; links, a weekly market
@@ -67,17 +67,17 @@ export default function TermsPage() {
         <Section title="Not a marketplace, not a party to transactions">
           <p>
             All transactions occur on third-party platforms under those
-            platforms&apos; own terms. VARIABLE is not a party to any
+            platforms&apos; own terms. VARIBLE is not a party to any
             transaction and does not guarantee the listings, prices, or
             availability shown behind &quot;Buy on X&quot; links. Following an
-            outbound link takes you to a site VARIABLE does not operate or
+            outbound link takes you to a site VARIBLE does not operate or
             control.
           </p>
         </Section>
 
         <Section title="Informational only — not financial advice">
           <p>
-            Everything on VARIABLE is provided for informational purposes only
+            Everything on VARIBLE is provided for informational purposes only
             and is not investment, financial, legal, or tax advice. Indices,
             expected-value figures, momentum and trend metrics, and similar
             derived numbers are statistical derivations, not predictions and not
@@ -94,7 +94,7 @@ export default function TermsPage() {
 
         <Section title="Data accuracy and reliance">
           <p>
-            Numbers on VARIABLE are best-efforts estimates derived from public
+            Numbers on VARIBLE are best-efforts estimates derived from public
             blockchain data, marketplace platform APIs, and financial-benchmark
             feeds. The methodology behind every metric is published on the{" "}
             <Link href="/methodology" className="text-ink underline underline-offset-2 hover:text-yellow">
@@ -105,13 +105,13 @@ export default function TermsPage() {
               data-status page
             </Link>{" "}
             shows per-feed freshness and errors. Estimates are flagged as such,
-            and where clean data is insufficient VARIABLE displays
+            and where clean data is insufficient VARIBLE displays
             &quot;insufficient data&quot; rather than a number.
           </p>
           <p className="mt-3">
             Despite these controls, figures can be wrong, delayed, or
             incomplete, and reported volumes are floors, not ceilings. To the
-            extent permitted by applicable law, VARIABLE accepts no liability for
+            extent permitted by applicable law, VARIBLE accepts no liability for
             decisions made on the basis of the information shown. If a number
             looks wrong, corrections currently route through the methodology
             page.
@@ -121,7 +121,7 @@ export default function TermsPage() {
         <Section title="A free service">
           <p>
             The site is entirely free. There are no payments, subscriptions,
-            paywalls, or in-app purchases, and VARIABLE holds no user funds.
+            paywalls, or in-app purchases, and VARIBLE holds no user funds.
           </p>
           <p className="mt-3">
             &quot;Buy on X&quot; links are plain outbound hyperlinks to
@@ -134,10 +134,10 @@ export default function TermsPage() {
 
         <Section title="Gacha and expected-value content">
           <p>
-            VARIABLE displays gacha statistics for randomized paid products,
-            including platforms&apos; stated odds and VARIABLE&apos;s own
+            VARIBLE displays gacha statistics for randomized paid products,
+            including platforms&apos; stated odds and VARIBLE&apos;s own
             observed-odds and expected-value estimates (labeled with sample
-            sizes). VARIABLE does not operate, sell, or take part in any gacha or
+            sizes). VARIBLE does not operate, sell, or take part in any gacha or
             pack-opening product; it only reports on-chain observations of them.
           </p>
           <Flag>
@@ -162,7 +162,7 @@ export default function TermsPage() {
           <p className="mt-3">
             Card images are photographs or scans of trademarked, copyrighted
             cards, sourced from the listing platforms and chain storage and
-            re-served through VARIABLE&apos;s host-allowlisted image proxy.
+            re-served through VARIBLE&apos;s host-allowlisted image proxy.
           </p>
           <Flag>
             Counsel to finalize the nominative-use and no-affiliation language,
@@ -174,7 +174,7 @@ export default function TermsPage() {
 
         <Section title="Third-party links and sites">
           <p>
-            VARIABLE links out to third-party marketplaces and sources. VARIABLE
+            VARIBLE links out to third-party marketplaces and sources. VARIBLE
             does not control those destination sites and is not responsible for
             their content, terms, availability, or the transactions conducted on
             them.
@@ -194,8 +194,8 @@ export default function TermsPage() {
 
         <Section title="Affiliation with Rarible">
           <p>
-            VARIABLE is a Rarible project, as stated in the site footer. Despite
-            that affiliation, VARIABLE&apos;s market data does not come from
+            VARIBLE is a Rarible project, as stated in the site footer. Despite
+            that affiliation, VARIBLE&apos;s market data does not come from
             Rarible&apos;s APIs. Where an item is available on Rarible, Rarible
             may be listed first among buy-links — a design choice by a Rarible
             project.
@@ -214,8 +214,8 @@ export default function TermsPage() {
           </p>
           <ul className="mt-3 list-disc pl-5 text-[13.5px] leading-relaxed">
             <li>
-              The operating entity behind VARIABLE, and whether these are
-              standalone VARIABLE terms or a supplement to Rarible&apos;s
+              The operating entity behind VARIBLE, and whether these are
+              standalone VARIBLE terms or a supplement to Rarible&apos;s
               existing Terms.
             </li>
             <li>Governing law, jurisdiction, and dispute-resolution terms.</li>
@@ -246,7 +246,7 @@ export default function TermsPage() {
         </Section>
 
         <div className="mt-16 text-[12px] text-ink-3">
-          VARIABLE · terms of service · draft, last updated {LAST_UPDATED}
+          VARIBLE · terms of service · draft, last updated {LAST_UPDATED}
         </div>
       </div>
     </>
@@ -258,7 +258,7 @@ function DraftNotice() {
     <div className="mt-2 rounded-lg border border-line/60 border-l-2 border-l-yellow bg-bg-1 px-4 py-3.5 text-[12.5px] leading-relaxed text-ink-2">
       <span className="font-semibold text-ink">Draft — pending legal review.</span>{" "}
       This page is a plain-language draft assembled from an internal platform
-      briefing that describes how VARIABLE works. It has not been reviewed or
+      briefing that describes how VARIBLE works. It has not been reviewed or
       approved by legal counsel and is not a binding agreement. Items marked{" "}
       <span className="font-semibold uppercase tracking-[0.08em] text-yellow">
         Legal review

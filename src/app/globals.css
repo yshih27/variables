@@ -2,8 +2,8 @@
 
 @theme {
   /* Near-black charcoal ramp. Lifted off harsh pure #000 for a crafted,
-     premium base; a faint cool tint (blue a touch over red/green) makes the
-     acid-yellow read warmer. Each rung keeps the prior depth separation so
+     premium base; a faint cool tint (blue a touch over red/green) sits the
+     brand lime a shade cooler. Each rung keeps the prior depth separation so
      surfaces and borders still stack legibly. */
   --color-bg: #0a0a0c;
   --color-bg-1: #131316;
@@ -15,8 +15,17 @@
   --color-ink-2: #b8b8b8;
   --color-ink-3: #707070;
   --color-ink-4: #4a4a4a;
-  --color-yellow: #f3ff42;
-  --color-yellow-2: #fdff8c;
+  /* Brand accent (VARIBLE lime). The token is still NAMED `yellow` so the ~200
+     existing `bg-yellow`/`text-yellow`/`border-yellow` call sites keep working
+     and the accent stays a one-knob swap — read it as "the brand accent", not
+     as a hue. `-2` is the same hue lifted for hover/emphasis tints. */
+  --color-yellow: #bfef01;
+  --color-yellow-2: #e8ff8a;
+  /* The dimmed-lime ramp from the brand boards: de-emphasized marks (older bars,
+     grid nodes) step down through these on the near-black ground while the newest
+     / active mark stays full `--color-yellow`. */
+  --color-lime-dim: #516405;
+  --color-lime-dimmer: #334004;
   /* Explicit black — the @theme palette replaces Tailwind defaults, so without
      this token every `text-black` (yellow CTAs, price badges) silently no-ops
      to inherited white. */

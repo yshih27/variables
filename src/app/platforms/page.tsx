@@ -27,7 +27,7 @@ const getPlatformSeries = unstable_cache(
 export const revalidate = 1800;
 
 export const metadata = {
-  title: "All Platforms · VARIABLE",
+  title: "All Platforms · VARIBLE",
   description: "Tokenized-collectible platforms ranked by 24h volume, with volume and gacha trends by platform.",
 };
 

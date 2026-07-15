@@ -27,7 +27,7 @@ export default async function CardDetailPage({
       <div className="mx-auto max-w-[1100px] px-8 pt-10 pb-20 font-sans">
         <CardDetailView card={card} salesHistory={salesHistory} />
         <div className="mt-20 text-center text-[12px] text-ink-3">
-          VARIABLE · card detail
+          VARIBLE · card detail
         </div>
       </div>
     </>
@@ -41,10 +41,10 @@ export async function generateMetadata({
 }) {
   const { id } = await params;
   const card = await getCardDetail(id);
-  if (!card) return { title: "Card not found · VARIABLE" };
+  if (!card) return { title: "Card not found · VARIBLE" };
   const bits = [card.traits.set, card.gradeLabel].filter(Boolean).join(" · ");
   return {
-    title: `${card.name} · VARIABLE`,
+    title: `${card.name} · VARIBLE`,
     description: `${card.name}${bits ? ` — ${bits}` : ""} on ${card.platformLabel}.`,
   };
 }

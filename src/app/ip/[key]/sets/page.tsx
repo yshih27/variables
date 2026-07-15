@@ -44,9 +44,9 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const detail = await getIPDetail(key);
-  if (!detail) return { title: "Not found · VARIABLE" };
+  if (!detail) return { title: "Not found · VARIBLE" };
   return {
-    title: `${detail.ip.name} Sets · VARIABLE`,
+    title: `${detail.ip.name} Sets · VARIBLE`,
     description: `All sets traded for ${detail.ip.name} in the last 24h.`,
   };
 }

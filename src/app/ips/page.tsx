@@ -58,7 +58,7 @@ function sumDaily(sources: Record<string, SeriesPoint[]>[], lastN: number): Seri
 export const revalidate = 1800;
 
 export const metadata = {
-  title: "Market Overview · VARIABLE",
+  title: "Market Overview · VARIBLE",
   description:
     "The tokenized trading-card market at a glance — composite index vs benchmarks, 24h volume, cards traded, and market cap by IP.",
 };

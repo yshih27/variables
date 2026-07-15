@@ -7,9 +7,9 @@ import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/n
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Methodology · VARIABLE",
+  title: "Methodology · VARIBLE",
   description:
-    "How VARIABLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
+    "How VARIBLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
 };
 
 export default function MethodologyPage() {
@@ -31,7 +31,7 @@ export default function MethodologyPage() {
             How we measure.
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
-            Every number on VARIABLE is derived from on-chain reads. No
+            Every number on VARIBLE is derived from on-chain reads. No
             partner APIs, no aggregator black boxes, no marketing-deck math.
             This page documents the formula behind every metric so you can
             audit our numbers.
@@ -239,7 +239,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
         </Section>
 
         <div className="mt-16 text-[12px] text-ink-3">
-          VARIABLE · methodology · last updated{" "}
+          VARIBLE · methodology · last updated{" "}
           {new Date().toISOString().slice(0, 10)}
         </div>
       </div>

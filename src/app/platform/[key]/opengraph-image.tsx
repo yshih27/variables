@@ -7,14 +7,14 @@ export const runtime = "nodejs";
 export const revalidate = 3600;
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "Platform overview on VARIABLE";
+export const alt = "Platform overview on VARIBLE";
 
 export default async function Image({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
   const pd = await getPlatformDetail(key).catch(() => null);
 
   if (!pd) {
-    return renderOgCard({ eyebrow: "Tokenized Collectibles", title: "VARIABLE" });
+    return renderOgCard({ eyebrow: "Tokenized Collectibles", title: "VARIBLE" });
   }
 
   const hasTotal = Number.isFinite(pd.total24Usd) && pd.total24Usd > 0;

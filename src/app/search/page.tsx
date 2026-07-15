@@ -8,7 +8,7 @@ import { searchCardsByName } from "@/lib/data/cards";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Search · VARIABLE",
+  title: "Search · VARIBLE",
   description: "Find IPs, platforms, and cards across tracked tokenized-collectibles platforms.",
 };
 

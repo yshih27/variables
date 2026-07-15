@@ -21,7 +21,7 @@ import { unsubscribeByToken } from "@/lib/subscribe/subscribers";
 export const dynamic = "force-dynamic";
 
 function shell(body: string, status: number): Response {
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Unsubscribe · VARIABLE</title></head><body style="font-family:system-ui,-apple-system,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;color:#111;line-height:1.6">${body}</body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Unsubscribe · VARIBLE</title></head><body style="font-family:system-ui,-apple-system,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1.5rem;color:#111;line-height:1.6">${body}</body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
 
@@ -33,7 +33,7 @@ function message(msg: string, status: number): Response {
 function confirmPage(token: string): Response {
   const action = `/api/unsubscribe?token=${encodeURIComponent(token)}`;
   return shell(
-    `<h1 style="font-size:1.25rem;font-weight:600;margin:0 0 .5rem">Unsubscribe from the Variable weekly report?</h1>` +
+    `<h1 style="font-size:1.25rem;font-weight:600;margin:0 0 .5rem">Unsubscribe from the Varible weekly report?</h1>` +
       `<p style="color:#555;margin:0 0 1.25rem">You'll stop receiving the weekly report email. You can re-subscribe anytime.</p>` +
       `<form method="POST" action="${action}"><button type="submit" style="font:inherit;font-weight:600;background:#111;color:#fff;border:0;border-radius:8px;padding:.6rem 1.1rem;cursor:pointer">Unsubscribe</button></form>`,
     200,

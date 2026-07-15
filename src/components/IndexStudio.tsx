@@ -2,7 +2,7 @@
 
 /**
  * Index Studio — a plug-and-play market chart (replaces the static composite chart
- * on /ips). Add any metric (a Variable index, a benchmark, or a raw spine series
+ * on /ips). Add any metric (a Varible index, a benchmark, or a raw spine series
  * like holders), drag any window, and rebase everything to a common 100 baseline so
  * mixed units overlay meaningfully. Client component: the catalog + series are
  * fetched at runtime from the same-origin /api/internal/chart/{index,benchmarks,
@@ -10,7 +10,7 @@
  *
  * Matches docs/prototypes/index-studio.html — mode/range/CSV/PNG/Share/Embed
  * controls, removable chips, add-metric picker, draggable brush + wheel-zoom, and a
- * synced crosshair tooltip — wired to real data on Variable's dark/yellow/mono system.
+ * synced crosshair tooltip — wired to real data on Varible's dark/yellow/mono system.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SectionShell } from "./Section";
@@ -137,7 +137,7 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
       name: (p.d.indexName as string) ?? "Index",
       group: "Indices",
       unit: "index",
-      color: p.entity === "market" ? "#f3ff42" : nextColor(),
+      color: p.entity === "market" ? "#bfef01" : nextColor(),
     });
   }
 
@@ -502,7 +502,7 @@ export function IndexStudio() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "variable-index.csv";
+    a.download = "varible-index.csv";
     a.click();
     URL.revokeObjectURL(url);
     toastMsg("CSV downloaded");
@@ -545,7 +545,7 @@ export function IndexStudio() {
         const url = URL.createObjectURL(bl);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "variable-index.png";
+        a.download = "varible-index.png";
         a.click();
         URL.revokeObjectURL(url);
         toastMsg("PNG downloaded");
@@ -556,7 +556,7 @@ export function IndexStudio() {
   };
   const embedCode =
     typeof window !== "undefined"
-      ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Variable — Index Studio">\n</iframe>`
+      ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
       : "";
 
   const title =
@@ -978,9 +978,9 @@ function Brush({ full, window: win, primary, width, onChange }: {
         )}
         <rect x={0} y={0} width={x0} height={BH} fill="#0a0a0c" opacity={0.62} />
         <rect x={x1} y={0} width={width - x1} height={BH} fill="#0a0a0c" opacity={0.62} />
-        <rect data-h="body" x={x0} y={1} width={Math.max(2, x1 - x0)} height={BH - 2} fill="#f3ff42" opacity={0.06} stroke="#f3ff42" strokeOpacity={0.3} className="cursor-grab" />
-        <rect data-h="l" x={x0 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#f3ff42" opacity={0.85} className="cursor-ew-resize" />
-        <rect data-h="r" x={x1 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#f3ff42" opacity={0.85} className="cursor-ew-resize" />
+        <rect data-h="body" x={x0} y={1} width={Math.max(2, x1 - x0)} height={BH - 2} fill="#bfef01" opacity={0.06} stroke="#bfef01" strokeOpacity={0.3} className="cursor-grab" />
+        <rect data-h="l" x={x0 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#bfef01" opacity={0.85} className="cursor-ew-resize" />
+        <rect data-h="r" x={x1 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#bfef01" opacity={0.85} className="cursor-ew-resize" />
       </svg>
     </div>
   );

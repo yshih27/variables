@@ -4,7 +4,7 @@ import { allChips, type ChipModel } from "@/lib/data/freshnessView";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Data status · VARIABLE",
+  title: "Data status · VARIBLE",
   description: "Honest, per-source freshness for every feed the site reads.",
 };
 
@@ -101,7 +101,7 @@ export default async function StatusPage() {
         </div>
 
         <div className="mt-20 text-center text-[12px] text-ink-3">
-          VARIABLE · data provenance
+          VARIBLE · data provenance
         </div>
       </div>
     </>

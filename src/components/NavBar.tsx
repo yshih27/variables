@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { GACHA_ENABLED } from "@/lib/flags";
+import { BrandLockup, BrandMark } from "./Brand";
 
 const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLabel?: string }> = [
   { label: "Categories", href: "/ips", matchPrefix: "/ip" },
@@ -106,11 +107,10 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
       )}
 
       <nav className="flex items-center gap-3 border-b border-line/70 px-8 py-4 sm:gap-7">
-        <Link href="/" className="flex items-center gap-2 text-[17px] font-bold tracking-[0.02em]">
-          <span className="inline-flex h-[22px] w-[22px] items-center justify-center rounded-md bg-yellow text-[12px] font-extrabold text-black">
-            V
-          </span>
-          <span className="hidden font-mono tracking-[0.04em] sm:inline">VARIABLE</span>
+        {/* Mark alone in the narrow slot, full lockup once there's room. */}
+        <Link href="/" aria-label="VARIBLE — home" className="flex shrink-0 items-center text-ink">
+          <BrandMark className="h-[22px] w-auto sm:hidden" />
+          <BrandLockup className="hidden h-[19px] w-auto sm:block" />
         </Link>
 
         <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] sm:flex-none sm:overflow-visible [&::-webkit-scrollbar]:hidden">
@@ -143,7 +143,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         <form
           onSubmit={onSearchSubmit}
           role="search"
-          aria-label="Search VARIABLE"
+          aria-label="Search VARIBLE"
           className="ml-auto hidden h-9 w-[360px] items-center gap-2.5 rounded-full border border-line/70 bg-bg-1 px-4 text-[13px] text-ink-3 focus-within:border-yellow/50 md:flex"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -184,7 +184,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         <form
           onSubmit={onSearchSubmit}
           role="search"
-          aria-label="Search VARIABLE"
+          aria-label="Search VARIBLE"
           className="flex items-center gap-2.5 border-b border-line/70 px-6 py-3 md:hidden"
         >
           <span className="text-ink-3">

@@ -48,7 +48,7 @@ export function RailActions({ name }: { name: string }) {
   async function share() {
     if (typeof window === "undefined") return;
     const url = window.location.href;
-    const shareData = { title: `${name} · VARIABLE`, url };
+    const shareData = { title: `${name} · VARIBLE`, url };
     if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
       try {
         await navigator.share(shareData);

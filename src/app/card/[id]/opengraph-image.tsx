@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const revalidate = 3600;
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "Card detail on VARIABLE";
+export const alt = "Card detail on VARIBLE";
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,7 +17,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   ]);
 
   if (!card) {
-    return renderOgCard({ eyebrow: "Tokenized Collectibles", title: "VARIABLE" });
+    return renderOgCard({ eyebrow: "Tokenized Collectibles", title: "VARIBLE" });
   }
 
   // Headline: last sale > cheapest listing > the grade (there's always a grade).

@@ -171,7 +171,7 @@ export type CategoryTrendDataset = {
   color: string;
   points: number[];
   benchmark?: boolean;
-  /** Variable Index ticker (e.g. "V-PKM") for internal index series; the legend
+  /** Varible Index ticker (e.g. "V-PKM") for internal index series; the legend
    *  shows this while the tooltip keeps the full `group` name. Absent on
    *  benchmarks + non-index series. */
   ticker?: string;

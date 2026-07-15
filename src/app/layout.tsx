@@ -20,7 +20,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "VARIABLE · Tokenized Collectibles Market",
+  title: "VARIBLE · Tokenized Collectibles Market",
   description:
     "Real cards. Real prices. Indexed. Track prices, volume, and holders across tokenized trading-card platforms.",
 };

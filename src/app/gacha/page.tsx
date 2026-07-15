@@ -12,7 +12,7 @@ import { GACHA_ENABLED } from "@/lib/flags";
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Gacha · VARIABLE",
+  title: "Gacha · VARIBLE",
   description:
     "Compare gacha mechanics across tokenized-collectibles platforms — pull volumes, pack prices, biggest hits, and expected value.",
 };
