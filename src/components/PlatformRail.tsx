@@ -64,13 +64,13 @@ export function PlatformRail({ detail, mcapPct }: Props) {
               <h1 className="text-[25px] font-bold leading-none tracking-[-0.02em]">
                 {detail.source.name}
               </h1>
-              <span className="rounded-[7px] border border-yellow/30 bg-yellow/10 px-[7px] py-0.5 font-mono text-[12px] font-semibold text-yellow">
+              <span className="rounded-xl border border-yellow/30 bg-yellow/10 px-[7px] py-0.5 font-mono text-[12px] font-semibold text-yellow">
                 #{detail.rank}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11.5px] text-ink-3">
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[detail.chain] }} />
+                <span className="h-1.5 w-1.5 rounded-none" style={{ background: CHAIN_DOT[detail.chain] }} />
                 {detail.chain}
               </span>
               <span>·</span>

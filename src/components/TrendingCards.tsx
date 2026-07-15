@@ -208,9 +208,9 @@ export function TrendingCards({
                       className="inline-flex items-center justify-end gap-2.5"
                       title={`${formatInt(c.trades)} sold · ${formatInt(c.activeListings)} listed`}
                     >
-                      <span className="hidden h-1.5 w-[48px] overflow-hidden rounded-full bg-bg-3 sm:block">
+                      <span className="hidden h-1.5 w-[48px] overflow-hidden rounded-none bg-bg-3 sm:block">
                         <span
-                          className="block h-full rounded-full bg-yellow"
+                          className="block h-full rounded-none bg-yellow"
                           style={{ width: `${Math.max(6, (c.huntPressure / maxHP) * 100)}%` }}
                         />
                       </span>

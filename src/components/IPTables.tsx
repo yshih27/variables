@@ -62,11 +62,11 @@ export function IPTopCards({
                     <img
                       src={proxyImg(r.image)}
                       alt=""
-                      className="h-[42px] w-[30px] shrink-0 rounded-[4px] bg-bg-2 object-cover"
+                      className="h-[42px] w-[30px] shrink-0 rounded-md bg-bg-2 object-cover"
                       loading="lazy"
                     />
                   ) : (
-                    <span className="h-[42px] w-[30px] shrink-0 rounded-[4px] bg-bg-2" />
+                    <span className="h-[42px] w-[30px] shrink-0 rounded-md bg-bg-2" />
                   )}
                   <span className="min-w-0">
                     <span className="block truncate font-semibold group-hover:text-yellow">{r.name}</span>

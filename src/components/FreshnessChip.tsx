@@ -62,7 +62,7 @@ export function FreshnessChip({
       className={`inline-flex items-center gap-1.5 text-[12px] ${TEXT[chip.state]}`}
       title={tooltip(chip)}
     >
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${DOT[chip.state]}`} />
+      <span className={`inline-block h-1.5 w-1.5 rounded-none ${DOT[chip.state]}`} />
       {showLabel && <span className="text-ink-3">{chip.label}</span>}
       <span>{ageLabel(chip)}</span>
     </span>

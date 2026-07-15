@@ -16,7 +16,7 @@ import { readWatchlist, subscribeWatchlist, toggleWatchlist } from "@/lib/watchl
  */
 
 const BTN =
-  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-[11px] border text-[13px] font-semibold transition-colors";
+  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors";
 
 export function RailActions({ name }: { name: string }) {
   const pathname = usePathname() ?? "";

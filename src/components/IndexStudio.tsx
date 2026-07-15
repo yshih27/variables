@@ -606,9 +606,9 @@ export function IndexStudio() {
           return (
             <span
               key={id}
-              className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-bg-2 px-2 py-1 text-[12px] transition-opacity ${off ? "opacity-40" : ""}`}
+              className={`inline-flex items-center gap-1.5 rounded-none border border-line bg-bg-2 px-2 py-1 text-[12px] transition-opacity ${off ? "opacity-40" : ""}`}
             >
-              <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: item.color }} />
+              <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: item.color }} />
               <button type="button" className="font-mono font-semibold tracking-[0.01em] text-ink-2 hover:text-ink" onClick={() => toggleMetric(id)}>
                 {item.ticker}
               </button>
@@ -622,7 +622,7 @@ export function IndexStudio() {
         <button
           type="button"
           onClick={() => { setPickerOpen((o) => !o); setSearch(""); }}
-          className="inline-flex items-center gap-1 rounded-full border border-dashed border-line-2 px-2.5 py-1 text-[12px] font-semibold text-ink-2 transition-colors hover:border-yellow hover:text-yellow"
+          className="inline-flex items-center gap-1 rounded-none border border-dashed border-line-2 px-2.5 py-1 text-[12px] font-semibold text-ink-2 transition-colors hover:border-yellow hover:text-yellow"
         >
           ＋ Add metric
         </button>
@@ -729,7 +729,7 @@ export function IndexStudio() {
               .map(({ L, v, raw }) => (
                 <div key={L.id} className="flex items-center justify-between gap-3 py-0.5">
                   <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: L.item.color }} />
+                    <span className="h-1.5 w-1.5 rounded-none" style={{ background: L.item.color }} />
                     <span className="font-mono text-[11px] text-ink-2">{L.item.ticker}</span>
                   </span>
                   <span className="font-mono font-semibold tabular text-ink">
@@ -798,7 +798,7 @@ export function IndexStudio() {
 // ── sub-components ──────────────────────────────────────────────────────────
 function Seg({ variant, options, value, onChange }: { variant: "mode" | "range"; options: { key: string; label: string }[]; value: string | null; onChange: (k: string) => void }) {
   return (
-    <div className="flex gap-0.5 rounded-[9px] border border-line bg-bg-1 p-[3px]">
+    <div className="flex gap-0.5 rounded-xl border border-line bg-bg-1 p-[3px]">
       {options.map((o) => {
         const on = value === o.key;
         return (
@@ -881,7 +881,7 @@ function MetricPicker({ catalog, active, search, onSearch, onPick, onClose }: {
                     onClick={() => !on && onPick(c.id)}
                     className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 ${on ? "opacity-40" : "cursor-pointer hover:bg-bg-2"}`}
                   >
-                    <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: c.color }} />
+                    <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: c.color }} />
                     <span className="min-w-[62px] font-mono text-[12px] font-semibold">{c.ticker}</span>
                     <span className="flex-1 truncate text-[12.5px] text-ink-2">{c.name}</span>
                     <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">{on ? "added" : c.unit}</span>

@@ -144,7 +144,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
           onSubmit={onSearchSubmit}
           role="search"
           aria-label="Search VARIBLE"
-          className="ml-auto hidden h-9 w-[360px] items-center gap-2.5 rounded-full border border-line/70 bg-bg-1 px-4 text-[13px] text-ink-3 focus-within:border-yellow/50 md:flex"
+          className="ml-auto hidden h-9 w-[360px] items-center gap-2.5 rounded-lg border border-line/70 bg-bg-1 px-4 text-[13px] text-ink-3 focus-within:border-yellow/50 md:flex"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
             <circle cx="11" cy="11" r="7" />
@@ -174,7 +174,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
           onClick={() => setMobileSearch((o) => !o)}
           aria-label="Search"
           aria-expanded={mobileSearch}
-          className="ml-auto flex h-9 w-9 items-center justify-center rounded-full border border-line/70 bg-bg-1 text-ink-3 transition-colors hover:text-ink md:hidden"
+          className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg border border-line/70 bg-bg-1 text-ink-3 transition-colors hover:text-ink md:hidden"
         >
           <SearchIcon />
         </button>

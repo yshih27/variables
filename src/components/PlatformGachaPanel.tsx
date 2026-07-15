@@ -72,7 +72,7 @@ export function PlatformGachaPanel({ detail }: { detail: PlatformDetail }) {
           <div className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-ink-3">
             Revenue mix · 24h
           </div>
-          <div className="mt-3.5 flex h-2.5 overflow-hidden rounded-full bg-bg-3">
+          <div className="mt-3.5 flex h-2.5 overflow-hidden rounded-none bg-bg-3">
             <span className="h-full bg-yellow" style={{ width: `${primaryShare * 100}%` }} />
             <span className="h-full bg-blue" style={{ width: `${(1 - primaryShare) * 100}%` }} />
           </div>
@@ -108,7 +108,7 @@ function SplitRow({
 }) {
   return (
     <div className="flex items-center gap-2.5 text-[12.5px]">
-      <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: color }} />
+      <span className="h-2.5 w-2.5 shrink-0 rounded-md" style={{ background: color }} />
       <span className="flex-1 text-ink-2">{label}</span>
       <span className="font-mono tabular text-ink-3">{Math.round(pct * 100)}%</span>
       <span className="w-[58px] text-right font-mono font-semibold tabular text-ink">{value}</span>

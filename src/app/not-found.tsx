@@ -37,7 +37,7 @@ function Pill({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link
       href={href}
-      className="rounded-full border border-line/70 bg-bg-1 px-4 py-2 text-[13px] text-ink-2 hover:border-yellow/40 hover:text-yellow"
+      className="rounded-lg border border-line/70 bg-bg-1 px-4 py-2 text-[13px] text-ink-2 hover:border-yellow/40 hover:text-yellow"
     >
       {children}
     </Link>

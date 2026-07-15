@@ -49,7 +49,7 @@ export function PlatformDetailHero({ detail }: Props) {
             <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
               <span className="inline-flex h-[22px] items-center gap-1.5 text-[12px] text-ink-2">
                 <span
-                  className="h-1.5 w-1.5 rounded-full"
+                  className="h-1.5 w-1.5 rounded-none"
                   style={{ background: CHAIN_DOT[detail.chain] }}
                 />
                 {detail.chain}
@@ -93,12 +93,12 @@ export function PlatformDetailHero({ detail }: Props) {
 }
 
 function RangeBar({ low, high, avg }: { low: number; high: number; avg: number }) {
-  if (high <= low) return <span className="h-1 flex-1 rounded-full bg-bg-2" />;
+  if (high <= low) return <span className="h-1 flex-1 rounded-none bg-bg-2" />;
   const pct = Math.max(0, Math.min(1, (avg - low) / (high - low))) * 100;
   return (
-    <span className="relative h-1 w-44 flex-shrink-0 overflow-hidden rounded-full bg-bg-2">
+    <span className="relative h-1 w-44 flex-shrink-0 overflow-hidden rounded-none bg-bg-2">
       <span
-        className="absolute inset-y-0 left-0 rounded-full bg-yellow"
+        className="absolute inset-y-0 left-0 rounded-none bg-yellow"
         style={{ width: `${pct}%` }}
       />
     </span>

@@ -355,7 +355,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
                 {active.href ? (
                   <IPIcon name={active.name} short={active.short} color={active.color} logo={active.logo} iconBlendMode={active.iconBlendMode} emoji={active.emoji} size={22} />
                 ) : (
-                  <span className="grid h-[22px] w-[22px] place-items-center rounded-[7px] bg-bg-3 text-[11px] font-bold text-ink-2">
+                  <span className="grid h-[22px] w-[22px] place-items-center rounded-xl bg-bg-3 text-[11px] font-bold text-ink-2">
                     {active.short}
                   </span>
                 )}
@@ -391,15 +391,15 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
                 {c.href ? (
                   <IPIcon name={c.name} short={c.short} color={c.color} logo={c.logo} iconBlendMode={c.iconBlendMode} emoji={c.emoji} size={20} />
                 ) : (
-                  <span className="grid h-5 w-5 place-items-center rounded-[6px] bg-bg-3 text-[10px] font-bold text-ink-2">{c.short}</span>
+                  <span className="grid h-5 w-5 place-items-center rounded-xl bg-bg-3 text-[10px] font-bold text-ink-2">{c.short}</span>
                 )}
                 <span className="min-w-0 flex-1 truncate font-sans text-[13px] font-medium">{c.name}</span>
                 <span className="tabular text-[13px] font-semibold">{formatCompactUsd(c.mcapUsd)}</span>
                 <span className="w-[42px] text-right tabular text-[12px] text-ink-3">{pctLabel(c.share)}</span>
               </div>
-              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-bg-2">
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-none bg-bg-2">
                 <div
-                  className="h-full rounded-full"
+                  className="h-full rounded-none"
                   style={{ width: `${Math.max(c.share * 100, 1.5)}%`, background: c.href ? c.color : "var(--color-line-2)" }}
                 />
               </div>

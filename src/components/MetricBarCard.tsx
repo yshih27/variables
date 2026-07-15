@@ -47,7 +47,7 @@ export function MetricBarCard({
     <div className="flex flex-col rounded-2xl border border-line bg-bg-1 px-5 py-4">
       <div className="flex items-start justify-between gap-2">
         <span className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-3">{label}</span>
-        <span className="rounded border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-ink-4">
+        <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-ink-4">
           {windowLabel}
         </span>
       </div>
@@ -67,7 +67,7 @@ export function MetricBarCard({
                 <div
                   key={p.ts}
                   title={`${fmtDay(p.ts)} · ${fmt(v)}`}
-                  className="min-w-0 flex-1 rounded-t-[1.5px]"
+                  className="min-w-0 flex-1 rounded-t-md"
                   style={{
                     height: `${Math.max(3, (v / max) * 100)}%`,
                     background: accent,

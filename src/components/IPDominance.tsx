@@ -155,7 +155,7 @@ export function DominancePanel({
                   hi && hi !== s.name ? "text-ink-2 opacity-45" : "text-ink-2"
                 }`}
               >
-                <span className="h-2 w-2 rounded-[3px]" style={{ background: s.color }} />
+                <span className="h-2 w-2 rounded-md" style={{ background: s.color }} />
                 {s.name}
                 <span className="font-mono font-semibold tabular text-ink">{Math.round(s.share * 100)}%</span>
               </span>
