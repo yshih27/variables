@@ -354,7 +354,12 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const sortedByTotal = [...buckets].sort((a, b) => totalOf(b) - totalOf(a));
   const rank = sortedByTotal.findIndex((b) => b.source.key === key) + 1;
 
-  const platformHolders = holders?.platforms?.[key] ?? 0;
+  // NaN, not 0, when this platform is absent from the snapshot — warm-holders
+  // only scans beezie / collector-crypt / phygitals, so Courtyard was rendering
+  // a confident "0 holders" for a platform we simply never counted. A scanned
+  // platform with genuinely no holders still writes an explicit 0 and keeps it.
+  // Same X5 convention as `cards` immediately below.
+  const platformHolders = holders?.platforms?.[key] ?? NaN;
   // Total cards held on this platform (cards table). NaN for platforms we don't
   // crawl yet (Courtyard/Phygitals) → renders "—", not "0" (the old ~125K bug, X5).
   const cards = platformMcapEntry?.cards ?? NaN;
