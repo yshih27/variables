@@ -16,7 +16,7 @@ import { readWatchlist, subscribeWatchlist, toggleWatchlist } from "@/lib/watchl
  */
 
 const BTN =
-  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-[11px] border text-[13px] font-semibold transition-colors";
+  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors";
 
 export function RailActions({ name }: { name: string }) {
   const pathname = usePathname() ?? "";
@@ -48,7 +48,7 @@ export function RailActions({ name }: { name: string }) {
   async function share() {
     if (typeof window === "undefined") return;
     const url = window.location.href;
-    const shareData = { title: `${name} · VARIABLE`, url };
+    const shareData = { title: `${name} · VARIBLE`, url };
     if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
       try {
         await navigator.share(shareData);

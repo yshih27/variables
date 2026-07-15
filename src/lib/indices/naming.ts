@@ -1,5 +1,5 @@
 /**
- * Index naming — the single source of truth (SSOT) for the Variable Index family.
+ * Index naming — the single source of truth (SSOT) for the Varible Index family.
  *
  * FROZEN CONTRACT: the frontend, the public API (v1), the weekly report, and the OG
  * images all import `tickerOf` / `indexDisplayName` from here. Never hand-maintain a
@@ -7,12 +7,12 @@
  * `short` codes, so adding/renaming an IP in the catalog updates every surface at once.
  *
  * Scheme:
- *   family  = "The Variable Index"  (nickname "the V")
+ *   family  = "The Varible Index"  (nickname "the V")
  *   ticker  = "V-" + entity short code, uppercased, globally unique (deduped)
  *     • market   → V-MKT
  *     • category → V-TCG (tcg) · V-SPT (sports) · V-OTH (other residual)
  *     • ip       → V-<catalog short>  (V-PKM, V-OP, V-YGO, …)
- *   display = "The Variable <Name> Index"  (e.g. "The Variable Pokémon Index")
+ *   display = "The Varible <Name> Index"  (e.g. "The Varible Pokémon Index")
  *
  * Both functions are TOTAL — an unknown key degrades to a derived code / title-cased
  * name and never throws (a naming lookup must not be able to break a page or the API).
@@ -21,7 +21,7 @@ import { IP_CATALOG, OTHER_IP, type IPCategory } from "../data/ipCatalog";
 
 export type IndexEntity = "market" | "category" | "ip";
 
-export const INDEX_FAMILY = "The Variable Index";
+export const INDEX_FAMILY = "The Varible Index";
 export const INDEX_FAMILY_SHORT = "the V";
 export const TICKER_PREFIX = "V-";
 
@@ -83,13 +83,13 @@ export function tickerOf(entity: IndexEntity, key: string): string {
   return TICKER_PREFIX + (IP_CODE_BY_KEY.get(key) ?? (normalizeCode(key) || "UNK"));
 }
 
-/** Full display name, e.g. indexDisplayName("ip","pokemon") → "The Variable Pokémon Index". */
+/** Full display name, e.g. indexDisplayName("ip","pokemon") → "The Varible Pokémon Index". */
 export function indexDisplayName(entity: IndexEntity, key: string): string {
   const middle = indexNoun(entity, key);
   return `${INDEX_FAMILY.replace(/ Index$/, "")} ${middle} Index`;
 }
 
-/** The `<X>` in "The Variable <X> Index" — Market / TCG / Pokémon / … */
+/** The `<X>` in "The Varible <X> Index" — Market / TCG / Pokémon / … */
 function indexNoun(entity: IndexEntity, key: string): string {
   if (entity === "market") return MARKET_NAME;
   if (entity === "category") return CATEGORY_NAME[key as IPCategory] ?? titleCase(key);

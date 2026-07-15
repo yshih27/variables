@@ -89,7 +89,7 @@ export function IPByPlatform({
                   const chip = (
                     <span className="flex items-center gap-2.5 font-semibold">
                       <span
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-[7px] text-[10px] font-bold text-black"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-xl text-[10px] font-bold text-black"
                         style={{ background: r.color }}
                       >
                         {r.name.slice(0, 2).toUpperCase()}
@@ -122,7 +122,7 @@ export function IPByPlatform({
                     {showChain && (
                       <Td left>
                         <span className="inline-flex items-center gap-1.5 font-mono text-[12px] text-ink-2">
-                          <span className="h-1.5 w-1.5 rounded-full" style={{ background: r.chainColor }} />
+                          <span className="h-1.5 w-1.5 rounded-none" style={{ background: r.chainColor }} />
                           {r.chain}
                         </span>
                       </Td>
@@ -221,7 +221,7 @@ function Donut({
             onMouseLeave={() => setHover(null)}
             className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 transition-colors ${hover === s.key ? "bg-bg-2" : ""}`}
           >
-            <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: s.color }} />
+            <span className="h-2.5 w-2.5 rounded-md" style={{ background: s.color }} />
             <span className="flex-1 truncate text-[13px] text-ink-2">{s.name}</span>
             <span className="font-mono text-[13px] font-semibold tabular text-ink">
               {Math.round(s.share * 100)}%

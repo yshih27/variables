@@ -60,7 +60,7 @@ export function CategoryStatBar({ rows, categories }: { rows: IPRow[]; categorie
     },
   ];
   return (
-    <section className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line px-4 py-2.5 text-[12.5px]">
+    <section className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-line px-4 py-2 text-[12.5px]">
       {items.map((it, i) => (
         <div key={it.label} className="flex items-center gap-x-3">
           {i > 0 && <span aria-hidden className="text-ink-4">·</span>}

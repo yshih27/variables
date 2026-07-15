@@ -44,9 +44,9 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const detail = await getPlatformDetail(key);
-  if (!detail) return { title: "Not found · VARIABLE" };
+  if (!detail) return { title: "Not found · VARIBLE" };
   return {
-    title: `${detail.source.name} IPs · VARIABLE`,
+    title: `${detail.source.name} IPs · VARIBLE`,
     description: `All IPs active on ${detail.source.name} in the last 24h.`,
   };
 }

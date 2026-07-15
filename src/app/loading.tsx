@@ -15,7 +15,7 @@ export default function RootLoading() {
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
         {/* Hero skeleton */}
         <div className="mb-12 flex flex-col gap-4">
-          <div className="h-3 w-32 animate-pulse rounded bg-bg-2" />
+          <div className="h-3 w-32 animate-pulse rounded-md bg-bg-2" />
           <div className="h-12 w-[480px] max-w-full animate-pulse rounded-md bg-bg-2" />
         </div>
 
@@ -23,9 +23,9 @@ export default function RootLoading() {
         <div className="mb-12 grid grid-cols-2 gap-x-10 gap-y-7 md:grid-cols-3 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex flex-col gap-2">
-              <div className="h-3 w-24 animate-pulse rounded bg-bg-2" />
-              <div className="h-8 w-28 animate-pulse rounded bg-bg-2" />
-              <div className="h-3 w-20 animate-pulse rounded bg-bg-2" />
+              <div className="h-3 w-24 animate-pulse rounded-md bg-bg-2" />
+              <div className="h-8 w-28 animate-pulse rounded-md bg-bg-2" />
+              <div className="h-3 w-20 animate-pulse rounded-md bg-bg-2" />
             </div>
           ))}
         </div>
@@ -38,7 +38,7 @@ export default function RootLoading() {
 
         {/* Table skeleton */}
         <div className="mt-14 space-y-3">
-          <div className="h-6 w-48 animate-pulse rounded bg-bg-2" />
+          <div className="h-6 w-48 animate-pulse rounded-md bg-bg-2" />
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="h-12 animate-pulse rounded-md bg-bg-2/60" />
           ))}

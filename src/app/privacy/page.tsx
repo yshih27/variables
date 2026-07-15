@@ -6,9 +6,9 @@ import { NavBar } from "@/components/NavBar";
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Privacy Policy · VARIABLE",
+  title: "Privacy Policy · VARIBLE",
   description:
-    "What data VARIABLE does and does not collect: no accounts, a local-only watchlist, cookieless and GA4 analytics, and weekly-report email signup. Draft pending legal review.",
+    "What data VARIBLE does and does not collect: no accounts, a local-only watchlist, cookieless and GA4 analytics, and weekly-report email signup. Draft pending legal review.",
 };
 
 // Fixed publication date for this draft (see work package). Not derived from
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
-            VARIABLE is a read-only market-data terminal with no accounts and no
+            VARIBLE is a read-only market-data terminal with no accounts and no
             login. This page describes the limited data the site collects, why,
             and what it is never used for.
           </p>
@@ -46,15 +46,15 @@ export default function PrivacyPage() {
         <Section title="No accounts, no wallet">
           <p>
             There are no accounts, no login, and no wallet connection on
-            VARIABLE. There is nothing to sign up for in order to browse the
-            site, and VARIABLE holds no user funds.
+            VARIBLE. There is nothing to sign up for in order to browse the
+            site, and VARIBLE holds no user funds.
           </p>
         </Section>
 
         <Section title="Your watchlist stays in your browser">
           <p>
             The watchlist is stored only in your browser&apos;s localStorage. It
-            is never transmitted to or stored by VARIABLE. Clearing your
+            is never transmitted to or stored by VARIBLE. Clearing your
             browser&apos;s storage clears your watchlist.
           </p>
         </Section>
@@ -76,7 +76,7 @@ export default function PrivacyPage() {
           </ul>
           <p className="mt-3">
             There are no other tracking SDKs — no Meta pixel and no Sentry. Aside
-            from GA4&apos;s, no cookies are set by VARIABLE&apos;s own code.
+            from GA4&apos;s, no cookies are set by VARIBLE&apos;s own code.
           </p>
           <Flag>
             Counsel must advise on the cookie-consent banner requirement for EU,
@@ -91,7 +91,7 @@ export default function PrivacyPage() {
         <Section title="Server logs">
           <p>
             Standard hosting logs (Vercel) record IP addresses in transient
-            infrastructure logs. VARIABLE does not use these to build user
+            infrastructure logs. VARIBLE does not use these to build user
             profiles.
           </p>
         </Section>
@@ -99,7 +99,7 @@ export default function PrivacyPage() {
         <Section title="Email signup for the weekly report">
           <p>
             You may submit an email address to receive the weekly market report.
-            When you do, VARIABLE stores your email address, a consent timestamp,
+            When you do, VARIBLE stores your email address, a consent timestamp,
             the signup source, and an unsubscribe token.
           </p>
           <p className="mt-3">
@@ -123,7 +123,7 @@ export default function PrivacyPage() {
           </p>
         </Section>
 
-        <Section title="What VARIABLE never does">
+        <Section title="What VARIBLE never does">
           <ul className="list-disc pl-5 text-[13.5px] leading-relaxed">
             <li>Sell or share your email or other personal data.</li>
             <li>Transmit or store your watchlist on its servers.</li>
@@ -175,7 +175,7 @@ export default function PrivacyPage() {
         </Section>
 
         <div className="mt-16 text-[12px] text-ink-3">
-          VARIABLE · privacy policy · draft, last updated {LAST_UPDATED}
+          VARIBLE · privacy policy · draft, last updated {LAST_UPDATED}
         </div>
       </div>
     </>
@@ -187,7 +187,7 @@ function DraftNotice() {
     <div className="mt-2 rounded-lg border border-line/60 border-l-2 border-l-yellow bg-bg-1 px-4 py-3.5 text-[12.5px] leading-relaxed text-ink-2">
       <span className="font-semibold text-ink">Draft — pending legal review.</span>{" "}
       This page is a plain-language draft assembled from an internal platform
-      briefing that describes how VARIABLE handles data. It has not been reviewed
+      briefing that describes how VARIBLE handles data. It has not been reviewed
       or approved by legal counsel. Items marked{" "}
       <span className="font-semibold uppercase tracking-[0.08em] text-yellow">
         Legal review

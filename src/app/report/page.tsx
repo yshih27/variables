@@ -10,7 +10,7 @@ import { readWeeklyReport } from "@/lib/data/weeklyReport";
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Weekly Report · VARIABLE",
+  title: "Weekly Report · VARIBLE",
   description:
     "The tokenized-collectibles market, week over week: price-index performance vs benchmarks, top movers, biggest sales, and notable pulls — every figure from on-chain reads.",
 };
@@ -58,7 +58,7 @@ export default async function ReportPage() {
   );
 }
 
-// TODO(design-r1 Q4): replace with the official Variable X handle once confirmed.
+// TODO(design-r1 Q4): replace with the official Varible X handle once confirmed.
 // Stubbed to /variable so the CTA is wired; flagged in the PR summary.
 const X_URL = "https://x.com/variable";
 
@@ -77,7 +77,7 @@ function EmptyState() {
     <Section title="The first weekly report is being prepared" flush>
       <div className="flex flex-col gap-5 px-5 py-8 font-sans sm:px-6">
         <p className="max-w-[620px] text-[14px] leading-relaxed text-ink-2">
-          Every Monday, VARIABLE publishes a shareable snapshot of the tokenized-collectibles
+          Every Monday, VARIBLE publishes a shareable snapshot of the tokenized-collectibles
           market. Once the first one is composed it will land right here. Each report covers:
         </p>
         <ul className="flex flex-col gap-2 text-[13.5px] text-ink-2">

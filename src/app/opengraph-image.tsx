@@ -1,4 +1,10 @@
 import { ImageResponse } from "next/og";
+import {
+  BRAND_LIME,
+  BRAND_LOCKUP_MARK_PATH,
+  BRAND_LOCKUP_VIEWBOX,
+  BRAND_LOCKUP_WORDMARK_PATH,
+} from "@/lib/brand";
 
 /**
  * Default OG image for social shares. Returns a 1200×630 card.
@@ -6,7 +12,7 @@ import { ImageResponse } from "next/og";
  */
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "VARIABLE — real cards, real prices, indexed";
+export const alt = "VARIBLE — real cards, real prices, indexed";
 
 export default function OpengraphImage() {
   return new ImageResponse(
@@ -25,26 +31,11 @@ export default function OpengraphImage() {
           color: "#fff",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 14,
-              background: "#f3ff42",
-              color: "#000",
-              fontSize: 44,
-              fontWeight: 900,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            V
-          </div>
-          <div style={{ display: "flex", fontSize: 36, fontWeight: 700, letterSpacing: 1 }}>
-            VARIABLE
-          </div>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <svg width={210} height={48} viewBox={BRAND_LOCKUP_VIEWBOX} fill="none">
+            <path d={BRAND_LOCKUP_MARK_PATH} fill={BRAND_LIME} />
+            <path d={BRAND_LOCKUP_WORDMARK_PATH} fill="#fff" />
+          </svg>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -63,7 +54,10 @@ export default function OpengraphImage() {
             style={{
               display: "flex",
               flexWrap: "wrap",
-              gap: "0 20px",
+              // Longhand, not `gap: "0 20px"` — satori ignores the shorthand here
+              // and the phrases render touching ("Real cards.Real prices.").
+              columnGap: 20,
+              rowGap: 0,
               fontSize: 80,
               lineHeight: 1.05,
               fontWeight: 800,
@@ -72,7 +66,7 @@ export default function OpengraphImage() {
             }}
           >
             <span>Real cards.</span>
-            <span style={{ color: "#f3ff42" }}>Real prices.</span>
+            <span style={{ color: "#bfef01" }}>Real prices.</span>
             <span>Indexed.</span>
           </div>
         </div>
@@ -87,7 +81,7 @@ export default function OpengraphImage() {
           }}
         >
           <span>Beezie · Courtyard · Collector Crypt · Phygitals</span>
-          <span>VARIABLE</span>
+          <span>VARIBLE</span>
         </div>
       </div>
     ),

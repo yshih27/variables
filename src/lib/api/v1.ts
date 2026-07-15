@@ -26,7 +26,7 @@ export function v1Ok(data: unknown, auth: Extract<ApiKeyResult, { ok: true }>): 
       ok: true,
       meta: {
         generatedAt: new Date().toISOString(),
-        attribution: `Data: Variable (${SITE_URL})`,
+        attribution: `Data: Varible (${SITE_URL})`,
         terms: `Free tier — visible attribution with a link to ${SITE_URL} is required wherever this data is displayed.`,
       },
       data,

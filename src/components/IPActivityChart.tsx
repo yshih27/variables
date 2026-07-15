@@ -347,7 +347,7 @@ export function IPActivityChart({
         .filter((m) => active.has(m.key) && m.note)
         .map((m) => (
           <div key={m.key} className="mt-2 flex items-center gap-1.5 text-[11px] text-ink-4">
-            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: m.color }} />
+            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-none" style={{ background: m.color }} />
             {m.note}
           </div>
         ))}
@@ -867,7 +867,7 @@ function TooltipBody({
           return (
             <div key={s.key} className="flex items-center justify-between gap-4 py-0.5">
               <span className="flex items-center gap-1.5 text-ink-2">
-                <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
+                <span className="inline-block h-1.5 w-1.5 rounded-none" style={{ background: s.color }} />
                 {s.label}
                 {s.daily && <span className="text-[10px] text-ink-4">daily</span>}
               </span>
@@ -935,7 +935,7 @@ function MetricsMenu({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-[10px] border border-line-2 bg-bg-2 px-3 py-1.5 text-[12.5px] transition-colors hover:border-ink-4"
+        className="flex items-center gap-2 rounded-xl border border-line-2 bg-bg-2 px-3 py-1.5 text-[12.5px] transition-colors hover:border-ink-4"
       >
         <span className="font-medium text-ink">Metrics</span>
         <span className="font-mono text-[11px] tabular text-ink-3">{activeCount}</span>
@@ -969,7 +969,7 @@ function MetricsMenu({
                   className={`flex min-w-0 flex-1 items-center gap-2 text-left ${canShow ? "cursor-pointer" : "cursor-not-allowed"}`}
                 >
                   <span
-                    className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${on && canShow ? "border-yellow bg-yellow text-black" : "border-line-2 text-transparent"}`}
+                    className={`grid h-4 w-4 shrink-0 place-items-center rounded-md border ${on && canShow ? "border-yellow bg-yellow text-black" : "border-line-2 text-transparent"}`}
                   >
                     <svg width="9" height="9" viewBox="0 0 10 10"><path d="M2 5 L4 7.5 L8 2.5" stroke="currentColor" strokeWidth="1.6" fill="none" /></svg>
                   </span>
@@ -1022,7 +1022,7 @@ function EncodingSwatch({ unit, color, on }: { unit: MetricUnit; color: string; 
       </svg>
     );
   }
-  return <span className="inline-block h-[2px] w-3.5 rounded" style={{ background: c }} aria-hidden />;
+  return <span className="inline-block h-[2px] w-3.5 rounded-md" style={{ background: c }} aria-hidden />;
 }
 
 function SegToggle({
@@ -1035,7 +1035,7 @@ function SegToggle({
   onChange: (k: string) => void;
 }) {
   return (
-    <div className="flex gap-0.5 rounded-[10px] border border-line bg-bg-2 p-[3px]">
+    <div className="flex gap-0.5 rounded-xl border border-line bg-bg-2 p-[3px]">
       {options.map((o) => (
         <button
           key={o.key}

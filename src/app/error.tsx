@@ -35,7 +35,7 @@ export default function RootError({
           </p>
           {error.digest && (
             <p className="mb-6 text-[11.5px] text-ink-3">
-              Error digest: <code className="rounded bg-bg-2 px-1.5 py-0.5">{error.digest}</code>
+              Error digest: <code className="rounded-md bg-bg-2 px-1.5 py-0.5">{error.digest}</code>
             </p>
           )}
           <div className="mt-4 flex flex-wrap gap-3">

@@ -118,7 +118,7 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-1 px-2 py-1 text-ink-2">
               <span
-                className="h-2 w-2 rounded-full"
+                className="h-2 w-2 rounded-none"
                 style={{ background: CHAIN_COLOR[card.chain] ?? "#707070" }}
               />
               {card.chain}
@@ -194,7 +194,7 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
             <div key={title} className="rounded-xl border border-line/60 bg-bg-1 p-4">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[13px] font-semibold">{title}</span>
-                <span className="rounded-full border border-line bg-bg-2 px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-ink-3">
+                <span className="rounded-none border border-line bg-bg-2 px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-ink-3">
                   Soon
                 </span>
               </div>

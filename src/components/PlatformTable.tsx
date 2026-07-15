@@ -138,7 +138,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                 }`}
               >
                 {c !== "all" && (
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[c] }} />
+                  <span className="h-1.5 w-1.5 rounded-none" style={{ background: CHAIN_DOT[c] }} />
                 )}
                 {c === "all" ? "All chains" : c}
                 <span className="tabular text-[11px] text-ink-4">{n}</span>
@@ -193,7 +193,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                       href={`/platform/${p.key}`}
                       className="flex items-center gap-2.5 font-semibold before:absolute before:inset-0 before:content-['']"
                     >
-                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-[11px] font-bold">
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-bg-2 text-[11px] font-bold">
                         {p.short}
                       </span>
                       <span className="font-sans group-hover:text-yellow">{p.name}</span>
@@ -201,7 +201,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                     {/* Coverage disclosure — sits above the row-link overlay (z-10) so its
                         ⓘ is clickable; explains we track primary but not secondary yet. */}
                     {primaryOnly && (
-                      <span className="relative z-10 inline-flex items-center gap-1 rounded border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
+                      <span className="relative z-10 inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
                         primary only
                         <MetricInfo metric="primaryOnly" />
                       </span>
@@ -210,7 +210,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                 </Td>
                 <Td className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}>
                   <span className="inline-flex h-[22px] items-center gap-1.5 text-[12px] text-ink-2">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: CHAIN_DOT[p.chain] }} />
+                    <span className="h-1.5 w-1.5 rounded-none" style={{ background: CHAIN_DOT[p.chain] }} />
                     {p.chain}
                   </span>
                 </Td>

@@ -102,7 +102,7 @@ export const METRICS = {
     text: "Weekly stratified-median of actual sale prices within set×grade cells, trade-weighted — a constant-quality price, not market cap.",
   },
   variableIndex: {
-    term: "The Variable Index (the V)",
+    term: "The Varible Index (the V)",
     text: "The market-wide constant-quality price index — one number for the whole tokenized-card market. Sub-indices per IP and category carry V- tickers (V-MKT is the market, V-PKM Pokémon, V-TCG the TCG category).",
     href: "/methodology#naming",
   },

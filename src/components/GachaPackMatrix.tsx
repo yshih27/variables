@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The Gacha MATRIX + COMPARE (design handoff "Variable — Gacha Matrix").
+ * The Gacha MATRIX + COMPARE (design handoff "Varible — Gacha Matrix").
  *
  * Screen 1 — Matrix: platforms × price tiers for one IP at a glance. Each cell
  * is the platform's pack at that price (best-odds pack when several share the
@@ -91,7 +91,7 @@ function Dot({ basis, n }: { basis: MetricBasis; n?: number | null }) {
   return (
     <span
       title={basisTitle(basis, n)}
-      className="inline-block h-[5px] w-[5px] shrink-0 rounded-full"
+      className="inline-block h-[5px] w-[5px] shrink-0 rounded-none"
       style={{
         background: basis === "assumed" ? "transparent" : basisColor(basis),
         border: basis === "assumed" ? "1px dashed #6a6a6a" : undefined,
@@ -102,7 +102,7 @@ function Dot({ basis, n }: { basis: MetricBasis; n?: number | null }) {
 function Avatar({ platform, short, size }: { platform: string; short: string; size: number }) {
   return (
     <span
-      className="grid shrink-0 place-items-center rounded-lg font-bold text-black"
+      className="grid shrink-0 place-items-center rounded-none font-bold text-black"
       style={{ background: PLATFORM_COLOR[platform] ?? "#888", width: size, height: size, fontSize: size * 0.34 }}
     >
       {short}
@@ -268,7 +268,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
-                className={`rounded-[9px] px-[15px] py-2 text-[13px] transition-colors ${
+                className={`rounded-xl px-[15px] py-2 text-[13px] transition-colors ${
                   tab === t.key ? "bg-yellow font-bold text-black" : "font-medium text-ink-3 hover:text-ink"
                 }`}
               >
@@ -296,7 +296,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
                   {pl.chain}
                   {pl.mixedPool && (
                     <span
-                      className="rounded border border-line-2 px-1 py-px text-[8.5px] uppercase tracking-[0.06em] text-ink-4"
+                      className="rounded-md border border-line-2 px-1 py-px text-[8.5px] uppercase tracking-[0.06em] text-ink-4"
                       title="No single game — the pool mixes IPs, so odds aren't specific to this tab's game"
                     >
                       mixed pool
@@ -379,7 +379,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
           {pinned.map((p) => (
             <span
               key={p.id}
-              className="flex items-center gap-2 whitespace-nowrap rounded-[10px] border border-line bg-bg-1 px-[9px] py-1.5 text-[12px]"
+              className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-line bg-bg-1 px-[9px] py-1.5 text-[12px]"
             >
               <Avatar platform={p.platform} short={p.platformShort} size={20} />
               <span>
@@ -395,7 +395,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
           type="button"
           disabled={pins.length < 2}
           onClick={() => setCmpOpen(true)}
-          className={`h-[38px] shrink-0 rounded-[11px] px-4 text-[12.5px] font-bold ${
+          className={`h-[38px] shrink-0 rounded-xl px-4 text-[12.5px] font-bold ${
             pins.length >= 2 ? "bg-yellow text-black" : "cursor-default bg-bg-3 text-ink-4"
           }`}
         >
@@ -577,7 +577,7 @@ function PrizeFinder({
           }}
           placeholder="Search cards, sets, grades, types, token ID…"
           aria-label="Search prizes"
-          className="h-10 w-full min-w-[220px] flex-1 rounded-[10px] border border-line bg-bg-1 px-3.5 text-[13px] text-ink placeholder:text-ink-4 focus:border-line-2 focus:outline-none sm:max-w-[420px]"
+          className="h-10 w-full min-w-[220px] flex-1 rounded-xl border border-line bg-bg-1 px-3.5 text-[13px] text-ink placeholder:text-ink-4 focus:border-line-2 focus:outline-none sm:max-w-[420px]"
         />
         <FilterPill
           label="Game"
@@ -649,7 +649,7 @@ function PrizeFinder({
           <button
             type="button"
             onClick={() => setVisible((v) => v + PRIZE_PAGE * 2)}
-            className="h-10 rounded-[10px] border border-line-2 bg-bg-1 px-5 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink-4 hover:text-ink"
+            className="h-10 rounded-xl border border-line-2 bg-bg-1 px-5 text-[12.5px] font-semibold text-ink-2 transition-colors hover:border-ink-4 hover:text-ink"
           >
             Show more · {formatInt(groups.length - visible)} left
           </button>
@@ -703,7 +703,7 @@ function FilterPill({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex h-10 items-center gap-1.5 rounded-[10px] border border-line bg-bg-1 px-3 text-[12px] transition-colors hover:border-line-2"
+        className="flex h-10 items-center gap-1.5 rounded-xl border border-line bg-bg-1 px-3 text-[12px] transition-colors hover:border-line-2"
       >
         <span className="text-ink-4">{label}</span>
         <span className="font-semibold text-ink">{value}</span>
@@ -762,7 +762,7 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
         }}
         className="block w-full cursor-pointer text-left"
       >
-        <div className="relative aspect-[3/4] overflow-hidden rounded-t-[11px] bg-bg-2">
+        <div className="relative aspect-[3/4] overflow-hidden rounded-t-xl bg-bg-2">
           {/* Whole slab, similar visual size across platforms: CC/Beezie serve
               tight slab scans (contain); Phygitals pedestal shots zoom to the slab. */}
           <CardArt
@@ -772,14 +772,14 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
             }`}
           />
           {!multi && prize.tier && (
-            <span className="absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-2">
+            <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-2">
               {prize.tier}
             </span>
           )}
           {prize.pulled && (
             <span
               title="Already won — an example of what this machine pays (Collector Crypt doesn't publish its pools)"
-              className="absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-3"
+              className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-3"
             >
               Pulled
             </span>
@@ -1171,9 +1171,9 @@ function LiveOddsBands({ pack }: { pack: GachaPack | null }) {
               </span>
               <span className={`tabular shrink-0 font-semibold ${b.hit ? "text-ink" : "text-ink-3"}`}>{pct(b.pct, 1)}</span>
             </div>
-            <div className="mt-1 h-1 overflow-hidden rounded-full bg-bg-3">
+            <div className="mt-1 h-1 overflow-hidden rounded-none bg-bg-3">
               <i
-                className="block h-full rounded-full"
+                className="block h-full rounded-none"
                 style={{ width: `${Math.max(2, Math.min(100, b.pct * 100))}%`, background: b.hit ? "var(--color-yellow)" : "#3a3a3a" }}
               />
             </div>
@@ -1324,7 +1324,7 @@ function MatrixCellMulti({
               type="button"
               onClick={() => onOpen(p.id)}
               title={`${p.name} · ${pct(o?.value ?? null)} hit odds — open`}
-              className="group/r flex items-center justify-between gap-1.5 rounded px-1 py-1 text-left transition-colors hover:bg-bg-2"
+              className="group/r flex items-center justify-between gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-bg-2"
             >
               <span className="min-w-0 truncate text-[10.5px] text-ink-2 transition-colors group-hover/r:text-ink">
                 {p.name}
@@ -1458,7 +1458,7 @@ function PackDrawer({
               type="button"
               disabled={idx <= 0}
               onClick={() => onStep(siblings[idx - 1])}
-              className="grid h-8 w-8 place-items-center rounded-[9px] border border-line text-ink-2 hover:border-line-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+              className="grid h-8 w-8 place-items-center rounded-xl border border-line text-ink-2 hover:border-line-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"
             >
               ‹
             </button>
@@ -1466,7 +1466,7 @@ function PackDrawer({
               type="button"
               disabled={idx < 0 || idx >= siblings.length - 1}
               onClick={() => onStep(siblings[idx + 1])}
-              className="grid h-8 w-8 place-items-center rounded-[9px] border border-line text-ink-2 hover:border-line-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"
+              className="grid h-8 w-8 place-items-center rounded-xl border border-line text-ink-2 hover:border-line-2 hover:text-ink disabled:pointer-events-none disabled:opacity-30"
             >
               ›
             </button>
@@ -1474,7 +1474,7 @@ function PackDrawer({
           <button
             type="button"
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-[9px] border border-line text-ink-2 hover:border-line-2 hover:text-ink"
+            className="grid h-8 w-8 place-items-center rounded-xl border border-line text-ink-2 hover:border-line-2 hover:text-ink"
           >
             ✕
           </button>
@@ -1485,7 +1485,7 @@ function PackDrawer({
           <div className="flex items-center gap-[18px] border-b border-line pb-[22px]">
             {/* Whole slab, uncropped: contain (+ padding) for tight CC/Beezie
                 scans; zoom for Phygitals pedestal shots; gradient on dead art. */}
-            <div className="relative h-[126px] w-[92px] shrink-0 overflow-hidden rounded-[9px] border border-line-2 bg-bg-2">
+            <div className="relative h-[126px] w-[92px] shrink-0 overflow-hidden rounded-xl border border-line-2 bg-bg-2">
               <CardArt
                 src={art ?? undefined}
                 imgClass={`absolute inset-0 h-full w-full ${
@@ -1493,7 +1493,7 @@ function PackDrawer({
                 }`}
               />
               {!art && hit?.grade && (
-                <span className="absolute bottom-1.5 left-1.5 rounded-[3px] bg-yellow px-1 py-0.5 text-[8px] font-bold text-black">
+                <span className="absolute bottom-1.5 left-1.5 rounded-md bg-yellow px-1 py-0.5 text-[8px] font-bold text-black">
                   {hit.grade}
                 </span>
               )}
@@ -1520,7 +1520,7 @@ function PackDrawer({
           </div>
 
           {/* metric tiles */}
-          <div className="my-[22px] grid grid-cols-2 gap-px overflow-hidden rounded-[13px] border border-line bg-line">
+          <div className="my-[22px] grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line">
             <MetTile
               k="Hit odds"
               v={odds ? pct(odds.value) : "—"}
@@ -1576,12 +1576,12 @@ function PackDrawer({
                   <div key={b.label} className="grid grid-cols-[96px_1fr_88px] items-center gap-3 py-1.5 text-[13px]">
                     <span className="flex items-center gap-[9px] text-ink">
                       <span
-                        className="h-[7px] w-[7px] rounded-full"
+                        className="h-[7px] w-[7px] rounded-none"
                         style={{ background: b.hit ? "#ffd23d" : "var(--color-ink-4)" }}
                       />
                       {b.label}
                     </span>
-                    <span className="h-[5px] overflow-hidden rounded-[3px] bg-bg-3">
+                    <span className="h-[5px] overflow-hidden rounded-md bg-bg-3">
                       <i
                         className="block h-full"
                         style={{ width: `${Math.min(100, b.pct * 100)}%`, background: b.hit ? "#ffd23d" : "var(--color-ink-4)" }}
@@ -1899,7 +1899,7 @@ function CompareOverlay({
         onMouseDown={(e) => {
           if (pickerOpen && !(e.target as HTMLElement).closest("[data-picker]")) setPickerOpen(false);
         }}
-        className="fixed inset-0 z-[61] flex flex-col overflow-hidden border border-line-2 bg-bg shadow-[0_30px_80px_rgba(0,0,0,.6)] sm:inset-6 sm:rounded-[20px]"
+        className="fixed inset-0 z-[61] flex flex-col overflow-hidden border border-line-2 bg-bg shadow-[0_30px_80px_rgba(0,0,0,.6)] sm:inset-6 sm:rounded-xl"
       >
         {/* header */}
         <div className="flex flex-none items-center gap-4 border-b border-line bg-bg-1 px-[22px] py-4">
@@ -1907,7 +1907,7 @@ function CompareOverlay({
             Compare <span className="ml-2 text-[12.5px] font-medium text-ink-3">{packs.length} packs side by side</span>
           </div>
           <div className="flex-1" />
-          <div className="flex gap-[3px] rounded-[10px] border border-line-2 bg-bg-2 p-[3px]">
+          <div className="flex gap-[3px] rounded-xl border border-line-2 bg-bg-2 p-[3px]">
             {(
               [
                 ["abs", "Absolute $"],
@@ -1918,7 +1918,7 @@ function CompareOverlay({
                 key={k}
                 type="button"
                 onClick={() => onNorm(k)}
-                className={`whitespace-nowrap rounded-[7px] px-3 py-[7px] text-[11.5px] ${
+                className={`whitespace-nowrap rounded-xl px-3 py-[7px] text-[11.5px] ${
                   norm === k ? "bg-yellow font-bold text-black" : "font-medium text-ink-3 hover:text-ink"
                 }`}
               >
@@ -1931,12 +1931,12 @@ function CompareOverlay({
               type="button"
               disabled={packs.length >= MAX_COMPARE}
               onClick={() => setPickerOpen((v) => !v)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-bg-2 px-3.5 text-[12.5px] font-semibold text-ink hover:border-yellow hover:text-yellow disabled:opacity-40 disabled:hover:border-line-2 disabled:hover:text-ink"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-2 bg-bg-2 px-3.5 text-[12.5px] font-semibold text-ink hover:border-yellow hover:text-yellow disabled:opacity-40 disabled:hover:border-line-2 disabled:hover:text-ink"
             >
               + Add another
             </button>
             {pickerOpen && (
-              <div className="absolute right-0 top-11 z-[70] max-h-[62vh] w-[300px] overflow-y-auto rounded-[14px] border border-line-2 bg-bg-2 p-2 shadow-[0_22px_50px_rgba(0,0,0,.6)]">
+              <div className="absolute right-0 top-11 z-[70] max-h-[62vh] w-[300px] overflow-y-auto rounded-xl border border-line-2 bg-bg-2 p-2 shadow-[0_22px_50px_rgba(0,0,0,.6)]">
                 {packs.length >= MAX_COMPARE ? (
                   <div className="px-3 py-4 text-center text-[12px] text-ink-4">
                     Max {MAX_COMPARE} packs. Remove one to add another.
@@ -1960,7 +1960,7 @@ function CompareOverlay({
                                 onAdd(p.id);
                                 setPickerOpen(false);
                               }}
-                              className="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-[9px] text-left text-[12.5px] hover:bg-bg-3"
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-[9px] text-left text-[12.5px] hover:bg-bg-3"
                             >
                               <Avatar platform={p.platform} short={p.platformShort} size={22} />
                               <span className="flex-1">
@@ -1983,7 +1983,7 @@ function CompareOverlay({
           <button
             type="button"
             onClick={onClose}
-            className="grid h-9 w-9 place-items-center rounded-[10px] border border-line-2 bg-bg-2 text-ink-2 hover:border-ink-4 hover:text-ink"
+            className="grid h-9 w-9 place-items-center rounded-xl border border-line-2 bg-bg-2 text-ink-2 hover:border-ink-4 hover:text-ink"
           >
             ✕
           </button>
@@ -2109,7 +2109,7 @@ function CmpGroupRows({ group, packs }: { group: CmpGroup; packs: GachaPack[] })
                       {c.unit && <span className="ml-px text-[11px] font-medium text-ink-3">{c.unit}</span>}
                     </span>
                     {isWin && (
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-yellow shadow-[0_0_6px_var(--color-yellow)]" />
+                      <span className="inline-block h-1.5 w-1.5 rounded-none bg-yellow shadow-[0_0_6px_var(--color-yellow)]" />
                     )}
                     {c.basis && (
                       <span className="self-center">

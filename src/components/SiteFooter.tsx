@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SubscribeForm } from "./SubscribeForm";
+import { BrandLockup } from "./Brand";
 
 /**
  * App-wide footer (round-3 "trust & identity") — rendered once from the root
@@ -26,12 +27,9 @@ export function SiteFooter() {
           <SubscribeForm source="footer" variant="slim" />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
-          <div className="flex items-center gap-2 text-[13px] font-bold tracking-[0.02em]">
-            <span className="inline-flex h-[18px] w-[18px] items-center justify-center rounded-[5px] bg-yellow text-[10px] font-extrabold text-black">
-              V
-            </span>
-            <span className="font-mono tracking-[0.04em]">VARIABLE</span>
-            <span className="font-normal text-ink-3">· real cards. real prices. indexed</span>
+          <div className="flex items-center gap-2.5 text-[13px]">
+            <BrandLockup className="h-[15px] w-auto text-ink" title="VARIBLE" />
+            <span className="text-ink-3">· real cards. real prices. indexed</span>
           </div>
           <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-ink-3">
             {LINKS.map((l) => (
@@ -42,7 +40,7 @@ export function SiteFooter() {
           </nav>
         </div>
         <p className="max-w-3xl text-[11.5px] leading-relaxed text-ink-4">
-          Variable tracks prices, volume, and holders across tokenized trading-card platforms. All
+          Varible tracks prices, volume, and holders across tokenized trading-card platforms. All
           figures are derived from on-chain activity and platform APIs and are informational only —
           nothing here is financial advice. Spotted a wrong number? Corrections route through the{" "}
           <Link href="/methodology" className="text-ink-3 transition-colors hover:text-yellow">

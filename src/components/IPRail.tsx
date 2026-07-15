@@ -50,7 +50,7 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
             <h1 className="text-[25px] font-bold leading-none tracking-[-0.02em]">
               {detail.ip.name}
             </h1>
-            <span className="rounded-[7px] border border-yellow/30 bg-yellow/10 px-[7px] py-0.5 font-mono text-[12px] font-semibold text-yellow">
+            <span className="rounded-xl border border-yellow/30 bg-yellow/10 px-[7px] py-0.5 font-mono text-[12px] font-semibold text-yellow">
               #{detail.rank}
             </span>
           </div>

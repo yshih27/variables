@@ -92,7 +92,7 @@ function VolumeCard({ vol }: { vol: VolBreakdown }) {
       </div>
       {segs.length > 0 && (
         <div>
-          <div className="flex h-2 overflow-hidden rounded-full bg-bg-3">
+          <div className="flex h-2 overflow-hidden rounded-none bg-bg-3">
             {segs.map((s) => (
               <span
                 key={s.key}
@@ -104,7 +104,7 @@ function VolumeCard({ vol }: { vol: VolBreakdown }) {
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
             {segs.map((s) => (
               <span key={s.key} className="flex items-center gap-1.5 text-[12px]">
-                <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: s.color }} />
+                <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: s.color }} />
                 <span className="text-ink-3">{s.label}</span>
                 <span className="font-mono font-semibold tabular text-ink-2">{compactUsd(s.value)}</span>
               </span>

@@ -71,7 +71,7 @@ export default async function PlatformDetailPage({
   // are real from metric_snapshots (24h volume from hourly buckets). A window
   // with <2 points has no history yet (the chart disables it); never fabricated.
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
+    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
     { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: detail.mcapUsd > 0 ? formatCompactUsd(detail.mcapUsd) : "—", note: "Market cap tracked for Beezie & Collector Crypt only", series: buildWindows(mcapS, null) },
     { key: "trades", label: "Trades", color: "#a78bfa", value: formatInt(detail.trades24h), series: buildWindows(tradesS, null) },
     { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
@@ -192,9 +192,9 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const detail = await getPlatformDetail(key);
-  if (!detail) return { title: "Not found · VARIABLE" };
+  if (!detail) return { title: "Not found · VARIBLE" };
   return {
-    title: `${detail.source.name} · VARIABLE`,
-    description: `Per-platform analytics for ${detail.source.name} (${detail.chain}) on VARIABLE — volume, IP composition, gacha sales, and recent activity.`,
+    title: `${detail.source.name} · VARIBLE`,
+    description: `Per-platform analytics for ${detail.source.name} (${detail.chain}) on VARIBLE — volume, IP composition, gacha sales, and recent activity.`,
   };
 }

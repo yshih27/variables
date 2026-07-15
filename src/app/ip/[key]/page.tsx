@@ -29,7 +29,7 @@ const PLATFORM_META: Record<string, { name: string; chain: string; chainColor: s
   "collector-crypt": { name: "Collector Crypt", chain: "Solana", chainColor: "#14f195", color: "#5b9bff" },
 };
 
-const SET_PALETTE = ["#f3ff42", "#5b9bff", "#a78bfa", "#2bd6a0", "#f5c451", "#9aa6ff"];
+const SET_PALETTE = ["#bfef01", "#5b9bff", "#a78bfa", "#2bd6a0", "#f5c451", "#9aa6ff"];
 
 /** Per-timeframe windows from a real daily series (metric_snapshots) + optional
  *  real 24h-hourly series. A window with <2 points has no history yet — the chart
@@ -111,7 +111,7 @@ export default async function IPDetailPage({
     .filter((p) => Number.isFinite(p.value));
 
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#f3ff42", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
+    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
     { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", series: buildWindows(mcapS, null) },
     { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), series: buildWindows(cardsS, null) },
     { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
@@ -122,13 +122,13 @@ export default async function IPDetailPage({
   // (QA-6, apples-to-apples). Fall back to the mcap "market size" index (no
   // benchmarks) for IPs that don't yet have a price series.
   const priceVsMarket = await buildPriceComparison([
-    { entity: "ip", key, label: detail.ip.name, color: "#f3ff42" },
+    { entity: "ip", key, label: detail.ip.name, color: "#bfef01" },
     { entity: "market", key: "total", label: "Market", color: "#8b8b94" },
   ]);
   const ipHasPrice = priceVsMarket.datasets.some((d) => d.group === detail.ip.name);
   const mcapVsMarket = buildSeriesTrend(
     [
-      { group: detail.ip.name, color: "#f3ff42", series: mcapS },
+      { group: detail.ip.name, color: "#bfef01", series: mcapS },
       { group: "Market", color: "#8b8b94", series: marketMcapS },
     ],
     "hold",
@@ -213,9 +213,9 @@ export async function generateMetadata({
 }) {
   const { key } = await params;
   const detail = await getIPDetail(key);
-  if (!detail) return { title: "Not found · VARIABLE" };
+  if (!detail) return { title: "Not found · VARIBLE" };
   return {
-    title: `${detail.ip.name} · VARIABLE`,
+    title: `${detail.ip.name} · VARIBLE`,
     description: `Per-IP analytics for ${detail.ip.name} across tracked tokenized-collectibles platforms.`,
   };
 }

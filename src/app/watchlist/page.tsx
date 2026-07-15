@@ -5,7 +5,7 @@ import { WatchlistView } from "@/components/WatchlistView";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 
 export const metadata = {
-  title: "Watchlist · VARIABLE",
+  title: "Watchlist · VARIBLE",
   description: "Your saved categories and platforms — live volume, market cap, and holders.",
 };
 

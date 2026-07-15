@@ -2,8 +2,8 @@
 
 @theme {
   /* Near-black charcoal ramp. Lifted off harsh pure #000 for a crafted,
-     premium base; a faint cool tint (blue a touch over red/green) makes the
-     acid-yellow read warmer. Each rung keeps the prior depth separation so
+     premium base; a faint cool tint (blue a touch over red/green) sits the
+     brand lime a shade cooler. Each rung keeps the prior depth separation so
      surfaces and borders still stack legibly. */
   --color-bg: #0a0a0c;
   --color-bg-1: #131316;
@@ -15,8 +15,17 @@
   --color-ink-2: #b8b8b8;
   --color-ink-3: #707070;
   --color-ink-4: #4a4a4a;
-  --color-yellow: #f3ff42;
-  --color-yellow-2: #fdff8c;
+  /* Brand accent (VARIBLE lime). The token is still NAMED `yellow` so the ~200
+     existing `bg-yellow`/`text-yellow`/`border-yellow` call sites keep working
+     and the accent stays a one-knob swap — read it as "the brand accent", not
+     as a hue. `-2` is the same hue lifted for hover/emphasis tints. */
+  --color-yellow: #bfef01;
+  --color-yellow-2: #e8ff8a;
+  /* The dimmed-lime ramp from the brand boards: de-emphasized marks (older bars,
+     grid nodes) step down through these on the near-black ground while the newest
+     / active mark stays full `--color-yellow`. */
+  --color-lime-dim: #516405;
+  --color-lime-dimmer: #334004;
   /* Explicit black — the @theme palette replaces Tailwind defaults, so without
      this token every `text-black` (yellow CTAs, price badges) silently no-ops
      to inherited white. */
@@ -31,6 +40,41 @@
 
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
   --font-sans: var(--font-inter), system-ui, sans-serif;
+
+  /* ── Sharp-edge system ────────────────────────────────────────────────────
+     THE radius knob. The brand is geometric — the mark itself is drawn without
+     a single curve — so surfaces are square and only hand-operated controls
+     keep a hairline 2px to read as pressable.
+
+     Tailwind's size names are kept (rather than semantic aliases) so this stays
+     a token remap instead of a ~340-site rename. In THIS codebase they already
+     sort by intent, which is what makes the two rungs land cleanly:
+       xs/sm/md  → chips, tags, badges, tooltips, skeletons  → 0
+       lg        → buttons, inputs, toggles, icon buttons    → 2px
+       xl…4xl    → panels, cards, tables, drawers, modals    → 0
+
+     Caveats worth knowing before you turn the knob:
+       • `rounded-full` is NOT tokenizable (Tailwind hardcodes it to
+         calc(infinity * 1px)), so it was swept by hand. The line drawn: icon
+         GLYPH geometry is not UI radius. An IP icon and the circled-i of
+         MetricInfo are shapes in their own right (as is the search magnifier's
+         lens) and stay round; pills, chips, meters and colour swatches — where
+         the round was chrome, not meaning — went square. Donuts are SVG arcs
+         and never touched this class at all.
+       • Bare `rounded` is ALSO hardcoded by Tailwind (a literal 0.25rem that
+         reads no var), so it was normalized to `rounded-md` to join this knob.
+         Don't reintroduce bare `rounded` — it silently escapes these tokens.
+       • A handful of small cards ride `rounded-lg` alongside the controls and
+         so land at 2px rather than 0. Within the "2px max" rule and invisible
+         at that radius; splitting them would cost the one-knob property. */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 2px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 }
 
 * {
@@ -100,7 +144,7 @@ pre {
 .live-dot {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--color-green);
   box-shadow: 0 0 12px var(--color-green);
   animation: pulse-dot 1.6s infinite;
@@ -135,7 +179,7 @@ pre {
 }
 .scroll-x::-webkit-scrollbar-thumb {
   background: var(--color-line-2);
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 /* Slim, theme-matched vertical scrollbar for the IP page's scrolling column —
@@ -152,7 +196,7 @@ pre {
 }
 .scroll-y::-webkit-scrollbar-thumb {
   background: var(--color-line-2);
-  border-radius: 4px;
+  border-radius: 0;
 }
 .scroll-y::-webkit-scrollbar-thumb:hover {
   background: var(--color-ink-4);
@@ -197,7 +241,7 @@ pre {
   margin-right: 12px;
   padding: 9px 16px 9px 9px;
   border: 1px solid var(--color-line);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--color-bg-2);
   transition: border-color 0.12s;
 }
@@ -207,7 +251,7 @@ a.ght-chip:hover {
 .ght-art {
   width: 60px;
   height: 82px;
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--color-bg-2);
   flex: none;
   overflow: hidden;
@@ -275,7 +319,7 @@ a.ght-chip:hover {
   flex: none;
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  border-radius: 0;
   display: grid;
   place-items: center;
   color: #000;

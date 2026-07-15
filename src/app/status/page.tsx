@@ -4,7 +4,7 @@ import { allChips, type ChipModel } from "@/lib/data/freshnessView";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Data status · VARIABLE",
+  title: "Data status · VARIBLE",
   description: "Honest, per-source freshness for every feed the site reads.",
 };
 
@@ -86,7 +86,7 @@ export default async function StatusPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={`inline-flex items-center gap-1.5 ${STATE_TEXT[c.state]}`}>
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${STATE_DOT[c.state]}`} />
+                      <span className={`inline-block h-1.5 w-1.5 rounded-none ${STATE_DOT[c.state]}`} />
                       {STATE_LABEL[c.state]}
                     </span>
                   </td>
@@ -101,7 +101,7 @@ export default async function StatusPage() {
         </div>
 
         <div className="mt-20 text-center text-[12px] text-ink-3">
-          VARIABLE · data provenance
+          VARIBLE · data provenance
         </div>
       </div>
     </>

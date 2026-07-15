@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const revalidate = 3600;
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "VARIABLE Weekly Report";
+export const alt = "VARIBLE Weekly Report";
 
 export default async function Image() {
   const report = await readWeeklyReport().catch(() => null);

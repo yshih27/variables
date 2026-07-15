@@ -76,7 +76,7 @@ export function buildVolumeSplitTrend(
     buildSeriesTrend(
       [
         { group: "Marketplace", color: "#5fa3ff", series: sumAllByTs(mktByKey) },
-        { group: "Gacha", color: "#f3ff42", series: sumAllByTs(gachaByKey) },
+        { group: "Gacha", color: "#bfef01", series: sumAllByTs(gachaByKey) },
       ],
       "zero",
     ),

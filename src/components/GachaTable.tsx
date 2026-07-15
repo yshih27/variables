@@ -59,7 +59,7 @@ export function GachaTable({ rows }: { rows: GachaPlatformRow[] }) {
                     href={`/platform/${p.key}`}
                     className="flex items-center gap-2.5 font-semibold before:absolute before:inset-0 before:content-['']"
                   >
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-bg-2 text-[11px] font-bold">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-none bg-bg-2 text-[11px] font-bold">
                       {p.short}
                     </span>
                     <span className="group-hover:text-yellow">{p.name}</span>
@@ -68,7 +68,7 @@ export function GachaTable({ rows }: { rows: GachaPlatformRow[] }) {
                 <Td>
                   <span className="inline-flex h-[22px] items-center gap-1.5 text-[12px] text-ink-2">
                     <span
-                      className="h-1.5 w-1.5 rounded-full"
+                      className="h-1.5 w-1.5 rounded-none"
                       style={{ background: CHAIN_DOT[p.chain] }}
                     />
                     {p.chain}

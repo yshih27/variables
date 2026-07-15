@@ -1,4 +1,10 @@
 import { ImageResponse } from "next/og";
+import {
+  BRAND_LIME,
+  BRAND_LOCKUP_MARK_PATH,
+  BRAND_LOCKUP_VIEWBOX,
+  BRAND_LOCKUP_WORDMARK_PATH,
+} from "@/lib/brand";
 
 /**
  * ONE shared OpenGraph template (F9-1) behind every per-entity share image:
@@ -16,7 +22,7 @@ import { ImageResponse } from "next/og";
 export const OG_SIZE = { width: 1200, height: 630 };
 export const OG_CONTENT_TYPE = "image/png";
 
-const YELLOW = "#f3ff42";
+const YELLOW = BRAND_LIME;
 const PURPLE = "#a18cff";
 const INK_DIM = "#707070";
 const BG = "radial-gradient(circle at 30% 30%, #1a1a1a 0%, #000 60%)";
@@ -85,25 +91,10 @@ export function renderOgCard(opts: OgCardOpts): ImageResponse {
       >
         {/* Brand row */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div
-            style={{
-              width: 60,
-              height: 60,
-              borderRadius: 14,
-              background: YELLOW,
-              color: "#000",
-              fontSize: 42,
-              fontWeight: 900,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            V
-          </div>
-          <div style={{ display: "flex", fontSize: 30, fontWeight: 700, letterSpacing: 1 }}>
-            VARIABLE
-          </div>
+          <svg width={188} height={43} viewBox={BRAND_LOCKUP_VIEWBOX} fill="none">
+            <path d={BRAND_LOCKUP_MARK_PATH} fill={YELLOW} />
+            <path d={BRAND_LOCKUP_WORDMARK_PATH} fill="#fff" />
+          </svg>
         </div>
 
         {/* Middle: eyebrow → title → stat → spark */}
@@ -180,7 +171,7 @@ export function renderOgCard(opts: OgCardOpts): ImageResponse {
           }}
         >
           <div style={{ display: "flex" }}>Beezie · Courtyard · Collector Crypt · Phygitals</div>
-          <div style={{ display: "flex" }}>VARIABLE</div>
+          <div style={{ display: "flex" }}>VARIBLE</div>
         </div>
       </div>
     ),

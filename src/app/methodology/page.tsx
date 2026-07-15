@@ -7,9 +7,9 @@ import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/n
 export const revalidate = 3600;
 
 export const metadata = {
-  title: "Methodology · VARIABLE",
+  title: "Methodology · VARIBLE",
   description:
-    "How VARIABLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
+    "How VARIBLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
 };
 
 export default function MethodologyPage() {
@@ -31,7 +31,7 @@ export default function MethodologyPage() {
             How we measure.
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
-            Every number on VARIABLE is derived from on-chain reads. No
+            Every number on VARIBLE is derived from on-chain reads. No
             partner APIs, no aggregator black boxes, no marketing-deck math.
             This page documents the formula behind every metric so you can
             audit our numbers.
@@ -72,7 +72,7 @@ export default function MethodologyPage() {
             Every index we publish belongs to the{" "}
             <span className="font-semibold text-ink">{INDEX_FAMILY}</span> family
             ({INDEX_FAMILY_SHORT}). Each has a ticker{" "}
-            <code className="rounded bg-bg-2 px-1.5 py-0.5">V-&lt;CODE&gt;</code> and a
+            <code className="rounded-md bg-bg-2 px-1.5 py-0.5">V-&lt;CODE&gt;</code> and a
             name of the form <em>{INDEX_FAMILY.replace(/ Index$/, "")} &lt;X&gt; Index</em>{" "}
             — e.g. <span className="tabular text-ink">V-MKT</span> is{" "}
             {INDEX_FAMILY.replace(/ Index$/, "")} Market Index, and{" "}
@@ -152,7 +152,7 @@ export default function MethodologyPage() {
           <p>
             For each platform with a primary-market mechanic we maintain a
             disk cache populated by{" "}
-            <code className="rounded bg-bg-2 px-1.5 py-0.5">npm run warm-primary-revenue</code>:
+            <code className="rounded-md bg-bg-2 px-1.5 py-0.5">npm run warm-primary-revenue</code>:
           </p>
           <pre className="mt-3 overflow-x-auto rounded-lg border border-line/60 bg-bg-1 p-4 text-[12px] leading-relaxed text-ink-2">
 {`primary_revenue = Σ ( USDC inflow into platform.gacha_receivers
@@ -239,7 +239,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
         </Section>
 
         <div className="mt-16 text-[12px] text-ink-3">
-          VARIABLE · methodology · last updated{" "}
+          VARIBLE · methodology · last updated{" "}
           {new Date().toISOString().slice(0, 10)}
         </div>
       </div>

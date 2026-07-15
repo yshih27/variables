@@ -58,7 +58,7 @@ function sumDaily(sources: Record<string, SeriesPoint[]>[], lastN: number): Seri
 export const revalidate = 1800;
 
 export const metadata = {
-  title: "Market Overview · VARIABLE",
+  title: "Market Overview · VARIBLE",
   description:
     "The tokenized trading-card market at a glance — composite index vs benchmarks, 24h volume, cards traded, and market cap by IP.",
 };
@@ -89,17 +89,31 @@ export default async function AllIPsPage() {
   const totalVol14 = sumDaily([platVol, platGacha], 14);
   const cardsTraded14 = sumDaily([cardsSeries], 14);
 
+  // Distinct cards traded in the 24h window. There is no hero-level field for
+  // this (hero.totalCards is Σ TRACKED collection size, a different metric), so
+  // it's summed off the rows — guarded the same way IPTable's Cards cell is, so
+  // an mcap-only IP with no trades contributes 0 rather than its catalog size.
+  const cardsTraded24h = data.ips.reduce((s, r) => s + (r.trades24h > 0 ? r.cards : 0), 0);
+  // The Cards Traded row's expanded "14d total" — same series as its bar card.
+  const cardsTraded14dTotal = cardsTraded14.reduce(
+    (s, p) => s + (Number.isFinite(p.value) ? p.value : 0),
+    0,
+  );
+
   return (
     <>
       <NavBar />
-      <div className="px-8 pt-8 pb-20 font-sans">
-        <h1 className="mb-4 text-[20px] font-bold leading-none tracking-[-0.01em]">Market Overview</h1>
+      {/* Density: this is the selling-point page, so the fold is tuned to carry
+          the rail + chart + all three bar cards. Gaps are one rung tighter than
+          the app default (3 vs 4) and the zones share the same rhythm. */}
+      <div className="px-8 pt-6 pb-20 font-sans">
+        <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">Market Overview</h1>
 
         <CategoryStatBar rows={data.ips} categories={categories} />
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           {/* ZONE 1 — left metric column + interactive Index Studio chart. */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
             <OverviewMetricColumn
               mcapUsd={data.hero.totalMcapUsd}
               mcapPct24h={data.hero.mcapPct24h}
@@ -107,15 +121,32 @@ export default async function AllIPsPage() {
               gachaVol={vol24.gacha}
               marketplacePct24h={data.hero.vol24Pct}
               gachaPct24h={data.hero.gachaVol24Pct}
+              holders={data.hero.holders}
+              holdersPct7d={data.hero.holdersPct7d}
+              trades24h={data.hero.trades24h}
+              trades24hPct={data.hero.trades24hPct}
+              cardsTraded24h={cardsTraded24h}
+              vol7Usd={data.hero.vol7Usd}
+              cardsTraded14d={cardsTraded14dTotal}
+              mcapByCategory={categories}
             />
             <IndexStudio />
           </div>
 
-          {/* ZONE 2 — three 14-day daily bar cards. */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <MetricBarCard label="Total Volume" data={totalVol14} unit="usd" accent="var(--color-blue)" />
-            <MetricBarCard label="Cards Traded" data={cardsTraded14} unit="count" accent="var(--color-purple)" />
-            <MetricBarCard label="Holders" data={[]} unit="count" accent="var(--color-green)" />
+          {/* ZONE 2 — three 14-day daily cards. Volume and cards traded are flows
+              (bars off zero); holders is a stock, so it draws as a line and its
+              headline is the latest level, not a nonsensical 14-day sum. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <MetricBarCard label="Total Volume" metric="total24h" data={totalVol14} unit="usd" />
+            <MetricBarCard label="Cards Traded" metric="cardsTraded" data={cardsTraded14} unit="count" />
+            <MetricBarCard
+              label="Holders"
+              metric="holders"
+              data={[]}
+              unit="count"
+              variant="line"
+              emptyDetail="deduped daily series — Phase 2"
+            />
           </div>
 
           {/* ZONE 3 — market-cap treemap (unchanged) + full IP list. */}

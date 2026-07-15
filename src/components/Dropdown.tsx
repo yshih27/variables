@@ -38,7 +38,7 @@ export function Dropdown<T extends string>({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-8 items-center gap-2 rounded-[9px] border bg-bg-1 px-3 text-[12px] transition-colors ${
+        className={`flex h-8 items-center gap-2 rounded-xl border bg-bg-1 px-3 text-[12px] transition-colors ${
           open ? "border-yellow" : "border-line hover:border-line-2"
         }`}
       >
@@ -59,7 +59,7 @@ export function Dropdown<T extends string>({
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-1.5 min-w-[160px] rounded-[11px] border border-line-2 bg-bg-2 p-1 shadow-[0_14px_36px_rgba(0,0,0,0.55)]">
+        <div className="absolute right-0 z-30 mt-1.5 min-w-[160px] rounded-xl border border-line-2 bg-bg-2 p-1 shadow-[0_14px_36px_rgba(0,0,0,0.55)]">
           {options.map((o) => (
             <button
               key={o.value}
@@ -68,7 +68,7 @@ export function Dropdown<T extends string>({
                 onChange(o.value);
                 setOpen(false);
               }}
-              className={`flex h-[34px] w-full items-center justify-between gap-3 rounded-[7px] px-2.5 text-[12.5px] transition-colors hover:bg-bg-3 ${
+              className={`flex h-[34px] w-full items-center justify-between gap-3 rounded-xl px-2.5 text-[12.5px] transition-colors hover:bg-bg-3 ${
                 o.value === value ? "text-ink" : "text-ink-2"
               }`}
             >

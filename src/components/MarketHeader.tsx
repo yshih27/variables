@@ -256,7 +256,7 @@ function VolumeBar({
       </div>
       {segs.length > 0 && (
         <div className="mt-3.5">
-          <div className="flex h-2 overflow-hidden rounded-full bg-bg-3">
+          <div className="flex h-2 overflow-hidden rounded-none bg-bg-3">
             {segs.map((s) => (
               <span key={s.key} className="h-full" style={{ width: `${(s.value / total) * 100}%`, background: s.color }} />
             ))}
@@ -266,7 +266,7 @@ function VolumeBar({
               const d = segPct[s.key];
               return (
                 <span key={s.key} className="flex items-center gap-1.5 text-[12px]">
-                  <span className="h-2 w-2 shrink-0 rounded-[3px]" style={{ background: s.color }} />
+                  <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: s.color }} />
                   <span className="text-ink-3">{s.label}</span>
                   <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
                   {d != null && Number.isFinite(d) && <Delta pct={d} />}

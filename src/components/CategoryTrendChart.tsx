@@ -265,7 +265,7 @@ export function CategoryTrendChart({
             {basis !== "price" && !hasBench && (
               <>
                 <span aria-hidden className="text-ink-4">·</span>
-                <span className="cursor-default rounded border border-line px-1.5 py-px text-ink-4">
+                <span className="cursor-default rounded-md border border-line px-1.5 py-px text-ink-4">
                   benchmarks soon
                 </span>
               </>
@@ -290,14 +290,14 @@ export function CategoryTrendChart({
                 onClick={() => toggleSeries(d.group)}
                 aria-pressed={on}
                 aria-label={`${d.group}${d.benchmark ? " (external benchmark)" : ""} — toggle`}
-                className={`flex items-center gap-1.5 rounded-[10px] border px-2.5 py-1 text-[12px] transition-colors ${
+                className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[12px] transition-colors ${
                   on ? "border-line-2 bg-bg-2" : "border-line bg-transparent opacity-55 hover:opacity-100"
                 }`}
               >
                 {d.benchmark ? (
                   <span className="inline-block h-0 w-3.5 border-t-[2px] border-dashed" style={{ borderColor: d.color }} />
                 ) : (
-                  <span className="h-2 w-2 rounded-[2px]" style={{ background: d.color }} />
+                  <span className="h-2 w-2 rounded-md" style={{ background: d.color }} />
                 )}
                 {/* Legend shows the V- ticker for index series (falls back to the
                     plain label for benchmarks); the hover tooltip carries the full name. */}
@@ -450,7 +450,7 @@ export function CategoryTrendChart({
               {model.datasets.map((d) => (
                 <div key={d.group} className="flex items-center justify-between gap-4 py-0.5">
                   <span className="flex items-center gap-1.5 text-ink-2">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: d.color }} />
+                    <span className="h-1.5 w-1.5 rounded-none" style={{ background: d.color }} />
                     {d.group}
                   </span>
                   <span className="font-mono font-semibold tabular text-ink">
@@ -477,7 +477,7 @@ export function CategoryTrendChart({
 
 function Toggle({ options, value, onChange }: { options: { key: string; label: string }[]; value?: string; onChange: (k: string) => void }) {
   return (
-    <div className="flex gap-0.5 rounded-[9px] border border-line bg-bg-1 p-[3px]">
+    <div className="flex gap-0.5 rounded-xl border border-line bg-bg-1 p-[3px]">
       {options.map((o) => (
         <button
           key={o.key}

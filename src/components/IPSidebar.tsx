@@ -103,12 +103,12 @@ function StatRow({ label, sub, value }: { label: string; sub?: string; value: st
 }
 
 function RangeBar({ low, high, avg }: { low: number; high: number; avg: number }) {
-  if (high <= low) return <span className="h-1 flex-1 rounded-full bg-bg-2" />;
+  if (high <= low) return <span className="h-1 flex-1 rounded-none bg-bg-2" />;
   const pct = Math.max(0, Math.min(1, (avg - low) / (high - low))) * 100;
   return (
-    <span className="relative h-1 flex-1 overflow-hidden rounded-full bg-bg-2">
+    <span className="relative h-1 flex-1 overflow-hidden rounded-none bg-bg-2">
       <span
-        className="absolute inset-y-0 left-0 rounded-full bg-yellow"
+        className="absolute inset-y-0 left-0 rounded-none bg-yellow"
         style={{ width: `${pct}%` }}
       />
     </span>

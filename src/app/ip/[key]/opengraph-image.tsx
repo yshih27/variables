@@ -8,14 +8,14 @@ export const runtime = "nodejs";
 export const revalidate = 3600;
 export const size = OG_SIZE;
 export const contentType = OG_CONTENT_TYPE;
-export const alt = "IP market overview on VARIABLE";
+export const alt = "IP market overview on VARIBLE";
 
 export default async function Image({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
   const ip = await fetchIP(key).catch(() => null);
 
   if (!ip) {
-    return renderOgCard({ eyebrow: "Tokenized Collectibles", title: "VARIABLE" });
+    return renderOgCard({ eyebrow: "Tokenized Collectibles", title: "VARIBLE" });
   }
 
   const mcap = ip.totalMcapUsd;

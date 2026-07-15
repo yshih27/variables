@@ -2,7 +2,7 @@
 
 /**
  * Index Studio — a plug-and-play market chart (replaces the static composite chart
- * on /ips). Add any metric (a Variable index, a benchmark, or a raw spine series
+ * on /ips). Add any metric (a Varible index, a benchmark, or a raw spine series
  * like holders), drag any window, and rebase everything to a common 100 baseline so
  * mixed units overlay meaningfully. Client component: the catalog + series are
  * fetched at runtime from the same-origin /api/internal/chart/{index,benchmarks,
@@ -10,7 +10,7 @@
  *
  * Matches docs/prototypes/index-studio.html — mode/range/CSV/PNG/Share/Embed
  * controls, removable chips, add-metric picker, draggable brush + wheel-zoom, and a
- * synced crosshair tooltip — wired to real data on Variable's dark/yellow/mono system.
+ * synced crosshair tooltip — wired to real data on Varible's dark/yellow/mono system.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SectionShell } from "./Section";
@@ -137,7 +137,7 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
       name: (p.d.indexName as string) ?? "Index",
       group: "Indices",
       unit: "index",
-      color: p.entity === "market" ? "#f3ff42" : nextColor(),
+      color: p.entity === "market" ? "#bfef01" : nextColor(),
     });
   }
 
@@ -502,7 +502,7 @@ export function IndexStudio() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "variable-index.csv";
+    a.download = "varible-index.csv";
     a.click();
     URL.revokeObjectURL(url);
     toastMsg("CSV downloaded");
@@ -545,7 +545,7 @@ export function IndexStudio() {
         const url = URL.createObjectURL(bl);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "variable-index.png";
+        a.download = "varible-index.png";
         a.click();
         URL.revokeObjectURL(url);
         toastMsg("PNG downloaded");
@@ -556,7 +556,7 @@ export function IndexStudio() {
   };
   const embedCode =
     typeof window !== "undefined"
-      ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Variable — Index Studio">\n</iframe>`
+      ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
       : "";
 
   const title =
@@ -606,9 +606,9 @@ export function IndexStudio() {
           return (
             <span
               key={id}
-              className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-bg-2 px-2 py-1 text-[12px] transition-opacity ${off ? "opacity-40" : ""}`}
+              className={`inline-flex items-center gap-1.5 rounded-none border border-line bg-bg-2 px-2 py-1 text-[12px] transition-opacity ${off ? "opacity-40" : ""}`}
             >
-              <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: item.color }} />
+              <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: item.color }} />
               <button type="button" className="font-mono font-semibold tracking-[0.01em] text-ink-2 hover:text-ink" onClick={() => toggleMetric(id)}>
                 {item.ticker}
               </button>
@@ -622,7 +622,7 @@ export function IndexStudio() {
         <button
           type="button"
           onClick={() => { setPickerOpen((o) => !o); setSearch(""); }}
-          className="inline-flex items-center gap-1 rounded-full border border-dashed border-line-2 px-2.5 py-1 text-[12px] font-semibold text-ink-2 transition-colors hover:border-yellow hover:text-yellow"
+          className="inline-flex items-center gap-1 rounded-none border border-dashed border-line-2 px-2.5 py-1 text-[12px] font-semibold text-ink-2 transition-colors hover:border-yellow hover:text-yellow"
         >
           ＋ Add metric
         </button>
@@ -639,6 +639,38 @@ export function IndexStudio() {
         ) : (
           <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove} onWheel={onWheel}>
             <rect x={0} y={0} width={w} height={PH} fill="#0a0a0c" />
+            {/* Grid gradients: the boards fade their hairline grid out at the
+                edges rather than butting it against the frame.
+                ⚠️ gradientUnits MUST be userSpaceOnUse — the default
+                objectBoundingBox degenerates on a horizontal <line> (zero-height
+                bbox) and the stroke would not paint at all. */}
+            <defs>
+              <linearGradient id="is-grid" gradientUnits="userSpaceOnUse" x1={PAD.l} y1={0} x2={w - PAD.r} y2={0}>
+                <stop offset="0%" stopColor="var(--color-line)" stopOpacity={0} />
+                <stop offset="10%" stopColor="var(--color-line)" stopOpacity={1} />
+                <stop offset="90%" stopColor="var(--color-line)" stopOpacity={1} />
+                <stop offset="100%" stopColor="var(--color-line)" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="is-grid-base" gradientUnits="userSpaceOnUse" x1={PAD.l} y1={0} x2={w - PAD.r} y2={0}>
+                <stop offset="0%" stopColor="var(--color-line-2)" stopOpacity={0} />
+                <stop offset="8%" stopColor="var(--color-line-2)" stopOpacity={1} />
+                <stop offset="92%" stopColor="var(--color-line-2)" stopOpacity={1} />
+                <stop offset="100%" stopColor="var(--color-line-2)" stopOpacity={0} />
+              </linearGradient>
+              {/* Soft bloom under the primary series, in its own colour (lime for
+                  V-MKT). Drawn as a shadow so the crisp line still reads on top. */}
+              {model.primary && (
+                <filter id="is-glow" x="-10%" y="-25%" width="120%" height="150%">
+                  <feDropShadow
+                    dx="0"
+                    dy="0"
+                    stdDeviation="3"
+                    floodColor={model.primary.item.color}
+                    floodOpacity="0.5"
+                  />
+                </filter>
+              )}
+            </defs>
             {/* grid + y labels */}
             {Array.from({ length: 6 }, (_, g) => {
               const v = model.lo + ((model.hi - model.lo) * g) / 5;
@@ -646,7 +678,7 @@ export function IndexStudio() {
               const is100 = mode === "rebase" && Math.abs(v - 100) < (model.hi - model.lo) / 10;
               return (
                 <g key={g}>
-                  <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} stroke={is100 ? "var(--color-line-2)" : "var(--color-line)"} strokeDasharray={is100 ? "4 3" : "2 5"} />
+                  <line x1={PAD.l} x2={w - PAD.r} y1={y} y2={y} stroke={is100 ? "url(#is-grid-base)" : "url(#is-grid)"} strokeDasharray={is100 ? "4 3" : "2 5"} />
                   <text x={w - PAD.r + 6} y={y + 3} fontSize={10} fill={is100 ? "var(--color-ink-3)" : "var(--color-ink-4)"} fontFamily="var(--font-jetbrains-mono), monospace">
                     {mode === "abs" ? axisLabel(model.lines, v) : v.toFixed(0)}
                   </text>
@@ -683,7 +715,7 @@ export function IndexStudio() {
               const isPrim = L.id === model.primary?.id;
               return (
                 <g key={L.id}>
-                  <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" />
+                  <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" filter={isPrim ? "url(#is-glow)" : undefined} />
                   {end && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
                 </g>
               );
@@ -695,7 +727,7 @@ export function IndexStudio() {
               const y = model.Y(end.v);
               return (
                 <g>
-                  <rect x={w - PAD.r + 2} y={y - 8} width={PAD.r - 4} height={16} fill="#0a0a0c" rx={3} />
+                  <rect x={w - PAD.r + 2} y={y - 8} width={PAD.r - 4} height={16} fill="#0a0a0c" />
                   <text x={w - PAD.r + 6} y={y + 3} fontSize={11} fontWeight={700} fill={model.primary.item.color} fontFamily="var(--font-jetbrains-mono), monospace">
                     {mode === "rebase" ? end.v.toFixed(1) : fmtVal(model.primary.item.unit, end.raw)}
                   </text>
@@ -729,7 +761,7 @@ export function IndexStudio() {
               .map(({ L, v, raw }) => (
                 <div key={L.id} className="flex items-center justify-between gap-3 py-0.5">
                   <span className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: L.item.color }} />
+                    <span className="h-1.5 w-1.5 rounded-none" style={{ background: L.item.color }} />
                     <span className="font-mono text-[11px] text-ink-2">{L.item.ticker}</span>
                   </span>
                   <span className="font-mono font-semibold tabular text-ink">
@@ -798,7 +830,7 @@ export function IndexStudio() {
 // ── sub-components ──────────────────────────────────────────────────────────
 function Seg({ variant, options, value, onChange }: { variant: "mode" | "range"; options: { key: string; label: string }[]; value: string | null; onChange: (k: string) => void }) {
   return (
-    <div className="flex gap-0.5 rounded-[9px] border border-line bg-bg-1 p-[3px]">
+    <div className="flex gap-0.5 rounded-xl border border-line bg-bg-1 p-[3px]">
       {options.map((o) => {
         const on = value === o.key;
         return (
@@ -881,7 +913,7 @@ function MetricPicker({ catalog, active, search, onSearch, onPick, onClose }: {
                     onClick={() => !on && onPick(c.id)}
                     className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 ${on ? "opacity-40" : "cursor-pointer hover:bg-bg-2"}`}
                   >
-                    <span className="h-2 w-2 shrink-0 rounded-[2px]" style={{ background: c.color }} />
+                    <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: c.color }} />
                     <span className="min-w-[62px] font-mono text-[12px] font-semibold">{c.ticker}</span>
                     <span className="flex-1 truncate text-[12.5px] text-ink-2">{c.name}</span>
                     <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">{on ? "added" : c.unit}</span>
@@ -978,9 +1010,9 @@ function Brush({ full, window: win, primary, width, onChange }: {
         )}
         <rect x={0} y={0} width={x0} height={BH} fill="#0a0a0c" opacity={0.62} />
         <rect x={x1} y={0} width={width - x1} height={BH} fill="#0a0a0c" opacity={0.62} />
-        <rect data-h="body" x={x0} y={1} width={Math.max(2, x1 - x0)} height={BH - 2} fill="#f3ff42" opacity={0.06} stroke="#f3ff42" strokeOpacity={0.3} className="cursor-grab" />
-        <rect data-h="l" x={x0 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#f3ff42" opacity={0.85} className="cursor-ew-resize" />
-        <rect data-h="r" x={x1 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#f3ff42" opacity={0.85} className="cursor-ew-resize" />
+        <rect data-h="body" x={x0} y={1} width={Math.max(2, x1 - x0)} height={BH - 2} fill="#bfef01" opacity={0.06} stroke="#bfef01" strokeOpacity={0.3} className="cursor-grab" />
+        <rect data-h="l" x={x0 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#bfef01" opacity={0.85} className="cursor-ew-resize" />
+        <rect data-h="r" x={x1 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#bfef01" opacity={0.85} className="cursor-ew-resize" />
       </svg>
     </div>
   );
