@@ -510,7 +510,21 @@ export function IndexStudio() {
   const exportPng = () => {
     const svg = plotRef.current;
     if (!svg) return;
-    const xml = new XMLSerializer().serializeToString(svg);
+    // A serialized SVG rasterized through <img> is its OWN document — it can't see
+    // this page's :root, so `var(--…)` never resolves there: `stroke` falls back to
+    // `none` (the grid vanishes) and `fill` to black (axis labels go invisible on
+    // the dark plate). Inline the computed values before handing it to the image.
+    const rootStyle = getComputedStyle(document.documentElement);
+    const inlineVars = (s: string) =>
+      s.replace(/var\((--[\w-]+)\s*(?:,\s*([^)]*))?\)/g, (m, name: string, fallback?: string) => {
+        const v = rootStyle.getPropertyValue(name).trim() || (fallback ? fallback.trim() : m);
+        // The substituted value lands INSIDE a double-quoted XML attribute, and the
+        // font vars resolve WITH double quotes (`"JetBrains Mono", "…Fallback"`) —
+        // left as-is they close the attribute early and the SVG won't parse at all.
+        // Single quotes are equally valid in a CSS font-family.
+        return v.replace(/"/g, "'");
+      });
+    const xml = inlineVars(new XMLSerializer().serializeToString(svg));
     const data = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
       `<svg xmlns="http://www.w3.org/2000/svg" width="${w * 2}" height="${PH * 2}" viewBox="0 0 ${w} ${PH}">${xml
         .replace(/^<svg[^>]*>/, "")
