@@ -85,6 +85,10 @@ export const METRICS = {
     term: "Total 24h",
     text: "All 24h activity: marketplace resale + gacha + direct sales. The honest 'how big is this platform' figure.",
   },
+  salePrice: {
+    term: "Sale price",
+    text: "What this card actually SOLD for in the last 24h — a realized on-chain sale, not a listing, bid or appraisal. Taken from the platform's own sale feed and converted to USD at the time of the trade.",
+  },
   share: {
     term: "Share",
     text: "This platform's share of total 24h activity across all tracked platforms.",

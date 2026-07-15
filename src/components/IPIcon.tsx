@@ -5,6 +5,13 @@ import type { CSSProperties } from "react";
 
 type BlendMode = "normal" | "screen" | "lighten";
 
+/**
+ * ⚠️ All three branches carry `align-middle`. An inline-flex box baseline-aligns
+ * to its last line box by default, so a fixed-height icon sits ON the text
+ * baseline and rides high against its label wherever the parent isn't a flex
+ * container (D6). Fixing it here covers every call site at once; it's a no-op
+ * inside a flex parent, so it can't fight the ones that already use items-center.
+ */
 type Props = {
   name: string;
   short: string;
@@ -59,7 +66,7 @@ export function IPIcon({
     }
     return (
       <span
-        className="inline-flex flex-shrink-0 items-center justify-center"
+        className="inline-flex flex-shrink-0 items-center justify-center align-middle"
         style={{ width: dim, height: dim }}
         aria-label={name}
       >
@@ -79,7 +86,7 @@ export function IPIcon({
   if (emoji) {
     return (
       <span
-        className="inline-flex flex-shrink-0 items-center justify-center"
+        className="inline-flex flex-shrink-0 items-center justify-center align-middle"
         style={{ width: dim, height: dim, fontSize: size * 0.78, lineHeight: 1 }}
         aria-label={name}
       >
@@ -90,7 +97,7 @@ export function IPIcon({
 
   return (
     <span
-      className="inline-flex flex-shrink-0 items-center justify-center rounded-full font-bold"
+      className="inline-flex flex-shrink-0 items-center justify-center align-middle rounded-full font-bold"
       style={{
         width: dim,
         height: dim,

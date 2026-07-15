@@ -8,14 +8,6 @@ import type { CardSalesHistory } from "@/lib/data/cardSales";
 import { buyLinks } from "@/lib/links/buyLinks";
 import { isSealed } from "@/lib/card/sealed";
 
-const GRADER_COLOR: Record<string, string> = {
-  PSA: "#D62828",
-  CGC: "#5fa3ff",
-  BGS: "#fdff8c",
-  SGC: "#a18cff",
-  AGS: "#6cf48a",
-};
-
 const CHAIN_COLOR: Record<string, string> = {
   Solana: "#14f195",
   Base: "#5fa3ff",
@@ -33,30 +25,6 @@ function shortId(s: string): string {
   return s.length <= 16 ? s : `${s.slice(0, 6)}…${s.slice(-4)}`;
 }
 
-function GradeBadge({
-  grader,
-  gradeNum,
-  label,
-}: {
-  grader: string | null;
-  gradeNum: number | null;
-  label: string;
-}) {
-  if (!grader || gradeNum == null) {
-    return (
-      <span className="rounded-md border border-line bg-bg-2 px-2.5 py-1.5 text-[13px] text-ink-2">
-        {label}
-      </span>
-    );
-  }
-  const color = GRADER_COLOR[grader.toUpperCase()] ?? "#707070";
-  return (
-    <span className="inline-flex items-center gap-2 rounded-md border border-line bg-bg-2 px-2.5 py-1.5 text-[14px] font-bold">
-      <span style={{ color }}>{grader}</span>
-      <span className="text-ink tabular">{gradeNum}</span>
-    </span>
-  );
-}
 
 export function CardDetailView({ card, salesHistory }: { card: CardDetail; salesHistory: CardSalesHistory }) {
   const t = card.traits;
@@ -145,7 +113,9 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
                 </div>
               </div>
             )}
-            <GradeBadge grader={t.grader} gradeNum={t.gradeNum} label={card.gradeLabel} />
+            {/* The grade badge lived here and made three prints of the same fact
+                on one screen (title, this chip, the GRADE row below). Dropped —
+                the title carries it and the metadata table states it (R2). */}
           </div>
 
           {/* Primary CTA — buy this card (Rarible-first). */}
