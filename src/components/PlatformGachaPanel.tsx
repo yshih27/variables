@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { PlatformDetail } from "@/lib/data/fetchPlatform";
 import { Section } from "./Section";
 import { formatCompactUsd } from "@/lib/format";
+import { GACHA_ENABLED } from "@/lib/flags";
 
 /**
  * Per-platform gacha tracker. Renders only for platforms with a gacha mechanic
@@ -31,9 +32,11 @@ export function PlatformGachaPanel({ detail }: { detail: PlatformDetail }) {
       title="Gacha sales"
       subtitle="Pack-pull spend on this platform · realized on-chain"
       right={
-        <Link href="/gacha" className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
-          Full gacha breakdown →
-        </Link>
+        GACHA_ENABLED ? (
+          <Link href="/gacha" className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
+            Full gacha breakdown →
+          </Link>
+        ) : undefined
       }
       className="mb-12 font-sans"
     >
