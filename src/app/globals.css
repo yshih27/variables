@@ -95,8 +95,14 @@ body {
   overflow-anchor: none;
 }
 
+/* Footer anchors to the viewport bottom on short pages (/watchlist when empty,
+   404s). min-height alone just left it floating mid-screen. The footer takes
+   `margin-top:auto` itself rather than a :last-child rule — <Analytics/> and the
+   GA script render after it as zero-height flex items. */
 body {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Layered so utilities (e.g. text-black on yellow CTAs) can override — an

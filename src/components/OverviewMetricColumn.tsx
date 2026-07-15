@@ -4,159 +4,52 @@ import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import type { MetricKey } from "@/lib/metrics/glossary";
 
 /**
- * OverviewMetricColumn — the LEFT rail of the /ips overview's top zone: the
- * market's headline levels stacked beside the composite index chart. Market Cap
- * is the hero (lime); every other row is a peer.
+ * OverviewMetricColumn — the LEFT rail of an Overview page's top zone: the
+ * headline levels stacked beside the chart. Shared by /ips (market-wide) and
+ * /platform/[key] (one platform), so it is PRESENTATIONAL ONLY: the caller
+ * builds the rows.
+ *
+ * That split is deliberate. Delta units are not uniform across this codebase —
+ * `history.pctChange` and `metricSnapshots.pctChange` return PERCENT while
+ * `marketcap.pctChangeOverHours` returns a FRACTION — and which producer feeds a
+ * row is a per-page fact. Getting it wrong renders 100× off (this pass inherited
+ * exactly that bug). So each page normalizes its own sources to percent at the
+ * point where it knows them, and this component just draws what it's given.
  *
  * Each label is its own tooltip trigger (dotted underline → the glossary
- * popover) rather than carrying an ⓘ dot — six ⓘ in a 280px column read as
+ * popover) rather than carrying an ⓘ dot — six ⓘ in a narrow column read as
  * noise. Rows with real sub-data expand DefiLlama-style via a native <details>,
  * so the disclosure costs zero client JS and works keyboard-first; rows without
  * it simply have no chevron. Only `MetricInfo` (a leaf client component) hydrates.
  *
- * ⚠️ DELTA UNITS ARE NOT UNIFORM — the payload mixes two conventions, so each
- * prop below documents its own. Getting this wrong renders 100× off (see the
- * ×100 bug this pass inherited). Where no real delta exists the row shows "—";
- * nothing here is ever fabricated or defaulted to zero.
+ * Nothing here fabricates: a non-finite or non-positive value renders "—", and a
+ * null delta renders "—" rather than a confident 0.0%.
  */
 type Unit = "usd" | "count";
-/** One line of expanded detail — pre-formatted by the caller side of this file. */
-type SubRow = { label: string; value: string };
+/** One line of expanded detail — pre-formatted by the caller. */
+export type OverviewSubRow = { label: string; value: string };
 
-type MetricRowData = {
+export type OverviewMetricRow = {
   label: string;
   /** Glossary key behind the label's tooltip. */
   metric: MetricKey;
   value: number;
   unit: Unit;
-  /** Change in PERCENT (already ×100), or null when no real delta exists yet. */
+  /** Change in PERCENT (already ×100), or null when no real delta exists yet.
+   *  ⚠️ The caller owns the fraction→percent conversion; see the note above. */
   deltaPct: number | null;
   /** The window the DELTA describes — the muted suffix beside it. */
   window: "24h" | "7d";
   hero?: boolean;
   /** Present → the row gets a chevron and expands. Omit when there's no real
    *  sub-data; an empty disclosure is worse than none. */
-  detail?: SubRow[];
+  detail?: OverviewSubRow[];
 };
 
 const fmt = (n: number, unit: Unit) =>
   unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n);
 
-export function OverviewMetricColumn({
-  mcapUsd,
-  mcapPct24h,
-  marketplaceVol,
-  gachaVol,
-  marketplacePct24h = null,
-  gachaPct24h = null,
-  holders,
-  holdersPct7d = null,
-  trades24h,
-  trades24hPct = null,
-  cardsTraded24h,
-  vol7Usd,
-  cardsTraded14d,
-  mcapByCategory = [],
-}: {
-  mcapUsd: number;
-  /** FRACTION (e.g. 0.05 = +5%), or null. */
-  mcapPct24h: number | null;
-  marketplaceVol: number;
-  gachaVol: number;
-  /** ALREADY percent (hero.vol24Pct, marketplace-only), or null. Not a fraction. */
-  marketplacePct24h?: number | null;
-  /** ALREADY percent (hero.gachaVol24Pct, gacha-only), or null. Not a fraction. */
-  gachaPct24h?: number | null;
-  /** Market-wide deduped holders. NaN until warm-holders has run → renders "—". */
-  holders: number;
-  /** FRACTION per the payload's declared contract, or null. Hardcoded null at the
-   *  producer today (fetchHomepage), so this row always shows "—" — and it is a
-   *  7d field, not 24h, hence this row's "7d" suffix. */
-  holdersPct7d?: number | null;
-  trades24h: number;
-  /** FRACTION per the payload's declared contract, or null. Also hardcoded null
-   *  at the producer today → always "—". */
-  trades24hPct?: number | null;
-  /** Distinct cards traded in the 24h window (Σ IPRow.cards over trading IPs).
-   *  The payload carries no delta for it, so that row's delta is honestly "—". */
-  cardsTraded24h: number;
-  /** 7d marketplace volume — the Marketplace row's expanded detail. */
-  vol7Usd: number;
-  /** 14d cards-traded total from the spine — the Cards Traded row's detail. */
-  cardsTraded14d: number;
-  /** Qualified market cap per category — the Market Cap row's expanded split. */
-  mcapByCategory?: { group: string; mcapUsd: number }[];
-}) {
-  // Categories with a real qualified cap only — a "$0" sub-row teaches nothing.
-  const catSplit = mcapByCategory.filter((c) => Number.isFinite(c.mcapUsd) && c.mcapUsd > 0);
-
-  const rows: MetricRowData[] = [
-    {
-      label: "Market Cap",
-      metric: "marketCap",
-      value: mcapUsd,
-      unit: "usd",
-      // FRACTION → percent. The two vol rows below are already percent: do NOT
-      // "normalize" this asymmetry away without changing the producers.
-      deltaPct: mcapPct24h != null && Number.isFinite(mcapPct24h) ? mcapPct24h * 100 : null,
-      window: "24h",
-      hero: true,
-      detail: catSplit.length
-        ? catSplit.map((c) => ({ label: c.group, value: formatCompactUsd(c.mcapUsd) }))
-        : undefined,
-    },
-    {
-      label: "24h Marketplace Vol",
-      metric: "marketplace",
-      value: marketplaceVol,
-      unit: "usd",
-      deltaPct: marketplacePct24h,
-      window: "24h",
-      detail:
-        Number.isFinite(vol7Usd) && vol7Usd > 0
-          ? [{ label: "7d volume", value: formatCompactUsd(vol7Usd) }]
-          : undefined,
-    },
-    {
-      label: "24h Gacha Vol",
-      metric: "gacha",
-      value: gachaVol,
-      unit: "usd",
-      deltaPct: gachaPct24h,
-      window: "24h",
-    },
-    {
-      label: "Holders",
-      metric: "holders",
-      value: holders,
-      unit: "count",
-      deltaPct: holdersPct7d != null && Number.isFinite(holdersPct7d) ? holdersPct7d * 100 : null,
-      window: "7d",
-      // No sub-split: holders is a deduped market-wide union, so a per-platform
-      // breakdown would double-count anyone holding on two platforms.
-    },
-    {
-      label: "24h Trades",
-      metric: "trades",
-      value: trades24h,
-      unit: "count",
-      deltaPct: trades24hPct != null && Number.isFinite(trades24hPct) ? trades24hPct * 100 : null,
-      window: "24h",
-    },
-    {
-      label: "24h Cards Traded",
-      metric: "cardsTraded",
-      value: cardsTraded24h,
-      unit: "count",
-      deltaPct: null,
-      window: "24h",
-      detail:
-        cardsTraded14d > 0
-          ? [{ label: "14d total", value: formatCompactNumber(cardsTraded14d) }]
-          : undefined,
-    },
-  ];
-
+export function OverviewMetricColumn({ rows }: { rows: OverviewMetricRow[] }) {
   return (
     <SectionShell className="flex h-full flex-col divide-y divide-line">
       {rows.map((r) => (
@@ -166,7 +59,7 @@ export function OverviewMetricColumn({
   );
 }
 
-function MetricRow({ label, metric, value, unit, deltaPct, window, hero, detail }: MetricRowData) {
+function MetricRow({ label, metric, value, unit, deltaPct, window, hero, detail }: OverviewMetricRow) {
   const head = (
     <>
       <div className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">

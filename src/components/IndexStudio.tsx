@@ -43,6 +43,31 @@ const RANGES: { key: string; days: number | null; label: string }[] = [
 ];
 const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:SP500"];
 
+/**
+ * Scoping the studio to one entity (today: a platform detail page). Unscoped =
+ * the /ips market-wide studio, unchanged.
+ *
+ * When scoped, the catalog narrows to THIS entity's own spine metrics plus the
+ * two things worth comparing it against — the benchmarks and V-MKT — so the
+ * picker on /platform/beezie isn't a list of every other platform's series.
+ */
+export type StudioScope = { entity: "platform"; key: string };
+
+/** Ids the scoped catalog keeps besides the entity's own series. */
+const SCOPE_KEEP = new Set(["idx:market:total"]);
+
+function inScope(id: string, scope: StudioScope): boolean {
+  if (SCOPE_KEEP.has(id) || id.startsWith("bench:")) return true;
+  return id.startsWith(`sp:${scope.entity}:${scope.key}:`);
+}
+
+/** The chip a scoped studio opens with: this entity's volume. Deterministic, so
+ *  it can seed useState before the catalog has loaded; `activeValid` drops it
+ *  harmlessly if the series turns out not to exist. */
+function scopedDefaultActive(scope: StudioScope): string[] {
+  return [`sp:${scope.entity}:${scope.key}:volume_usd`];
+}
+
 // Line colors. V-MKT is the brand yellow; benchmarks keep recognizable brand hues;
 // everything else draws from a distinct palette assigned by catalog order.
 const BENCH_COLOR: Record<string, string> = {
@@ -241,16 +266,21 @@ const PAD = { t: 18, r: 60, b: 24, l: 12 };
 const PH = 360;
 const BH = 54;
 
-export function IndexStudio() {
+export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [seriesData, setSeriesData] = useState<Map<string, SeriesPoint[]>>(() => new Map());
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
   const initial = useMemo(() => parseHash(), []);
-  const [active, setActive] = useState<string[]>(initial.active ?? DEFAULT_ACTIVE);
+  const [active, setActive] = useState<string[]>(
+    initial.active ?? (scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE),
+  );
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
-  const [mode, setMode] = useState<Mode>(initial.mode ?? "rebase");
+  // Scoped studios open in ABSOLUTE: one platform's own volume in dollars is the
+  // question being asked. Rebasing a single series to 100 answers nothing until
+  // you add something to compare it against (which the picker still offers).
+  const [mode, setMode] = useState<Mode>(initial.mode ?? (scope ? "abs" : "rebase"));
   const [win, setWin] = useState<[number, number] | null>(initial.win ?? null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -262,21 +292,38 @@ export function IndexStudio() {
   const plotRef = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(920);
 
-  // Fetch catalog + all series once.
+  // Fetch catalog + all series once. The fetch itself is scope-independent (the
+  // /series reads are bulk + cached per metric family either way); scoping only
+  // narrows what the picker OFFERS, so /platform/beezie isn't a menu of every
+  // other platform's series.
   useEffect(() => {
     let alive = true;
     buildCatalog()
       .then(({ items, data }) => {
         if (!alive) return;
+        const scoped = scope ? items.filter((it) => inScope(it.id, scope)) : items;
         setSeriesData(data);
-        setCatalog(items);
+        setCatalog(scoped);
+        // A scoped studio opens on this entity's volume — but not every platform
+        // HAS one (nothing writes platform/phygitals/volume_usd: no secondary-
+        // sales source). Rather than open on an empty plot, seed whatever this
+        // entity does have. Only when the hash didn't already pick something.
+        if (scope) {
+          setActive((cur) => {
+            if (cur.some((id) => scoped.some((c) => c.id === id))) return cur;
+            const own = scoped.find((c) => c.id.startsWith(`sp:${scope.entity}:${scope.key}:`));
+            return own ? [own.id] : cur;
+          });
+        }
         setLoaded(true);
       })
       .catch(() => alive && setLoadError(true));
     return () => {
       alive = false;
     };
-  }, []);
+    // `scope` is a page-level constant; re-fetching on identity change would be
+    // a wasted round-trip, so key the effect on its contents.
+  }, [scope?.entity, scope?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Responsive width.
   useEffect(() => {
@@ -295,6 +342,7 @@ export function IndexStudio() {
     () => (loaded ? active.filter((id) => byId.has(id)) : active),
     [active, byId, loaded],
   );
+
 
   const toastTimer = useRef<number | null>(null);
   const toastMsg = useCallback((m: string) => {

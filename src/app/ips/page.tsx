@@ -3,7 +3,8 @@ import { NavBar } from "@/components/NavBar";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { IndexStudio } from "@/components/IndexStudio";
 import { CategoryTreemap } from "@/components/CategoryTreemap";
-import { OverviewMetricColumn } from "@/components/OverviewMetricColumn";
+import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
@@ -100,6 +101,88 @@ export default async function AllIPsPage() {
     0,
   );
 
+  // ── Zone-1 rail rows ────────────────────────────────────────────────────────
+  // Built HERE, not inside OverviewMetricColumn, because delta units are a
+  // property of the producer and the producers differ per page.
+  //
+  // ⚠️ hero.mcapPct24h is a FRACTION (marketcap.pctChangeOverHours) while
+  // hero.vol24Pct / hero.gachaVol24Pct are ALREADY PERCENT (dayOverDayPct).
+  // Do NOT "normalize" that asymmetry away without changing the producers —
+  // scaling the wrong one renders 100× off.
+  //
+  // holdersPct7d and trades24hPct are hardcoded null in fetchHomepage, so those
+  // rows honestly show "—" until the backend lands them. Cards Traded has no
+  // delta field at all.
+  const catSplit = categories.filter((c) => Number.isFinite(c.mcapUsd) && c.mcapUsd > 0);
+  const pct = (frac: number | null | undefined) =>
+    frac != null && Number.isFinite(frac) ? frac * 100 : null;
+
+  const overviewRows: OverviewMetricRow[] = [
+    {
+      label: "Market Cap",
+      metric: "marketCap",
+      value: data.hero.totalMcapUsd,
+      unit: "usd",
+      deltaPct: pct(data.hero.mcapPct24h), // FRACTION → percent
+      window: "24h",
+      hero: true,
+      detail: catSplit.length
+        ? catSplit.map((c) => ({ label: c.group, value: formatCompactUsd(c.mcapUsd) }))
+        : undefined,
+    },
+    {
+      label: "24h Marketplace Vol",
+      metric: "marketplace",
+      value: vol24.marketplace,
+      unit: "usd",
+      deltaPct: data.hero.vol24Pct, // already percent — no ×100
+      window: "24h",
+      // vol7Usd is NaN until every platform has 7 complete days → no chevron.
+      detail:
+        Number.isFinite(data.hero.vol7Usd) && data.hero.vol7Usd > 0
+          ? [{ label: "7d volume", value: formatCompactUsd(data.hero.vol7Usd) }]
+          : undefined,
+    },
+    {
+      label: "24h Gacha Vol",
+      metric: "gacha",
+      value: vol24.gacha,
+      unit: "usd",
+      deltaPct: data.hero.gachaVol24Pct, // already percent — no ×100
+      window: "24h",
+    },
+    {
+      label: "Holders",
+      metric: "holders",
+      value: data.hero.holders,
+      unit: "count",
+      deltaPct: pct(data.hero.holdersPct7d),
+      window: "7d",
+      // No sub-split: holders is a deduped market-wide union, so a per-platform
+      // breakdown would double-count anyone holding on two platforms.
+    },
+    {
+      label: "24h Trades",
+      metric: "trades",
+      value: data.hero.trades24h,
+      unit: "count",
+      deltaPct: pct(data.hero.trades24hPct),
+      window: "24h",
+    },
+    {
+      label: "24h Cards Traded",
+      metric: "cardsTraded",
+      value: cardsTraded24h,
+      unit: "count",
+      deltaPct: null, // no producer exists for this one
+      window: "24h",
+      detail:
+        cardsTraded14dTotal > 0
+          ? [{ label: "14d total", value: formatCompactNumber(cardsTraded14dTotal) }]
+          : undefined,
+    },
+  ];
+
   return (
     <>
       <NavBar />
@@ -114,22 +197,7 @@ export default async function AllIPsPage() {
         <div className="space-y-3">
           {/* ZONE 1 — left metric column + interactive Index Studio chart. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
-            <OverviewMetricColumn
-              mcapUsd={data.hero.totalMcapUsd}
-              mcapPct24h={data.hero.mcapPct24h}
-              marketplaceVol={vol24.marketplace}
-              gachaVol={vol24.gacha}
-              marketplacePct24h={data.hero.vol24Pct}
-              gachaPct24h={data.hero.gachaVol24Pct}
-              holders={data.hero.holders}
-              holdersPct7d={data.hero.holdersPct7d}
-              trades24h={data.hero.trades24h}
-              trades24hPct={data.hero.trades24hPct}
-              cardsTraded24h={cardsTraded24h}
-              vol7Usd={data.hero.vol7Usd}
-              cardsTraded14d={cardsTraded14dTotal}
-              mcapByCategory={categories}
-            />
+            <OverviewMetricColumn rows={overviewRows} />
             <IndexStudio />
           </div>
 

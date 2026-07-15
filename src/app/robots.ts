@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
+import { SITE_ORIGIN } from "@/lib/site";
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://tcg.market";
+  const baseUrl = SITE_ORIGIN;
   return {
     rules: [
       {

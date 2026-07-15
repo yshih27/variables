@@ -3,6 +3,7 @@ import { JetBrains_Mono, Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { SiteFooter } from "@/components/SiteFooter";
+import { SITE_ORIGIN } from "@/lib/site";
 import "./globals.css";
 
 const jetbrainsMono = JetBrains_Mono({
@@ -20,6 +21,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  // Without a metadataBase, Next resolves the per-route opengraph-image.tsx URLs
+  // against localhost (and warns at build); scrapers then can't fetch the card.
+  metadataBase: new URL(SITE_ORIGIN),
   title: "VARIBLE · Tokenized Collectibles Market",
   description:
     "Real cards. Real prices. Indexed. Track prices, volume, and holders across tokenized trading-card platforms.",
