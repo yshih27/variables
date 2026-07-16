@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
 import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
 
@@ -17,17 +16,12 @@ export default function MethodologyPage() {
     <>
       <NavBar />
       <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24 font-sans">
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <Link href="/" className="hover:text-ink-2">Rankings</Link>
-          <span>›</span>
-          <span className="text-ink-2">Methodology</span>
-        </div>
 
-        <header className="mb-12">
+        <header className="mb-6">
           <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
             Transparency
           </span>
-          <h1 className="mt-2 text-[44px] font-bold leading-[1.05] tracking-[-0.02em]">
+          <h1 className="mt-1.5 text-[20px] font-bold leading-none tracking-[-0.01em]">
             How we measure.
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
@@ -250,7 +244,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
 function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
     <section id={id} className="mt-10 scroll-mt-20 border-t border-line/60 pt-8">
-      <h2 className="mb-3 text-[20px] font-semibold tracking-[-0.005em]">{title}</h2>
+      <h2 className="mb-3 text-[16px] font-bold tracking-[-0.005em] text-ink">{title}</h2>
       <div className="flex flex-col gap-2 text-[13.5px] leading-relaxed text-ink-2">
         {children}
       </div>

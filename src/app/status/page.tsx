@@ -46,7 +46,7 @@ export default async function StatusPage() {
     <>
       <NavBar />
       <div className="mx-auto max-w-[900px] px-8 pt-10 pb-20 font-sans">
-        <h1 className="text-[28px] font-bold tracking-[-0.01em]">Data status</h1>
+        <h1 className="text-[20px] font-bold leading-none tracking-[-0.01em]">Data status</h1>
         <p className="mt-2 max-w-[640px] text-[13px] leading-relaxed text-ink-2">
           Every feed the site reads, with the last time each source actually
           succeeded. &quot;As of&quot; is source-success time — not when a page

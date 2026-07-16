@@ -28,19 +28,12 @@ export default async function ReportPage() {
     <>
       <NavBar />
       <div className="mx-auto max-w-[1760px] px-8 pb-24 pt-8">
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <Link href="/" className="hover:text-ink-2">
-            Rankings
-          </Link>
-          <span>›</span>
-          <span className="text-ink-2">Weekly Report</span>
-        </div>
 
         <header className="mb-8">
           <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
             The market, weekly
           </span>
-          <h1 className="mt-2 font-sans text-[38px] font-bold leading-[1.05] tracking-[-0.02em]">
+          <h1 className="mt-1.5 font-sans text-[20px] font-bold leading-none tracking-[-0.01em]">
             Weekly Report
           </h1>
           {report ? (
