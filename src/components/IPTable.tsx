@@ -7,6 +7,7 @@ import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
 import { MetricInfo } from "./MetricInfo";
+import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
@@ -188,12 +189,12 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
               // (a tiny/suppressed IP would show a wild % off a near-zero base).
               const hasMcap = Number.isFinite(mcapValue(ip));
               return (
-                <tr key={ip.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2 [&:last-child>td]:border-b-0">
+                <TableRowLink key={ip.key} href={`/ip/${ip.key}`} className="[&:last-child>td]:border-b-0">
                   <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                   <Td>
                     <Link
                       href={`/ip/${ip.key}`}
-                      className="flex items-center gap-3 before:absolute before:inset-0 before:content-['']"
+                      className="flex items-center gap-3"
                     >
                       <IPIcon
                         name={ip.name}
@@ -230,7 +231,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
                       ip.topCardHref ? (
                         <Link
                           href={ip.topCardHref}
-                          className="relative z-10 block truncate font-sans underline-offset-2 hover:text-yellow hover:underline"
+                          className="block truncate font-sans underline-offset-2 hover:text-yellow hover:underline"
                         >
                           {ip.topCard}
                         </Link>
@@ -241,7 +242,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
                       "—"
                     )}
                   </Td>
-                </tr>
+                </TableRowLink>
               );
             })}
           </tbody>

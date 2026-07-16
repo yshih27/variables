@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { TrendingCard } from "@/lib/data/fetchTrending";
 import { Section } from "./Section";
 import { MetricInfo } from "./MetricInfo";
+import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
@@ -177,12 +178,12 @@ export function TrendingCards({
           </thead>
           <tbody>
             {sorted.map((c, i) => (
-              <tr key={c.cardId} className="group relative cursor-pointer transition-colors hover:bg-bg-2 [&:last-child>td]:border-b-0">
+              <TableRowLink key={c.cardId} href={c.href} className="[&:last-child>td]:border-b-0">
                 <Td className="w-[40px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                 <Td>
                   <Link
                     href={c.href}
-                    className="flex flex-col gap-0.5 before:absolute before:inset-0 before:content-['']"
+                    className="flex flex-col gap-0.5"
                   >
                     <span className="truncate font-sans font-semibold group-hover:text-yellow">{c.name}</span>
                     <span className="truncate font-sans text-[11.5px] text-ink-3">
@@ -230,7 +231,7 @@ export function TrendingCards({
                 <Td align="right" muted className="hidden md:table-cell">
                   {c.topPriceUsd > 0 ? formatCompactUsd(c.topPriceUsd) : "—"}
                 </Td>
-              </tr>
+              </TableRowLink>
             ))}
           </tbody>
         </table>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { GradeChip } from "./GradeChip";
 import type { CardRow, SetRow } from "@/lib/data/fetchIP";
 import { Section } from "./Section";
+import { TableRowLink } from "./TableRowLink";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
@@ -66,15 +67,12 @@ export function IPTopCards({
                   </span>
                 </span>
               );
-              return (
-                <tr
-                  key={`${r.platform}:${r.tokenId}`}
-                  className="group relative cursor-pointer border-b border-line/60 transition-colors hover:bg-bg-2"
-                >
+              const cells = (
+                <>
                   <Td className="text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
                   <Td left>
                     {supported ? (
-                      <Link href={cardHref(r.platform, r.tokenId)} className="block before:absolute before:inset-0 before:content-['']">
+                      <Link href={cardHref(r.platform, r.tokenId)} className="block">
                         {card}
                       </Link>
                     ) : (
@@ -88,6 +86,25 @@ export function IPTopCards({
                   <Td>{formatInt(r.trades)}</Td>
                   <Td strong>{formatCompactUsd(r.vol24Usd)}</Td>
                   <Td muted>—</Td>
+                </>
+              );
+              // Platforms without a card page have no href, so the row gets no click
+              // handler and no cursor-pointer — it previously claimed both while the
+              // stretched link it needed was never rendered.
+              return supported ? (
+                <TableRowLink
+                  key={`${r.platform}:${r.tokenId}`}
+                  href={cardHref(r.platform, r.tokenId)}
+                  className="border-b border-line/60"
+                >
+                  {cells}
+                </TableRowLink>
+              ) : (
+                <tr
+                  key={`${r.platform}:${r.tokenId}`}
+                  className="group border-b border-line/60 transition-colors hover:bg-bg-2"
+                >
+                  {cells}
                 </tr>
               );
             })}
