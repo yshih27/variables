@@ -8,7 +8,7 @@ import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { readMetricSeries, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
@@ -35,6 +35,18 @@ const getIpSeries = unstable_cache(
 const getPlatformSeries = unstable_cache(
   async (metric: string) => Object.fromEntries(await readMetricSeriesBulk("platform", metric)),
   ["ips-platform-series:v1"],
+  { revalidate: 3600, tags: ["homepage"] },
+);
+/**
+ * MARKET-level series (entity_type="market", key="total") — a single row, not a
+ * bulk read. Holders lives here and ONLY here: the spine writes it as a deduped
+ * UNION across platforms, and that union cannot be reconstructed downstream —
+ * Σ per-platform holders double-counts anyone holding on two platforms. So this
+ * card is either the market row or nothing; never a sum.
+ */
+const getMarketSeries = unstable_cache(
+  async (metric: string) => readMetricSeries("market", "total", metric),
+  ["ips-market-series:v1"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
@@ -65,12 +77,13 @@ export const metadata = {
 };
 
 export default async function AllIPsPage() {
-  const [data, volSeries, cardsSeries, platVol, platGacha] = await Promise.all([
+  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries] = await Promise.all([
     getData(),
     getIpSeries("volume_usd"),
     getIpSeries("cards_traded"),
     getPlatformSeries("volume_usd"),
     getPlatformSeries("gacha_volume_usd"),
+    getMarketSeries("holders"),
   ]);
 
   const categories = rollupByCategory(data.ips, volSeries);
@@ -86,9 +99,14 @@ export default async function AllIPsPage() {
     { marketplace: 0, gacha: 0 },
   );
 
-  // Zone 2 — three 14-day daily bar series (holders is a Phase-2 deduped series).
+  // Zone 2 — three 14-day daily series. Volume and cards traded are Σ across
+  // entities; holders is NOT summed — it is read straight off the market row,
+  // which the spine writes as a deduped union (see getMarketSeries). The series
+  // is young (it began accumulating mid-July), so the card renders the points
+  // that exist plus its own "N of 14 days · building" note.
   const totalVol14 = sumDaily([platVol, platGacha], 14);
   const cardsTraded14 = sumDaily([cardsSeries], 14);
+  const holders14 = holdersSeries.slice(-14);
 
   // Distinct cards traded in the 24h window. There is no hero-level field for
   // this (hero.totalCards is Σ TRACKED collection size, a different metric), so
@@ -210,10 +228,10 @@ export default async function AllIPsPage() {
             <MetricBarCard
               label="Holders"
               metric="holders"
-              data={[]}
+              data={holders14}
               unit="count"
               variant="line"
-              emptyDetail="deduped daily series — Phase 2"
+              emptyDetail="deduped daily union — first write pending"
             />
           </div>
 
