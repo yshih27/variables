@@ -7,8 +7,6 @@ import type { CardDetail } from "@/lib/card/fetchCard";
 import type { CardSalesHistory } from "@/lib/data/cardSales";
 import { buyLinks } from "@/lib/links/buyLinks";
 import { isSealed } from "@/lib/card/sealed";
-import { parseGrade, parseGradeLabel } from "@/lib/card/grade";
-import { GradeChip } from "./GradeChip";
 
 const CHAIN_COLOR: Record<string, string> = {
   Solana: "#14f195",
@@ -39,13 +37,6 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
   );
   const byLabel = new Map(card.attributes.map((a) => [a.label.toLowerCase(), a.value]));
   const attr = (k: string) => byLabel.get(k.toLowerCase()) ?? null;
-
-  // Does the visible title already state the grade? If so the chip beside the
-  // price would just repeat it. `gradeLabel` is never null — it degrades to the
-  // literal "Ungraded", which parseGradeLabel correctly rejects, so an ungraded
-  // card gets no chip either.
-  const titleHasGrade = parseGrade(card.name) != null;
-  const gradeChipLabel = parseGradeLabel(card.gradeLabel) ? card.gradeLabel : null;
 
   const insured = t.insuredValueUsd != null && t.insuredValueUsd > 0 ? t.insuredValueUsd : null;
   const insuredLabel =
@@ -122,13 +113,13 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
                 </div>
               </div>
             )}
-            {/* A grade chip here was THREE prints of one fact for Collector
-                Crypt, whose names embed the grade ("…Articuno PSA 9 Jtg EN-") —
-                so it stays dropped for them. But Beezie names often don't
-                (/card/bz-19000 is just "Snom"), and there the grade would fall
-                all the way to a metadata row despite being a primary price
-                determinant. So: show it only when the TITLE doesn't already. */}
-            {titleHasGrade || !gradeChipLabel ? null : <GradeChip label={gradeChipLabel} />}
+            {/* No grade chip here, under any condition (R2). The grade is
+                already stated twice on this screen: printed on the slab in the
+                hero photo, and in the GRADE row of the metadata table below. A
+                chip beside the price was a third print — and that holds whether
+                or not the title happens to carry the grade too, which is why
+                this isn't conditional. GradeChip stays the shared component for
+                Top Sales and the tables. */}
           </div>
 
           {/* Primary CTA — buy this card (Rarible-first). */}
