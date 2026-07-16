@@ -13,6 +13,7 @@
  *     linkage on-chain; until then the detail panel shows them as "soon".
  */
 import { proxyImg } from "@/lib/img";
+import { parseGrade } from "@/lib/card/grade";
 import type { GachaBigHit } from "./gachaDuneCache";
 import type { Chain } from "@/lib/types";
 
@@ -94,12 +95,10 @@ function rarityFor(hit: GachaBigHit): HitRarity {
   return "holo";
 }
 
-const GRADE_RE =
-  /\b(PSA|CGC|BGS|SGC|TAG|CGA)\s?(?:GEM\s?MT\s?|MINT\s?)?(\d{1,2}(?:\.5)?)\b/i;
-function gradeOf(name: string): string | null {
-  const m = name.match(GRADE_RE);
-  return m ? `${m[1].toUpperCase()} ${m[2]}` : null;
-}
+/** Grade parsing lives in @/lib/card/grade — this file used to carry its own
+ *  regex, which had drifted from the warmer's (no BECKETT, no PRISTINE) and
+ *  missed hyphenated GEM-MT entirely. */
+const gradeOf = (name: string) => parseGrade(name)?.label ?? null;
 
 function agoOf(iso: string, nowMs: number): string {
   const t = Date.parse(iso);

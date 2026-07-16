@@ -113,9 +113,13 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
                 </div>
               </div>
             )}
-            {/* The grade badge lived here and made three prints of the same fact
-                on one screen (title, this chip, the GRADE row below). Dropped —
-                the title carries it and the metadata table states it (R2). */}
+            {/* No grade chip here, under any condition (R2). The grade is
+                already stated twice on this screen: printed on the slab in the
+                hero photo, and in the GRADE row of the metadata table below. A
+                chip beside the price was a third print — and that holds whether
+                or not the title happens to carry the grade too, which is why
+                this isn't conditional. GradeChip stays the shared component for
+                Top Sales and the tables. */}
           </div>
 
           {/* Primary CTA — buy this card (Rarible-first). */}

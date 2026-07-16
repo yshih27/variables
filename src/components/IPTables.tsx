@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GradeChip } from "./GradeChip";
 import type { CardRow, SetRow } from "@/lib/data/fetchIP";
 import { Section } from "./Section";
 import { proxyImg } from "@/lib/img";
@@ -8,15 +9,6 @@ import { cardHref, cardSupported } from "@/lib/card/ids";
 const PLATFORM_LABEL: Record<string, string> = {
   beezie: "Beezie",
   "collector-crypt": "Collector Crypt",
-};
-
-const GRADER_COLOR: Record<string, string> = {
-  PSA: "#D62828",
-  CGC: "#5b9bff",
-  BGS: "#f5c451",
-  SGC: "#a18cff",
-  AGS: "#6cf48a",
-  TAG: "#a78bfa",
 };
 
 /** Top Cards — handoff-styled table. 24h % isn't tracked per card yet → "—". */
@@ -90,7 +82,7 @@ export function IPTopCards({
                     )}
                   </Td>
                   <Td left>
-                    <GradePill grade={r.grade} />
+                    <GradeChip label={r.grade} />
                   </Td>
                   <Td strong>{formatCompactUsd(r.topPriceUsd)}</Td>
                   <Td>{formatInt(r.trades)}</Td>
@@ -161,17 +153,7 @@ export function IPSets({
   );
 }
 
-function GradePill({ grade }: { grade: string }) {
-  const m = grade.match(/^([A-Za-z]+)\s*([\d.]+)$/);
-  if (!m) return <span className="font-mono text-[12px] text-ink-3">{grade || "—"}</span>;
-  const color = GRADER_COLOR[m[1].toUpperCase()] ?? "#707070";
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-line bg-bg-2 px-2 py-1 font-mono text-[11px] font-bold">
-      <span style={{ color }}>{m[1]}</span>
-      <span className="text-ink">{m[2]}</span>
-    </span>
-  );
-}
+
 
 function SeeAll({ href, label }: { href: string; label: string }) {
   return (
