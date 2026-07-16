@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { WatchlistView } from "@/components/WatchlistView";
@@ -26,15 +25,8 @@ export default async function WatchlistPage() {
     <>
       <NavBar />
       <div className="px-8 pt-8 pb-20 font-sans">
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <Link href="/" className="hover:text-ink-2">
-            Rankings
-          </Link>
-          <span>›</span>
-          <span className="text-ink-2">Watchlist</span>
-        </div>
         <div className="mb-8">
-          <h1 className="text-[30px] font-bold leading-[1.1] tracking-[-0.02em]">Watchlist</h1>
+          <h1 className="text-[20px] font-bold leading-none tracking-[-0.01em]">Watchlist</h1>
           <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
             The categories and platforms you follow, with their live stats. Saved in this browser.
           </p>

@@ -50,13 +50,8 @@ export default async function SearchPage({
     <>
       <NavBar />
       <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24 font-sans">
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <a href="/" className="hover:text-ink-2">Rankings</a>
-          <span>›</span>
-          <span className="text-ink-2">Search</span>
-        </div>
 
-        <h1 className="text-[32px] font-bold leading-none tracking-[-0.01em]">
+        <h1 className="text-[20px] font-bold leading-none tracking-[-0.01em]">
           {query.length === 0 ? "Search" : (
             <>
               Search results for <span className="text-yellow">&ldquo;{query}&rdquo;</span>

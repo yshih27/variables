@@ -18,14 +18,10 @@ export default async function PlatformSalesPage({
     <>
       <NavBar />
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20 font-sans">
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-          <a href="/" className="hover:text-ink-2">Rankings</a>
-          <span>›</span>
-          <a href={`/platform/${key}`} className="hover:text-ink-2">{detail.source.name}</a>
-          <span>›</span>
-          <span className="text-ink-2">All Sales</span>
-        </div>
-        <h1 className="mb-2 text-[32px] font-bold leading-none tracking-[-0.01em]">
+        <a href={`/platform/${key}`} className="mb-1.5 inline-block text-[12px] text-ink-3 transition-colors hover:text-yellow">
+          ← {detail.source.name}
+        </a>
+        <h1 className="mb-1.5 text-[20px] font-bold leading-none tracking-[-0.01em]">
           {detail.source.name} · Recent Sales
         </h1>
         <div className="mb-8 text-[13px] text-ink-3">

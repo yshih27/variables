@@ -55,22 +55,6 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
 
   return (
     <>
-      {/* Breadcrumb — same "Rankings › X" trail as the IP/platform pages */}
-      <div className="mb-6 flex flex-wrap items-center gap-3 text-[12px] text-ink-3">
-        <Link href="/" className="hover:text-ink-2">
-          Rankings
-        </Link>
-        <span>›</span>
-        {t.category && (
-          <>
-            <Link href="/ips" className="hover:text-ink-2">
-              {t.category}
-            </Link>
-            <span>›</span>
-          </>
-        )}
-        <span className="text-ink-2">{card.name}</span>
-      </div>
 
       {/* Hero — sealed products (booster boxes) get a squarer frame so they aren't
           letterboxed into a slab's portrait aspect (R6-1). */}
@@ -81,6 +65,18 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
 
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            {/* The one navigation the breadcrumb actually carried, kept inline as
+                a chip. It points at /ips, not /ip/[key], because CardDetail has
+                no ip key — only a display category ("Riftbound") — and matching
+                that back to a catalog key would be a guess. */}
+            {t.category ? (
+              <Link
+                href="/ips"
+                className="rounded-md border border-line bg-bg-1 px-2 py-1 text-ink-2 transition-colors hover:border-yellow/40 hover:text-yellow"
+              >
+                {t.category}
+              </Link>
+            ) : null}
             <span className="rounded-md border border-line bg-bg-1 px-2 py-1 text-ink-2">
               {card.platformLabel}
             </span>
@@ -93,7 +89,7 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
             </span>
           </div>
 
-          <h1 className="mt-4 text-[30px] font-bold leading-tight tracking-[-0.01em]">
+          <h1 className="mt-3 text-[22px] font-bold leading-tight tracking-[-0.01em]">
             {card.name}
           </h1>
           {(t.set || t.year) && (
