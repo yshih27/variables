@@ -6,6 +6,7 @@ import type { PlatformRow, Chain } from "@/lib/types";
 import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { MetricInfo } from "./MetricInfo";
+import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
@@ -185,23 +186,24 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
               // intentional rather than broken data.
               const primaryOnly = !(p.vol24Usd > 0) && p.primaryUsd != null && p.primaryUsd > 0;
               return (
-              <tr key={p.key} className="group relative cursor-pointer transition-colors hover:bg-bg-2 [&:last-child>td]:border-b-0">
+              <TableRowLink key={p.key} href={`/platform/${p.key}`} className="[&:last-child>td]:border-b-0">
                 <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                 <Td>
                   <div className="flex items-center gap-2.5">
                     <Link
                       href={`/platform/${p.key}`}
-                      className="flex items-center gap-2.5 font-semibold before:absolute before:inset-0 before:content-['']"
+                      className="flex items-center gap-2.5 font-semibold"
                     >
                       <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-bg-2 text-[11px] font-bold">
                         {p.short}
                       </span>
                       <span className="font-sans group-hover:text-yellow">{p.name}</span>
                     </Link>
-                    {/* Coverage disclosure — sits above the row-link overlay (z-10) so its
-                        ⓘ is clickable; explains we track primary but not secondary yet. */}
+                    {/* Coverage disclosure: we track this platform's primary market but
+                        not its secondary yet. Its ⓘ stays clickable because the row's
+                        click handler defers to any nested button. */}
                     {primaryOnly && (
-                      <span className="relative z-10 inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
+                      <span className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
                         primary only
                         <MetricInfo metric="primaryOnly" />
                       </span>
@@ -238,7 +240,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                 )}
                 {full && <Td align="right" className="hidden md:table-cell">{formatInt(p.holders)}</Td>}
                 {full && <Td className="hidden md:table-cell">{p.spark.length > 0 ? <Sparkline data={p.spark} trend={p.trend} /> : "—"}</Td>}
-              </tr>
+              </TableRowLink>
               );
             })}
           </tbody>

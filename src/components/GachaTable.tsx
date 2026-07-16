@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { GachaPlatformRow } from "@/lib/data/fetchGacha";
 import type { Chain } from "@/lib/types";
+import { TableRowLink } from "./TableRowLink";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
 const CHAIN_DOT: Record<Chain, string> = {
@@ -47,17 +48,14 @@ export function GachaTable({ rows }: { rows: GachaPlatformRow[] }) {
           </thead>
           <tbody>
             {rows.map((p) => (
-              <tr
-                key={p.key}
-                className="group relative cursor-pointer transition-colors hover:bg-bg-2"
-              >
+              <TableRowLink key={p.key} href={`/platform/${p.key}`}>
                 <Td className="w-[44px] text-ink-3">
                   {String(p.rank).padStart(2, "0")}
                 </Td>
                 <Td>
                   <Link
                     href={`/platform/${p.key}`}
-                    className="flex items-center gap-2.5 font-semibold before:absolute before:inset-0 before:content-['']"
+                    className="flex items-center gap-2.5 font-semibold"
                   >
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded-none bg-bg-2 text-[11px] font-bold">
                       {p.short}
@@ -89,7 +87,7 @@ export function GachaTable({ rows }: { rows: GachaPlatformRow[] }) {
                 <Td className="text-[12px] text-ink-2">
                   {packPriceLabel(p.packPrices)}
                 </Td>
-              </tr>
+              </TableRowLink>
             ))}
           </tbody>
         </table>

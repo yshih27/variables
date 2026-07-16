@@ -7,6 +7,7 @@ import type {
 } from "@/lib/data/fetchPlatform";
 import { IPIcon } from "./IPIcon";
 import { Section as SectionFrame } from "./Section";
+import { TableRowLink } from "./TableRowLink";
 import { proxyImg } from "@/lib/img";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
@@ -127,15 +128,12 @@ export function PlatformIPsTable({
         </thead>
         <tbody>
           {visible.map((r) => (
-            <tr
-              key={r.key}
-              className="group relative cursor-pointer transition-colors hover:bg-bg-2"
-            >
+            <TableRowLink key={r.key} href={`/ip/${r.key}`}>
               <Td className="w-[44px] font-mono tabular text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <Link
                   href={`/ip/${r.key}`}
-                  className="flex items-center gap-3 before:absolute before:inset-0 before:content-['']"
+                  className="flex items-center gap-3"
                 >
                   <IPIcon
                     name={r.name}
@@ -157,7 +155,7 @@ export function PlatformIPsTable({
               <Td className="max-w-[280px] overflow-hidden text-ellipsis text-[12px] text-ink-2">
                 {r.topCard ?? "—"}
               </Td>
-            </tr>
+            </TableRowLink>
           ))}
         </tbody>
       </table>
