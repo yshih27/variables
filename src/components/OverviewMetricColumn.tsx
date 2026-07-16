@@ -1,5 +1,6 @@
 import { SectionShell } from "./Section";
 import { MetricInfo } from "./MetricInfo";
+import { RowLink } from "./RowLink";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import type { MetricKey } from "@/lib/metrics/glossary";
 
@@ -31,8 +32,10 @@ export type OverviewSubRow = { label: string; value: string };
 
 export type OverviewMetricRow = {
   label: string;
-  /** Glossary key behind the label's tooltip. */
-  metric: MetricKey;
+  /** Glossary key behind the label's tooltip. Omit when the label names an
+   *  ENTITY rather than a measurement — "Collector Crypt" has no definition to
+   *  pop, and a link and a tooltip trigger on the same word fight each other. */
+  metric?: MetricKey;
   value: number;
   unit: Unit;
   /** Change in PERCENT (already ×100), or null when no real delta exists yet.
@@ -55,6 +58,16 @@ export type OverviewMetricRow = {
    *  isn't available yet" and correctly renders "—". Don't use `stat` to paper
    *  over a missing delta. */
   stat?: string;
+  /** Muted qualifier beside the label — the chain a platform settles on. Not a
+   *  measurement; it just says which thing this row names. */
+  sublabel?: string;
+  /** Muted suffix AFTER the delta (a share of the total). Unlike `stat`, this
+   *  COEXISTS with the delta rather than replacing it — a leaderboard row needs
+   *  both "how it moved" and "how big a slice it is". */
+  sub?: string;
+  /** Links the row's label to that entity's page. The label becomes the only
+   *  clickable thing in the row; see RowLink for why that boundary matters. */
+  href?: string;
 };
 
 const fmt = (n: number, unit: Unit) =>
@@ -81,11 +94,22 @@ function MetricRow({
   detail,
   valueText,
   stat,
+  sublabel,
+  sub,
+  href,
 }: OverviewMetricRow) {
+  const name = href ? (
+    <RowLink href={href}>{label}</RowLink>
+  ) : metric ? (
+    <MetricInfo metric={metric}>{label}</MetricInfo>
+  ) : (
+    <span>{label}</span>
+  );
   const head = (
     <>
       <div className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
-        <MetricInfo metric={metric}>{label}</MetricInfo>
+        {name}
+        {sublabel ? <span className="text-ink-4">· {sublabel}</span> : null}
         {detail ? <Chevron /> : null}
       </div>
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -111,6 +135,7 @@ function MetricRow({
               <span className="text-[10.5px] text-ink-4">{window}</span>
             </>
           )}
+          {sub ? <span className="text-[10.5px] text-ink-4">· {sub}</span> : null}
         </span>
       </div>
     </>
