@@ -38,12 +38,23 @@ export type OverviewMetricRow = {
   /** Change in PERCENT (already ×100), or null when no real delta exists yet.
    *  ⚠️ The caller owns the fraction→percent conversion; see the note above. */
   deltaPct: number | null;
-  /** The window the DELTA describes — the muted suffix beside it. */
-  window: "24h" | "7d";
+  /** The window the DELTA describes — the muted suffix beside it. Omit only on a
+   *  row that carries `stat` instead of a delta. */
+  window?: "24h" | "7d";
   hero?: boolean;
   /** Present → the row gets a chevron and expands. Omit when there's no real
    *  sub-data; an empty disclosure is worse than none. */
   detail?: OverviewSubRow[];
+  /** Render this instead of the formatted number — for a row whose value is an
+   *  ENTITY rather than a measurement ("Top Platform → Collector Crypt"). Set in
+   *  sans, not tabular: it isn't a figure. */
+  valueText?: string;
+  /** Render this instead of the delta+window pair — for a row that has no delta
+   *  because it ISN'T a time series (a share, a count of tracked platforms).
+   *  ⚠️ Distinct from `deltaPct: null`, which means "a delta belongs here but
+   *  isn't available yet" and correctly renders "—". Don't use `stat` to paper
+   *  over a missing delta. */
+  stat?: string;
 };
 
 const fmt = (n: number, unit: Unit) =>
@@ -59,7 +70,18 @@ export function OverviewMetricColumn({ rows }: { rows: OverviewMetricRow[] }) {
   );
 }
 
-function MetricRow({ label, metric, value, unit, deltaPct, window, hero, detail }: OverviewMetricRow) {
+function MetricRow({
+  label,
+  metric,
+  value,
+  unit,
+  deltaPct,
+  window,
+  hero,
+  detail,
+  valueText,
+  stat,
+}: OverviewMetricRow) {
   const head = (
     <>
       <div className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
@@ -68,21 +90,27 @@ function MetricRow({ label, metric, value, unit, deltaPct, window, hero, detail 
       </div>
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span
-          className={`font-bold leading-none tracking-[-0.01em] tabular ${
+          className={`font-bold leading-none tracking-[-0.01em] ${valueText ? "" : "tabular"} ${
             hero ? "text-[28px] text-yellow" : "text-[21px]"
           }`}
         >
           {/* NaN (no data yet) and a real 0 both fail this guard — both are
               honestly "—" here rather than a confident zero. */}
-          {value > 0 ? fmt(value, unit) : "—"}
+          {valueText ?? (value > 0 ? fmt(value, unit) : "—")}
         </span>
         <span className="flex items-center gap-1">
-          {deltaPct != null && Number.isFinite(deltaPct) ? (
-            <Delta pct={deltaPct} />
+          {stat ? (
+            <span className="text-[11px] text-ink-3">{stat}</span>
           ) : (
-            <span className="font-mono text-[12.5px] text-ink-4">—</span>
+            <>
+              {deltaPct != null && Number.isFinite(deltaPct) ? (
+                <Delta pct={deltaPct} />
+              ) : (
+                <span className="font-mono text-[12.5px] text-ink-4">—</span>
+              )}
+              <span className="text-[10.5px] text-ink-4">{window}</span>
+            </>
           )}
-          <span className="text-[10.5px] text-ink-4">{window}</span>
         </span>
       </div>
     </>

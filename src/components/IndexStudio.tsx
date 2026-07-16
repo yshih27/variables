@@ -51,21 +51,35 @@ const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:SP500"];
  * two things worth comparing it against — the benchmarks and V-MKT — so the
  * picker on /platform/beezie isn't a list of every other platform's series.
  */
-export type StudioScope = { entity: "platform"; key: string };
+export type StudioScope = {
+  entity: "platform";
+  /** One entity (/platform/[key]) — omit for the whole FAMILY (/platforms), where
+   *  the question is "how do the platforms compare", not "how is this one doing". */
+  key?: string;
+};
 
 /** Ids the scoped catalog keeps besides the entity's own series. */
 const SCOPE_KEEP = new Set(["idx:market:total"]);
 
 function inScope(id: string, scope: StudioScope): boolean {
   if (SCOPE_KEEP.has(id) || id.startsWith("bench:")) return true;
-  return id.startsWith(`sp:${scope.entity}:${scope.key}:`);
+  return scope.key
+    ? id.startsWith(`sp:${scope.entity}:${scope.key}:`)
+    : id.startsWith(`sp:${scope.entity}:`);
 }
 
-/** The chip a scoped studio opens with: this entity's volume. Deterministic, so
- *  it can seed useState before the catalog has loaded; `activeValid` drops it
- *  harmlessly if the series turns out not to exist. */
+/**
+ * The chips a scoped studio opens with — always volume, because that's the
+ * comparable. Deterministic, so it can seed useState before the catalog loads;
+ * `activeValid` then drops any id whose series doesn't exist.
+ *
+ * That drop IS the honest-absence rule, not a bug: nothing writes
+ * platform/phygitals/volume_usd (no secondary-sales source), so Phygitals simply
+ * isn't a default line here. Its gacha series is still addable from the picker.
+ */
 function scopedDefaultActive(scope: StudioScope): string[] {
-  return [`sp:${scope.entity}:${scope.key}:volume_usd`];
+  if (scope.key) return [`sp:${scope.entity}:${scope.key}:volume_usd`];
+  return PLATFORM_SOURCES.map((p) => `sp:platform:${p.key}:volume_usd`);
 }
 
 // Line colors. V-MKT is the brand yellow; benchmarks keep recognizable brand hues;
@@ -304,14 +318,27 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         const scoped = scope ? items.filter((it) => inScope(it.id, scope)) : items;
         setSeriesData(data);
         setCatalog(scoped);
-        // A scoped studio opens on this entity's volume — but not every platform
-        // HAS one (nothing writes platform/phygitals/volume_usd: no secondary-
-        // sales source). Rather than open on an empty plot, seed whatever this
-        // entity does have. Only when the hash didn't already pick something.
-        if (scope) {
+        // Reconcile the pre-catalog seed against what actually exists.
+        //   • Ids with no series are dropped — that's the honest-absence rule,
+        //     not a bug (Phygitals has no volume_usd, so it isn't a line here).
+        //   • The survivors are re-ordered into CATALOG order, which buildCatalog
+        //     already sorts biggest-latest-value first. This matters: the FIRST
+        //     active line is the "primary" — it names the chart and gets the area
+        //     fill and glow — and seeding from PLATFORM_SOURCES order made tiny
+        //     Courtyard ($312) lead over Collector Crypt ($27.9K).
+        //   • If nothing survives, fall back to anything this scope does have
+        //     rather than opening on an empty plot.
+        // Skipped entirely when the hash chose the set: a shared link's own
+        // order is the author's, and re-sorting it would move their primary.
+        if (scope && !initial.active) {
           setActive((cur) => {
-            if (cur.some((id) => scoped.some((c) => c.id === id))) return cur;
-            const own = scoped.find((c) => c.id.startsWith(`sp:${scope.entity}:${scope.key}:`));
+            const keep = new Set(cur);
+            const ordered = scoped.filter((c) => keep.has(c.id)).map((c) => c.id);
+            if (ordered.length) return ordered;
+            const prefix = scope.key
+              ? `sp:${scope.entity}:${scope.key}:`
+              : `sp:${scope.entity}:`;
+            const own = scoped.find((c) => c.id.startsWith(prefix));
             return own ? [own.id] : cur;
           });
         }
@@ -425,8 +452,13 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     if (!Number.isFinite(lo)) { lo = 0; hi = 100; }
     if (mode === "rebase") { lo = Math.min(lo, 100); hi = Math.max(hi, 100); }
     const padv = (hi - lo) * 0.1 || 1;
+    // In absolute mode the pad must not manufacture a floor below zero when every
+    // visible value is ≥ 0 — a volume axis reading "$-25.1K" asserts a negative
+    // volume that cannot exist. A genuinely negative series keeps the padded floor.
+    const clampAtZero = mode === "abs" && lo >= 0;
     lo -= padv;
     hi += padv;
+    if (clampAtZero && lo < 0) lo = 0;
 
     const X = (ms: number) => PAD.l + ((ms - s) / span) * plotW;
     const Y = (v: number) => PAD.t + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
