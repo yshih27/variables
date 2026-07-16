@@ -443,7 +443,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         v: mode === "rebase" ? (Number.isFinite(base) ? (p.value / base) * 100 : NaN) : p.value,
         raw: p.value,
       }));
-      return { id, item, pts };
+      return { id, item, pts, step: medianStep(pts) };
     });
 
     let lo = Infinity;
@@ -549,16 +549,40 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   }, [hoverMs, model]);
   const hoverTs = hoverIdx != null && model ? model.unionTs[hoverIdx] : null;
 
-  /** Value of a series at (or nearest before) a given ms. */
-  const valAt = (pts: { ms: number; v: number }[], ms: number): number | null => {
-    let best: number | null = null;
-    let bd = Infinity;
-    for (const p of pts) {
-      const d = Math.abs(p.ms - ms);
-      if (d < bd && Number.isFinite(p.v)) { bd = d; best = p.v; }
+  /**
+   * Each visible series' own reading at the crosshair — the NEAREST FINITE point,
+   * snapped per series and returned whole, so the dot can be drawn where that
+   * point actually lives.
+   *
+   * ⚠️ The crosshair does NOT resolve to one shared date, and must not go back to
+   * doing so. V-MKT is weekly (and NaN-gapped) while the spine series are daily,
+   * so "this series' value at the crosshair's date" had to borrow a neighbouring
+   * bucket's value — and the dot, drawn at the crosshair's x with that borrowed
+   * y, floated off its own line. A dot is only ever truthful at a point the line
+   * genuinely passes through, which is why this returns the point, not a number.
+   * (The paths are monotone-cubic, an interpolating spline: it passes exactly
+   * through its inputs, so a dot at a real point's (x,y) is on the curve by
+   * construction. Any y computed some other way floats.)
+   *
+   * Reach is the series' OWN sampling step, so "nearest" can't stretch across a
+   * real hole: ~0.75d for a daily series, ~5d for a weekly one. Beyond it the
+   * series has no reading here and gets no dot and no tooltip row.
+   */
+  const snapped = useMemo(() => {
+    const out = new Map<string, { ms: number; v: number; raw: number }>();
+    if (hoverTs == null || !model) return out;
+    for (const L of model.lines) {
+      let best: { ms: number; v: number; raw: number } | null = null;
+      let bd = Infinity;
+      for (const p of L.pts) {
+        if (!Number.isFinite(p.v)) continue;
+        const d = Math.abs(p.ms - hoverTs);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (best && bd <= L.step * 0.75) out.set(L.id, best);
     }
-    return bd <= 4 * DAY ? best : null; // only if within ~4 days
-  };
+    return out;
+  }, [hoverTs, model]);
 
   // ── export ────────────────────────────────────────────────────────────────
   const shareUrl = () => {
@@ -572,9 +596,13 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     const cols = model.lines;
     const rows = [`date,${cols.map((c) => c.item.ticker.replace(/,/g, "")).join(",")}`];
     for (const ms of model.unionTs) {
+      // Exact date matches only. This used to carry a weekly series' value across
+      // the ~7 daily rows around it, which exported V-MKT as if it were sampled
+      // daily; a blank says "no reading that day", which is what's true.
       const cells = cols.map((c) => {
-        const v = valAt(c.pts, ms);
-        return v == null ? "" : mode === "rebase" ? v.toFixed(3) : c.pts.find((p) => p.ms === ms)?.raw?.toFixed(2) ?? v.toFixed(2);
+        const p = c.pts.find((q) => q.ms === ms);
+        if (!p || !Number.isFinite(p.v)) return "";
+        return mode === "rebase" ? p.v.toFixed(3) : p.raw.toFixed(2);
       });
       rows.push(`${new Date(ms).toISOString().slice(0, 10)},${cells.join(",")}`);
     }
@@ -814,13 +842,16 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 </g>
               );
             })()}
-            {/* crosshair */}
+            {/* crosshair — the line marks the hovered DATE; each dot sits on its own
+                series' nearest real point, which for a weekly series means slightly
+                off the line. That offset is the honest reading: it's where the line
+                actually has a value. */}
             {hoverTs != null && (
               <g>
                 <line x1={model.X(hoverTs)} x2={model.X(hoverTs)} y1={PAD.t} y2={PAD.t + model.plotH} stroke="var(--color-line-2)" strokeDasharray="3 3" />
                 {model.lines.map((L) => {
-                  const v = valAt(L.pts, hoverTs);
-                  return v == null ? null : <circle key={L.id} cx={model.X(hoverTs)} cy={model.Y(v)} r={3.2} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />;
+                  const p = snapped.get(L.id);
+                  return p == null ? null : <circle key={L.id} cx={model.X(p.ms)} cy={model.Y(p.v)} r={3.2} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />;
                 })}
               </g>
             )}
@@ -835,17 +866,23 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
           >
             <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3">{fmtDateY(hoverTs)}</div>
             {model.lines
-              .map((L) => ({ L, v: valAt(L.pts, hoverTs), raw: L.pts.find((p) => p.ms === hoverTs)?.raw }))
-              .filter((r) => r.v != null)
-              .sort((a, b) => (b.v ?? 0) - (a.v ?? 0))
-              .map(({ L, v, raw }) => (
+              .map((L) => ({ L, p: snapped.get(L.id) }))
+              .filter((r): r is { L: (typeof model.lines)[number]; p: { ms: number; v: number; raw: number } } => r.p != null)
+              .sort((a, b) => b.p.v - a.p.v)
+              .map(({ L, p }) => (
                 <div key={L.id} className="flex items-center justify-between gap-3 py-0.5">
                   <span className="flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 rounded-none" style={{ background: L.item.color }} />
                     <span className="font-mono text-[11px] text-ink-2">{L.item.ticker}</span>
+                    {/* A weekly line has no reading on most daily crosshair dates.
+                        Name the day this number IS from rather than letting the
+                        header's date imply it. */}
+                    {p.ms !== hoverTs ? (
+                      <span className="font-mono text-[10px] text-ink-4">{fmtDate(p.ms)}</span>
+                    ) : null}
                   </span>
                   <span className="font-mono font-semibold tabular text-ink">
-                    {mode === "rebase" ? (v ?? 0).toFixed(1) : fmtVal(L.item.unit, raw ?? v ?? NaN)}
+                    {mode === "rebase" ? p.v.toFixed(1) : fmtVal(L.item.unit, p.raw)}
                   </span>
                 </div>
               ))}
@@ -1099,6 +1136,21 @@ function Brush({ full, window: win, primary, width, onChange }: {
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────────────
+/** A series' own sampling step: the MEDIAN gap between consecutive points (~1d
+ *  for the daily spine, ~7d for the weekly indices). Median, not mean, so one
+ *  long hole in an otherwise-daily series doesn't inflate the crosshair's reach
+ *  and let it snap across that hole. */
+function medianStep(pts: { ms: number }[]): number {
+  const gaps: number[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const g = pts[i].ms - pts[i - 1].ms;
+    if (g > 0) gaps.push(g);
+  }
+  if (!gaps.length) return DAY;
+  gaps.sort((a, b) => a - b);
+  return gaps[gaps.length >> 1] || DAY;
+}
+
 function xTicks(s: number, e: number): number[] {
   const out: number[] = [];
   for (let k = 0; k < 5; k++) out.push(s + ((e - s) * k) / 4);

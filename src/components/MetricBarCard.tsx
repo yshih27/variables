@@ -43,6 +43,45 @@ function fmtDay(ts: string): string {
   return Number.isNaN(d.getTime()) ? ts : `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
+/** Whole days since epoch (UTC) — the spine's buckets are calendar days. */
+function dayIndex(ts: string): number {
+  return Math.floor(Date.parse(ts) / 86_400_000);
+}
+
+/** One day of the window: the reading that fell on it, or null for a day this
+ *  series doesn't cover. `dataIndex` is the point's position within the real
+ *  series, which is what the age ramp and the newest-bar emphasis key off. */
+type Slot = { ts: string; value: number; dataIndex: number } | null;
+
+/**
+ * Lay the series into `windowDays` TRUE day slots.
+ *
+ * ⚠️ The plot draws SLOTS, never `data` directly. Every point used to get an
+ * equal share of the width, so holders' three readings spread across the whole
+ * card and read as 14 days of motion under a "14D" badge — three days of history
+ * drawn as a fortnight of trend. Now a young series occupies only the days it
+ * has and hugs the right edge, and an interior gap stays a gap instead of
+ * closing up.
+ *
+ * The axis ends on the series' NEWEST day, not on today. The spine lags real
+ * time by a day or two and each metric lags differently (holders is current;
+ * volume is a day or two back), so anchoring to today would slide every card's
+ * bars off the right edge by that lag and — worse — push the oldest points of a
+ * FULL 14-point series off the left end of its own axis.
+ */
+function toSlots(data: SeriesPoint[], windowDays: number): Slot[] {
+  const slots: Slot[] = new Array(Math.max(1, windowDays)).fill(null);
+  if (!data.length) return slots;
+  const end = dayIndex(data[data.length - 1].ts);
+  data.forEach((p, dataIndex) => {
+    const k = slots.length - 1 - (end - dayIndex(p.ts));
+    if (k >= 0 && k < slots.length) {
+      slots[k] = { ts: p.ts, value: Number.isFinite(p.value) ? p.value : 0, dataIndex };
+    }
+  });
+  return slots;
+}
+
 /** Age ramp: oldest at the dimmest rung, newest-but-one at the brighter. */
 function rampColor(i: number, n: number): string {
   const t = n <= 1 ? 1 : i / (n - 1);
@@ -98,11 +137,12 @@ export function MetricBarCard({
   // card passed windowLabel="7D" quietly lied about its own window.
   const totalCaption = variant === "line" ? "latest" : `${windowLabel.toLowerCase()} total`;
 
-  // The hover READOUT: the headline shows the hovered day rather than the window
-  // aggregate, so the number you're reading never moves with the cursor.
-  const active = hover != null && hover < data.length ? hover : null;
-  const headline = active != null ? values[active] : total;
-  const caption = active != null ? fmtDay(data[active].ts) : totalCaption;
+  // Day slots across the whole window — the plot's real geometry. `hover` indexes
+  // SLOTS, so an empty day can't resolve to a reading.
+  const slots = toSlots(data, windowDays);
+  const active = hover != null ? slots[hover] : null;
+  const headline = active ? active.value : total;
+  const caption = active ? fmtDay(active.ts) : totalCaption;
 
   return (
     <div className="flex flex-col rounded-2xl border border-line bg-bg-1 px-4 py-3.5">
@@ -130,11 +170,11 @@ export function MetricBarCard({
         </div>
       ) : (
         <Plot
-          data={data}
-          values={values}
+          slots={slots}
+          dataLength={data.length}
           fmt={fmt}
           variant={variant}
-          hover={active}
+          hover={hover}
           onHover={setHover}
         />
       )}
@@ -166,53 +206,56 @@ export function MetricBarCard({
  * or track the readout anyway.
  */
 function Plot({
-  data,
-  values,
+  slots,
+  dataLength,
   fmt,
   variant,
   hover,
   onHover,
 }: {
-  data: SeriesPoint[];
-  values: number[];
+  slots: Slot[];
+  dataLength: number;
   fmt: (n: number) => string;
   variant: "bars" | "line";
   hover: number | null;
   onHover: (i: number | null) => void;
 }) {
-  const n = data.length;
+  const n = slots.length;
+  const active = hover != null ? slots[hover] : null;
   // Clamp so an edge tooltip doesn't hang off the card.
   const leftPct = hover != null ? Math.min(Math.max(((hover + 0.5) / n) * 100, 14), 86) : 0;
 
   return (
     <div className="relative mt-3 h-16">
       {variant === "line" ? (
-        <LineSeries data={data} values={values} hover={hover} />
+        <LineSeries slots={slots} dataLength={dataLength} hover={hover} />
       ) : (
-        <Bars data={data} values={values} hover={hover} />
+        <Bars slots={slots} hover={hover} />
       )}
 
-      {/* Hover bands — invisible, full-height, one per point. Full-height so a
-          near-zero bar is still reachable; hit area shouldn't track magnitude. */}
+      {/* Hover bands — invisible, full-height, one per DAY. Full-height so a
+          near-zero bar is still reachable; hit area shouldn't track magnitude.
+          Empty days get an inert band: hovering the blank stretch of a young
+          series reads nothing rather than the nearest bar's value. */}
       <div className="absolute inset-0 flex gap-[3px]" onMouseLeave={() => onHover(null)}>
-        {data.map((p, i) => (
+        {slots.map((s, i) => (
           <div
-            key={p.ts}
+            key={s ? s.ts : `empty-${i}`}
             className="min-w-0 flex-1 cursor-default"
-            onMouseEnter={() => onHover(i)}
+            onMouseEnter={s ? () => onHover(i) : undefined}
           />
         ))}
       </div>
 
-      {hover != null ? (
+      {active ? (
         <div
           role="tooltip"
           className="pointer-events-none absolute top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-line-2 bg-bg-2/95 px-2 py-1 font-mono text-[10.5px] shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur"
           style={{ left: `${leftPct}%` }}
         >
-          <span className="text-ink-3">{fmtDay(data[hover].ts)}</span>
+          <span className="text-ink-3">{fmtDay(active.ts)}</span>
           <span className="mx-1.5 text-ink-4">·</span>
-          <span className="font-bold text-ink">{fmt(values[hover])}</span>
+          <span className="font-bold text-ink">{fmt(active.value)}</span>
         </div>
       ) : null}
     </div>
@@ -227,19 +270,20 @@ function Plot({
  * case can't rot while the common case keeps working.
  */
 function Bars({
-  data,
-  values,
+  slots,
   hover,
 }: {
-  data: SeriesPoint[];
-  values: number[];
+  slots: Slot[];
   hover: number | null;
 }) {
+  const present = slots.filter((s): s is NonNullable<Slot> => s != null);
+  const values = present.map((s) => s.value);
   const posMax = Math.max(0, ...values);
   const negMax = Math.min(0, ...values); // ≤ 0
   const span = posMax - negMax || 1;
   const baseFromBottom = (-negMax / span) * 100;
   const diverging = negMax < 0;
+  const newest = present.length ? present[present.length - 1].dataIndex : -1;
 
   return (
     <div className="pointer-events-none absolute inset-0 flex items-stretch gap-[3px]">
@@ -250,9 +294,12 @@ function Bars({
           style={{ bottom: `${baseFromBottom}%` }}
         />
       ) : null}
-      {data.map((p, i) => {
-        const v = values[i];
-        const last = i === data.length - 1;
+      {slots.map((s, i) => {
+        // A day this series doesn't cover holds its slot and draws nothing —
+        // that blank IS the information.
+        if (!s) return <div key={`empty-${i}`} className="min-w-0 flex-1" />;
+        const v = s.value;
+        const last = s.dataIndex === newest;
         const on = hover === i;
         // Floor the drawn height so a zero day still reads as a tick instead of
         // vanishing — the day happened, and a gap would imply missing data.
@@ -260,13 +307,16 @@ function Bars({
         const negative = v < 0;
         // Hovered bar takes full lime + the glow, so the highlight reads the same
         // as the newest-bar emphasis rather than inventing a second visual idiom.
+        // Ramp over the series' own length, not the slot count: a 3-day series
+        // should still read oldest→newest across its three bars rather than
+        // arriving pre-brightened because it happens to sit at the right edge.
         const bg = negative
           ? "var(--color-red)"
           : on || last
             ? "var(--color-yellow)"
-            : rampColor(i, data.length);
+            : rampColor(s.dataIndex, present.length);
         return (
-          <div key={p.ts} className="relative min-w-0 flex-1">
+          <div key={s.ts} className="relative min-w-0 flex-1">
             <span
               className="absolute inset-x-0 transition-[background,box-shadow,opacity] duration-100"
               style={{
@@ -289,27 +339,38 @@ function Bars({
  * shared monotone path so the curve can't overshoot between daily samples.
  */
 function LineSeries({
-  data,
-  values,
+  slots,
+  dataLength,
   hover,
 }: {
-  data: SeriesPoint[];
-  values: number[];
+  slots: Slot[];
+  dataLength: number;
   hover: number | null;
 }) {
   const W = 200;
   const H = 64;
   const PAD = 5;
+  const present = slots
+    .map((s, i) => (s ? { ...s, slot: i } : null))
+    .filter((s): s is NonNullable<Slot> & { slot: number } => s != null);
+  const values = present.map((s) => s.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min || 1;
-  const X = (i: number) => (data.length <= 1 ? W / 2 : (i / (data.length - 1)) * W);
+  // x is the DAY's position in the window, so three readings occupy three
+  // fourteenths at the right edge instead of stretching across the card.
+  const X = (slot: number) => (slots.length <= 1 ? W / 2 : (slot / (slots.length - 1)) * W);
   // A dead-flat series would otherwise pin to the top edge; center it instead.
   const Y = (v: number) => (max === min ? H / 2 : H - PAD - ((v - min) / span) * (H - PAD * 2));
 
-  const pts = values.map((v, i) => [X(i), Y(v)] as [number, number]);
+  const hoverPt = hover != null ? present.find((s) => s.slot === hover) ?? null : null;
+  const pts = present.map((s) => [X(s.slot), Y(s.value)] as [number, number]);
   const line = monotonePath(pts);
-  const area = `${line} L${W} ${H} L0 ${H} Z`;
+  // Close the area under the DRAWN span, not the full card: filling 0→W under a
+  // line that only covers the last fifth would paint history that isn't there.
+  const area = pts.length
+    ? `${line} L${pts[pts.length - 1][0]} ${H} L${pts[0][0]} ${H} Z`
+    : "";
 
   return (
     <svg
@@ -317,7 +378,7 @@ function LineSeries({
       preserveAspectRatio="none"
       className="pointer-events-none absolute inset-0 h-full w-full"
       role="img"
-      aria-label={`Latest ${formatPoint(values, data)}`}
+      aria-label={`Latest ${formatPoint(present)}`}
     >
       <defs>
         <linearGradient id="mbc-area" x1="0" y1="0" x2="0" y2="1">
@@ -337,32 +398,35 @@ function LineSeries({
       />
       {/* A 2-point series is a bare diagonal; dots make the real readings legible
           as readings. Only drawn when the series is short enough not to speckle. */}
-      {data.length <= 4
-        ? pts.map(([x, y], i) => (
+      {dataLength <= 4
+        ? present.map((s, i) => (
             <circle
-              key={data[i].ts}
-              cx={x}
-              cy={y}
-              r={hover === i ? 3.5 : 2.5}
+              key={s.ts}
+              cx={pts[i][0]}
+              cy={pts[i][1]}
+              r={hover === s.slot ? 3.5 : 2.5}
               fill="var(--color-yellow)"
               vectorEffect="non-scaling-stroke"
             />
           ))
         : null}
-      {hover != null && data.length > 4 ? (
+      {/* `hover` is a SLOT index and only lands on days that carry a reading, so
+          the marker reads its value from that day's slot — not from a position in
+          the compacted series, which would drift once the two stop lining up. */}
+      {hoverPt && dataLength > 4 ? (
         <>
           <line
-            x1={X(hover)}
+            x1={X(hoverPt.slot)}
             y1={0}
-            x2={X(hover)}
+            x2={X(hoverPt.slot)}
             y2={H}
             stroke="var(--color-line-2)"
             strokeDasharray="3 3"
             vectorEffect="non-scaling-stroke"
           />
           <circle
-            cx={X(hover)}
-            cy={Y(values[hover])}
+            cx={X(hoverPt.slot)}
+            cy={Y(hoverPt.value)}
             r={3.5}
             fill="var(--color-yellow)"
             vectorEffect="non-scaling-stroke"
@@ -374,7 +438,8 @@ function LineSeries({
 }
 
 /** aria-label helper — the raw latest reading, unformatted by unit. */
-function formatPoint(values: number[], data: SeriesPoint[]): string {
-  if (!values.length) return "no data";
-  return `${values[values.length - 1]} on ${fmtDay(data[data.length - 1].ts)}`;
+function formatPoint(present: NonNullable<Slot>[]): string {
+  if (!present.length) return "no data";
+  const last = present[present.length - 1];
+  return `${last.value} on ${fmtDay(last.ts)}`;
 }
