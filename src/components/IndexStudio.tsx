@@ -18,6 +18,14 @@ import { monotonePath } from "@/lib/chart/path";
 import { indexRegistry } from "@/lib/indices/naming";
 import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import {
+  BRAND_LIME,
+  BRAND_LOCKUP_ASPECT,
+  BRAND_LOCKUP_MARK_PATH,
+  BRAND_LOCKUP_VIEWBOX,
+  BRAND_LOCKUP_WORDMARK_PATH,
+} from "@/lib/brand";
+import { SITE_ORIGIN } from "@/lib/site";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 type Unit = "index" | "usd" | "count";
@@ -584,6 +592,14 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     return out;
   }, [hoverTs, model]);
 
+  const title =
+    visible.length === 0
+      ? "No metrics"
+      : `${byId.get(visible[0])?.name ?? "—"}${visible.length > 1 ? ` + ${visible.length - 1} more` : ""}`;
+  /** The mode line the header shows — and, verbatim, what the PNG must say about
+   *  itself: a rebased chart read as absolute dollars is a real misreading. */
+  const modeLine = mode === "rebase" ? "rebased · 100 at window start" : "absolute values";
+
   // ── export ────────────────────────────────────────────────────────────────
   const shareUrl = () => {
     navigator.clipboard?.writeText(window.location.href).then(
@@ -615,9 +631,28 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     URL.revokeObjectURL(url);
     toastMsg("CSV downloaded");
   };
+  /**
+   * PNG export — a SELF-DESCRIBING image, not a screenshot of the plot.
+   *
+   * The plot alone travels badly: pasted into a deck or a group chat it's a set
+   * of unlabelled lines with no scale, no dates, and no way back to the source.
+   * So the export wraps the live plot in chrome that only exists in the file:
+   * what it is, whether it's rebased, what window it covers, which line is which
+   * and where each one ended, plus the mark and the URL.
+   *
+   * ⚠️ The chrome is drawn into the EXPORT svg only — never into the live DOM,
+   * which must keep rendering exactly as it does now.
+   *
+   * ⚠️ Everything added here uses LITERAL colours. This SVG is rasterized through
+   * an <img>, which is its own document with no access to this page's :root, so
+   * `var(--…)` resolves to nothing — strokes vanish, fills go black. The existing
+   * plot markup DOES use var(), which is why it still has to be run through
+   * `inlineVars` below; new chrome shouldn't add to that debt. Same reason
+   * src/lib/brand.ts keeps its palette in literal hex.
+   */
   const exportPng = () => {
     const svg = plotRef.current;
-    if (!svg) return;
+    if (!svg || !model) return;
     // A serialized SVG rasterized through <img> is its OWN document — it can't see
     // this page's :root, so `var(--…)` never resolves there: `stroke` falls back to
     // `none` (the grid vanishes) and `fill` to black (axis labels go invisible on
@@ -632,17 +667,78 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         // Single quotes are equally valid in a CSS font-family.
         return v.replace(/"/g, "'");
       });
-    const xml = inlineVars(new XMLSerializer().serializeToString(svg));
+
+    // Serialize a COPY, minus its opaque background plate, so the watermark can
+    // sit under the series rather than being buried by it. Cloning keeps the live
+    // chart untouched; selecting by data attribute keeps this from silently
+    // grabbing the wrong rect if the markup order ever changes.
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.querySelector("[data-plot-bg]")?.remove();
+    const plotXml = inlineVars(new XMLSerializer().serializeToString(clone))
+      .replace(/^<svg[^>]*>/, "")
+      .replace(/<\/svg>$/, "");
+
+    // Legend: every VISIBLE series (model.lines is already the visible set), each
+    // with the value it ends the window on — the same figure its chip shows.
+    const legend = model.lines.map((L) => {
+      const last = L.pts.filter((p) => Number.isFinite(p.v)).at(-1);
+      return {
+        color: L.item.color,
+        text: `${L.item.ticker} ${
+          last ? (mode === "rebase" ? last.v.toFixed(1) : fmtVal(L.item.unit, last.raw)) : "—"
+        }`,
+      };
+    });
+    // Flow the legend onto as many rows as it needs and let the header grow —
+    // a dozen added metrics must not spill off the canvas. Width is estimated
+    // from the character count because there's nothing to measure against in a
+    // document that doesn't exist yet; MONO_CH is deliberately generous.
+    const MONO_CH = 6.2;
+    const SWATCH = 7;
+    let cx = EXPORT_PAD;
+    let row = 0;
+    const placed = legend.map((item) => {
+      const wide = SWATCH + 4 + item.text.length * MONO_CH;
+      if (cx > EXPORT_PAD && cx + wide > w - EXPORT_PAD) {
+        cx = EXPORT_PAD;
+        row += 1;
+      }
+      const at = { ...item, x: cx, row };
+      cx += wide + 13;
+      return at;
+    });
+    const headH = LEGEND_TOP + (row + 1) * LEGEND_ROW_H + 6;
+    const exportH = headH + PH + FOOTER_H;
+
+    const wm = watermark(w, headH + PH / 2);
+    const chrome = `
+      <text x="${EXPORT_PAD}" y="21" fill="#f2f2f3" font-size="15" font-weight="700" font-family="'Inter', sans-serif">${esc(title)}</text>
+      <text x="${EXPORT_PAD}" y="36" fill="#8a8a92" font-size="10.5" font-family="'JetBrains Mono', monospace">${esc(
+        `${modeLine} · ${fmtDateY(model.s)} – ${fmtDateY(model.e)}`,
+      )}</text>
+      ${placed
+        .map(
+          (p) =>
+            `<rect x="${p.x}" y="${LEGEND_TOP + p.row * LEGEND_ROW_H - SWATCH}" width="${SWATCH}" height="${SWATCH}" fill="${p.color}"/>` +
+            `<text x="${p.x + SWATCH + 4}" y="${LEGEND_TOP + p.row * LEGEND_ROW_H}" fill="#c9c9cf" font-size="10.5" font-family="'JetBrains Mono', monospace">${esc(p.text)}</text>`,
+        )
+        .join("")}
+      <text x="${w - EXPORT_PAD}" y="${exportH - 9}" fill="#5a5a63" font-size="10" text-anchor="end" font-family="'JetBrains Mono', monospace">${esc(EXPORT_HOST)}</text>`;
+
     const data = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${w * 2}" height="${PH * 2}" viewBox="0 0 ${w} ${PH}">${xml
-        .replace(/^<svg[^>]*>/, "")
-        .replace(/<\/svg>$/, "")}</svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w * 2}" height="${exportH * 2}" viewBox="0 0 ${w} ${exportH}">` +
+        `<rect width="${w}" height="${exportH}" fill="#0a0a0c"/>` +
+        wm +
+        `<g transform="translate(0 ${headH})">${plotXml}</g>` +
+        chrome +
+        `</svg>`,
     )}`;
+
     const img = new Image();
     img.onload = () => {
       const cv = document.createElement("canvas");
       cv.width = w * 2;
-      cv.height = PH * 2;
+      cv.height = exportH * 2;
       const ctx = cv.getContext("2d");
       if (!ctx) return;
       ctx.fillStyle = "#0a0a0c";
@@ -666,11 +762,6 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     typeof window !== "undefined"
       ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
       : "";
-
-  const title =
-    visible.length === 0
-      ? "No metrics"
-      : `${byId.get(visible[0])?.name ?? "—"}${visible.length > 1 ? ` + ${visible.length - 1} more` : ""}`;
 
   return (
     <SectionShell className="font-sans">
@@ -746,7 +837,10 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
           <div className="flex h-[360px] items-center justify-center text-[13px] text-ink-3">Add a metric to begin.</div>
         ) : (
           <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove} onWheel={onWheel}>
-            <rect x={0} y={0} width={w} height={PH} fill="#0a0a0c" />
+            {/* data-plot-bg: the PNG export drops THIS rect from its copy so the
+                watermark can sit under the series instead of being painted over
+                by an opaque plate. Renders identically either way. */}
+            <rect data-plot-bg="" x={0} y={0} width={w} height={PH} fill="#0a0a0c" />
             {/* Grid gradients: the boards fade their hairline grid out at the
                 edges rather than butting it against the frame.
                 ⚠️ gradientUnits MUST be userSpaceOnUse — the default
@@ -1132,6 +1226,51 @@ function Brush({ full, window: win, primary, width, onChange }: {
         <rect data-h="r" x={x1 - 3} y={6} width={6} height={BH - 12} rx={2} fill="#bfef01" opacity={0.85} className="cursor-ew-resize" />
       </svg>
     </div>
+  );
+}
+
+// ── PNG export chrome ─────────────────────────────────────────────────────────
+// Geometry for the band above the plot and the strip below it. Only the export
+// uses these; the live chart has its own header in the DOM.
+const EXPORT_PAD = 14;
+const LEGEND_TOP = 55;
+const LEGEND_ROW_H = 15;
+const FOOTER_H = 24;
+
+/** The host, derived — never hardcoded. Moving the domain is an env change
+ *  (see src/lib/site.ts); an export that hardcoded it would keep pointing at the
+ *  old one long after the site moved. */
+const EXPORT_HOST = SITE_ORIGIN.replace(/^https?:\/\//, "");
+
+/** XML-escape text bound for the export SVG. Load-bearing, not defensive: the
+ *  DEFAULT chart carries "S&P 500", and a bare & makes the whole document
+ *  unparseable — the image fails to decode and the download silently dies. */
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * The VARIBLE lockup, ghosted into the plot's background — the mark and wordmark
+ * straight from the brand SSOT, so a revision to the artwork reaches the exports
+ * without anyone remembering this file exists.
+ *
+ * Colours are literal (lime mark, white wordmark — the on-dark lockup) because
+ * this is rasterized where var() resolves to nothing. The paths live in the
+ * artwork's own coordinate space, so they're scaled and re-origined off the
+ * SSOT's viewBox rather than any number copied out of it.
+ */
+function watermark(plotW: number, centerY: number): string {
+  const [vx, vy, vw] = BRAND_LOCKUP_VIEWBOX.split(/\s+/).map(Number);
+  const targetW = plotW * 0.42;
+  const s = targetW / vw;
+  const targetH = targetW / BRAND_LOCKUP_ASPECT;
+  const tx = (plotW - targetW) / 2;
+  const ty = centerY - targetH / 2;
+  return (
+    `<g opacity="0.07" transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${s.toFixed(5)}) translate(${-vx} ${-vy})">` +
+    `<path d="${BRAND_LOCKUP_MARK_PATH}" fill="${BRAND_LIME}"/>` +
+    `<path d="${BRAND_LOCKUP_WORDMARK_PATH}" fill="#ffffff"/>` +
+    `</g>`
   );
 }
 
