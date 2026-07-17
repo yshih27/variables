@@ -41,7 +41,7 @@ export default function MethodologyPage() {
             <SrcLi
               label="Beezie"
               chain="Base"
-              source="Native marketplace contract + ERC-721 collection, supplemented by Rarible aggregator for cross-marketplace activity."
+              source="Native marketplace contract + ERC-721 collection, read directly from Base."
             />
             <SrcLi
               label="Courtyard"
@@ -61,33 +61,6 @@ export default function MethodologyPage() {
           </ul>
         </Section>
 
-        <Section title="Index naming">
-          <p>
-            Every index we publish belongs to the{" "}
-            <span className="font-semibold text-ink">{INDEX_FAMILY}</span> family
-            ({INDEX_FAMILY_SHORT}). Each has a ticker{" "}
-            <code className="rounded-md bg-bg-2 px-1.5 py-0.5">V-&lt;CODE&gt;</code> and a
-            name of the form <em>{INDEX_FAMILY.replace(/ Index$/, "")} &lt;X&gt; Index</em>{" "}
-            — e.g. <span className="tabular text-ink">V-MKT</span> is{" "}
-            {INDEX_FAMILY.replace(/ Index$/, "")} Market Index, and{" "}
-            <span className="tabular text-ink">V-PKM</span> is the Pokémon index. Codes are
-            derived from the IP catalog&apos;s short codes, so the registry extends itself as
-            coverage grows (no hand-maintained list). The public API echoes each index&apos;s
-            ticker, making it the canonical registry.
-          </p>
-          <ul className="mt-3 grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
-            {indexRegistry().map((r) => (
-              <li
-                key={r.ticker}
-                className="flex items-baseline justify-between gap-3 border-b border-line/40 py-1"
-              >
-                <span className="tabular text-[12.5px] font-medium text-ink">{r.ticker}</span>
-                <span className="text-right text-[12px] text-ink-3">{r.name}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-
         <Section title="Index naming" id="naming">
           <p>
             Every index we publish belongs to one family:{" "}
@@ -96,7 +69,8 @@ export default function MethodologyPage() {
             stratified-median sale price within set×grade cells, rebased to 100 at inception — and
             carries a <code>V-</code> ticker derived from the entity&apos;s short code, so the scheme
             never drifts as the catalog grows. The whole market is <code>V-MKT</code>; each category
-            and named IP has its own.
+            and named IP has its own. The public API echoes each index&apos;s ticker, which
+            makes this registry the canonical one.
           </p>
           <ul className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
             {indexRegistry().map((idx) => (
@@ -122,18 +96,17 @@ export default function MethodologyPage() {
             <li>Floor per IP = min per-token value within the IP.</li>
             <li>Market cap per IP = sum of per-token values across all tracked platforms.</li>
             <li>Spam filter: token values outside <code>[$1, $5M]</code> are dropped.</li>
-            <li>Hidden when total mcap &lt; $1K or cards &lt; 5 — surfaces as <code>—</code> to avoid surfacing meaningless aggregates from sparse data.</li>
+            <li>Hidden when total mcap &lt; $1K — surfaces as <code>—</code> rather than a figure too small to mean anything. A cap is never gated on 24h trading: what changed hands today doesn&apos;t change what the float is worth.</li>
           </ul>
         </Section>
 
         <Section title="24h Volume + Trades">
           <p>
-            Sum of qualifying secondary-market sales in the last rolling 24h.
-            For Beezie + Courtyard sourced from Rarible; for Collector Crypt
-            from a USDC + NFT same-transaction heuristic against the CC
-            marketplace program. The native Courtyard marketplace event
-            parser is on the roadmap and will replace the Rarible signal
-            once shipped.
+            Sum of qualifying secondary-market sales in the last rolling 24h, read
+            from each platform&apos;s own feed: native marketplace contracts for Beezie
+            and Courtyard, and a USDC + NFT same-transaction heuristic against the
+            Collector Crypt marketplace program. Phygitals&apos; secondary market has no
+            source yet, so its resale figures read <code>—</code> rather than zero.
           </p>
           <p className="mt-3">
             <span className="font-semibold text-ink">Active 24h</span> = the
@@ -169,10 +142,10 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
             holding any card on that platform.
           </p>
           <p className="mt-3 text-ink-3">
-            Caveat: total cross-platform holder count is currently a sum, not
-            a strict union. A wallet holding cards on both Beezie and CC is
-            double-counted in the homepage hero number. Per-IP rows do use
-            the true union.
+            The cross-platform total is a strict union, not a sum: a wallet holding
+            cards on both Beezie and Collector Crypt counts once. That is why the
+            headline holder count is lower than adding the per-platform numbers
+            together — the difference is the overlap, not a missing platform.
           </p>
         </Section>
 

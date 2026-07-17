@@ -234,7 +234,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
                           {ip.topCard}
                         </Link>
                       ) : (
-                        <span className="block truncate font-sans">{ip.topCard}</span>
+                        <span title={ip.topCard} className="block truncate font-sans">{ip.topCard}</span>
                       )
                     ) : (
                       "—"
