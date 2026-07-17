@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useState,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { BrandLockup, BrandMark } from "./Brand";
 
@@ -70,12 +75,35 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
   const hasTicker = !!ticker && ticker.length > 0;
   const collapsed = useTickerCollapse(hasTicker);
 
-  function onSearchSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function runSearch() {
     const trimmed = q.trim();
     if (trimmed.length === 0) return;
     setMobileSearch(false);
     router.push(`/search?q=${encodeURIComponent(trimmed)}`);
+  }
+
+  function onSearchSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    runSearch();
+  }
+
+  /**
+   * Enter runs the search, explicitly.
+   *
+   * The <form> + submit button SHOULD reach `onSearchSubmit` through the
+   * browser's implicit submission — but that path is conditional on markup this
+   * component rewrites at runtime (the submit button only exists once there's a
+   * query, and an empty form then leans on the separate "exactly one text field"
+   * clause). A keyboard user finding the search dead is too sharp a failure to
+   * rest on which branch of the spec happens to apply. This makes it one rule.
+   *
+   * preventDefault FIRST so that when implicit submission would have fired, it
+   * doesn't — otherwise this and `onSearchSubmit` would both push the same route.
+   */
+  function onSearchKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    runSearch();
   }
 
   return (
@@ -155,6 +183,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
             name="q"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={onSearchKeyDown}
             placeholder="Search cards, sets, IPs…"
             className="h-full flex-1 bg-transparent text-ink outline-none placeholder:text-ink-3"
           />
@@ -196,6 +225,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
             name="q"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={onSearchKeyDown}
             placeholder="Search cards, sets, IPs…"
             className="h-9 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-3"
           />
