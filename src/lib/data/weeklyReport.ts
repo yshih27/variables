@@ -24,6 +24,7 @@
 import {
   readMetricSeries,
   readMetricSeriesBulk,
+  DELTA_MIN_BASE_USD,
   type SeriesPoint,
 } from "./metricSnapshots";
 import { readIndexSeries } from "./indices";
@@ -69,12 +70,20 @@ export type ReportSale = {
   tokenId: string;
   name: string;
   ip: string;
+  /** Display names for the subtitle — the report renders these, never the raw
+   *  slugs ("one_piece · collector-crypt"). From ipCatalog / PLATFORM_SOURCES. */
+  ipName: string;
+  platformName: string;
   priceUsd: number;
   date: string;
 };
 
 export type ReportPull = {
   platform: string;
+  platformName: string;
+  /** Prize mint — the pull's real identity. Two copies of the SAME card are two
+   *  distinct mints (and two real pulls); only mint+at identifies a duplicate. */
+  mint: string;
   name: string;
   valueUsd: number;
   at: string;
@@ -105,7 +114,9 @@ export type WeeklyReport = {
 };
 
 /** Ignore weekly figures below this — thin IPs/sets flap ±hundreds of % on noise. */
-const MIN_WEEK_USD = 250;
+/** Floor for a mover's BASE (prior-week) figure — see pickMovers. Shares the
+ *  DELTA_MIN_BASE_USD convention used by the 24h deltas + rollup momentum. */
+const MOVER_MIN_BASE_USD = DELTA_MIN_BASE_USD;
 const TOP_N = 5;
 
 /** Last point strictly BEFORE `ms`, or null. Series are oldest→newest. */
@@ -187,8 +198,13 @@ function pickMovers(
 ): MoverBoard {
   const rows: ReportMover[] = [];
   for (const [key, { cur, prev }] of totals) {
-    if (cur < MIN_WEEK_USD && prev < MIN_WEEK_USD) continue; // noise floor
-    if (!(prev > 0)) continue; // new entrant — no base for a % rank
+    // The BASE needs a floor, not just "both weeks are small" (M4). The old guard
+    // only skipped when BOTH were tiny, so a tiny DENOMINATOR still printed an absurd
+    // move — a $50 prior week against $2,356 ranked "+4,612%". Same convention as
+    // pctChangeDays(…, minBase) in category/rollup.ts: below the floor a % is noise,
+    // not a signal, so the entity simply isn't rankable. (A real collapse from a
+    // substantial base still ranks — only the denominator is floored.)
+    if (!(prev >= MOVER_MIN_BASE_USD)) continue;
     rows.push({
       key,
       name: nameOf(key),
@@ -261,11 +277,15 @@ async function buildBiggestSales(weekStartMs: number, weekEndMs: number): Promis
 
   return head.slice(0, TOP_N).map((c) => {
     const m = metaByPlatform.get(c.platform)?.get(c.tokenId);
+    const ip = m?.ip ?? "other";
     return {
       platform: c.platform,
       tokenId: c.tokenId,
       name: (m?.cardName || m?.name || `${c.tokenId.slice(0, 8)}…`).trim(),
-      ip: m?.ip ?? "other",
+      ip,
+      // Display names for the subtitle — the page used to print the raw slugs.
+      ipName: ipName(ip),
+      platformName: platformName(c.platform),
       priceUsd: c.priceUsd,
       date: c.date,
     };
@@ -275,20 +295,44 @@ async function buildBiggestSales(weekStartMs: number, weekEndMs: number): Promis
 /** Top gacha hits (by realized FMV) that landed inside the week. */
 async function buildNotablePulls(weekStartMs: number, weekEndMs: number): Promise<ReportPull[]> {
   const gacha = await readGachaDune();
-  return (gacha?.bigHits ?? [])
-    .filter((h) => {
-      const t = Date.parse(h.at);
-      return Number.isFinite(t) && t >= weekStartMs && t < weekEndMs && h.valueUsd > 0;
-    })
-    .sort((a, b) => b.valueUsd - a.valueUsd)
-    .slice(0, TOP_N)
-    .map((h) => ({
-      platform: h.platform,
-      name: h.name,
-      valueUsd: h.valueUsd,
-      at: h.at,
-      pack: h.pack ?? null,
-    }));
+  const inWeek = (gacha?.bigHits ?? []).filter((h) => {
+    const t = Date.parse(h.at);
+    return Number.isFinite(t) && t >= weekStartMs && t < weekEndMs && h.valueUsd > 0;
+  });
+
+  // Dedupe on the pull's REAL identity (platform+mint+at) — insurance against a
+  // warmer re-recording one prize delivery. ⚠️ Deliberately NOT by name: two copies
+  // of the same card are two DISTINCT mints and two REAL pulls. The report's
+  // "duplicate Charizard" rows are exactly that — mints BfDsR82e… and 7EMYgXPK…,
+  // both "Charizard HOLO R/(Thin Stamp)" Base-1st Beckett-9 at $42,700, pulled 5
+  // days apart. They read as duplicates only because CC's source `name` is capped
+  // at 32 chars (78% of CC names hit the cap), chopping the distinguishing tail.
+  const seen = new Set<string>();
+  const unique = inWeek.filter((h) => {
+    const id = `${h.platform}:${h.mint}:${h.at}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  const top = unique.sort((a, b) => b.valueUsd - a.valueUsd).slice(0, TOP_N);
+
+  // Prefer the full `card_name` over the 32-char source `name` (same rule
+  // buildBiggestSales already uses) so the report stops printing mid-word chops.
+  const ccMints = top.filter((h) => h.platform === "collector-crypt").map((h) => h.mint);
+  const meta = ccMints.length
+    ? await readCardMeta("collector-crypt", ccMints).catch(() => new Map())
+    : new Map();
+
+  return top.map((h) => ({
+    platform: h.platform,
+    platformName: platformName(h.platform),
+    mint: h.mint,
+    name: (meta.get(h.mint)?.cardName || h.name).trim(),
+    valueUsd: h.valueUsd,
+    at: h.at,
+    pack: h.pack ?? null,
+  }));
 }
 
 export async function buildWeeklyReport(nowMs: number = Date.now()): Promise<WeeklyReport> {

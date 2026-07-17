@@ -6,13 +6,20 @@ import {
 } from "./beezieTraits";
 import { getCCMetadataCachedOnly } from "./ccTraits";
 import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
-import { sumLast, type HourBucket } from "./history";
+import { type HourBucket } from "./history";
 import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
 import { PLATFORM_SOURCES } from "./sources";
 import { readHolders, holdersForIp, holdersForPlatform } from "./holders";
 import { readMarketCap, readMarketCapHistory, pctChangeOverHours } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
-import { readMetricSeriesBulk, pctChange as spinePctChange, type SeriesPoint } from "./metricSnapshots";
+import {
+  readMetricSeriesBulk,
+  sumLastCompleteDays,
+  dayOverDayPct,
+  DELTA_MIN_BASE_USD,
+  pctChange as spinePctChange,
+  type SeriesPoint,
+} from "./metricSnapshots";
 import { readSnapshot } from "../db/snapshots";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
@@ -281,18 +288,17 @@ function mcapOnlyIpRow(ip: IPMeta, cardsTracked: number): IPRow {
  * recent complete-day-over-complete-day move — the best real prior period we have
  * (gacha has no hourly feed for a rolling prior-24h). null until 2 days exist / base ≤ 0.
  */
-function dayOverDayPct(bulk: Map<string, SeriesPoint[]>): number | null {
+function bulkDayOverDayPct(bulk: Map<string, SeriesPoint[]>): number | null {
   const perDay = new Map<string, number>();
   for (const series of bulk.values()) {
     for (const p of series) {
       if (Number.isFinite(p.value)) perDay.set(p.ts, (perDay.get(p.ts) ?? 0) + p.value);
     }
   }
-  const days = [...perDay.keys()].sort();
-  if (days.length < 2) return null;
-  const cur = perDay.get(days[days.length - 1])!;
-  const prev = perDay.get(days[days.length - 2])!;
-  return prev > 0 ? ((cur - prev) / prev) * 100 : null;
+  const merged = [...perDay.entries()].map(([ts, value]) => ({ ts, value }));
+  // Shared guarded comparator — floors the denominator so a near-zero prior day
+  // can't print an absurd % (M4).
+  return dayOverDayPct(merged, DELTA_MIN_BASE_USD);
 }
 
 /** Snapshot key for the precomputed homepage blob (written by scripts/warm-homepage.ts). */
@@ -334,7 +340,10 @@ export async function buildHomepagePayload(
 
   const platformRows: PlatformRow[] = buckets
     .map<PlatformRow>((b) => {
-      const histVol7 = b.history ? sumLast(b.history, 24 * 7).volumeUsd : NaN;
+      // 7d = Σ the last 7 COMPLETE days of native `volume_usd` from the spine (B3).
+      // Was `sumLast(b.history, 24*7)` — the Rarible-era blobs, which inflated Beezie
+      // ~20-90× ("7d" $2.87M > its own 14d native total $126K). <7 recorded days → NaN → "—".
+      const histVol7 = sumLastCompleteDays(platVolHist.get(b.source.key) ?? [], 7);
       const spark = b.history
         ? spark7dFromHistory(b.history)
         : spark24hFromSales(b.sales24h, 24);
@@ -461,18 +470,23 @@ export async function buildHomepagePayload(
   const fin = (n: number) => (Number.isFinite(n) ? n : 0);
   const sumVol24 = buckets.reduce((s, b) => s + fin(b.stats24h.volumeUsd), 0);
   const sumTrades24 = buckets.reduce((s, b) => s + fin(b.stats24h.salesCount), 0);
-  const sumVol7 = buckets.reduce(
-    (s, b) => s + (b.history ? sumLast(b.history, 24 * 7).volumeUsd : 0),
-    0,
-  );
-  const has7dForAll = buckets.every((b) => b.history && b.history.length >= 24 * 7);
+  // Hero 7d = Σ each TRACKED platform's last-7-complete-day native total (B3; was the
+  // Rarible `readHistory` blobs). A platform with NO secondary source (Phygitals)
+  // contributes nothing and doesn't block — its marketplace volume is definitionally
+  // absent, not missing. If a TRACKED platform lacks 7 recorded days the market total
+  // is unknowable → NaN → "—" rather than a silently-short sum.
+  const trackedVol7 = buckets
+    .filter((b) => b.hasSecondarySource)
+    .map((b) => sumLastCompleteDays(platVolHist.get(b.source.key) ?? [], 7));
+  const has7dForAll = trackedVol7.length > 0 && trackedVol7.every((v) => Number.isFinite(v));
+  const sumVol7 = has7dForAll ? trackedVol7.reduce((s, v) => s + v, 0) : NaN;
 
   // Marketplace + gacha 24h %Δ — real Σ-based day-over-day from the daily spine
   // (replaces the old mean-of-per-platform-ratios, which was statistically wrong and
   // null unless every platform had 7d of hourly history). platVolHist/platGachaHist
   // are the per-platform daily series already read above.
-  const vol24Pct = dayOverDayPct(platVolHist);
-  const gachaVol24Pct = dayOverDayPct(platGachaHist);
+  const vol24Pct = bulkDayOverDayPct(platVolHist);
+  const gachaVol24Pct = bulkDayOverDayPct(platGachaHist);
   // Gacha 24h volume LEVEL = Σ each platform's gacha-only vol24h (mirrors the
   // homepage volume-split; pairs with gachaVol24Pct so the /ips metric cell is
   // self-contained). Marketplace level is already `vol24Usd` (= sumVol24).
