@@ -8,6 +8,7 @@ import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
 import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
+import { hasRealMcap } from "@/lib/ip/mcap";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 
@@ -29,13 +30,10 @@ type VolWindow = "24h" | "7d";
 
 function mcapValue(ip: IPRow): number {
   // Mirror the display rule so the sort matches what's shown ("—" sinks).
-  // Suppress only meaningless caps: below the $1k floor, or a *trading* IP whose
-  // 24h trade set is too thin to trust. A no-trade (mcap-only) IP keeps its real
-  // rollup market cap — `cards` counts cards TRADED (0 when nothing changed
-  // hands, see D10-2), so it must never gate a stock metric like market cap.
-  if (!Number.isFinite(ip.mcapUsd) || ip.mcapUsd < 1000) return NaN;
-  if (ip.trades24h > 0 && ip.cards < 5) return NaN;
-  return ip.mcapUsd;
+  // ⚠️ The thin-24h-trade-set clause is gone: it hid Basketball's real $567K for
+  // the sole reason that four cards traded that day, while zero-trade Football
+  // kept its cap because the clause never reached it. See hasRealMcap.
+  return hasRealMcap(ip) ? ip.mcapUsd : NaN;
 }
 
 function valueFor(ip: IPRow, key: SortKey, vw: VolWindow): number {

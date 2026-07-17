@@ -26,7 +26,16 @@ const BTN =
 
 type CopyState = "idle" | "ok" | "fail";
 
-export function RailActions({ name }: { name: string }) {
+export function RailActions({
+  name,
+  placement = "down",
+}: {
+  name: string;
+  /** Which way the Share panel opens. "up" for the IP rail, where these buttons
+   *  are pinned to the bottom of a scrolling column and "down" means "into the
+   *  clipped void". */
+  placement?: "up" | "down";
+}) {
   const pathname = usePathname() ?? "";
   const seg = pathname.split("/").filter(Boolean);
   // e.g. "/ip/pokemon" → "ip:pokemon"; "/platform/collector-crypt" → "platform:collector-crypt".
@@ -152,7 +161,15 @@ export function RailActions({ name }: { name: string }) {
         <div
           role="dialog"
           aria-label={`Share ${name}`}
-          className="absolute right-0 top-full z-40 mt-2 w-[260px] rounded-lg border border-line-2 bg-bg-1 p-3 shadow-[0_12px_38px_rgba(0,0,0,0.6)]"
+          // ⚠️ `placement` is not decoration. These buttons sit at the BOTTOM of
+          // the IP rail (mt-auto), inside a column that now scrolls — a panel
+          // opening downward from there opens past the rail's bottom edge and
+          // gets clipped away. It opens upward there and downward in the platform
+          // header, where the buttons sit at the top and there's page beneath.
+          // max-w-full: 260px doesn't fit the rail's ~252px content box.
+          className={`absolute right-0 z-40 w-[260px] max-w-full rounded-lg border border-line-2 bg-bg-1 p-3 shadow-[0_12px_38px_rgba(0,0,0,0.6)] ${
+            placement === "up" ? "bottom-full mb-2" : "top-full mt-2"
+          }`}
         >
           <button
             type="button"

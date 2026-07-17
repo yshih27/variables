@@ -15,10 +15,15 @@
  * not a cosmetic one). Drop the legacy read once the deploy env is confirmed to
  * carry the new name.
  *
- * ⚠️ The value is deliberately NOT flipped to varible.rarible.com — that DNS
- * isn't live. When it is, set NEXT_PUBLIC_SITE_ORIGIN and change nothing here.
+ * ⚠️ The fallback is the LIVE domain and must stay that way. It used to read
+ * variable.rarible.com (with the second "a") on the reasoning that varible's DNS
+ * wasn't up yet. The flip happened, that host went NXDOMAIN, and because
+ * NEXT_PUBLIC_SITE_ORIGIN was never set in prod this fallback was the value in
+ * use — so every sitemap loc, the robots Host and every og:image pointed at a
+ * dead domain. A fallback isn't dead code; it IS production until the env says
+ * otherwise. Setting NEXT_PUBLIC_SITE_ORIGIN remains the primary fix.
  */
-const FALLBACK_ORIGIN = "https://variable.rarible.com";
+const FALLBACK_ORIGIN = "https://varible.rarible.com";
 
 /** Strip any trailing slash so `${SITE_ORIGIN}/report` can't become `//report`. */
 function normalizeOrigin(raw: string): string {

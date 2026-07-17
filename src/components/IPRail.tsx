@@ -33,7 +33,13 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
   ];
 
   return (
-    <aside className="font-sans min-[860px]:h-full min-[860px]:min-h-0 min-[860px]:overflow-hidden min-[860px]:border-r min-[860px]:border-line min-[860px]:pr-7">
+    // ⚠️ scroll-y, NOT overflow-hidden. SliceView pins this column to the
+    // viewport (h-[calc(100vh-65px)]) and only <main> scrolled, so on any window
+    // under ~1050px tall the rail's ~827px of content was simply cut off inside a
+    // ~655px column — taking Watchlist and Share with it, with no scrollbar and
+    // nothing to hint they were there. A pinned column still has to be able to
+    // reach its own bottom.
+    <aside className="scroll-y font-sans min-[860px]:h-full min-[860px]:min-h-0 min-[860px]:overflow-y-auto min-[860px]:border-r min-[860px]:border-line min-[860px]:pr-7">
       <div className="flex min-h-full flex-col pb-6 pt-7">
         {/* Identity */}
         <div className="mb-6 flex items-center gap-3.5">
@@ -95,7 +101,7 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
         </div>
 
         {/* Actions */}
-        <RailActions name={detail.ip.name} />
+        <RailActions name={detail.ip.name} placement="up" />
 
         {/* X7 — honest per-source freshness for what this page reads; /status
             stays the deep view (no global "data as of" banner). */}

@@ -1,4 +1,5 @@
 import type { IPRow, Trend } from "@/lib/types";
+import { qualifiedMcap } from "@/lib/ip/mcap";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 
 /**
@@ -56,15 +57,9 @@ export type CategoryAggregate = {
   trend: Trend;
 };
 
-/**
- * Suppress meaningless market caps (mirrors IPTable's `mcapValue`) so category
- * totals match the treemap + leaderboard exactly: a finite value ≥ $1k and ≥ 5
- * cards, else it contributes 0.
- */
-function qualifiedMcap(ip: IPRow): number {
-  if (!Number.isFinite(ip.mcapUsd) || ip.mcapUsd < 1000 || ip.cards < 5) return 0;
-  return ip.mcapUsd;
-}
+// Category totals, the treemap and the leaderboard now share ONE rule rather
+// than each mirroring it — this copy's `cards < 5` zeroed Sports out of the
+// rail's own expansion while the treemap and table still showed it.
 
 const fin = (n: number) => (Number.isFinite(n) ? n : 0);
 
