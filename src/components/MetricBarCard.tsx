@@ -101,6 +101,7 @@ export function MetricBarCard({
   windowDays = 14,
   emptyNote = "Building history",
   emptyDetail,
+  note,
 }: {
   label: string;
   /** Daily points, oldest → newest (already sliced to the window). */
@@ -119,6 +120,11 @@ export function MetricBarCard({
   /** Optional second line under `emptyNote` — say WHY this one is empty. Was
    *  hardcoded to the holders excuse, which every future empty card inherited. */
   emptyDetail?: string;
+  /** A standing qualifier on what this card COUNTS, pinned to the range line —
+   *  e.g. "gacha only" for a platform whose secondary market we can't see. Unlike
+   *  `emptyDetail` it shows alongside real data: the series is honest, but its
+   *  scope needs saying. */
+  note?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
 
@@ -182,6 +188,7 @@ export function MetricBarCard({
       {hasData ? (
         <div className="mt-2 font-mono text-[10.5px] text-ink-4">
           {rangeLabel}
+          {note ? <span className="text-ink-3">{` · ${note}`}</span> : null}
           {/* A young series states its own youth instead of looking like a full
               window that happens to be short. */}
           {partial ? (

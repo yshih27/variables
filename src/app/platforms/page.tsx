@@ -3,9 +3,11 @@ import { NavBar } from "@/components/NavBar";
 import { IndexStudio } from "@/components/IndexStudio";
 import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { MetricBarCard } from "@/components/MetricBarCard";
+import { PlatformStatBar } from "@/components/PlatformStatBar";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { pctChange, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { totalActivity24, sharePct24 } from "@/lib/platform/share";
 import { formatCompactUsd } from "@/lib/format";
 
 const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v6"], {
@@ -22,17 +24,18 @@ const getPlatformSeries = unstable_cache(
   { revalidate: 3600, tags: ["homepage"] },
 );
 
-/** Sum daily spine series across every platform (and across the given metrics),
- *  bucketed by day, oldest→newest. Mirrors /ips's sumDaily — the same reads feed
- *  the same three cards. Kept UNSLICED so a %Δ can look back past the window. */
-function sumDaily(sources: Record<string, SeriesPoint[]>[]): SeriesPoint[] {
+/** One platform's daily TOTAL — its marketplace and gacha series added per day.
+ *  Mirrors the total24Usd the rail and table rank by, so the card under a
+ *  platform's name measures the same thing its row does. Non-finite points are
+ *  skipped rather than zeroed: a day with no reading isn't a day worth $0, and
+ *  MetricBarCard now lays points into true day slots, so an absent day stays
+ *  absent instead of drawing a false floor. */
+function totalDaily(...sources: (SeriesPoint[] | undefined)[]): SeriesPoint[] {
   const byTs = new Map<string, number>();
-  for (const rec of sources) {
-    for (const series of Object.values(rec)) {
-      for (const p of series) {
-        if (!Number.isFinite(p.value)) continue;
-        byTs.set(p.ts, (byTs.get(p.ts) ?? 0) + p.value);
-      }
+  for (const series of sources) {
+    for (const p of series ?? []) {
+      if (!Number.isFinite(p.value)) continue;
+      byTs.set(p.ts, (byTs.get(p.ts) ?? 0) + p.value);
     }
   }
   return [...byTs.entries()]
@@ -50,123 +53,81 @@ export const metadata = {
     "Where the trading happens — tokenized-collectible platforms compared on 24h volume, the marketplace/gacha split, and market cap.",
 };
 
-/** Concentration bands for the HHI disclosure — the retired PlatformStatBar's
- *  cutoffs (0.25/0.4), NOT CategoryStatBar's (0.2/0.4): four platforms make an
- *  evenly-split HHI of 0.25, so "Moderate" has to start there. */
-function hhiLabel(hhi: number): string {
-  if (hhi >= 0.4) return "High";
-  if (hhi >= 0.25) return "Moderate";
-  return "Low";
-}
-
 export default async function AllPlatformsPage() {
-  const [data, mktSeries, gachaSeries, tradesSeries] = await Promise.all([
+  const [data, mktSeries, gachaSeries] = await Promise.all([
     getData(),
     getPlatformSeries("volume_usd"),
     getPlatformSeries("gacha_volume_usd"),
-    getPlatformSeries("trades"),
   ]);
 
-  // Zone 2 — the same reads as /ips, summed across platforms.
-  const mktDaily = sumDaily([mktSeries]);
-  const gachaDaily = sumDaily([gachaSeries]);
-  const tradesDaily = sumDaily([tradesSeries]);
-  const totalDaily = sumDaily([mktSeries, gachaSeries]);
   const last14 = (s: SeriesPoint[]) => s.slice(-14);
 
-  // 24h LEVELS, Σ'd from the rows (each platform carries its own components).
-  // `|| 0` / `?? 0` are load-bearing: an untracked platform's marketplace volume
-  // is NaN (Phygitals has no secondary source), and one NaN would poison the Σ.
-  const vol24 = data.platforms.reduce(
-    (a, p) => ({
-      marketplace: a.marketplace + (p.vol24Usd || 0),
-      gacha: a.gacha + (p.gachaVol24Usd ?? 0),
-    }),
-    { marketplace: 0, gacha: 0 },
-  );
-  const total24 = vol24.marketplace + vol24.gacha;
-
-  // Leading platform by TOTAL 24h activity, matching how PlatformTable ranks —
-  // two different "top platform" answers on one page would be indefensible.
+  // Rank by TOTAL 24h activity — the same order, and the same Σ, that
+  // PlatformTable sorts and divides by, so the leaderboard, the ribbon's
+  // DOMINANCE and the table's Share column can't disagree inside one fold.
+  const total24 = totalActivity24(data.platforms);
   const ranked = [...data.platforms].sort(
-    (a, b) => (Number.isFinite(b.total24Usd) ? b.total24Usd : 0) - (Number.isFinite(a.total24Usd) ? a.total24Usd : 0),
+    (a, b) => (b.total24Usd > 0 ? b.total24Usd : 0) - (a.total24Usd > 0 ? a.total24Usd : 0),
   );
-  const top = ranked[0];
-  const topSharePct = top && total24 > 0 ? (top.total24Usd / total24) * 100 : null;
-  // Herfindahl over the same 24h-total shares the ranking uses — the retired
-  // PlatformStatBar's Concentration stat, now a disclosure under the row it
-  // qualifies. `|| 0` absorbs a NaN total24Usd (untracked platform).
-  const hhi =
-    total24 > 0
-      ? data.platforms.reduce((s, p) => s + Math.pow((p.total24Usd || 0) / total24, 2), 0)
-      : null;
-  const chains = new Set(data.platforms.map((p) => p.chain)).size;
 
-  // ── Zone-1 rail rows ────────────────────────────────────────────────────────
-  // ⚠️ EVERY delta on this page is ALREADY PERCENT — hero.vol24Pct and
-  // hero.gachaVol24Pct come from dayOverDayPct, and pctChange (metricSnapshots)
-  // also returns percent. So NOTHING here is ×100. /ips scales hero.mcapPct24h
-  // because marketcap.pctChangeOverHours returns a FRACTION; do not copy that
-  // across — it renders 100× high. This is why rows are built per page.
+  // ── Zone 1: the rail is a LEADERBOARD ───────────────────────────────────────
+  // One row per platform, so every line of the fold names a platform. The old
+  // rail's aggregates (Total/Marketplace/Gacha 24h) are gone from this page —
+  // they describe the market, which is /ips's subject — and Top Platform /
+  // Platforms Tracked / HHI moved up into the ribbon rather than being said
+  // twice.
   //
-  // The total's %Δ has no hero field, so it's derived from the summed daily
-  // spine (same tier as the bar card below it). pctChange returns null rather
-  // than inventing a number when there's under 2 days of history.
-  const rows: OverviewMetricRow[] = [
-    {
-      label: "Total 24h Volume",
-      metric: "total24h",
-      value: total24,
-      unit: "usd",
-      deltaPct: pctChange(totalDaily, 1),
-      window: "24h",
-      hero: true,
+  // ⚠️ pct7d is ALREADY PERCENT (same producer the table's Δ7d column uses), so
+  // it is NOT ×100 here. /ips scales hero.mcapPct24h because THAT producer
+  // returns a fraction; copying that across renders 100× high.
+  const rows: OverviewMetricRow[] = ranked.map((p, i) => {
+    const share = sharePct24(p, total24);
+    const hasMkt = Number.isFinite(p.vol24Usd);
+    const hasGacha = p.gachaVol24Usd != null && Number.isFinite(p.gachaVol24Usd);
+    return {
+      label: p.name,
+      // No glossary key: the label names a platform, not a metric, and it's a
+      // link — a tooltip trigger on the same word would fight it.
+      value: p.total24Usd,
+      unit: "usd" as const,
+      // `?? null` because pct7d is OPTIONAL on PlatformRow: undefined would slip
+      // past the row's `!= null` guard as a missing delta anyway, but null is the
+      // type's own word for "belongs here, not available yet" → renders "—".
+      deltaPct: p.pct7d ?? null,
+      window: "7d" as const,
+      // The leader carries the fold's headline number. It's the same claim the
+      // ribbon's DOMINANCE makes, said once in figures.
+      hero: i === 0,
+      sublabel: p.chain,
+      sub: share != null ? `${share.toFixed(1)}% share` : undefined,
+      href: `/platform/${p.key}`,
+      // The split that makes the total legible. "—" where we have no source:
+      // Phygitals' marketplace volume is NaN, not zero, and a $0 would claim we
+      // looked and found nothing traded.
       detail: [
-        { label: "Marketplace", value: formatCompactUsd(vol24.marketplace) },
-        { label: "Gacha", value: formatCompactUsd(vol24.gacha) },
+        { label: "Marketplace", value: hasMkt ? formatCompactUsd(p.vol24Usd) : "—" },
+        { label: "Gacha", value: hasGacha ? formatCompactUsd(p.gachaVol24Usd as number) : "—" },
       ],
-    },
-    {
-      label: "24h Marketplace Vol",
-      metric: "marketplace",
-      value: vol24.marketplace,
-      unit: "usd",
-      deltaPct: data.hero.vol24Pct, // already percent — no ×100
-      window: "24h",
-    },
-    {
-      label: "24h Gacha Vol",
-      metric: "gacha",
-      value: vol24.gacha,
-      unit: "usd",
-      deltaPct: data.hero.gachaVol24Pct, // already percent — no ×100
-      window: "24h",
-    },
-    {
-      // An entity, not a measurement → valueText + stat. `stat` (not a null
-      // delta) because a leading platform has no %Δ to be missing.
-      label: "Top Platform",
-      metric: "share",
-      value: NaN,
-      unit: "usd",
-      deltaPct: null,
-      valueText: top?.name ?? "—",
-      stat: topSharePct != null ? `${topSharePct.toFixed(1)}% of 24h vol` : undefined,
-      hero: false,
-      detail:
-        hhi != null
-          ? [{ label: "Concentration", value: `HHI ${hhi.toFixed(2)} · ${hhiLabel(hhi)}` }]
-          : undefined,
-    },
-    {
-      label: "Platforms Tracked",
-      metric: "marketShare",
-      value: data.platforms.length,
-      unit: "count",
-      deltaPct: null,
-      stat: `across ${chains} chain${chains === 1 ? "" : "s"}`,
-    },
-  ];
+    };
+  });
+
+  // ── Zone 2: one 14d card per platform ───────────────────────────────────────
+  // Each card's series is that platform's own marketplace + gacha daily total —
+  // the daily twin of the total24Usd its rail row leads with.
+  const cards = ranked.map((p) => {
+    const mkt = mktSeries[p.key];
+    const gacha = gachaSeries[p.key];
+    // "Gacha only" is read off the DATA, not hardcoded to Phygitals: no
+    // marketplace series means we have no secondary source for this platform.
+    // If one ever lands, the note disappears on its own.
+    const gachaOnly = !(mkt?.length ?? 0) && (gacha?.length ?? 0) > 0;
+    return {
+      key: p.key,
+      name: p.name,
+      data: last14(totalDaily(mkt, gacha)),
+      note: gachaOnly ? "gacha only" : undefined,
+    };
+  });
 
   return (
     <>
@@ -176,26 +137,30 @@ export default async function AllPlatformsPage() {
           Platforms Overview
         </h1>
 
+        {/* Breadth + concentration, the questions a sorted list doesn't answer. */}
+        <PlatformStatBar rows={data.platforms} />
+
         <div className="space-y-3">
-          {/* ZONE 1 — family levels + the Index Studio scoped to the platform
+          {/* ZONE 1 — the leaderboard + the Index Studio scoped to the platform
               family, so CC vs Beezie vs Courtyard compare out of the box. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
             <OverviewMetricColumn rows={rows} />
             <IndexStudio scope={{ entity: "platform" }} />
           </div>
 
-          {/* ZONE 2 — 14d dailies, platform-summed. Marketplace and gacha are
-              split rather than stacked: they answer different questions and the
-              old chart's stacking hid the smaller one. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <MetricBarCard
-              label="Marketplace Vol"
-              metric="marketplace"
-              data={last14(mktDaily)}
-              unit="usd"
-            />
-            <MetricBarCard label="Gacha Vol" metric="gacha" data={last14(gachaDaily)} unit="usd" />
-            <MetricBarCard label="Trades" metric="trades" data={last14(tradesDaily)} unit="count" />
+          {/* ZONE 2 — one 14d card per platform, in leaderboard order, so the
+              rail's ranking reads straight down into the cards. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {cards.map((c) => (
+              <MetricBarCard
+                key={c.key}
+                label={c.name}
+                metric="total24h"
+                data={c.data}
+                unit="usd"
+                note={c.note}
+              />
+            ))}
           </div>
 
           {/* ZONE 3 — the full list. */}
