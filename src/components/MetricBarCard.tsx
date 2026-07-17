@@ -91,6 +91,11 @@ function rampColor(i: number, n: number): string {
 /** The boards' emphasis: a soft bloom, not a halo. */
 const GLOW = "0 0 10px 0 color-mix(in oklab, var(--color-yellow) 55%, transparent)";
 
+/** Floor for the line variant's y-domain, as a fraction of the latest VALUE.
+ *  2% is the smallest move worth drawing as a shape; anything under it is noise
+ *  and should read flat. See the note in LineSeries. */
+const MIN_SPAN_PCT = 0.02;
+
 export function MetricBarCard({
   label,
   data,
@@ -234,6 +239,24 @@ function Plot({
 
   return (
     <div className="relative mt-3 h-16">
+      {/* Days the series doesn't reach, drawn as a faint tick on the baseline —
+          one per empty day, so the flex gaps between them make the run read as a
+          dotted rule. Without it a young series is a mark floating beside a void
+          and the card looks broken; with it the void is an axis waiting to fill,
+          which is what it is. Behind the series, and only ever visible when
+          there ARE empty days. */}
+      <div className="pointer-events-none absolute inset-0 flex items-end gap-[3px]">
+        {slots.map((s, i) =>
+          s ? (
+            <div key={s.ts} className="min-w-0 flex-1" />
+          ) : (
+            <div key={`void-${i}`} className="min-w-0 flex-1">
+              <span className="block h-px w-full bg-line-2" />
+            </div>
+          ),
+        )}
+      </div>
+
       {variant === "line" ? (
         <LineSeries slots={slots} dataLength={dataLength} hover={hover} />
       ) : (
@@ -363,12 +386,29 @@ function LineSeries({
   const values = present.map((s) => s.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  const span = max - min || 1;
+  const latest = values[values.length - 1] ?? 0;
+  /**
+   * ⚠️ The y-domain is at least MIN_SPAN_PCT of the VALUE — not just the data's
+   * own min–max.
+   *
+   * Auto-fitting the range makes every series fill the box, whatever it did: a
+   * holders count drifting 0.3% in a fortnight drew the same hockey stick as one
+   * that doubled. Scaling noise to full height is a claim, and it was a false
+   * one. Against a value-relative floor a 0.3% drift occupies ~15% of the card
+   * and reads as what it is — flat.
+   *
+   * A series that genuinely moves more than the floor keeps auto-fitting, so
+   * this only ever damps the noise; it never flattens a real move.
+   */
+  const span = Math.max(max - min, Math.abs(latest) * MIN_SPAN_PCT) || 1;
+  // Centre the data in the domain. This also subsumes the old dead-flat special
+  // case: when max === min the reading lands exactly mid-card on its own.
+  const mid = (min + max) / 2;
+  const lo = mid - span / 2;
   // x is the DAY's position in the window, so three readings occupy three
   // fourteenths at the right edge instead of stretching across the card.
   const X = (slot: number) => (slots.length <= 1 ? W / 2 : (slot / (slots.length - 1)) * W);
-  // A dead-flat series would otherwise pin to the top edge; center it instead.
-  const Y = (v: number) => (max === min ? H / 2 : H - PAD - ((v - min) / span) * (H - PAD * 2));
+  const Y = (v: number) => H - PAD - ((v - lo) / span) * (H - PAD * 2);
 
   const hoverPt = hover != null ? present.find((s) => s.slot === hover) ?? null : null;
   const pts = present.map((s) => [X(s.slot), Y(s.value)] as [number, number]);
