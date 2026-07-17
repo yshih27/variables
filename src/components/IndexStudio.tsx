@@ -424,6 +424,27 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     [activeValid, hidden, seriesData],
   );
 
+  /**
+   * Every series' timestamps parsed ONCE, window-independent.
+   *
+   * ⚠️ This is load-bearing for the wheel, not a micro-optimisation. The model
+   * below re-runs on every window change, and it used to `Date.parse` each point
+   * TWICE (once to filter in-window, once to project) — so a trackpad, which
+   * fires wheel events at ~100/sec, re-parsed every timestamp of every visible
+   * series ~200 times a second on the main thread. That is what took the tab
+   * down. Parsing is hoisted here; the per-frame work is now numeric compares.
+   */
+  const parsed = useMemo(() => {
+    const m = new Map<string, { ms: number; value: number }[]>();
+    for (const [id, pts] of seriesData) {
+      m.set(
+        id,
+        pts.map((p) => ({ ms: Date.parse(p.ts), value: p.value })),
+      );
+    }
+    return m;
+  }, [seriesData]);
+
   // Project every visible series onto the current window: rebase to 100 at the
   // first in-window point (or raw in absolute mode). Returns per-series in-window
   // points {ms, v} plus the y-domain and the primary (first visible).
@@ -436,18 +457,15 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
 
     const cols = visible.map((id) => {
       const item = byId.get(id)!;
-      const raw = seriesData.get(id) ?? [];
-      const inWin = raw.filter((p) => {
-        const t = Date.parse(p.ts);
-        return t >= s && t <= e && Number.isFinite(p.value);
-      });
+      const raw = parsed.get(id) ?? [];
+      const inWin = raw.filter((p) => p.ms >= s && p.ms <= e && Number.isFinite(p.value));
       let base = 1;
       if (mode === "rebase") {
         const first = inWin.find((p) => p.value > 0);
         base = first ? first.value : NaN;
       }
       const pts = inWin.map((p) => ({
-        ms: Date.parse(p.ts),
+        ms: p.ms,
         v: mode === "rebase" ? (Number.isFinite(base) ? (p.value / base) * 100 : NaN) : p.value,
         raw: p.value,
       }));
@@ -482,7 +500,25 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     const unionTs = [...tsSet].sort((a, b) => a - b);
 
     return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, unionTs, primary: lines[0] ?? null };
-  }, [window0, visible, byId, mode, w, seriesData]);
+  }, [window0, visible, byId, mode, w, parsed]);
+
+  // Live mirrors for the rAF flush and the native wheel listener. Both are
+  // attached/created once per mount and would otherwise close over a stale
+  // render — and re-attaching the listener on every window change would put us
+  // straight back to per-event work.
+  const modelRef = useRef(model);
+  const window0Ref = useRef(window0);
+  const fullRangeRef = useRef(fullRange);
+  // Synced after commit, not during render: the wheel handler and the rAF flush
+  // both read these only in response to user input, which is always after a
+  // commit, so post-render is soon enough and keeps the render itself pure.
+  useEffect(() => {
+    modelRef.current = model;
+    window0Ref.current = window0;
+    fullRangeRef.current = fullRange;
+  });
+  /** Whether the <svg> the wheel binds to is mounted at all. */
+  const hasPlot = loaded && !loadError && model != null;
 
   // ── interactions ──────────────────────────────────────────────────────────
   const addMetric = (id: string) => {
@@ -517,31 +553,113 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     return RANGES.find((r) => r.days != null && Math.abs(r.days - days) <= 2)?.key ?? null;
   }, [fullRange, window0]);
 
-  // Wheel zoom around the cursor.
-  const onWheel = (ev: React.WheelEvent) => {
-    if (!model || !fullRange) return;
-    ev.preventDefault();
-    const rect = plotRef.current!.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-    const [s, e] = window0!;
-    const span = e - s;
-    const focus = s + frac * span;
-    const factor = ev.deltaY < 0 ? 0.82 : 1.2;
-    let ns = span * factor;
-    ns = Math.max(3 * DAY, Math.min(fullRange[1] - fullRange[0], ns));
-    let na = focus - frac * ns;
-    let nb = na + ns;
-    if (na < fullRange[0]) { na = fullRange[0]; nb = na + ns; }
-    if (nb > fullRange[1]) { nb = fullRange[1]; na = nb - ns; }
-    setWin([na, nb]);
-  };
+  /**
+   * ⚠️ Wheel and mousemove are FIRE-HOSES — coalesce to one state commit per
+   * frame, and never do per-event React work here again.
+   *
+   * A trackpad emits wheel events at ~100/sec and mousemove faster still. Both
+   * handlers used to call setState on EVERY event, and each commit re-ran the
+   * model (re-projecting and re-pathing every visible series). The main thread
+   * couldn't retire a frame before the next ten events landed, the queue ran
+   * away, and the tab died — which users hit as a crash and our own audits kept
+   * hitting as unexplained "pane blackouts".
+   *
+   * The pending intent lives in a ref and one rAF applies it. Zoom is
+   * ACCUMULATED (factors multiply) rather than last-write-wins, so coalescing a
+   * flurry of ticks still zooms the full amount the user asked for — it just
+   * arrives in a single render.
+   */
+  const wheelPending = useRef<{ factor: number; frac: number } | null>(null);
+  const hoverPending = useRef<number | null>(null);
+  const frame = useRef<number | null>(null);
 
-  // Crosshair.
+  const flush = useCallback(() => {
+    frame.current = null;
+
+    const hv = hoverPending.current;
+    hoverPending.current = null;
+    if (hv != null) setHoverMs(hv);
+
+    const wp = wheelPending.current;
+    wheelPending.current = null;
+    if (wp) {
+      setWin((cur) => {
+        // Read the window from state rather than a closure: several frames can
+        // land between renders, and each must zoom from the PREVIOUS result or
+        // the gesture stalls.
+        const range = fullRangeRef.current;
+        const base = cur ?? window0Ref.current;
+        if (!range || !base) return cur;
+        const [s, e] = base;
+        const span = e - s;
+        const focus = s + wp.frac * span;
+        const ns = Math.max(3 * DAY, Math.min(range[1] - range[0], span * wp.factor));
+        let na = focus - wp.frac * ns;
+        let nb = na + ns;
+        if (na < range[0]) { na = range[0]; nb = na + ns; }
+        if (nb > range[1]) { nb = range[1]; na = nb - ns; }
+        return [na, nb];
+      });
+    }
+  }, [window0Ref, fullRangeRef]);
+
+  const schedule = useCallback(() => {
+    if (frame.current == null) frame.current = requestAnimationFrame(flush);
+  }, [flush]);
+
+  useEffect(() => {
+    return () => {
+      if (frame.current != null) cancelAnimationFrame(frame.current);
+    };
+  }, []);
+
+  /**
+   * The wheel listener is attached NATIVELY, non-passive, because React's
+   * onWheel is registered passive at the root — preventDefault there is a no-op,
+   * so the page scrolled *and* the chart zoomed at the same time.
+   *
+   * ⚠️ preventDefault ONLY when this event will actually zoom. Cancelling
+   * unconditionally means that any time the chart can't zoom (no model yet, data
+   * still loading) the wheel is swallowed and the page cannot be scrolled at all
+   * — the cursor resting over a chart would wedge the whole page.
+   */
+  useEffect(() => {
+    const el = plotRef.current;
+    if (!el) return;
+    const onWheelNative = (ev: WheelEvent) => {
+      if (!modelRef.current || !fullRangeRef.current || !window0Ref.current) return; // let the page scroll
+      ev.preventDefault();
+      const rect = el.getBoundingClientRect();
+      if (!rect.width) return;
+      const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+      const factor = ev.deltaY < 0 ? 0.82 : 1.2;
+      wheelPending.current = {
+        factor: (wheelPending.current?.factor ?? 1) * factor,
+        frac,
+      };
+      schedule();
+    };
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", onWheelNative);
+    // hasPlot, not `model`: the <svg> this binds to only exists while there's a
+    // model, so the effect must re-run when it mounts or remounts (remove every
+    // chip, add one back) — otherwise the listener stays bound to a detached node
+    // and the wheel goes dead. Keyed on presence, not identity, so a zoom doesn't
+    // re-attach on every frame.
+  }, [schedule, hasPlot]);
+
+  // Crosshair — same coalescing; the maths is deferred to the frame.
   const onMove = (ev: React.MouseEvent) => {
-    if (!model) return;
+    const m = modelRef.current;
+    if (!m) return;
     const rect = plotRef.current!.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left - (PAD.l / w) * rect.width) / ((model.plotW / w) * rect.width)));
-    setHoverMs(model.s + frac * model.span);
+    if (!rect.width) return;
+    const frac = Math.max(
+      0,
+      Math.min(1, (ev.clientX - rect.left - (PAD.l / w) * rect.width) / ((m.plotW / w) * rect.width)),
+    );
+    hoverPending.current = m.s + frac * m.span;
+    schedule();
   };
 
   // Nearest union date to the hovered ms (snap the crosshair to real data).
@@ -836,7 +954,10 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         ) : !model ? (
           <div className="flex h-[360px] items-center justify-center text-[13px] text-ink-3">Add a metric to begin.</div>
         ) : (
-          <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove} onWheel={onWheel}>
+          // No onWheel prop: React registers wheel PASSIVE at the root, so
+          // preventDefault there silently does nothing and the page scrolled
+          // while the chart zoomed. The listener is attached natively above.
+          <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove}>
             {/* data-plot-bg: the PNG export drops THIS rect from its copy so the
                 watermark can sit under the series instead of being painted over
                 by an opaque plate. Renders identically either way. */}
