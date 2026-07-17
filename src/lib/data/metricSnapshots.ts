@@ -163,6 +163,50 @@ export function pctChange(series: SeriesPoint[], daysAgo: number): number | null
   return ((now - prev.value) / prev.value) * 100;
 }
 
+/**
+ * $ floor for a %-change DENOMINATOR. A tiny prior value otherwise prints an absurd
+ * change (Courtyard's $31 → $3,036 day printed "+9,538.6%"). Same guard convention as
+ * `pctChangeDays(…, MOMENTUM_MIN_BASE)` in category/rollup.ts — below the floor we
+ * return null ("—"), because a percentage off near-zero is noise, not a signal.
+ */
+export const DELTA_MIN_BASE_USD = 1000;
+
+/**
+ * Σ of a daily series over the contiguous `days`-day window ending at the series'
+ * LAST recorded day (anchored to the DATA, not wall-clock, so a lagging warmer
+ * yields a real — if slightly stale — window rather than a short one).
+ * Returns NaN when fewer than `days` distinct days exist in that window: a missing
+ * number beats a 3-day sum masquerading as "7d".
+ */
+export function sumLastCompleteDays(series: SeriesPoint[], days: number): number {
+  if (days < 1) return NaN;
+  const sorted = series
+    .filter((p) => Number.isFinite(Date.parse(p.ts)) && Number.isFinite(p.value))
+    .sort((a, b) => a.ts.localeCompare(b.ts));
+  if (!sorted.length) return NaN;
+  const lastMs = Date.parse(sorted[sorted.length - 1].ts);
+  const startMs = lastMs - (days - 1) * 86_400_000;
+  const inWindow = sorted.filter((p) => Date.parse(p.ts) >= startMs);
+  if (new Set(inWindow.map((p) => p.ts)).size < days) return NaN; // window not fully covered
+  return inWindow.reduce((s, p) => s + p.value, 0);
+}
+
+/**
+ * Day-over-day % change of a daily series — the latest recorded day vs the one
+ * before it. `minBase` floors the denominator (see DELTA_MIN_BASE_USD); null when
+ * there aren't two points or the base is too small to make a % meaningful.
+ */
+export function dayOverDayPct(series: SeriesPoint[], minBase = 0): number | null {
+  const sorted = series
+    .filter((p) => Number.isFinite(Date.parse(p.ts)) && Number.isFinite(p.value))
+    .sort((a, b) => a.ts.localeCompare(b.ts));
+  if (sorted.length < 2) return null;
+  const cur = sorted[sorted.length - 1].value;
+  const prev = sorted[sorted.length - 2].value;
+  if (!(prev > 0) || prev < minBase) return null;
+  return ((cur - prev) / prev) * 100;
+}
+
 /** Midnight-UTC ISO for the day containing `ms`. The canonical bucket key. */
 export function dayStartUtc(ms: number): string {
   const d = new Date(ms);

@@ -14,8 +14,13 @@ import { normalizeTraits, gradeLabel, type NormalizedTraits } from "./traits";
 import { readHolders } from "./holders";
 import { readMarketCap, type MarketCapPlatformIP } from "./marketcap";
 import { readGachaDune } from "./gachaDuneCache";
-import { readHistory, sumLast, pctChange } from "./history";
-import { readMetricSeries, type SeriesPoint } from "./metricSnapshots";
+import {
+  readMetricSeries,
+  sumLastCompleteDays,
+  dayOverDayPct,
+  DELTA_MIN_BASE_USD,
+  type SeriesPoint,
+} from "./metricSnapshots";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import type { Chain, Trend } from "@/lib/types";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
@@ -111,6 +116,12 @@ export type PlatformDetail = {
   ips: PlatformIPRow[];
   topCards: PlatformCardRow[];
   recentSales: RecentSaleRow[];
+  /** How many of the 24h sales the tables below could enrich with card metadata,
+   *  out of the total that traded (M2). `salesEnriched < salesTotal` means a token
+   *  traded before warm-traits fetched its metadata — label the tables
+   *  "N of M sales enriched", never restate N as the 24h sale count. */
+  salesEnriched: number;
+  salesTotal: number;
 };
 
 function spark24h(sales: NormalizedSale[], buckets = 24): number[] {
@@ -321,15 +332,26 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   if (!bucket) return null;
 
   // Cross-cache reads
-  const [holders, mcap, gacha] = await Promise.all([
+  const [holders, mcap, gacha, volSeries] = await Promise.all([
     readHolders(),
     readMarketCap(),
     readGachaDune(),
+    // Native daily marketplace volume — the SAME spine every other surface reads.
+    // Replaces the Rarible-era readHistory() blobs (B3).
+    readMetricSeries("platform", key, "volume_usd"),
   ]);
 
   const enriched = await enrichSales(bucket);
 
   const allSales = bucket.sales24h;
+  // M2: enrichSales drops any sale whose token has no metadata yet, so the tables
+  // (enriched) can under-count the rail (all sales) — the page then claimed "186
+  // sales in last 24h" when 205 traded. It's a TIMING gap: warm-traits backfills
+  // exactly the traded set, but a token that trades before the next daily warm has
+  // no row yet. Surface BOTH counts so the label can say "186 of 205 enriched"
+  // instead of quietly restating a smaller number as the truth.
+  const salesEnriched = enriched.length;
+  const salesTotal = allSales.length;
   // ⚠️ This page derives its secondary figures from `sales24h`, NOT `stats24h`,
   // so `unknownStats` alone doesn't reach it. For an untracked platform
   // `sales24h` is [] — and reducing [] gives a confident 0. `tracked` is the
@@ -349,11 +371,19 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const platformMcapEntry = mcap?.byPlatform?.[key];
   const platformMcap = platformMcapEntry?.mcapUsd ?? NaN;
 
-  // History → 7d (we only retain 7d of hourly buckets today)
-  const history = await readHistory(key);
-  const histBuckets = history?.buckets ?? null;
-  const vol7Usd = histBuckets ? sumLast(histBuckets, 24 * 7).volumeUsd : NaN;
-  const vol24Pct = histBuckets ? pctChange(histBuckets, 24) : null;
+  // 7d volume + the 24h change, both from the NATIVE spine (B3/M4). These used to
+  // read the Rarible-era `readHistory()` blobs — the last legacy path on this page —
+  // which inflated Beezie ~20-90× (its "7d" $2.87M exceeded its own 14d native total
+  // $126K, arithmetically impossible) and left CC's 7d on a different provenance from
+  // every other number. Now: Σ the last 7 COMPLETE days of `volume_usd`; fewer than
+  // 7 recorded days → NaN → "—" (a missing number beats an impossible one).
+  //   ⚠️ window note: 7d is 7 complete CALENDAR days (the spine excludes today) while
+  //   vol24Usd above is a ROLLING 24h off `sales24h` — the two-tier rule in
+  //   metricSnapshots.ts. A big day today can legitimately read 7d < 24h.
+  const vol7Usd = unknown(sumLastCompleteDays(volSeries, 7));
+  // Day-over-day, with the minBase floor the tiny-base platforms need: Courtyard
+  // trades $4-393/day, so an unfloored % printed "+9,538.6%" (M4).
+  const vol24Pct = tracked ? dayOverDayPct(volSeries, DELTA_MIN_BASE_USD) : null;
 
   // Rank by TOTAL 24h activity (resale + primary), consistent with the homepage.
   // An untracked platform's secondary volume is NaN — counted as 0 here so it
@@ -399,6 +429,8 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     rank,
     vol24Usd: volumeUsd,
     vol7Usd,
+    salesEnriched,
+    salesTotal,
     primaryUsd: bucket.primaryUsd,
     gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : null,
     gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : null,

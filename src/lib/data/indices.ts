@@ -63,6 +63,36 @@ export function rebaseSeries(
 }
 
 /**
+ * Drop the RUNNING (partial) week from a weekly series. The price index buckets by
+ * ISO week, so its newest point covers only the elapsed days of the current week —
+ * a partial figure. Comparing it against a complete week prints a phantom move
+ * (the homepage's "7d +18.5%", which contradicted /report's +1.3% for the same
+ * window, because the report excludes the partial week).
+ */
+export function completeWeeksOnly<T extends { ts: string }>(series: T[], nowMs: number = Date.now()): T[] {
+  const cutoff = Date.parse(weekStartUtc(nowMs)); // 00:00 Monday of the running week
+  return series.filter((p) => {
+    const t = Date.parse(p.ts);
+    return Number.isFinite(t) && t < cutoff;
+  });
+}
+
+/**
+ * % change between the last two COMPLETE weekly points — the honest "1w" for a
+ * weekly index. Same two points /report compares for its WoW, so the two surfaces
+ * can't disagree. null until two complete weeks exist.
+ */
+export function weeklyChangePct(series: IndexPoint[], nowMs: number = Date.now()): number | null {
+  const weeks = completeWeeksOnly(series, nowMs)
+    .filter((p) => p.value > 0)
+    .sort((a, b) => a.ts.localeCompare(b.ts));
+  if (weeks.length < 2) return null;
+  const last = weeks[weeks.length - 1].value;
+  const prev = weeks[weeks.length - 2].value;
+  return prev > 0 ? (last / prev - 1) * 100 : null;
+}
+
+/**
  * Resample a daily series to ISO-weekly (Monday week-start key). The single
  * canonical implementation — also used by the /api/v1 + /api/internal chart series
  * routes (they used to carry a copy). `agg`:

@@ -10,7 +10,7 @@ import { getGachaData } from "@/lib/data/fetchGacha";
 import { getTrendingCards } from "@/lib/data/fetchTrending";
 import { formatCompactNumber } from "@/lib/format";
 import { readMetricSeries, pctChange } from "@/lib/data/metricSnapshots";
-import { rebaseSeries, readIndexSeries } from "@/lib/data/indices";
+import { rebaseSeries, readIndexSeries, weeklyChangePct, completeWeeksOnly } from "@/lib/data/indices";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
@@ -102,7 +102,7 @@ export default async function Home() {
   // a row is "—" only when its benchmark is missing for that window.
   const fromTs = marketIdx[0]?.ts ?? null;
   const marketRet = indexValue != null && Number.isFinite(indexValue) ? indexValue - 100 : null;
-  const market30 = pctChange(marketIdx, 30);
+  const market30 = pctChange(completeWeeksOnly(marketIdx), 30);
   const relStrength = (
     [
       ["vs BTC", "BTC"],
@@ -133,8 +133,12 @@ export default async function Home() {
       // Price index is weekly → no 24h resolution; null renders "—" rather than
       // mislabeling a weekly move as a 24h change (X3).
       { label: "24h", pct: null },
-      { label: "7d", pct: pctChange(marketIdx, 7) },
-      { label: "30d", pct: pctChange(marketIdx, 30) },
+      // "1w", not "7d": this index is WEEKLY, so the move is one weekly step — and
+      // it's measured between the last two COMPLETE weeks. Comparing against the
+      // running partial week printed a phantom "+18.5%" that contradicted /report's
+      // "+1.3% WoW" for the same window (M1). Same two points the report uses.
+      { label: "1w", pct: weeklyChangePct(marketIdx) },
+      { label: "30d", pct: pctChange(completeWeeksOnly(marketIdx), 30) },
     ],
     relStrength,
     // Rebased-to-100 daily series for the header's middle-band index chart (QA-5).

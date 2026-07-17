@@ -117,8 +117,8 @@ export function ReportView({ report }: { report: WeeklyReport }) {
       {report.notablePulls.length > 0 && (
         <Section title="Notable pulls" subtitle="Biggest gacha hits this week" flush>
           <ul className="divide-y divide-line/60">
-            {report.notablePulls.map((p, i) => (
-              <PullRow key={`${p.platform}:${p.name}:${i}`} pull={p} />
+            {report.notablePulls.map((p) => (
+              <PullRow key={`${p.platform}:${p.mint}:${p.at}`} pull={p} />
             ))}
           </ul>
         </Section>
@@ -208,9 +208,10 @@ function SaleRow({ sale }: { sale: ReportSale }) {
     <>
       <span className="flex min-w-0 flex-col">
         <span className="truncate font-sans text-[13.5px] font-medium">{sale.name}</span>
+        {/* Display names, not raw slugs ("one_piece · collector-crypt"). */}
         <span className="text-[11.5px] text-ink-3">
-          {sale.ip !== "other" ? `${sale.ip} · ` : ""}
-          {sale.platform} · {fmtDate(sale.date)}
+          {sale.ip !== "other" ? `${sale.ipName} · ` : ""}
+          {sale.platformName} · {fmtDate(sale.date)}
         </span>
       </span>
       <span className="tabular shrink-0 text-[13.5px] font-semibold text-ink">{formatCompactUsd(sale.priceUsd)}</span>
@@ -234,9 +235,11 @@ function PullRow({ pull }: { pull: ReportPull }) {
     <li className="flex items-center justify-between gap-3 px-5 py-3.5">
       <span className="flex min-w-0 flex-col">
         <span className="truncate font-sans text-[13.5px] font-medium">{pull.name}</span>
+        {/* Display name + the pull time — two copies of the same card are two real
+            pulls, so the timestamp is what distinguishes otherwise-identical rows. */}
         <span className="text-[11.5px] text-ink-3">
-          {pull.platform}
-          {pull.pack ? ` · ${pull.pack}` : ""}
+          {pull.platformName}
+          {pull.pack ? ` · ${pull.pack}` : ""} · {fmtDate(pull.at)}
         </span>
       </span>
       <span className="tabular shrink-0 text-[13.5px] font-semibold text-yellow">{formatCompactUsd(pull.valueUsd)}</span>
