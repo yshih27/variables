@@ -185,7 +185,7 @@ export function TrendingCards({
                     href={c.href}
                     className="flex flex-col gap-0.5"
                   >
-                    <span className="truncate font-sans font-semibold group-hover:text-yellow">{c.name}</span>
+                    <span title={c.name} className="truncate font-sans font-semibold group-hover:text-yellow">{c.name}</span>
                     <span className="truncate font-sans text-[11.5px] text-ink-3">
                       {[humanizeIp(c.ip), c.grade, PLATFORM_LABEL[c.platform] ?? c.platform]
                         .filter(Boolean)

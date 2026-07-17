@@ -19,7 +19,7 @@ export const METHODOLOGY = "/methodology";
 export const METRICS = {
   marketCap: {
     term: "Market cap",
-    text: "Sum of the insured / appraised value of every tracked card on the platform — a stock, not a flow. Tracked for Beezie & Collector Crypt only.",
+    text: "Sum of every tracked card's value — a stock, not a flow. The basis differs by platform, and the two aren't interchangeable: Collector Crypt uses each card's vault appraisal (insured value), while Beezie and Phygitals use the lowest active listing, which makes their cap a floor-based lower bound rather than a valuation. Courtyard's cards aren't indexed yet, so it has no cap.",
   },
   volume24h: {
     term: "24h volume",

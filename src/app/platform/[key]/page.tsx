@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { MCAP_BASIS, MCAP_BASIS_LABEL } from "@/lib/data/marketcap";
 import { NavBar } from "@/components/NavBar";
 import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
 import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
@@ -80,6 +81,10 @@ export default async function PlatformDetailPage({
       deltaPct: pctChange(mcapS, 1),
       window: "24h",
       hero: true,
+      // Say WHICH kind of cap this is, right next to it. Phygitals' floor×supply
+      // lower bound rendered identically to Collector Crypt's vault appraisal,
+      // and the reader had nothing to go on.
+      sub: MCAP_BASIS[detail.source.key] ? MCAP_BASIS_LABEL[MCAP_BASIS[detail.source.key]] : undefined,
     },
     {
       label: "Holders",

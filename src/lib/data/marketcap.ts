@@ -9,6 +9,32 @@
  */
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
 
+/**
+ * The hybrid above, in a form the UI can read — so a page can say WHICH kind of
+ * number it's showing.
+ *
+ * ⚠️ These two bases are not interchangeable. An appraisal is what a card is
+ * assessed to be worth; a floor is the cheapest active listing, so floor × supply
+ * is a LOWER BOUND and moves with whoever is currently undercutting. Rendered
+ * identically, Phygitals' $84.7K read as the same species of number as Collector
+ * Crypt's appraised cap — $3/holder sitting next to $398K/day of gacha, with
+ * nothing on the page to say why.
+ */
+export type McapBasis = "appraisal" | "floor";
+
+/** Platforms absent here have no market cap tracked at all (Courtyard). */
+export const MCAP_BASIS: Record<string, McapBasis> = {
+  "collector-crypt": "appraisal",
+  beezie: "floor",
+  phygitals: "floor",
+};
+
+/** The qualifier shown beside the number. */
+export const MCAP_BASIS_LABEL: Record<McapBasis, string> = {
+  appraisal: "vault appraisal",
+  floor: "floor-based estimate",
+};
+
 export type MarketCapIPEntry = {
   cards: number;
   cardsValued: number; // tokens that contributed a value

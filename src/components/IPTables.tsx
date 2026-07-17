@@ -62,7 +62,7 @@ export function IPTopCards({
                     <span className="h-[42px] w-[30px] shrink-0 rounded-md bg-bg-2" />
                   )}
                   <span className="min-w-0">
-                    <span className="block truncate font-semibold group-hover:text-yellow">{r.name}</span>
+                    <span title={r.name} className="block truncate font-semibold group-hover:text-yellow">{r.name}</span>
                     <span className="block truncate font-mono text-[11px] text-ink-4">{sub}</span>
                   </span>
                 </span>
@@ -159,7 +159,7 @@ export function IPSets({
                 <Td strong>{formatCompactUsd(r.vol24Usd)}</Td>
                 <Td muted>{formatCompactUsd(r.avgTradeUsd)}</Td>
                 <Td left className="max-w-[260px]">
-                  <span className="block truncate text-[12px] text-ink-2">{r.topCard ?? "—"}</span>
+                  <span title={r.topCard ?? undefined} className="block truncate text-[12px] text-ink-2">{r.topCard ?? "—"}</span>
                 </Td>
               </tr>
             ))}

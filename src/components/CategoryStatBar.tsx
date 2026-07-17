@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { IPRow } from "@/lib/types";
 import { concentrationHHI, type CategoryAggregate } from "@/lib/category/rollup";
+import { hasRealMcap } from "@/lib/ip/mcap";
 
 /**
  * Category structure ribbon for the /ips overview — concentration + breadth, the
@@ -11,8 +12,11 @@ import { concentrationHHI, type CategoryAggregate } from "@/lib/category/rollup"
 function liquidCount(rows: IPRow[]): { liquid: number; total: number } {
   let liquid = 0;
   for (const ip of rows) {
-    const qualified = Number.isFinite(ip.mcapUsd) && ip.mcapUsd >= 1000 && ip.cards >= 5;
-    if (qualified || (Number.isFinite(ip.vol24Usd) && ip.vol24Usd > 0)) liquid++;
+    // A 4th copy of the mcap gate lived here and carried the same `cards >= 5`
+    // bug — an IP with a real cap dropped out of "liquid" on a day it didn't
+    // trade. The trading half of the test is `vol24Usd > 0`, which is where an
+    // activity check belongs.
+    if (hasRealMcap(ip) || (Number.isFinite(ip.vol24Usd) && ip.vol24Usd > 0)) liquid++;
   }
   return { liquid, total: rows.length };
 }

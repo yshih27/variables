@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { IPRow } from "@/lib/types";
 import { Section } from "./Section";
 import { IPIcon } from "./IPIcon";
+import { hasRealMcap } from "@/lib/ip/mcap";
 import { formatCompactUsd, formatCompactNumber, formatPct } from "@/lib/format";
 
 /**
@@ -35,11 +36,10 @@ type Cell = {
   href: string | null;
 };
 
-/** Mirror IPTable's mcap rule: tiny/sparse IPs read "—" there, so they don't
- *  earn a tile here either. */
-function qualifies(ip: IPRow): boolean {
-  return Number.isFinite(ip.mcapUsd) && ip.mcapUsd >= 1000 && ip.cards >= 5;
-}
+/** IPTable's mcap rule, now literally the same function rather than a copy that
+ *  drifted: this one's extra `cards >= 5` dropped Moonbirds — the page's #3 IP by
+ *  cap — off the treemap on a day it didn't trade. */
+const qualifies = hasRealMcap;
 
 function buildCells(rows: IPRow[]): { cells: Cell[]; total: number; count: number } | null {
   const q = rows.filter(qualifies).sort((a, b) => b.mcapUsd - a.mcapUsd);
