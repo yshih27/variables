@@ -1,12 +1,12 @@
 /**
- * External-market benchmarks (BTC / ETH / S&P 500 / NASDAQ Composite) on the same
- * rebased daily axis as the internal indices (indices.ts), so the frontend can
- * chart the TCG market against them.
+ * External-market benchmarks (BTC / ETH / SOL / Gold / S&P 500 / NASDAQ Composite)
+ * on the same rebased daily axis as the internal indices (indices.ts), so the
+ * frontend can chart the TCG market against them.
  *
  * Daily closes live in the metric spine (`entity_type: "benchmark"`, metric
  * `"close"`, entity_key = symbol), written by scripts/warm-benchmarks.ts — so
  * reads never hit an external API per request.
- *   • BTC/ETH    → CoinGecko market_chart (prices.ts), free, no key.
+ *   • BTC/ETH/SOL/GOLD → CoinGecko market_chart (prices.ts), free, no key.
  *   • SP500/NASDAQ → FRED (St. Louis Fed, FRED_API_KEY) as PRIMARY, with Stooq CSV
  *     → Yahoo chart-API as no-key fallbacks. FRED is reliable from servers; Stooq
  *     & Yahoo IP-block some datacenter hosts, so they're fallback-only.
@@ -14,20 +14,31 @@
 import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
 import { rebaseSeries, rebaseWithBands, resampleWeekly, type IndexPoint } from "./indices";
 
-export type BenchmarkSymbol = "BTC" | "ETH" | "SP500" | "NASDAQ" | "GOLD";
+export type BenchmarkSymbol = "BTC" | "ETH" | "SOL" | "SP500" | "NASDAQ" | "GOLD";
+
+/**
+ * Every benchmark symbol, in display order. The SSOT the API routes enumerate for
+ * their default set + unknown-symbol validation, so the type and the actually-served
+ * set can never drift (add a symbol here and both /api/v1/benchmarks and the internal
+ * chart twin pick it up).
+ */
+export const ALL_BENCHMARK_SYMBOLS: BenchmarkSymbol[] = ["BTC", "ETH", "SOL", "SP500", "NASDAQ", "GOLD"];
 
 /**
  * CoinGecko-sourced benchmarks → coin ids (via prices.fetchCoinGeckoMarketChart).
- * BTC/ETH are the crypto majors; GOLD is PAX Gold (PAXG) — tokenized gold, fully
+ * BTC/ETH/SOL are the crypto majors; GOLD is PAX Gold (PAXG) — tokenized gold, fully
  * LBMA-backed and redeemable, so it tracks the spot gold price ~1:1 (within <1%).
  * CoinGecko is the reliable server-side source: FRED has NO daily spot-gold price
  * series anymore (the LBMA fixing series were discontinued → 400), and Stooq/Yahoo
  * IP-block datacenter hosts (so they fail in GitHub Actions). PAXG on CoinGecko is
- * as reliable here as BTC/ETH.
+ * as reliable here as BTC/ETH. SOL matters here specifically because much of the
+ * RWA-TCG volume settles on Solana (Collector Crypt, Phygitals), so it's the
+ * closest "native chain" benchmark for the market this app tracks.
  */
-export const BENCHMARK_COINGECKO_ID: Record<"BTC" | "ETH" | "GOLD", string> = {
+export const BENCHMARK_COINGECKO_ID: Record<"BTC" | "ETH" | "SOL" | "GOLD", string> = {
   BTC: "bitcoin",
   ETH: "ethereum",
+  SOL: "solana",
   GOLD: "pax-gold",
 };
 

@@ -3,10 +3,11 @@
  *
  *   npx tsx scripts/warm-benchmarks.ts
  *
- * BTC/ETH from CoinGecko market_chart; S&P 100 (^oex) + NASDAQ-100 (^ndx) from
- * Stooq's free daily CSV (no key). Idempotent upsert; stores the last ~400 days so
- * the indices engine's benchmark overlays cover any window the internal index
- * reaches (index inception ~2026-06-24). Read via readBenchmarkSeries (rebased).
+ * BTC/ETH/SOL + PAXG (gold) from CoinGecko market_chart (365d = the free-tier
+ * ceiling); S&P 500 + NASDAQ Composite via FRED → Stooq → Yahoo fallback. Idempotent
+ * upsert; stores the last ~400 days so the indices engine's benchmark overlays cover
+ * any window the internal index reaches (index inception ~2026-06-24). Read via
+ * readBenchmarkSeries (rebased).
  *
  * Runs in the DAILY warm batch.
  */
