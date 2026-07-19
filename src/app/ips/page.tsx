@@ -8,7 +8,7 @@ import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { readMetricSeries, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { readMetricSeries, readMetricSeriesBulk, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
@@ -64,7 +64,13 @@ function sumDaily(sources: Record<string, SeriesPoint[]>[], lastN: number): Seri
     }
   }
   const sorted = [...byTs.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-  return sorted.slice(-lastN).map(([ts, value]) => ({ ts, value }));
+  // lastNDays, not slice(-N): keep the label and the calendar-day plot in step on
+  // a sparse series (see the helper). The summed total is usually dense, so this
+  // is belt-and-suspenders here — but the same rule everywhere is one less trap.
+  return lastNDays(
+    sorted.map(([ts, value]) => ({ ts, value })),
+    lastN,
+  );
 }
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -106,7 +112,7 @@ export default async function AllIPsPage() {
   // that exist plus its own "N of 14 days · building" note.
   const totalVol14 = sumDaily([platVol, platGacha], 14);
   const cardsTraded14 = sumDaily([cardsSeries], 14);
-  const holders14 = holdersSeries.slice(-14);
+  const holders14 = lastNDays(holdersSeries, 14);
 
   // Distinct cards traded in the 24h window. There is no hero-level field for
   // this (hero.totalCards is Σ TRACKED collection size, a different metric), so

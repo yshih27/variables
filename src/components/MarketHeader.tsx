@@ -7,7 +7,7 @@ import { MarketIndexChart } from "./MarketIndexChart";
 import { MetricInfo } from "./MetricInfo";
 import { tickerOf } from "@/lib/indices/naming";
 import type { MetricKey } from "@/lib/metrics/glossary";
-import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
 import { GACHA_ENABLED } from "@/lib/flags";
 
 /** 24h volume split — marketplace resale + gacha pulls + other primary = total. */
@@ -423,15 +423,13 @@ function DeltaRow({ label, pct }: { label: string; pct: number | null }) {
 }
 
 function Delta({ pct }: { pct: number }) {
-  const up = pct > 0.05;
-  const down = pct < -0.05;
-  const cls = up ? "text-green" : down ? "text-red" : "text-ink-3";
-  const arrow = up ? "▲" : down ? "▼" : "·";
+  const dir = deltaDir(pct);
+  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
+  const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "·";
   return (
     <span className={`flex items-center gap-1 text-[13px] font-semibold tabular ${cls}`}>
       <span className="text-[10px]">{arrow}</span>
-      {pct > 0 ? "+" : ""}
-      {pct.toFixed(1)}%
+      {formatDelta(pct)}
     </span>
   );
 }

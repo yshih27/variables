@@ -19,6 +19,9 @@ const PLATFORM_LABELS: Record<string, string> = {
   "collector-crypt": "Collector Crypt",
 };
 
+/** How a tile is loading its image, in escalation order. */
+type Attempt = "direct" | "proxied" | "plain";
+
 type Props = { items: TopSale[] };
 
 export function TopSalesPanel({ items }: Props) {
@@ -52,7 +55,7 @@ function SaleCard({ sale }: { sale: TopSale }) {
     .filter((s): s is string => Boolean(s));
   const [srcIdx, setSrcIdx] = useState(0);
   const [failed, setFailed] = useState(sources.length === 0);
-  const currentSrc = sources[srcIdx];
+  const rawSrc = sources[srcIdx];
   const platformLabel = PLATFORM_LABELS[sale.platform] ?? sale.platform;
   // Link to the card detail page when we can render it; else fall back to the IP.
   const cardLink =
@@ -65,13 +68,34 @@ function SaleCard({ sale }: { sale: TopSale }) {
   // because it can't tell the slab from its padding. So once the photo loads we
   // read its pixels, detect the slab's bounding box (autoTrim), and swap in a
   // tightly-cropped version rendered with object-contain — every slab then shows
-  // WHOLE at the same size. Reads need CORS (Beezie sends `ACAO: *`); when a host
-  // refuses cross-origin reads we retry without it and keep an object-cover
-  // fallback (display always works, it just isn't auto-trimmed).
+  // WHOLE at the same size.
+  //
+  // ⚠️ The trim needs READABLE pixels, and that's where the Beezie Pikachu slipped
+  // through: its asset load refused the cross-origin read, so the OLD code reloaded
+  // the SAME url without `crossOrigin` — which displays but taints the canvas, so
+  // autoTrim could never run and the slab rendered small inside its padded field
+  // via object-contain. Now a refused read escalates through the SAME-ORIGIN
+  // `/api/img` proxy first (same-origin pixels are always readable → trim works →
+  // true normalisation); only if even that fails do we fall to a plain,
+  // un-trimmable load, and THAT one renders object-cover so the subject still fills
+  // the tile height rather than floating tiny in its padding.
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [trimmed, setTrimmed] = useState<string | null>(null);
-  const [corsBlocked, setCorsBlocked] = useState(false);
+  // How we're loading the CURRENT source. "direct": as proxyImg gave it, with a
+  // CORS read. "proxied": routed through /api/img so pixels are same-origin.
+  // "plain": no CORS — displays but can't be trimmed (last resort).
+  const [attempt, setAttempt] = useState<Attempt>("direct");
   const [loaded, setLoaded] = useState(false);
+
+  // Same-origin already (a `/api/img?…` or `/…` path) → the proxy step is a no-op,
+  // so a failed direct read jumps straight to the next source.
+  const sameOrigin = !!rawSrc && rawSrc.startsWith("/");
+  const displaySrc =
+    attempt === "proxied" && !sameOrigin
+      ? `/api/img?url=${encodeURIComponent(rawSrc)}`
+      : rawSrc;
+  // direct + proxied both aim for a readable (trimmable) canvas; plain does not.
+  const canTrim = attempt !== "plain";
 
   // Sealed products (booster boxes, ETBs) are near-square white-bg shots — give
   // them a squarer frame so they aren't letterboxed into a slab's portrait (R6-1).
@@ -89,11 +113,26 @@ function SaleCard({ sale }: { sale: TopSale }) {
     }
   };
 
+  // Escalate one step when a load fails: direct → proxied → plain → next source.
+  const onLoadError = () => {
+    if (attempt === "direct" && !sameOrigin) {
+      setAttempt("proxied");
+    } else if (attempt !== "plain") {
+      setAttempt("plain"); // display-only; renders object-cover, not trimmed
+    } else if (srcIdx + 1 < sources.length) {
+      setSrcIdx(srcIdx + 1);
+      setAttempt("direct");
+      setLoaded(false);
+    } else {
+      setFailed(true);
+    }
+  };
+
   // Catch images that finished loading before React attached onLoad (cache hit).
   useEffect(() => {
-    if (!corsBlocked) analyze();
+    if (canTrim) analyze();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSrc, corsBlocked]);
+  }, [displaySrc, canTrim]);
 
   return (
     <a
@@ -130,27 +169,21 @@ function SaleCard({ sale }: { sale: TopSale }) {
             className="absolute inset-0 m-auto h-full w-full object-contain p-2 drop-shadow-[0_8px_18px_rgba(0,0,0,0.5)]"
           />
         ) : (
-          currentSrc && (
+          displaySrc && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               ref={imgRef}
-              src={currentSrc}
+              src={displaySrc}
               alt=""
-              {...(corsBlocked ? {} : { crossOrigin: "anonymous" as const })}
-              className={`absolute inset-0 h-full w-full object-contain p-3 transition-opacity duration-200 ${loaded ? "opacity-100" : "opacity-0"}`}
-              onLoad={() => (corsBlocked ? setLoaded(true) : analyze())}
-              onError={() => {
-                // First failure is usually a host refusing cross-origin reads —
-                // retry the same src without crossOrigin so it still displays.
-                if (!corsBlocked) {
-                  setCorsBlocked(true);
-                  return;
-                }
-                if (srcIdx + 1 < sources.length) {
-                  setSrcIdx(srcIdx + 1);
-                  setLoaded(false);
-                } else setFailed(true);
-              }}
+              {...(canTrim ? { crossOrigin: "anonymous" as const } : {})}
+              // Trimmable loads get object-contain (whole slab, uniform); the
+              // un-trimmable last resort gets object-cover so the subject fills
+              // the tile height instead of sitting tiny in its padding.
+              className={`absolute inset-0 h-full w-full transition-opacity duration-200 ${
+                canTrim ? "object-contain p-3" : "object-cover"
+              } ${loaded ? "opacity-100" : "opacity-0"}`}
+              onLoad={() => (canTrim ? analyze() : setLoaded(true))}
+              onError={onLoadError}
               loading="lazy"
             />
           )
@@ -200,9 +233,10 @@ function SaleCard({ sale }: { sale: TopSale }) {
  * URL, so every tile can render the WHOLE subject at the same size with
  * object-contain. Sources frame slabs at inconsistent scales and CSS can't tell
  * the subject from its padding — so we trim the uniform background by scanning a
- * downscaled copy for the subject's bounding box. Returns the trimmed crop, the
- * whole frame when there's no clear background to trim, or null when the pixels
- * can't be read (cross-origin taint).
+ * downscaled copy for the subject's bounding box. Returns the trimmed crop, or
+ * null when there's no confident crop to make — no clear subject, or the pixels
+ * can't be read (cross-origin taint). Null is the caller's cue to render
+ * object-cover instead of a small object-contain.
  */
 function autoTrim(img: HTMLImageElement): string | null {
   const W = img.naturalWidth;
@@ -252,21 +286,25 @@ function autoTrim(img: HTMLImageElement): string | null {
     }
   }
 
-  // Default to the full frame; trim to the subject when one clearly stands out.
-  let sx = 0, sy = 0, sw = W, sh = H;
-  if (maxX >= minX && maxY >= minY) {
-    const bw = (maxX - minX) / scale;
-    const bh = (maxY - minY) / scale;
-    const meaningful = bw > W * 0.15 && bh > H * 0.15 && (bw < W * 0.97 || bh < H * 0.97);
-    if (meaningful) {
-      const padX = (maxX - minX) * 0.03 + 1;
-      const padY = (maxY - minY) * 0.03 + 1;
-      sx = Math.max(0, minX - padX) / scale;
-      sy = Math.max(0, minY - padY) / scale;
-      sw = Math.min(aw, maxX + padX) / scale - sx;
-      sh = Math.min(ah, maxY + padY) / scale - sy;
-    }
-  }
+  // A subject has to clearly stand out from the background, and clearly be
+  // SMALLER than the frame, or there's nothing to trim.
+  //
+  // ⚠️ Return null — don't fall back to re-drawing the full frame. A full-frame
+  // "crop" is indistinguishable from a real one to the caller, so a padded slab
+  // (Beezie's near-black field) would be handed back untrimmed and rendered
+  // object-contain — small. Null tells the caller "couldn't normalise this one",
+  // and it renders object-cover so the subject at least fills the tile height.
+  if (maxX < minX || maxY < minY) return null; // nothing differed from the background
+  const bw = (maxX - minX) / scale;
+  const bh = (maxY - minY) / scale;
+  const meaningful = bw > W * 0.15 && bh > H * 0.15 && (bw < W * 0.97 || bh < H * 0.97);
+  if (!meaningful) return null; // subject fills the frame (or is too tiny to trust)
+  const padX = (maxX - minX) * 0.03 + 1;
+  const padY = (maxY - minY) * 0.03 + 1;
+  const sx = Math.max(0, minX - padX) / scale;
+  const sy = Math.max(0, minY - padY) / scale;
+  const sw = Math.min(aw, maxX + padX) / scale - sx;
+  const sh = Math.min(ah, maxY + padY) / scale - sy;
 
   // Re-draw the chosen region, capped to a sane resolution.
   const outH = Math.min(sh, 720);

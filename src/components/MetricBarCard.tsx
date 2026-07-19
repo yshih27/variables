@@ -265,14 +265,17 @@ function Plot({
 
       {/* Hover bands — invisible, full-height, one per DAY. Full-height so a
           near-zero bar is still reachable; hit area shouldn't track magnitude.
-          Empty days get an inert band: hovering the blank stretch of a young
-          series reads nothing rather than the nearest bar's value. */}
+          ⚠️ An empty day CLEARS the hover, it isn't inert: leaving that band with
+          no handler kept the last real bar highlighted as the cursor slid over
+          the blank stretch of a young series — a hover that stuck past the bar it
+          belonged to. Clearing on enter makes the blank read as nothing, which is
+          what it is, and is also what fixes the "sticky after mouseleave" report. */}
       <div className="absolute inset-0 flex gap-[3px]" onMouseLeave={() => onHover(null)}>
         {slots.map((s, i) => (
           <div
             key={s ? s.ts : `empty-${i}`}
             className="min-w-0 flex-1 cursor-default"
-            onMouseEnter={s ? () => onHover(i) : undefined}
+            onMouseEnter={() => onHover(s ? i : null)}
           />
         ))}
       </div>

@@ -6,9 +6,19 @@ import { MetricBarCard } from "@/components/MetricBarCard";
 import { PlatformStatBar } from "@/components/PlatformStatBar";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
-import { totalActivity24, sharePct24 } from "@/lib/platform/share";
-import { formatCompactUsd } from "@/lib/format";
+import { pctChange, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
+
+/** HHI concentration bands — matches PlatformStatBar's cutoffs (0.25/0.4) so the
+ *  rail detail and the ribbon can't disagree on whether the market is "High". */
+function hhiLabel(hhi: number): string {
+  if (hhi >= 0.4) return "High";
+  if (hhi >= 0.25) return "Moderate";
+  return "Low";
+}
+
+/** Show at most this many cards; the rest live in the full table below. */
+const MAX_CARDS = 4;
 
 const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v6"], {
   revalidate: 3600,
@@ -60,7 +70,11 @@ export default async function AllPlatformsPage() {
     getPlatformSeries("gacha_volume_usd"),
   ]);
 
-  const last14 = (s: SeriesPoint[]) => s.slice(-14);
+  // Last 14 CALENDAR days, not last 14 POINTS: a sparse series' 14 newest points
+  // can span 16+ days, which made the "14D" card's range label read "Jul 1 – Jul
+  // 16" while the plot (calendar-day slots) only drew 14. Slice by day so the
+  // label and the plot agree.
+  const last14 = (s: SeriesPoint[]) => lastNDays(s, 14);
 
   // Rank by TOTAL 24h activity — the same order, and the same Σ, that
   // PlatformTable sorts and divides by, so the leaderboard, the ribbon's
@@ -70,56 +84,103 @@ export default async function AllPlatformsPage() {
     (a, b) => (b.total24Usd > 0 ? b.total24Usd : 0) - (a.total24Usd > 0 ? a.total24Usd : 0),
   );
 
-  // ── Zone 1: the rail is a LEADERBOARD ───────────────────────────────────────
-  // One row per platform, so every line of the fold names a platform. The old
-  // rail's aggregates (Total/Marketplace/Gacha 24h) are gone from this page —
-  // they describe the market, which is /ips's subject — and Top Platform /
-  // Platforms Tracked / HHI moved up into the ribbon rather than being said
-  // twice.
-  //
-  // ⚠️ pct7d is ALREADY PERCENT (same producer the table's Δ7d column uses), so
-  // it is NOT ×100 here. /ips scales hero.mcapPct24h because THAT producer
-  // returns a fraction; copying that across renders 100× high.
-  const rows: OverviewMetricRow[] = ranked.map((p, i) => {
-    const share = sharePct24(p, total24);
-    const hasMkt = Number.isFinite(p.vol24Usd);
-    const hasGacha = p.gachaVol24Usd != null && Number.isFinite(p.gachaVol24Usd);
-    return {
-      label: p.name,
-      // No glossary key: the label names a platform, not a metric, and it's a
-      // link — a tooltip trigger on the same word would fight it.
-      value: p.total24Usd,
-      unit: "usd" as const,
-      // `?? null` because pct7d is OPTIONAL on PlatformRow: undefined would slip
-      // past the row's `!= null` guard as a missing delta anyway, but null is the
-      // type's own word for "belongs here, not available yet" → renders "—".
-      deltaPct: p.pct7d ?? null,
-      window: "7d" as const,
-      // The leader carries the fold's headline number. It's the same claim the
-      // ribbon's DOMINANCE makes, said once in figures.
-      hero: i === 0,
-      sublabel: p.chain,
-      sub: share != null ? `${share.toFixed(1)}% share` : undefined,
-      href: `/platform/${p.key}`,
-      // The split that makes the total legible. "—" where we have no source:
-      // Phygitals' marketplace volume is NaN, not zero, and a $0 would claim we
-      // looked and found nothing traded.
-      detail: [
-        { label: "Marketplace", value: hasMkt ? formatCompactUsd(p.vol24Usd) : "—" },
-        { label: "Gacha", value: hasGacha ? formatCompactUsd(p.gachaVol24Usd as number) : "—" },
-      ],
-    };
-  });
+  // Marketplace/gacha decomposition, Σ'd across platforms. `|| 0` / `?? 0` are
+  // load-bearing: Phygitals' marketplace vol is NaN (no secondary source) and one
+  // NaN poisons the Σ.
+  const vol24 = data.platforms.reduce(
+    (a, p) => ({
+      marketplace: a.marketplace + (p.vol24Usd || 0),
+      gacha: a.gacha + (p.gachaVol24Usd ?? 0),
+    }),
+    { marketplace: 0, gacha: 0 },
+  );
+  // The total's own daily series (every platform's marketplace + gacha, summed by
+  // day), so its 24h Δ comes from the spine rather than a hero field it lacks.
+  const totalDailyAll = totalDaily(...Object.values(mktSeries), ...Object.values(gachaSeries));
 
-  // ── Zone 2: one 14d card per platform ───────────────────────────────────────
-  // Each card's series is that platform's own marketplace + gacha daily total —
-  // the daily twin of the total24Usd its rail row leads with.
-  const cards = ranked.map((p) => {
+  const top = ranked[0];
+  const topShare = top ? sharePct24(top, total24) : null;
+  const hhi = concentrationHHI24(data.platforms, total24);
+  const chains = new Set(data.platforms.map((p) => p.chain)).size;
+
+  // ── Zone 1: SUMMARY rail (U5) ───────────────────────────────────────────────
+  // Fixed five rows that scale O(1), not one-per-platform: the market's shape
+  // (total, its marketplace/gacha split, who leads, how concentrated) reads at a
+  // glance and doesn't grow a row every time a platform is added — the full
+  // per-platform leaderboard is the table below.
+  //
+  // ⚠️ hero.vol24Pct / gachaVol24Pct are ALREADY PERCENT (dayOverDayPct), and
+  // pctChange (metricSnapshots) also returns percent — nothing here is ×100.
+  // /ips scales hero.mcapPct24h because THAT producer returns a fraction; do not
+  // copy that across.
+  //
+  // ⚠️ Top Platform's share and the Concentration HHI both come from
+  // totalActivity24 / sharePct24 / concentrationHHI24 — the SAME functions
+  // PlatformStatBar (the ribbon) uses — so the rail and ribbon can't disagree.
+  const rows: OverviewMetricRow[] = [
+    {
+      label: "Total 24h Volume",
+      metric: "total24h",
+      value: total24,
+      unit: "usd",
+      deltaPct: pctChange(totalDailyAll, 1),
+      window: "24h",
+      hero: true,
+    },
+    {
+      label: "24h Marketplace Vol",
+      metric: "marketplace",
+      value: vol24.marketplace,
+      unit: "usd",
+      deltaPct: data.hero.vol24Pct,
+      window: "24h",
+    },
+    {
+      label: "24h Gacha Vol",
+      metric: "gacha",
+      value: vol24.gacha,
+      unit: "usd",
+      deltaPct: data.hero.gachaVol24Pct,
+      window: "24h",
+    },
+    {
+      // An ENTITY, not a measurement → valueText + stat. `stat` (not deltaPct:
+      // null) because a leader has no %Δ to be "missing". The NAME links to the
+      // platform; the "Top Platform" label doesn't name the destination.
+      label: "Top Platform",
+      metric: "share",
+      value: NaN,
+      unit: "usd",
+      deltaPct: null,
+      valueText: top?.name ?? "—",
+      valueHref: top ? `/platform/${top.key}` : undefined,
+      stat: topShare != null ? `${topShare.toFixed(1)}% of 24h vol` : undefined,
+    },
+    {
+      label: "Platforms Tracked",
+      metric: "marketShare",
+      value: data.platforms.length,
+      unit: "count",
+      deltaPct: null,
+      stat: `across ${chains} chain${chains === 1 ? "" : "s"}`,
+      detail:
+        hhi != null
+          ? [{ label: "Concentration", value: `HHI ${hhi.toFixed(2)} · ${hhiLabel(hhi)}` }]
+          : undefined,
+    },
+  ];
+
+  // ── Zone 2: top-N 14d cards (U5) ────────────────────────────────────────────
+  // The top MAX_CARDS platforms by 24h vol, each showing its own marketplace +
+  // gacha daily total. The rest are one click away in the table, flagged by the
+  // "+N more" affordance rather than growing an unbounded card grid.
+  const cardPlatforms = ranked.slice(0, MAX_CARDS);
+  const moreInTable = ranked.length - cardPlatforms.length;
+  const cards = cardPlatforms.map((p) => {
     const mkt = mktSeries[p.key];
     const gacha = gachaSeries[p.key];
     // "Gacha only" is read off the DATA, not hardcoded to Phygitals: no
     // marketplace series means we have no secondary source for this platform.
-    // If one ever lands, the note disappears on its own.
     const gachaOnly = !(mkt?.length ?? 0) && (gacha?.length ?? 0) > 0;
     return {
       key: p.key,
@@ -148,8 +209,9 @@ export default async function AllPlatformsPage() {
             <IndexStudio scope={{ entity: "platform" }} />
           </div>
 
-          {/* ZONE 2 — one 14d card per platform, in leaderboard order, so the
-              rail's ranking reads straight down into the cards. */}
+          {/* ZONE 2 — the top-4 platforms' 14d cards, in leaderboard order, so
+              the rail's summary reads straight down into the leaders. Any beyond
+              the top 4 are one click away in the table. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {cards.map((c) => (
               <MetricBarCard
@@ -162,9 +224,20 @@ export default async function AllPlatformsPage() {
               />
             ))}
           </div>
+          {moreInTable > 0 && (
+            <a
+              href="#platforms-table"
+              className="block text-[12px] text-ink-3 transition-colors hover:text-yellow"
+            >
+              + {moreInTable} more platform{moreInTable === 1 ? "" : "s"} in the table below →
+            </a>
+          )}
 
-          {/* ZONE 3 — the full list. */}
-          <PlatformTable rows={data.platforms} chainFacets />
+          {/* ZONE 3 — the full leaderboard. scroll-mt clears the sticky nav when
+              the "+N more" affordance jumps here. */}
+          <div id="platforms-table" className="scroll-mt-24">
+            <PlatformTable rows={data.platforms} chainFacets />
+          </div>
         </div>
       </div>
     </>

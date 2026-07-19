@@ -149,7 +149,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
                 key={link.label}
                 href={link.href}
                 aria-current={active ? "page" : undefined}
-                className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[13px] transition-colors sm:px-3 ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 sm:px-3 ${
                   active ? "bg-bg-2 text-ink" : "text-ink-3 hover:text-ink"
                 }`}
               >
@@ -214,7 +214,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
           onSubmit={onSearchSubmit}
           role="search"
           aria-label="Search VARIBLE"
-          className="flex items-center gap-2.5 border-b border-line/70 px-6 py-3 md:hidden"
+          className="flex items-center gap-2.5 border-b border-line/70 px-6 py-3 focus-within:border-yellow/50 md:hidden"
         >
           <span className="text-ink-3">
             <SearchIcon />
