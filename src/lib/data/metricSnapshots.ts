@@ -178,6 +178,21 @@ export const DELTA_MIN_BASE_USD = 1000;
  * Returns NaN when fewer than `days` distinct days exist in that window: a missing
  * number beats a 3-day sum masquerading as "7d".
  */
+/**
+ * Keep the points falling within the last `days` CALENDAR days, ending on the
+ * series' newest point. Unlike `slice(-days)` (which takes N points regardless of
+ * how many calendar days they span), this guarantees the returned span is ≤ days
+ * — so a sparse series can't make a "14D" card's range label read 16 days while
+ * the plot only draws 14.
+ */
+export function lastNDays(series: SeriesPoint[], days: number): SeriesPoint[] {
+  if (!series.length || days < 1) return series;
+  const dayIdx = (ts: string) => Math.floor(Date.parse(ts) / 86_400_000);
+  const endDay = dayIdx(series[series.length - 1].ts);
+  const cutoff = endDay - (days - 1);
+  return series.filter((p) => dayIdx(p.ts) >= cutoff);
+}
+
 export function sumLastCompleteDays(series: SeriesPoint[], days: number): number {
   if (days < 1) return NaN;
   const sorted = series

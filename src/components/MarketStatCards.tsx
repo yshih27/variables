@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { HeroStats, Trend } from "@/lib/types";
 import { Sparkline } from "./Sparkline";
-import { formatCompactUsd } from "@/lib/format";
+import { formatCompactUsd, deltaDir } from "@/lib/format";
 
 /** Full USD with thousands separators, like CoinGecko's headline cards. */
 function fullUsd(n: number): string {
@@ -17,9 +17,7 @@ function compactUsd(n: number): string {
 
 function trendFrom(deltaPct: number | null, spark: number[]): Trend {
   if (deltaPct != null && Number.isFinite(deltaPct)) {
-    if (deltaPct > 0.05) return "up";
-    if (deltaPct < -0.05) return "down";
-    return "flat";
+    return deltaDir(deltaPct); // shared ±0.05 dead-band
   }
   if (spark.length >= 2) {
     const d = spark[spark.length - 1] - spark[0];
@@ -156,10 +154,11 @@ function Card({
 }
 
 function Delta({ pct }: { pct: number }) {
-  const up = pct > 0.05;
-  const down = pct < -0.05;
-  const cls = up ? "text-green" : down ? "text-red" : "text-ink-3";
-  const arrow = up ? "▲" : down ? "▼" : "·";
+  // Arrow carries direction, text is magnitude only — so this pattern never
+  // printed a signed zero. Kept, but the threshold now comes from one place.
+  const dir = deltaDir(pct);
+  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
+  const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "·";
   return (
     <span className={`flex items-center gap-1 text-[13px] font-semibold tabular ${cls}`}>
       <span className="text-[10px]">{arrow}</span>

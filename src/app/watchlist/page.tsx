@@ -5,7 +5,7 @@ import { fetchHomepage } from "@/lib/data/fetchHomepage";
 
 export const metadata = {
   title: "Watchlist · VARIBLE",
-  description: "Your saved categories and platforms — live volume, market cap, and holders.",
+  description: "Your saved IPs and platforms — live volume, market cap, and holders.",
 };
 
 // ISR like the homepage: the watchlist itself is client-side (localStorage);
@@ -28,7 +28,7 @@ export default async function WatchlistPage() {
         <div className="mb-8">
           <h1 className="text-[20px] font-bold leading-none tracking-[-0.01em]">Watchlist</h1>
           <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
-            The categories and platforms you follow, with their live stats. Saved in this browser.
+            The IPs and platforms you follow, with their live stats. Saved in this browser.
           </p>
         </div>
         <WatchlistView ips={data.ips} platforms={data.platforms} />

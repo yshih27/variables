@@ -22,7 +22,7 @@ import { readWatchlist, subscribeWatchlist, toggleWatchlist } from "@/lib/watchl
  */
 
 const BTN =
-  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors";
+  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60";
 
 type CopyState = "idle" | "ok" | "fail";
 
@@ -191,7 +191,7 @@ export function RailActions({
                 readOnly
                 value={url}
                 onFocus={(e) => e.currentTarget.select()}
-                className="mt-1.5 w-full rounded-lg border border-line-2 bg-bg-2 px-2 py-1 font-mono text-[11px] text-ink-2 outline-none"
+                className="mt-1.5 w-full rounded-lg border border-line-2 bg-bg-2 px-2 py-1 font-mono text-[11px] text-ink-2 outline-none focus-visible:border-yellow"
               />
             </div>
           )}

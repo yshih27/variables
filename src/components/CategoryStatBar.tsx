@@ -55,10 +55,14 @@ export function CategoryStatBar({ rows, categories }: { rows: IPRow[]; categorie
       ),
     },
     {
+      // Figure-first, matching PlatformStatBar's "HHI n.nn · Band" — the two
+      // ribbons sit on sibling pages and read side by side, so the order can't
+      // flip between them.
       label: "Concentration",
       value: (
         <span>
-          {hhiLabel(hhi)} <span className="tabular text-ink-3">· HHI {hhi.toFixed(2)}</span>
+          <span className="tabular">HHI {hhi.toFixed(2)}</span>{" "}
+          <span className="text-ink-3">· {hhiLabel(hhi)}</span>
         </span>
       ),
     },

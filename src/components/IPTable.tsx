@@ -10,7 +10,7 @@ import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import { hasRealMcap } from "@/lib/ip/mcap";
 import type { MetricKey } from "@/lib/metrics/glossary";
-import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
 
 type Props = {
   rows: IPRow[];
@@ -355,11 +355,7 @@ function domCell(ip: IPRow, total: number): string {
 /** Colored % change for the leaderboard Δ columns ("—" when the spine can't reach back). */
 function DeltaCell({ pct }: { pct?: number | null }) {
   if (pct == null || !Number.isFinite(pct)) return <span className="text-ink-4">—</span>;
-  const cls = pct > 0.05 ? "text-green" : pct < -0.05 ? "text-red" : "text-ink-3";
-  return (
-    <span className={`font-semibold ${cls}`}>
-      {pct > 0 ? "+" : ""}
-      {pct.toFixed(1)}%
-    </span>
-  );
+  const dir = deltaDir(pct);
+  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
+  return <span className={`font-semibold ${cls}`}>{formatDelta(pct)}</span>;
 }

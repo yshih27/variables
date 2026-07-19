@@ -179,6 +179,19 @@ pre {
 
 .scroll-x {
   overflow-x: auto;
+  /* Edge scroll-shadows (Lea Verou's technique): the two `local` "cover" layers
+     scroll WITH the content and mask the shadow at each end, while the two
+     `scroll` radial "shadow" layers stay pinned to the container edges. Net
+     effect: a soft shadow appears on a side ONLY when there's more table to
+     scroll that way — so a wide table (the top-21 IP table at 1280px) shows it's
+     scrollable instead of just being silently clipped. */
+  background:
+    linear-gradient(to right, var(--color-bg-1), transparent) 0 0 / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--color-bg-1), transparent) 100% 0 / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.4), transparent) 0 0 / 14px 100% no-repeat
+      scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.4), transparent) 100% 0 / 14px 100%
+      no-repeat scroll;
 }
 .scroll-x::-webkit-scrollbar {
   height: 8px;

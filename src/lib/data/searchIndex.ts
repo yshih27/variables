@@ -11,6 +11,7 @@ import type { CardSearchHit } from "./cards";
 import { IP_CATALOG, OTHER_IP } from "./ipCatalog";
 import { PLATFORM_SOURCES } from "./sources";
 import { cardHref, cardSupported } from "@/lib/card/ids";
+import { parseGradeLabel } from "@/lib/card/grade";
 import { formatCompactUsd } from "@/lib/format";
 
 export type SearchResult = {
@@ -59,7 +60,11 @@ function escapeRegExp(s: string): string {
 export function cardHitToResult(hit: CardSearchHit): SearchResult {
   const ip = [...IP_CATALOG, OTHER_IP].find((i) => i.key === hit.ip_key);
   const bits: string[] = [ip?.name ?? hit.ip_key];
-  if (hit.grade_label && hit.grade_label !== "Ungraded") bits.push(hit.grade_label);
+  // Route the grade through the shared parser so BECKETT folds to BGS — search
+  // was the one path still printing the raw feed label ("Beckett 9"), reading as
+  // a different grader from the "BGS 9" every table shows for the same card.
+  const parsedGrade = parseGradeLabel(hit.grade_label);
+  if (parsedGrade) bits.push(parsedGrade.label);
   else if (hit.set_name) bits.push(hit.set_name);
   if (hit.insured_value_usd && hit.insured_value_usd > 0) bits.push(formatCompactUsd(hit.insured_value_usd));
   return {

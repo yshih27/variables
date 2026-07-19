@@ -1,7 +1,7 @@
 import { SectionShell } from "./Section";
 import { MetricInfo } from "./MetricInfo";
 import { RowLink } from "./RowLink";
-import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, deltaDir, formatDelta } from "@/lib/format";
 import type { MetricKey } from "@/lib/metrics/glossary";
 
 /**
@@ -52,6 +52,9 @@ export type OverviewMetricRow = {
    *  ENTITY rather than a measurement ("Top Platform → Collector Crypt"). Set in
    *  sans, not tabular: it isn't a figure. */
   valueText?: string;
+  /** Links the valueText to that entity's page — for "Top Platform", where the
+   *  clickable thing is the NAMED platform, not the "Top Platform" label. */
+  valueHref?: string;
   /** Render this instead of the delta+window pair — for a row that has no delta
    *  because it ISN'T a time series (a share, a count of tracked platforms).
    *  ⚠️ Distinct from `deltaPct: null`, which means "a delta belongs here but
@@ -93,6 +96,7 @@ function MetricRow({
   hero,
   detail,
   valueText,
+  valueHref,
   stat,
   sublabel,
   sub,
@@ -120,7 +124,17 @@ function MetricRow({
         >
           {/* NaN (no data yet) and a real 0 both fail this guard — both are
               honestly "—" here rather than a confident zero. */}
-          {valueText ?? (value > 0 ? fmt(value, unit) : "—")}
+          {valueText != null ? (
+            valueHref ? (
+              <RowLink href={valueHref}>{valueText}</RowLink>
+            ) : (
+              valueText
+            )
+          ) : value > 0 ? (
+            fmt(value, unit)
+          ) : (
+            "—"
+          )}
         </span>
         <span className="flex items-center gap-1">
           {stat ? (
@@ -182,17 +196,15 @@ function Chevron() {
 }
 
 function Delta({ pct }: { pct: number }) {
-  // ±0.05% dead-band: below that a "+0.0%" with an arrow implies a move that
-  // isn't there, so it degrades to a neutral dot.
-  const up = pct > 0.05;
-  const down = pct < -0.05;
-  const cls = up ? "text-green" : down ? "text-red" : "text-ink-3";
-  const arrow = up ? "▲" : down ? "▼" : "·";
+  // Dead-banded so a tiny move degrades to a neutral dot AND drops its sign —
+  // formatDelta prints "0.0%" (not "−0.0%") inside the band. One convention.
+  const dir = deltaDir(pct);
+  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
+  const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "·";
   return (
     <span className={`flex items-center gap-1 text-[12.5px] font-semibold tabular ${cls}`}>
       <span className="text-[9px]">{arrow}</span>
-      {pct > 0 ? "+" : ""}
-      {pct.toFixed(1)}%
+      {formatDelta(pct)}
     </span>
   );
 }

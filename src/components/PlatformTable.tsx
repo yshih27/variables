@@ -8,7 +8,7 @@ import { Sparkline } from "./Sparkline";
 import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
-import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
 
 const CHAIN_DOT: Record<Chain, string> = {
   Polygon: "var(--color-purple)",
@@ -259,13 +259,9 @@ function shareCell(p: PlatformRow, total: number): string {
 /** Colored 7-day % change ("—" when the bucket history can't reach back a week). */
 function DeltaCell({ pct }: { pct?: number | null }) {
   if (pct == null || !Number.isFinite(pct)) return <span className="text-ink-4">—</span>;
-  const cls = pct > 0.05 ? "text-green" : pct < -0.05 ? "text-red" : "text-ink-3";
-  return (
-    <span className={`font-semibold ${cls}`}>
-      {pct > 0 ? "+" : ""}
-      {pct.toFixed(1)}%
-    </span>
-  );
+  const dir = deltaDir(pct);
+  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
+  return <span className={`font-semibold ${cls}`}>{formatDelta(pct)}</span>;
 }
 
 function Th({
