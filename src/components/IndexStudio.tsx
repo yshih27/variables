@@ -444,15 +444,36 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     for (const [id, pts] of seriesData) {
       m.set(
         id,
-        pts.map((p) => ({ ms: Date.parse(p.ts), value: p.value })),
+        pts
+          .map((p) => ({ ms: Date.parse(p.ts), value: p.value }))
+          // Finite + ascending ONCE here, not per-window: the model's boundary
+          // interpolation (interpAt) needs sorted input, and doing it in this
+          // seriesData-keyed memo keeps it off the wheel's per-frame path.
+          .filter((p) => Number.isFinite(p.ms) && Number.isFinite(p.value))
+          .sort((a, b) => a.ms - b.ms),
       );
     }
     return m;
   }, [seriesData]);
 
-  // Project every visible series onto the current window: rebase to 100 at the
-  // first in-window point (or raw in absolute mode). Returns per-series in-window
-  // points {ms, v} plus the y-domain and the primary (first visible).
+  // Project every visible series onto the current window.
+  //
+  // ⚠️ ONE common rebase anchor: the WINDOW START, for every series. It used to
+  // rebase each series at its own FIRST IN-WINDOW point — fine for a daily series
+  // (whose first in-window point sits ~a day after the window edge) but wrong for
+  // a weekly one, whose first in-window point can be a week in. So "V-MKT vs S&P"
+  // anchored the two at different DATES: V-MKT read 100.0 on Jun 22 next to an S&P
+  // already at 100.7 from its Jun 17 anchor. Now both divide by their value AT the
+  // window start — interpolated between the bracketing real points for a sparse
+  // series — so 100 means the same date for all of them, which is what "100 at
+  // window start" always claimed.
+  //
+  // The line is ALSO extended to the window edge: a synthetic boundary point at
+  // (s, anchor) is prepended to the PATH so a weekly line spans the full window
+  // instead of starting a week in. That point is GEOMETRY ONLY — it never enters
+  // `pts`, so the crosshair, tooltip, dots, endpoint label and CSV still see real
+  // readings exclusively. Interpolation touches the anchor and the boundary
+  // segment, nothing the user can hover.
   const model = useMemo(() => {
     if (!window0 || !visible.length) return null;
     const [s, e] = window0;
@@ -462,24 +483,51 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
 
     const cols = visible.map((id) => {
       const item = byId.get(id)!;
-      const raw = parsed.get(id) ?? [];
-      const inWin = raw.filter((p) => p.ms >= s && p.ms <= e && Number.isFinite(p.value));
+      const raw = parsed.get(id) ?? []; // finite + ascending (see `parsed`)
+      const inWin = raw.filter((p) => p.ms >= s && p.ms <= e);
+
+      // Value at the window start — the common anchor. `interpAt` returns null
+      // when s predates the whole series (a young series that simply has no
+      // reading at the window start); we then fall back to its first in-window
+      // point and add no boundary, which is the honest "starts mid-window".
+      const anchorV = interpAt(raw, s);
       let base = 1;
+      let boundaryRaw: number | null = null;
       if (mode === "rebase") {
-        const first = inWin.find((p) => p.value > 0);
-        base = first ? first.value : NaN;
+        if (anchorV != null && anchorV > 0) {
+          base = anchorV;
+          boundaryRaw = anchorV;
+        } else {
+          const first = inWin.find((p) => p.value > 0);
+          base = first ? first.value : NaN;
+        }
+      } else if (anchorV != null) {
+        boundaryRaw = anchorV; // absolute mode still extends the line to the edge
       }
-      const pts = inWin.map((p) => ({
-        ms: p.ms,
-        v: mode === "rebase" ? (Number.isFinite(base) ? (p.value / base) * 100 : NaN) : p.value,
-        raw: p.value,
-      }));
-      return { id, item, pts, step: medianStep(pts) };
+
+      const rebase = (val: number) =>
+        mode === "rebase" ? (Number.isFinite(base) ? (val / base) * 100 : NaN) : val;
+
+      // Real in-window points — the ONLY points anything interactive reads.
+      const pts = inWin.map((p) => ({ ms: p.ms, v: rebase(p.value), raw: p.value }));
+
+      // Path points = the boundary (when we have one and the first real point is
+      // strictly inside the window) followed by the real points. Drawn, not read.
+      let pathPts = pts;
+      if (boundaryRaw != null && inWin.length > 0 && inWin[0].ms > s) {
+        const b = boundaryRaw;
+        pathPts = [{ ms: s, v: rebase(b), raw: b }, ...pts];
+      }
+
+      return { id, item, pts, pathPts, step: medianStep(pts) };
     });
 
+    // Domain over the PATH points (boundary included): a rising sparse series'
+    // interpolated anchor can sit below every in-window point, so excluding it
+    // would clip the boundary segment beneath the plot floor.
     let lo = Infinity;
     let hi = -Infinity;
-    for (const c of cols) for (const p of c.pts) if (Number.isFinite(p.v)) { lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); }
+    for (const c of cols) for (const p of c.pathPts) if (Number.isFinite(p.v)) { lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); }
     if (!Number.isFinite(lo)) { lo = 0; hi = 100; }
     if (mode === "rebase") { lo = Math.min(lo, 100); hi = Math.max(hi, 100); }
     const padv = (hi - lo) * 0.1 || 1;
@@ -496,10 +544,11 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
 
     const lines = cols.map((c) => ({
       ...c,
-      path: monotonePath(c.pts.filter((p) => Number.isFinite(p.v)).map((p) => [X(p.ms), Y(p.v)] as [number, number])),
+      path: monotonePath(c.pathPts.filter((p) => Number.isFinite(p.v)).map((p) => [X(p.ms), Y(p.v)] as [number, number])),
     }));
 
-    // Union of in-window dates (sorted) for crosshair snapping + x-ticks.
+    // Union of REAL in-window dates (sorted) for crosshair snapping + x-ticks —
+    // pts, not pathPts, so the synthetic boundary is never a snap target.
     const tsSet = new Set<number>();
     for (const c of cols) for (const p of c.pts) tsSet.add(p.ms);
     const unionTs = [...tsSet].sort((a, b) => a - b);
@@ -1052,7 +1101,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                   </linearGradient>
                 </defs>
                 {(() => {
-                  const fp = model.primary.pts.filter((p) => Number.isFinite(p.v));
+                  // Close under the PATH points (boundary included) so the fill
+                  // reaches the window edge with the line, not the first real point.
+                  const fp = model.primary.pathPts.filter((p) => Number.isFinite(p.v));
                   if (fp.length < 2) return null;
                   const area = `${model.primary.path}L${model.X(fp[fp.length - 1].ms).toFixed(1)} ${(PAD.t + model.plotH).toFixed(1)}L${model.X(fp[0].ms).toFixed(1)} ${(PAD.t + model.plotH).toFixed(1)}Z`;
                   return <path d={area} fill="url(#is-area)" />;
@@ -1444,6 +1495,38 @@ function watermark(plotW: number, centerY: number): string {
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────────────
+/**
+ * Linear value of a series at `target` ms, interpolated between the two real
+ * points that bracket it. The common rebase anchor: it lets a weekly series be
+ * valued at the window start (which falls BETWEEN its points) on the same date as
+ * the daily series around it.
+ *
+ * `pts` must be finite + ascending (the `parsed` memo guarantees both). Returns:
+ *   • null when `target` is before the first point — a series with no reading at
+ *     the window start can't be anchored there; the caller degrades to its first
+ *     in-window point and draws no boundary segment.
+ *   • the last value when `target` is at/after the last point (a flat carry, but
+ *     that case doesn't arise for the anchor: if the series ended before the
+ *     window start it has no in-window points to draw).
+ * This is used ONLY for the anchor and the boundary segment — never surfaced as a
+ * data point, so no interpolated value is ever hoverable or exported.
+ */
+function interpAt(pts: { ms: number; value: number }[], target: number): number | null {
+  const n = pts.length;
+  if (!n || target < pts[0].ms) return null;
+  if (target >= pts[n - 1].ms) return pts[n - 1].value;
+  for (let i = 1; i < n; i++) {
+    if (pts[i].ms === target) return pts[i].value;
+    if (pts[i].ms > target) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const dt = b.ms - a.ms;
+      return dt > 0 ? a.value + ((target - a.ms) / dt) * (b.value - a.value) : a.value;
+    }
+  }
+  return pts[n - 1].value;
+}
+
 /** A series' own sampling step: the MEDIAN gap between consecutive points (~1d
  *  for the daily spine, ~7d for the weekly indices). Median, not mean, so one
  *  long hole in an otherwise-daily series doesn't inflate the crosshair's reach
