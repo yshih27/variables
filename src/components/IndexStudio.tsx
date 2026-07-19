@@ -38,6 +38,10 @@ type CatalogItem = {
   unit: Unit;
   color: string;
   dash?: boolean;
+  /** Sampled weekly, not daily (the price indices). Drives the "weekly" tag and
+   *  the dated-endpoint honesty: a weekly line's last point is usually days
+   *  behind the window edge, and its value must not read as "as of today". */
+  weekly?: boolean;
 };
 type Mode = "rebase" | "abs";
 
@@ -185,6 +189,7 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
       group: "Indices",
       unit: "index",
       color: p.entity === "market" ? "#bfef01" : nextColor(),
+      weekly: true, // fetched freq:"weekly" above
     });
   }
 
@@ -718,6 +723,15 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
    *  itself: a rebased chart read as absolute dollars is a real misreading. */
   const modeLine = mode === "rebase" ? "rebased · 100 at window start" : "absolute values";
 
+  /**
+   * The date a series' latest reading is FROM, but only when that's meaningfully
+   * behind the window edge — else null (the number is current, no date needed).
+   * A daily series lagging the spine by a day stays undated; a weekly one, days
+   * behind by construction, gets its own date so its value isn't misread as today.
+   */
+  const endpointDate = (lastMs: number): string | null =>
+    model && model.e - lastMs > 1.5 * DAY ? fmtDate(lastMs) : null;
+
   // ── export ────────────────────────────────────────────────────────────────
   const shareUrl = () => {
     navigator.clipboard?.writeText(window.location.href).then(
@@ -919,17 +933,31 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
           const line = model?.lines.find((l) => l.id === id);
           const last = line?.pts.filter((p) => Number.isFinite(p.v)).at(-1);
           const cur = last ? (mode === "rebase" ? last.v.toFixed(1) : fmtVal(item.unit, last.raw)) : "—";
+          // The value is "as of" the last point, which for a weekly line (or any
+          // series the spine hasn't caught up on) is behind the window edge. Date
+          // it so 139.6 doesn't read as today's number.
+          const asOf = last ? endpointDate(last.ms) : null;
           const off = hidden.has(id);
+          const title = `${item.name}${item.weekly ? " · weekly series" : ""}${asOf ? ` · latest ${asOf}` : ""}`;
           return (
             <span
               key={id}
+              title={title}
               className={`inline-flex items-center gap-1.5 rounded-none border border-line bg-bg-2 px-2 py-1 text-[12px] transition-opacity ${off ? "opacity-40" : ""}`}
             >
               <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: item.color }} />
               <button type="button" className="font-mono font-semibold tracking-[0.01em] text-ink-2 hover:text-ink" onClick={() => toggleMetric(id)}>
                 {item.ticker}
               </button>
-              <span className="font-mono text-[11px] text-ink-3">{cur}</span>
+              {item.weekly && (
+                <span className="rounded-sm bg-bg-3 px-1 py-px font-mono text-[8.5px] uppercase leading-none tracking-[0.08em] text-ink-4">
+                  wk
+                </span>
+              )}
+              <span className="font-mono text-[11px] text-ink-3">
+                {cur}
+                {asOf && <span className="text-ink-4"> · {asOf}</span>}
+              </span>
               <button type="button" aria-label={`Remove ${item.ticker}`} className="font-mono text-[13px] leading-none text-ink-4 hover:text-red" onClick={() => removeMetric(id)}>
                 ✕
               </button>
@@ -1048,12 +1076,20 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
               const end = model.primary.pts.filter((p) => Number.isFinite(p.v)).at(-1);
               if (!end) return null;
               const y = model.Y(end.v);
+              // Same honesty as the chip: if the primary's last point is behind
+              // the window edge, print the date it's actually from under the value.
+              const asOf = endpointDate(end.ms);
               return (
                 <g>
-                  <rect x={w - PAD.r + 2} y={y - 8} width={PAD.r - 4} height={16} fill="#0a0a0c" />
+                  <rect x={w - PAD.r + 2} y={y - 8} width={PAD.r - 4} height={asOf ? 26 : 16} fill="#0a0a0c" />
                   <text x={w - PAD.r + 6} y={y + 3} fontSize={11} fontWeight={700} fill={model.primary.item.color} fontFamily="var(--font-jetbrains-mono), monospace">
                     {mode === "rebase" ? end.v.toFixed(1) : fmtVal(model.primary.item.unit, end.raw)}
                   </text>
+                  {asOf && (
+                    <text x={w - PAD.r + 6} y={y + 15} fontSize={8.5} fill="var(--color-ink-4)" fontFamily="var(--font-jetbrains-mono), monospace">
+                      {asOf}
+                    </text>
+                  )}
                 </g>
               );
             })()}
@@ -1238,6 +1274,18 @@ function MetricPicker({ catalog, active, search, onSearch, onPick, onClose }: {
               <div className="px-2 pb-1 pt-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-4">{g}</div>
               {items.map((c) => {
                 const on = active.has(c.id);
+                // For index-unit rows (our indices AND the benchmarks) the bare
+                // "index" tag said nothing — both groups carried it, and it read
+                // as if BTC were one of our indices. Show the CADENCE instead,
+                // which is the useful distinction there; usd/count rows keep their
+                // unit, which is more informative than "daily".
+                const tag = on
+                  ? "added"
+                  : c.unit === "index"
+                    ? c.weekly
+                      ? "weekly"
+                      : "daily"
+                    : c.unit;
                 return (
                   <div
                     key={c.id}
@@ -1248,7 +1296,7 @@ function MetricPicker({ catalog, active, search, onSearch, onPick, onClose }: {
                     <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: c.color }} />
                     <span className="min-w-[62px] font-mono text-[12px] font-semibold">{c.ticker}</span>
                     <span className="flex-1 truncate text-[12.5px] text-ink-2">{c.name}</span>
-                    <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">{on ? "added" : c.unit}</span>
+                    <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-ink-4">{tag}</span>
                   </div>
                 );
               })}
