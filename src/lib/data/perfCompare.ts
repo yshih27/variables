@@ -5,8 +5,8 @@ import { tickerOf } from "../indices/naming";
 
 /**
  * Rebased PRICE-index comparison for the /ips + /ip[key] charts (QA-6): the given
- * internal entities (IPs and/or the whole market) plus the 4 external benchmarks
- * (BTC / ETH / S&P 500 / NASDAQ), aligned on ONE weekly axis. The price index is a
+ * internal entities (IPs and/or the whole market) plus the external benchmarks
+ * (BTC / ETH / SOL / Gold / S&P 500 / NASDAQ), aligned on ONE weekly axis. The price index is a
  * constant-quality (stratified-median) series, so overlaying it against benchmark
  * prices is apples-to-apples — that's why these charts drop the "market size" caveat.
  *
@@ -28,6 +28,7 @@ export const PRICE_RANGES = [
 const BENCHMARKS = [
   { sym: "BTC", label: "BTC", color: "#e8993a" },
   { sym: "ETH", label: "ETH", color: "#8b93c9" },
+  { sym: "SOL", label: "SOL", color: "#9b6fd4" }, // muted Solana purple — the RWA-TCG settlement chain
   { sym: "GOLD", label: "Gold", color: "#c8a951" },
   { sym: "SP500", label: "S&P 500", color: "#9aa0ab" },
   { sym: "NASDAQ", label: "NASDAQ", color: "#6fb0c9" },
