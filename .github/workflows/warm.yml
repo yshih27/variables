@@ -184,6 +184,12 @@ jobs:
         run: npx tsx scripts/warm-weekly-report.ts
       - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
         run: npx tsx scripts/check-freshness.ts --require=benchmarks,price-index,weekly-report
+      # Data-integrity gate — the price index was just rewritten above. INV-7 (HARD)
+      # fails the run if any index series published a FUTURE-dated point or the
+      # IN-PROGRESS week (the post-#44 completeness regression), so a thin partial-week
+      # spike can never silently reach the chart again.
+      - name: Invariants gate (index completeness + no future points)
+        run: npx tsx scripts/check-invariants.ts
 
   # ── Weekly report — movers ranker + composer → `weekly-report` snapshot (B9-2).
   #    Mondays 08:00, covering the just-completed Mon→Mon UTC week. Pure derivation
