@@ -9,6 +9,10 @@
  *   from    ISO date the series rebases to 100 at (default 2000-01-01 = inception)
  *   freq    daily | weekly                (mcap only; price is natively weekly)
  *
+ * Weekly points are stamped at the week's END (the covered Mon–Sun week's Sunday, UTC)
+ * — a week's value is "as of" its Sunday, not the Monday it opened. (CSV/chart consumers:
+ * weekly dates are the week-end Sunday; this changed from week-start Monday.)
+ *
  * Every response carries the index's `ticker` (e.g. "V-PKM") + `indexName` from the
  * naming SSOT — the API is the canonical ticker registry (docs/api-v1.md).
  *

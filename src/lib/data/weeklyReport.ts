@@ -6,8 +6,9 @@
  * The report covers the just-COMPLETED Mon→Mon UTC week ([weekStart, weekEnd)),
  * compared against the week before. Everything is a pure derivation over data
  * that already exists:
- *   • index WoW        — the constant-quality PRICE index (weekly Monday points;
- *                        the point AT weekStart aggregates the completed week).
+ *   • index WoW        — the constant-quality PRICE index (weekly points stamped at
+ *                        each week's END/Sunday; lastBefore the running week's Monday
+ *                        picks the completed week).
  *   • vs benchmarks    — BTC/ETH/SP500/NASDAQ/GOLD closes from the spine;
  *                        spread = index WoW − benchmark WoW over the same week.
  *   • top movers       — spine bulk reads: per-IP / per-set volume (flow: week
@@ -343,9 +344,10 @@ export async function buildWeeklyReport(nowMs: number = Date.now()): Promise<Wee
   const weekStartMs = weekEndMs - 7 * DAY;
   const weekStart = new Date(weekStartMs).toISOString();
 
-  // ── Index WoW (price index is weekly, Monday-keyed: the point AT weekStart
-  //    aggregates the completed week; the point at weekEnd is the partial
-  //    running week and is excluded by the strict `< weekEnd` cut). ──
+  // ── Index WoW. The price index is weekly, stamped at each week's END (Sunday).
+  //    `weekEndMs` here is the RUNNING week's Monday 00:00, so lastBefore() picks the
+  //    completed week's Sunday point (< that Monday) for p1 and the prior week's Sunday
+  //    for p0; the running week's (later) point is excluded by the strict `< weekEnd`. ──
   const idx = await readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" });
   const p1 = lastBefore(idx, weekEndMs);
   const p0 = lastBefore(idx, weekStartMs);
