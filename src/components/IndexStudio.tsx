@@ -96,12 +96,27 @@ function scopedDefaultActive(scope: StudioScope): string[] {
 
 // Line colors. V-MKT is the brand yellow; benchmarks keep recognizable brand hues;
 // everything else draws from a distinct palette assigned by catalog order.
+// Benchmark presentation, keyed by the symbol the /benchmarks endpoint returns.
+// The picker iterates whatever keys come back (so a backend-added symbol like SOL
+// shows up with zero FE edits) and looks each up here; an unknown symbol falls
+// back to itself for ticker/name and a palette colour. SOL is pre-seeded because
+// it's the known incoming one — a courtesy, not a requirement for it to appear.
 const BENCH_COLOR: Record<string, string> = {
   BTC: "#e8993a",
   ETH: "#8b93c9",
   SP500: "#9aa0ab",
   NASDAQ: "#6fb0c9",
   GOLD: "#c8a951",
+  SOL: "#14f195", // Solana green
+};
+const BENCH_TICKER: Record<string, string> = { SP500: "S&P 500", NASDAQ: "NASDAQ" };
+const BENCH_NAME: Record<string, string> = {
+  BTC: "Bitcoin",
+  ETH: "Ethereum",
+  SP500: "S&P 500",
+  NASDAQ: "Nasdaq Composite",
+  GOLD: "Gold",
+  SOL: "Solana",
 };
 const PALETTE = [
   "#5fa3ff", "#2bd6a0", "#ff6b9d", "#a18cff", "#4ade80", "#22d3ee",
@@ -142,6 +157,28 @@ async function fetchChart(
   return j.data;
 }
 
+/**
+ * Map with bounded concurrency, preserving input order in the result.
+ *
+ * The index probes went from 3 to one-per-registry-entry (~27). All internal
+ * chart endpoints share ONE 240-req/60s per-IP bucket, so ~27 in one build is far
+ * under it — but this caps the in-flight burst anyway: it keeps the rate-limiter's
+ * (non-atomic) bookkeeping honest under concurrency, and behaves the same whether
+ * or not the browser's own ~6-per-origin cap is in play.
+ */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 // The spine families the picker offers — each bulk read returns ONLY populated
 // keys (the "don't offer empty series" filter) AND prefetches their data.
 const SPINE_FAMILIES: { entity: string; metric: string; group: string; unit: Unit; short: string; label: string }[] = [
@@ -161,51 +198,59 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
   let paletteI = 0;
   const nextColor = () => PALETTE[paletteI++ % PALETTE.length];
 
-  // 1. Indices (constant-quality price index) — market + the two categories.
-  const idxProbes = await Promise.all(
-    ([
-      ["market", "total"],
-      ["category", "tcg"],
-      ["category", "sports"],
-    ] as const).map(async ([entity, key]) => {
-      try {
-        const d = await fetchChart("index", { entity, key, kind: "price", from: "2000-01-01", freq: "weekly" });
-        return { entity, key, d };
-      } catch {
-        return null;
-      }
-    }),
-  );
+  // 1. Indices (constant-quality price index) — the FULL registry: the market,
+  //    the categories, and every named IP. The naming SSOT is the source of
+  //    truth, so a new catalog IP appears here with no edit; empty ones (an IP
+  //    without enough index history) are culled by the <2-point check. Batched so
+  //    the burst is modest (see mapLimit).
+  const idxProbes = await mapLimit(indexRegistry(), 8, async (reg) => {
+    try {
+      const d = await fetchChart("index", {
+        entity: reg.entity,
+        key: reg.key,
+        kind: "price",
+        from: "2000-01-01",
+        freq: "weekly",
+      });
+      return { reg, d };
+    } catch {
+      return null;
+    }
+  });
   for (const p of idxProbes) {
     if (!p) continue;
     const points = (p.d.points as SeriesPoint[]) ?? [];
     if (points.length < 2) continue;
-    const id = `idx:${p.entity}:${p.key}`;
+    const id = `idx:${p.reg.entity}:${p.reg.key}`;
     data.set(id, points);
     items.push({
       id,
-      ticker: (p.d.ticker as string) ?? "V-?",
-      name: (p.d.indexName as string) ?? "Index",
+      // Prefer the endpoint's own ticker/name; the registry values are the same
+      // SSOT and stand in if a field is ever missing.
+      ticker: (p.d.ticker as string) ?? p.reg.ticker,
+      name: (p.d.indexName as string) ?? p.reg.name,
       group: "Indices",
       unit: "index",
-      color: p.entity === "market" ? "#bfef01" : nextColor(),
+      color: p.reg.entity === "market" ? "#bfef01" : nextColor(),
       weekly: true, // fetched freq:"weekly" above
     });
   }
 
-  // 2. Benchmarks — one call, keep the populated ones.
+  // 2. Benchmarks — one call; iterate WHATEVER symbols come back so a
+  //    backend-added one (SOL) shows up without an FE edit. Ticker/name/colour
+  //    come from the maps above, each with a fallback to the raw symbol.
   try {
     const bd = await fetchChart("benchmarks", { from: "2000-01-01", freq: "daily" });
     const series = (bd.series as Record<string, SeriesPoint[]>) ?? {};
-    for (const sym of ["BTC", "ETH", "SP500", "NASDAQ", "GOLD"]) {
+    for (const sym of Object.keys(series)) {
       const points = series[sym] ?? [];
       if (points.length < 2) continue;
       const id = `bench:${sym}`;
       data.set(id, points);
       items.push({
         id,
-        ticker: sym === "SP500" ? "S&P 500" : sym === "NASDAQ" ? "NASDAQ" : sym,
-        name: { BTC: "Bitcoin", ETH: "Ethereum", SP500: "S&P 500", NASDAQ: "Nasdaq Composite", GOLD: "Gold" }[sym] ?? sym,
+        ticker: BENCH_TICKER[sym] ?? sym,
+        name: BENCH_NAME[sym] ?? sym,
         group: "Benchmarks",
         unit: "index",
         color: BENCH_COLOR[sym] ?? nextColor(),
@@ -601,10 +646,28 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   };
   const activeRangeKey = useMemo(() => {
     if (!fullRange || !window0) return null;
-    if (window0[1] < fullRange[1] - DAY) return null; // window doesn't end at "now"
-    if (window0[0] <= fullRange[0] + DAY) return "all";
-    const days = Math.round((window0[1] - window0[0]) / DAY);
-    return RANGES.find((r) => r.days != null && Math.abs(r.days - days) <= 2)?.key ?? null;
+    const [lo, hi] = fullRange;
+    const [ws, we] = window0;
+    // ⚠️ EXACT match, not the old `|days - preset| <= 2` span comparison. That
+    // fuzz lit 90D for any window within two days of 90 — a hand-brushed ~89-day
+    // window, or a preset window left stale after `fullRange` grew mid-load so it
+    // no longer even ends at "now". A pill should light ONLY for the window
+    // clicking it produces. EPS = 1h absorbs float; it's far tighter than a
+    // brush's day-scale granularity, so only a real preset click matches.
+    const EPS = 3_600_000;
+    // Every preset ends at "now" (hi). If this window doesn't, none is active.
+    if (Math.abs(we - hi) > EPS) return null;
+    // ALL = the whole range.
+    if (Math.abs(ws - lo) <= EPS) return "all";
+    // A day-preset lights only if the window START is exactly hi − days, AND that
+    // start sits inside the range (a preset clamped to `lo` is the ALL case above,
+    // already returned).
+    for (const r of RANGES) {
+      if (r.days == null) continue;
+      const start = hi - r.days * DAY;
+      if (start > lo && Math.abs(ws - start) <= EPS) return r.key;
+    }
+    return null;
   }, [fullRange, window0]);
 
   /**
