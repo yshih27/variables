@@ -9,15 +9,9 @@ import { tickerOf } from "@/lib/indices/naming";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
 import { GACHA_ENABLED } from "@/lib/flags";
+import { VolumeBar, type VolBreakdown } from "./VolumeBar";
 
-/** 24h volume split — marketplace resale + gacha pulls + other primary = total. */
-export type VolBreakdown = {
-  marketplace: number;
-  gacha: number;
-  otherPrimary: number;
-  total: number;
-};
-
+export type { VolBreakdown };
 export type GachaKpi = { pulls: number; avgPullUsd: number };
 
 /**
@@ -219,77 +213,6 @@ export function MarketHeader({
 
 /** Hero `*Pct*` fields are fractions (like mcapPct24h) → percent for the badge. */
 const pct = (frac: number | null) => (frac != null && Number.isFinite(frac) ? frac * 100 : null);
-
-const VOL_SEGMENTS = [
-  { key: "marketplace", label: "Marketplace", color: "var(--color-blue)", info: "marketplace" },
-  { key: "gacha", label: "Gacha", color: "var(--color-yellow)", info: "gacha" },
-  { key: "otherPrimary", label: "Direct sales", color: "var(--color-purple)", info: "directSales" },
-] as const;
-
-function VolumeBar({
-  vol,
-  marketplacePct,
-  gachaPct,
-}: {
-  vol: VolBreakdown;
-  /** ALREADY percent (hero.vol24Pct, marketplace-only Σ-based). Not a fraction. */
-  marketplacePct: number | null;
-  /** ALREADY percent (hero.gachaVol24Pct, gacha-only Σ-based). Not a fraction. */
-  gachaPct: number | null;
-}) {
-  const total = vol.total > 0 ? vol.total : 1;
-  const segs = VOL_SEGMENTS.map((s) => ({ ...s, value: vol[s.key] })).filter((s) => s.value > 0);
-  // Per-segment 24h %Δ lives on the breakdown, not the total: a marketplace-only
-  // delta can't honestly sit beside the grand total. "Direct sales" has no delta yet.
-  const segPct: Record<string, number | null> = {
-    marketplace: marketplacePct,
-    gacha: gachaPct,
-    otherPrimary: null,
-  };
-  // Not a whole-bar <Link> anymore (R6-6): the segment labels host ⓘ buttons,
-  // which can't nest inside an anchor — so the "platforms →" link is explicit.
-  return (
-    <div className="border-t border-line px-6 py-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <div className="flex items-center gap-1">
-          <Label>24h volume</Label>
-          <MetricInfo metric="volume24h" />
-        </div>
-        <div className="flex items-baseline gap-2.5">
-          <span className="text-[20px] font-bold leading-none tabular">
-            {vol.total > 0 ? formatCompactUsd(vol.total) : "—"}
-          </span>
-          <Link href="/platforms" className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
-            platforms →
-          </Link>
-        </div>
-      </div>
-      {segs.length > 0 && (
-        <div className="mt-3.5">
-          <div className="flex h-2 overflow-hidden rounded-none bg-bg-3">
-            {segs.map((s) => (
-              <span key={s.key} className="h-full" style={{ width: `${(s.value / total) * 100}%`, background: s.color }} />
-            ))}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
-            {segs.map((s) => {
-              const d = segPct[s.key];
-              return (
-                <span key={s.key} className="flex items-center gap-1.5 text-[12px]">
-                  <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: s.color }} />
-                  <span className="text-ink-3">{s.label}</span>
-                  <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
-                  {d != null && Number.isFinite(d) && <Delta pct={d} />}
-                  <MetricInfo metric={s.info} />
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function StatCell({
   href,

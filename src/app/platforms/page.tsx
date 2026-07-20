@@ -5,6 +5,8 @@ import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/Overv
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { PlatformStatBar } from "@/components/PlatformStatBar";
 import { PlatformTable } from "@/components/PlatformTable";
+import { SectionShell } from "@/components/Section";
+import { VolumeBar } from "@/components/VolumeBar";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { pctChange, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
@@ -91,9 +93,22 @@ export default async function AllPlatformsPage() {
     (a, p) => ({
       marketplace: a.marketplace + (p.vol24Usd || 0),
       gacha: a.gacha + (p.gachaVol24Usd ?? 0),
+      primary: a.primary + (p.primaryUsd ?? 0),
     }),
-    { marketplace: 0, gacha: 0 },
+    { marketplace: 0, gacha: 0, primary: 0 },
   );
+  // Full 24h split for the segmented VolumeBar — same shape and math as the
+  // homepage hero: marketplace resale + gacha pulls + direct sales (primary −
+  // gacha) = total24 (= Σ total24Usd = Σ(marketplace + primary)), so the segments
+  // fill the bar exactly. Direct sales drops out when all primary is gacha
+  // (Courtyard's tokenization is classified as gacha), leaving a clean
+  // marketplace/gacha bar.
+  const volBreakdown = {
+    marketplace: vol24.marketplace,
+    gacha: vol24.gacha,
+    otherPrimary: Math.max(0, vol24.primary - vol24.gacha),
+    total: total24,
+  };
   // The total's own daily series (every platform's marketplace + gacha, summed by
   // day), so its 24h Δ comes from the spine rather than a hero field it lacks.
   const totalDailyAll = totalDaily(...Object.values(mktSeries), ...Object.values(gachaSeries));
@@ -202,6 +217,20 @@ export default async function AllPlatformsPage() {
         <PlatformStatBar rows={data.platforms} />
 
         <div className="space-y-3">
+          {/* 24h volume split (homepage VolumeBar pattern) — the marketplace /
+              gacha / direct-sales decomposition of the fold's headline total,
+              read as one segmented bar with per-segment 24h deltas before the
+              leaderboard breaks it down platform-by-platform. */}
+          <SectionShell>
+            <VolumeBar
+              vol={volBreakdown}
+              marketplacePct={data.hero.vol24Pct}
+              gachaPct={data.hero.gachaVol24Pct}
+              topBorder={false}
+              href={null}
+            />
+          </SectionShell>
+
           {/* ZONE 1 — the leaderboard + the Index Studio scoped to the platform
               family, so CC vs Beezie vs Courtyard compare out of the box. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
