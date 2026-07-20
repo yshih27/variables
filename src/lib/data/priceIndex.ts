@@ -67,11 +67,18 @@ const BAND_K = 0.5; // confidence half-width ≈ value · BAND_K/√n (widens as
  */
 export function stratifiedMedianIndex(
   sales: SaleRow[],
-  opts: { minWeekN?: number; minWeeks?: number; bandK?: number } = {},
+  opts: { minWeekN?: number; minWeeks?: number; bandK?: number; nowMs?: number } = {},
 ): IndexPoint[] {
   const minWeekN = opts.minWeekN ?? MIN_WEEK_N;
   const minWeeks = opts.minWeeks ?? MIN_WEEKS;
   const bandK = opts.bandK ?? BAND_K;
+  // COMPLETENESS GATE: never publish the IN-PROGRESS week. A week is included only
+  // once it's fully elapsed — i.e. its END (Sunday, the stamp) falls before the
+  // running week's Monday 00:00. Without this, a thin mid-week sample ships as a
+  // partial spike stamped at its FUTURE week-end (the post-#44 "Jul 26 ≈ 239" bug),
+  // the exact noise the constant-quality index exists to remove. Mirrors the reader's
+  // completeWeeksOnly so the raw blob == the complete-weeks view.
+  const runningCutoff = Date.parse(weekStartUtc(opts.nowMs ?? Date.now()));
   if (sales.length === 0) return [];
 
   // Winsorize to [p1,p99] across the entity to tame absurd outliers before medians.
@@ -97,6 +104,10 @@ export function stratifiedMedianIndex(
   const cellBase = new Map<string, number>(); // cell → base median (first week seen)
   const out: IndexPoint[] = [];
   for (const wk of [...weeks.keys()].sort()) {
+    // Completeness gate — exclude the running week (its Sunday-end ≥ this week's
+    // Monday). It's always the LAST week, so skipping it never disturbs an earlier
+    // week's cell base (bases are set on first, i.e. earlier, appearance).
+    if (Date.parse(weekEndUtc(Date.parse(wk))) >= runningCutoff) continue;
     const cells = weeks.get(wk)!;
     let weightedRel = 0, weightTot = 0, n = 0;
     for (const [k, prices] of cells) {

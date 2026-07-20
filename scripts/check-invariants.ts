@@ -25,6 +25,7 @@ import { getLatestResults } from "../src/lib/dune/client";
 import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../src/lib/dune/queryIds";
 import { cleanSecondarySales } from "../src/lib/data/secondaryHygiene";
 import { readSnapshot } from "../src/lib/db/snapshots";
+import { weekStartUtc } from "../src/lib/data/priceIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
@@ -162,6 +163,37 @@ function checkCrossSurface(hp: HomepagePayload): Result {
     : ok("cross-surface", "hard", `hero.vol24Usd == Σ platform rows (${Math.round(hero)})`);
 }
 
+/**
+ * INV-7 (HARD): price-index completeness — the week-END stamping (PR #44) must never
+ * publish (1) a FUTURE-dated point or (2) the IN-PROGRESS week. A running-week point
+ * is a thin-sample partial spike stamped at its future Sunday (the "Jul 26 ≈ 239" bug);
+ * only fully-elapsed weeks belong in a constant-quality index. Runs in the indices batch's
+ * gate so a missing/regressed completeness gate in the builder fails CI, not the chart.
+ */
+async function checkIndexCompleteness(nowMs: number = Date.now()): Promise<Result> {
+  const snap = await readSnapshot<{ series: Record<string, { ts: string; value: number }[]> }>("price-index");
+  if (!snap?.series || !Object.keys(snap.series).length) {
+    return skip("index-completeness", "hard", "price-index snapshot unreadable/empty");
+  }
+  const cutoff = Date.parse(weekStartUtc(nowMs)); // Monday 00:00 UTC of the in-progress week
+  const bads: string[] = [];
+  let series = 0, points = 0;
+  for (const [key, pts] of Object.entries(snap.series)) {
+    if (!Array.isArray(pts) || !pts.length) continue;
+    series += 1;
+    points += pts.length;
+    // (1) no future-dated point
+    const future = pts.find((p) => Date.parse(p.ts) > nowMs);
+    if (future) bads.push(`${key}: future point ${future.ts.slice(0, 10)} > now`);
+    // (2) newest point covers a fully-elapsed week (its week-end < the running week's Monday)
+    const newest = pts[pts.length - 1];
+    if (Date.parse(newest.ts) >= cutoff) bads.push(`${key}: newest ${newest.ts.slice(0, 10)} is the in-progress week (≥ ${new Date(cutoff).toISOString().slice(0, 10)})`);
+  }
+  return bads.length
+    ? bad("index-completeness", "hard", `${bads.length} series publish an incomplete/future week`, bads.slice(0, 8))
+    : ok("index-completeness", "hard", `${series} index series end on a fully-elapsed week; no future points (${points} pts)`);
+}
+
 async function main() {
   const strict = process.argv.includes("--strict");
   console.log(`\nData invariants — ${process.env.SUPABASE_URL ?? "(no SUPABASE_URL)"}\n`);
@@ -183,6 +215,7 @@ async function main() {
   results.push(await checkAvgTrade());
   results.push(await checkHolders());
   results.push(await checkSpineContinuity());
+  results.push(await checkIndexCompleteness());
 
   const ICON: Record<Status, string> = { pass: "✓", fail: "✗", skip: "·" };
   for (const r of results) {
