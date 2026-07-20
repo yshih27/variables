@@ -96,7 +96,12 @@ function inScope(id: string, scope: StudioScope): boolean {
  */
 function scopedDefaultActive(scope: StudioScope): string[] {
   if (scope.key) return [`sp:${scope.entity}:${scope.key}:volume_usd`];
-  return PLATFORM_SOURCES.map((p) => `sp:platform:${p.key}:volume_usd`);
+  // /platforms compares the venues on ONE comparable measure: each platform's
+  // TOTAL 24h volume (marketplace + gacha), a synthetic series built in
+  // buildCatalog. Using total (not marketplace-only volume_usd) is what lets
+  // Phygitals — gacha-only, no volume_usd — appear at all, at its real gacha
+  // volume. activeValid still drops any total that never got 2 points.
+  return PLATFORM_SOURCES.map((p) => `sp:platform:${p.key}:total_volume`);
 }
 
 // Line colors. V-MKT is the brand yellow; benchmarks keep recognizable brand hues;
@@ -302,6 +307,41 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
         color: nextColor(),
       });
     }
+  }
+
+  // 4. Combined per-platform TOTAL volume — marketplace volume_usd + gacha
+  //    volume_usd, union-summed BY DAY (client-side). A day with only one lane
+  //    contributes that lane alone, so gacha-only platforms (Phygitals: no
+  //    volume_usd) surface honestly at their gacha value rather than dropping out.
+  //    Its own `total_volume` series so /platforms can compare venues on one
+  //    comparable total; the separate volume_usd / gacha_volume_usd metrics above
+  //    stay in the picker untouched.
+  const platVol = fam.find((x) => x.f.entity === "platform" && x.f.metric === "volume_usd")?.series ?? {};
+  const platGac = fam.find((x) => x.f.entity === "platform" && x.f.metric === "gacha_volume_usd")?.series ?? {};
+  const totals: { key: string; points: SeriesPoint[] }[] = [];
+  for (const key of new Set([...Object.keys(platVol), ...Object.keys(platGac)])) {
+    const byDay = new Map<string, number>();
+    for (const p of platVol[key] ?? []) if (Number.isFinite(p.value)) byDay.set(p.ts, (byDay.get(p.ts) ?? 0) + p.value);
+    for (const p of platGac[key] ?? []) if (Number.isFinite(p.value)) byDay.set(p.ts, (byDay.get(p.ts) ?? 0) + p.value);
+    const points = [...byDay.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([ts, value]) => ({ ts, value }));
+    if (points.length >= 2) totals.push({ key, points });
+  }
+  // Biggest latest value first, so the reconcile picks the largest platform as the
+  // primary (area + glow) — same rule the raw spine families use above.
+  totals.sort((a, b) => (b.points.at(-1)?.value ?? 0) - (a.points.at(-1)?.value ?? 0));
+  for (const { key, points } of totals) {
+    const id = `sp:platform:${key}:total_volume`;
+    data.set(id, points);
+    items.push({
+      id,
+      ticker: `${platShort(key)}·TOT`,
+      name: `${PLATFORM_NAME[key] ?? titleize(key)} Total Vol`,
+      group: "Volume",
+      unit: "usd",
+      color: nextColor(),
+    });
   }
 
   return { items, data };
