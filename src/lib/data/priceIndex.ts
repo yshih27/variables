@@ -18,12 +18,26 @@ import type { SaleRow } from "./salePanel";
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Monday-anchored UTC week start (ISO week) as an ISO string. */
+/** Monday-anchored UTC week start (ISO week) as an ISO string. The canonical week
+ *  IDENTITY — used to BUCKET sales into weeks. (The emitted point LABEL is the
+ *  week END, see weekEndUtc: a Mon–Sun week's value is reported "as of" its Sunday.) */
 export function weekStartUtc(ms: number): string {
   const d = new Date(ms);
   const dow = (d.getUTCDay() + 6) % 7; // 0 = Monday
   return new Date(
     Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - dow),
+  ).toISOString();
+}
+
+/** Sunday-anchored UTC week END (the ISO week's last day = week start + 6d) as an
+ *  ISO string. This is the STAMP for a weekly point: a value computed from a week's
+ *  sales (Mon–Sun) IS the value as of that Sunday, so a Jul 13–19 median is labelled
+ *  Jul 19 — not Jul 13, which reads 6 days stale. Pure label; the value is unchanged.
+ *  Bucketing still uses weekStartUtc; only the emitted `ts` uses this. */
+export function weekEndUtc(ms: number): string {
+  const d = new Date(Date.parse(weekStartUtc(ms)));
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 6),
   ).toISOString();
 }
 
@@ -97,7 +111,9 @@ export function stratifiedMedianIndex(
     if (n < minWeekN || weightTot === 0) continue; // liquidity floor → drop week
     const value = (weightedRel / weightTot) * 100;
     const hw = value * (bandK / Math.sqrt(n));
-    out.push({ ts: wk, value, n, lo: value - hw, hi: value + hw });
+    // STAMP at the week END (Sunday) — the value covers Mon–Sun, so it's "as of"
+    // that Sunday, not the Monday it's bucketed under. Bucketing stays week-start.
+    out.push({ ts: weekEndUtc(Date.parse(wk)), value, n, lo: value - hw, hi: value + hw });
   }
 
   if (out.length < minWeeks) return []; // too thin → insufficient data

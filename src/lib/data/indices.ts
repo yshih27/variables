@@ -14,7 +14,7 @@
 import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
 import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
-import { weekStartUtc } from "./priceIndex";
+import { weekStartUtc, weekEndUtc } from "./priceIndex";
 
 export type IndexPoint = { ts: string; value: number; n?: number; lo?: number; hi?: number };
 
@@ -70,7 +70,11 @@ export function rebaseSeries(
  * window, because the report excludes the partial week).
  */
 export function completeWeeksOnly<T extends { ts: string }>(series: T[], nowMs: number = Date.now()): T[] {
-  const cutoff = Date.parse(weekStartUtc(nowMs)); // 00:00 Monday of the running week
+  // Cutoff = 00:00 Monday of the running week. Points are stamped at their week END
+  // (Sunday): a complete week's Sunday falls BEFORE this Monday (kept), while the
+  // running week's Sunday falls AFTER it (dropped) — so the same weeks are selected
+  // regardless of start-vs-end stamping; only the labels differ.
+  const cutoff = Date.parse(weekStartUtc(nowMs));
   return series.filter((p) => {
     const t = Date.parse(p.ts);
     return Number.isFinite(t) && t < cutoff;
@@ -93,9 +97,11 @@ export function weeklyChangePct(series: IndexPoint[], nowMs: number = Date.now()
 }
 
 /**
- * Resample a daily series to ISO-weekly (Monday week-start key). The single
- * canonical implementation — also used by the /api/v1 + /api/internal chart series
- * routes (they used to carry a copy). `agg`:
+ * Resample a daily series to ISO-weekly, points STAMPED at the week END (Sunday, via
+ * weekEndUtc) so they align with the price index (also week-end stamped) and read as
+ * of the week they cover — not 6 days stale. Bucketing still uses the Monday week key.
+ * The single canonical implementation — also used by the /api/v1 + /api/internal chart
+ * series routes (they used to carry a copy). `agg`:
  *   • "last" (default) — the chronologically-last value in the week (stock/index
  *     levels, benchmarks — the prior behaviour of this function).
  *   • "sum"            — adds the week's values (flow metrics: volume/trades/…).
@@ -124,7 +130,7 @@ export function resampleWeekly(
   }
   return [...byWeek.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([wk, v]) => ({ ts: wk, value: agg === "sum" ? v.sum : v.last }));
+    .map(([wk, v]) => ({ ts: weekEndUtc(Date.parse(wk)), value: agg === "sum" ? v.sum : v.last }));
 }
 
 /** Window to `from` + rescale so the first in-window point = `rebaseTo`, preserving
