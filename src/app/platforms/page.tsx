@@ -7,6 +7,7 @@ import { PlatformStatBar } from "@/components/PlatformStatBar";
 import { PlatformTable } from "@/components/PlatformTable";
 import { SectionShell } from "@/components/Section";
 import { VolumeBar } from "@/components/VolumeBar";
+import { CompositionChart } from "@/components/CompositionChart";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { pctChange, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
@@ -205,6 +206,21 @@ export default async function AllPlatformsPage() {
     };
   });
 
+  // Volume composition (tier 3b) — per-platform TOTAL volume (marketplace + gacha)
+  // over the last 30 days, in leaderboard order (biggest at the bottom of the
+  // stack). The same totalDaily the 14d cards use, so a day here reconciles with
+  // the card above it.
+  const COMP_DAYS = 30;
+  const COMP_COLORS = ["#2bd6a0", "#5fa3ff", "#ff6b9d", "#a18cff", "#22d3ee", "#fbbf24"];
+  const volumeComposition = ranked
+    .map((p, i) => ({
+      key: p.key,
+      label: p.name,
+      color: COMP_COLORS[i % COMP_COLORS.length],
+      points: lastNDays(totalDaily(mktSeries[p.key], gachaSeries[p.key]), COMP_DAYS),
+    }))
+    .filter((s) => s.points.some((pt) => Number.isFinite(pt.value)));
+
   return (
     <>
       <NavBar />
@@ -237,6 +253,19 @@ export default async function AllPlatformsPage() {
             <OverviewMetricColumn rows={rows} />
             <IndexStudio scope={{ entity: "platform" }} />
           </div>
+
+          {/* Volume composition — the venue race as one stacked picture (100% mode
+              reads the share-shift over time). Below the studio. */}
+          {volumeComposition.length > 0 && (
+            <CompositionChart
+              title="Volume composition"
+              subtitle="Per-platform total volume (marketplace + gacha) · last 30 days"
+              metric="total24h"
+              series={volumeComposition}
+              unit="usd"
+              variant="bars"
+            />
+          )}
 
           {/* ZONE 2 — the top-4 platforms' 14d cards, in leaderboard order, so
               the rail's summary reads straight down into the leaders. Any beyond

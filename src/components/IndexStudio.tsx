@@ -28,7 +28,7 @@ import {
 import { SITE_ORIGIN } from "@/lib/site";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
-type Unit = "index" | "usd" | "count";
+type Unit = "index" | "usd" | "count" | "percent";
 type SeriesPoint = { ts: string; value: number };
 type CatalogItem = {
   id: string;
@@ -51,7 +51,7 @@ type CatalogItem = {
 type Mode = "rebase" | "abs";
 
 const DAY = 86_400_000;
-const GROUP_ORDER = ["Indices", "Benchmarks", "Market cap", "Volume", "Activity"];
+const GROUP_ORDER = ["Indices", "Benchmarks", "Market cap", "Volume", "Activity", "Ratios"];
 const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "30", days: 30, label: "30D" },
   { key: "90", days: 90, label: "90D" },
@@ -199,17 +199,24 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 const SPINE_FAMILIES: { entity: string; metric: string; group: string; unit: Unit; short: string; label: string }[] = [
   { entity: "market", metric: "mcap_usd", group: "Market cap", unit: "usd", short: "MCAP", label: "Total Market Cap" },
   { entity: "ip", metric: "mcap_usd", group: "Market cap", unit: "usd", short: "MC", label: "Market Cap" },
+  { entity: "platform", metric: "mcap_usd", group: "Market cap", unit: "usd", short: "MC", label: "Market Cap" },
   { entity: "platform", metric: "volume_usd", group: "Volume", unit: "usd", short: "VOL", label: "Marketplace Vol" },
   { entity: "platform", metric: "gacha_volume_usd", group: "Volume", unit: "usd", short: "GAC", label: "Gacha Vol" },
   { entity: "ip", metric: "cards_traded", group: "Activity", unit: "count", short: "CRD", label: "Cards Traded" },
   { entity: "ip", metric: "trades", group: "Activity", unit: "count", short: "TRD", label: "Trades" },
   { entity: "ip", metric: "holders", group: "Activity", unit: "count", short: "HLD", label: "Holders" },
+  // Platform-entity activity the spine already records (populated-only culling
+  // keeps this honest — active_wallets is CC-only today, so only CC's line appears).
+  { entity: "platform", metric: "trades", group: "Activity", unit: "count", short: "TRD", label: "Trades" },
+  { entity: "platform", metric: "holders", group: "Activity", unit: "count", short: "HLD", label: "Holders" },
+  { entity: "platform", metric: "active_wallets", group: "Activity", unit: "count", short: "ACT", label: "Active Wallets" },
 ];
 
 /** Spine metrics that are per-day FLOWS (→ bars in absolute mode). mcap_usd and
- *  holders are LEVELS / stocks (→ lines); the synthetic total_volume is a flow and
- *  is tagged where it's built. */
-const FLOW_METRICS = new Set(["volume_usd", "gacha_volume_usd", "cards_traded", "trades"]);
+ *  holders are LEVELS / stocks (→ lines); active_wallets is a per-day activity
+ *  count, a flow like trades. The synthetic total_volume is a flow and is tagged
+ *  where it's built; the derived share%/avg-trade are LEVELS, tagged there. */
+const FLOW_METRICS = new Set(["volume_usd", "gacha_volume_usd", "cards_traded", "trades", "active_wallets"]);
 
 /** Build the picker catalog from real availability + prefetch every series' data. */
 async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]> }> {
@@ -356,6 +363,59 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
     });
   }
 
+  // 5. Derived ratios — built the same client-side way, from the series above.
+  //    Both are LEVELS (lines): a share and an average don't accumulate, so
+  //    absolute mode draws them as lines, not bars.
+  const platTrades = fam.find((x) => x.f.entity === "platform" && x.f.metric === "trades")?.series ?? {};
+
+  // Share of Market % — each platform's TOTAL volume as a share of the whole
+  // market that day (Σ all platform totals). Days with no market total carry no
+  // share — an honest gap, not a fabricated 0%.
+  const marketByDay = new Map<string, number>();
+  for (const t of totals) for (const p of t.points) if (Number.isFinite(p.value)) marketByDay.set(p.ts, (marketByDay.get(p.ts) ?? 0) + p.value);
+  for (const { key, points } of totals) {
+    const share = points
+      .map((p) => {
+        const mkt = marketByDay.get(p.ts) ?? 0;
+        return mkt > 0 ? { ts: p.ts, value: (p.value / mkt) * 100 } : null;
+      })
+      .filter((p): p is SeriesPoint => p != null);
+    if (share.length < 2) continue;
+    const id = `sp:platform:${key}:share_pct`;
+    data.set(id, share);
+    items.push({
+      id,
+      ticker: `${platShort(key)}·SHR`,
+      name: `${PLATFORM_NAME[key] ?? titleize(key)} Share of Market`,
+      group: "Ratios",
+      unit: "percent",
+      color: nextColor(),
+    });
+  }
+
+  // Avg Trade — marketplace volume_usd ÷ trades per day. A day with 0 (or missing)
+  // trades has NO average (NaN) and is dropped, never fabricated as $0.
+  for (const key of new Set([...Object.keys(platVol), ...Object.keys(platTrades)])) {
+    const trd = new Map((platTrades[key] ?? []).map((p) => [p.ts, p.value] as const));
+    const avg = (platVol[key] ?? [])
+      .map((p) => {
+        const t = trd.get(p.ts);
+        return t != null && t > 0 && Number.isFinite(p.value) ? { ts: p.ts, value: p.value / t } : null;
+      })
+      .filter((p): p is SeriesPoint => p != null);
+    if (avg.length < 2) continue;
+    const id = `sp:platform:${key}:avg_trade`;
+    data.set(id, avg);
+    items.push({
+      id,
+      ticker: `${platShort(key)}·AVG`,
+      name: `${PLATFORM_NAME[key] ?? titleize(key)} Avg Trade`,
+      group: "Ratios",
+      unit: "usd",
+      color: nextColor(),
+    });
+  }
+
   return { items, data };
 }
 
@@ -365,7 +425,13 @@ const fmtDate = (ms: number) => `${MON[new Date(ms).getUTCMonth()]} ${new Date(m
 const fmtDateY = (ms: number) => `${fmtDate(ms)}, ${new Date(ms).getUTCFullYear()}`;
 function fmtVal(unit: Unit, v: number): string {
   if (!Number.isFinite(v)) return "—";
-  return unit === "usd" ? formatCompactUsd(v) : unit === "count" ? formatCompactNumber(v) : v.toFixed(1);
+  return unit === "usd"
+    ? formatCompactUsd(v)
+    : unit === "count"
+      ? formatCompactNumber(v)
+      : unit === "percent"
+        ? `${v.toFixed(1)}%`
+        : v.toFixed(1);
 }
 
 // ── URL hash state ────────────────────────────────────────────────────────────
@@ -693,7 +759,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     // At a shared date the N bar columns sit side by side within a band whose
     // width is the median day-step in pixels (so daily bars nearly touch and a
     // sparse/long window just gets thinner bars). Baseline = Y(0).
-    const bars = new Map<string, { x: number; y: number; w: number; h: number }[]>();
+    const bars = new Map<string, { ms: number; x: number; y: number; w: number; h: number }[]>();
     if (hasBars) {
       const y0 = Y(Math.max(0, lo)); // lo is pinned to 0 when bars are present
       const dates = [
@@ -711,7 +777,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
             .filter((p) => Number.isFinite(p.v))
             .map((p) => {
               const yv = Y(p.v);
-              return { x: X(p.ms) - bandPx / 2 + ci * slotW, y: yv, w: rectW, h: Math.max(0, y0 - yv) };
+              return { ms: p.ms, x: X(p.ms) - bandPx / 2 + ci * slotW, y: yv, w: rectW, h: Math.max(0, y0 - yv) };
             }),
         );
       });
@@ -1258,6 +1324,19 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                   />
                 </filter>
               )}
+              {/* Bar hover bloom — self-coloured: blur the bar and merge it under a
+                  crisp copy, so it glows in each series' OWN colour (a fixed
+                  floodColor can't match grouped bars). Applied to the hovered
+                  date's whole bar group, the MetricBarCard emphasis idiom. */}
+              {model.hasBars && (
+                <filter id="is-bar-glow" x="-80%" y="-45%" width="260%" height="190%">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="b" />
+                  <feMerge>
+                    <feMergeNode in="b" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              )}
             </defs>
             {/* grid + y labels */}
             {Array.from({ length: 6 }, (_, g) => {
@@ -1306,9 +1385,24 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 const rects = model.bars.get(L.id) ?? [];
                 return (
                   <g key={L.id}>
-                    {rects.map((r, i) => (
-                      <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill={L.item.color} opacity={0.9} shapeRendering="crispEdges" />
-                    ))}
+                    {rects.map((r, i) => {
+                      // The hovered DATE's bars (across every bar series) brighten
+                      // to full opacity + a self-coloured bloom — the group glows.
+                      const on = hoverTs != null && r.ms === hoverTs;
+                      return (
+                        <rect
+                          key={i}
+                          x={r.x}
+                          y={r.y}
+                          width={r.w}
+                          height={r.h}
+                          fill={L.item.color}
+                          opacity={on ? 1 : 0.9}
+                          filter={on ? "url(#is-bar-glow)" : undefined}
+                          shapeRendering="crispEdges"
+                        />
+                      );
+                    })}
                   </g>
                 );
               }
@@ -1352,6 +1446,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
               <g>
                 <line x1={model.X(hoverTs)} x2={model.X(hoverTs)} y1={PAD.t} y2={PAD.t + model.plotH} stroke="var(--color-line-2)" strokeDasharray="3 3" />
                 {model.lines.map((L) => {
+                  // Bar series brighten their own hovered group instead of carrying
+                  // a floating crosshair dot — dots are for line series only.
+                  if (mode === "abs" && L.item.flow) return null;
                   const p = snapped.get(L.id);
                   return p == null ? null : <circle key={L.id} cx={model.X(p.ms)} cy={model.Y(p.v)} r={3.2} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />;
                 })}
@@ -1751,7 +1848,13 @@ function axisLabel(lines: { item: CatalogItem }[], v: number): string {
   const units = new Set(lines.map((l) => l.item.unit));
   if (units.size === 1) {
     const u = [...units][0];
-    return u === "usd" ? formatCompactUsd(v) : u === "count" ? formatCompactNumber(v) : v.toFixed(0);
+    return u === "usd"
+      ? formatCompactUsd(v)
+      : u === "count"
+        ? formatCompactNumber(v)
+        : u === "percent"
+          ? `${v.toFixed(0)}%`
+          : v.toFixed(0);
   }
   return Math.abs(v) >= 1000 ? formatCompactUsd(v) : formatCompactNumber(v);
 }

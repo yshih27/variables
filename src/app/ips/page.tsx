@@ -3,6 +3,7 @@ import { NavBar } from "@/components/NavBar";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { IndexStudio } from "@/components/IndexStudio";
 import { CategoryTreemap } from "@/components/CategoryTreemap";
+import { CompositionChart } from "@/components/CompositionChart";
 import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { formatCompactUsd, formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
@@ -83,13 +84,14 @@ export const metadata = {
 };
 
 export default async function AllIPsPage() {
-  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries] = await Promise.all([
+  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries] = await Promise.all([
     getData(),
     getIpSeries("volume_usd"),
     getIpSeries("cards_traded"),
     getPlatformSeries("volume_usd"),
     getPlatformSeries("gacha_volume_usd"),
     getMarketSeries("holders"),
+    getIpSeries("mcap_usd"),
   ]);
 
   const categories = rollupByCategory(data.ips, volSeries);
@@ -212,6 +214,30 @@ export default async function AllIPsPage() {
     },
   ];
 
+  // Market cap composition (tier 3c) — top-5 IPs by market cap + an "Other"
+  // bucket, over the last 30 days of the per-IP mcap spine. The treemap through
+  // TIME; reuses each IP's own colour, so a day reconciles with the treemap below.
+  const MCAP_COMP_DAYS = 30;
+  const mcapTop = data.ips.filter((r) => Number.isFinite(r.mcapUsd) && r.mcapUsd > 0).slice(0, 5);
+  const mcapTopKeys = new Set(mcapTop.map((r) => r.key));
+  const mcapComposition = [
+    ...mcapTop.map((r) => ({
+      key: r.key,
+      label: r.name,
+      color: r.color,
+      points: lastNDays(mcapSeries[r.key] ?? [], MCAP_COMP_DAYS),
+    })),
+    {
+      key: "__other",
+      label: "Other",
+      color: "#52525b",
+      points: sumDaily(
+        [Object.fromEntries(Object.entries(mcapSeries).filter(([k]) => !mcapTopKeys.has(k)))],
+        MCAP_COMP_DAYS,
+      ),
+    },
+  ].filter((s) => s.points.some((pt) => Number.isFinite(pt.value)));
+
   return (
     <>
       <NavBar />
@@ -246,7 +272,18 @@ export default async function AllIPsPage() {
             />
           </div>
 
-          {/* ZONE 3 — market-cap treemap (unchanged) + full IP list. */}
+          {/* ZONE 3 — market-cap composition (the treemap through TIME), then the
+              treemap snapshot + full IP list. */}
+          {mcapComposition.length > 0 && (
+            <CompositionChart
+              title="Market cap composition"
+              subtitle="Top IPs by market cap + Other · last 30 days"
+              metric="marketCap"
+              series={mcapComposition}
+              unit="usd"
+              variant="area"
+            />
+          )}
           <CategoryTreemap rows={data.ips} />
           <IPTable rows={data.ips} />
         </div>
