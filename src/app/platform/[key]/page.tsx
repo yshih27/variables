@@ -149,7 +149,14 @@ export default async function PlatformDetailPage({
             vol24Usd: sumBy(restIps, (r) => r.vol24Usd),
             mcapUsd: sumBy(restIps, (r) => r.mcapUsd),
             trades24h: sumBy(restIps, (r) => r.trades24h),
-            avgTradeUsd: 0,
+            // vol ÷ trades, like every real IP row (fetchPlatform buildIPRows) —
+            // NaN → "—" when the bucket is trade-less, not a false $0 average (DQ-2).
+            // (The IPDominance "Other" bucket below keeps avgTrade: 0 on purpose —
+            // DominancePanel re-derives avg-trade from volume/trades and ignores it.)
+            avgTradeUsd:
+              sumBy(restIps, (r) => r.trades24h) > 0
+                ? sumBy(restIps, (r) => r.vol24Usd) / sumBy(restIps, (r) => r.trades24h)
+                : NaN,
             holders: null,
           },
         ]
