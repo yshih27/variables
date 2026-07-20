@@ -514,6 +514,13 @@ export async function buildHomepagePayload(
     usingFallback && lastKnown?.at
       ? Math.max(0, Math.round((Date.now() - Date.parse(lastKnown.at)) / 3_600_000))
       : null;
+  // As-of timestamp of the DISPLAYED market cap value (fallback-aware): the live
+  // snapshot's generatedAt, or the last-known hourly point's `at` when we fell
+  // back to it. This — not `updatedAt` — is what the overview stale-guard reads,
+  // because in the AF-1 degrade the snapshot regenerates fresh (recent
+  // generatedAt) but empty, and the number on screen is actually the older
+  // last-known value; its true age is `lastKnown.at`.
+  const mcapAsOf = usingFallback ? (lastKnown?.at ?? null) : (mcap?.generatedAt ?? null);
   const rawTotalCards = mcap
     ? Object.values(mcap.byIp).reduce((s, e) => s + e.cards, 0)
     : NaN;
@@ -566,6 +573,9 @@ export async function buildHomepagePayload(
       /** Non-null only when totalMcapUsd is the stale last-known fallback — the UI
        *  appends "(~Xh old)" so a stale market cap isn't shown as if it were live (X4). */
       mcapAgeHours,
+      /** As-of timestamp of the displayed market cap; the overview stale-guard
+       *  (>36h) on / and /ips reads this to show "as of <Mon DD>". */
+      mcapAsOf,
       vol7Usd: has7dForAll ? sumVol7 : NaN,
       totalCards,
       holders: totalHolders,

@@ -87,6 +87,12 @@ export type HeroStats = {
   totalMcapUsd: number;
   /** Age (hours) of totalMcapUsd when it's the stale last-known fallback; null = live (X4). */
   mcapAgeHours: number | null;
+  /** As-of timestamp of the DISPLAYED market cap: the live snapshot's generatedAt,
+   *  or the last-known hourly point's timestamp when we fell back. Drives the
+   *  overview "as of <date>" stale-guard (>36h) on / and /ips — honest even in the
+   *  AF-1 case where the snapshot regenerated fresh-but-empty and we show an older
+   *  value. Optional on the wire: snapshots written before this field lack it. */
+  mcapAsOf?: string | null;
   mcapPct24h: number | null;
   /** 24h MARKETPLACE resale volume (Σ platform stats24h) + its Σ-based day-over-day
    *  %Δ from the daily spine (null until 2 complete days / base ≤ 0). */

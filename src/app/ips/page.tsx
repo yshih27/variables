@@ -4,7 +4,7 @@ import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { IndexStudio } from "@/components/IndexStudio";
 import { CategoryTreemap } from "@/components/CategoryTreemap";
 import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
-import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
@@ -12,10 +12,10 @@ import { readMetricSeries, readMetricSeriesBulk, lastNDays, type SeriesPoint } f
 import { rollupByCategory } from "@/lib/category/rollup";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
-// the old shape). v8: added hero gachaVol24Usd + gachaVol24Pct + Σ-based vol24Pct.
-// Wraps the same fetchHomepage() as homepage:v44 (src/app/page.tsx) — keep the two
-// versions moving in lockstep.
-const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v8"], {
+// the old shape). v9: added hero mcapAsOf for the >36h market-cap stale-guard. v8:
+// added hero gachaVol24Usd + gachaVol24Pct + Σ-based vol24Pct. Wraps the same
+// fetchHomepage() as homepage:v45 (src/app/page.tsx) — keep the two in lockstep.
+const getData = unstable_cache(async () => fetchHomepage(), ["ips-fulllist:v9"], {
   revalidate: 3600,
   tags: ["homepage"],
 });
@@ -140,6 +140,9 @@ export default async function AllIPsPage() {
   const catSplit = categories.filter((c) => Number.isFinite(c.mcapUsd) && c.mcapUsd > 0);
   const pct = (frac: number | null | undefined) =>
     frac != null && Number.isFinite(frac) ? frac * 100 : null;
+  // Overview stale-guard (item 7): "as of <Mon DD>" beside the market-cap value
+  // when its source is >36h old — the same gap AF-1 exposed, closed on /ips too.
+  const mcapAsOf = staleAsOfLabel(data.hero.mcapAsOf);
 
   const overviewRows: OverviewMetricRow[] = [
     {
@@ -150,6 +153,8 @@ export default async function AllIPsPage() {
       deltaPct: pct(data.hero.mcapPct24h), // FRACTION → percent
       window: "24h",
       hero: true,
+      // Muted "as of <Mon DD>" beside the value when the source is stale (>36h).
+      sub: mcapAsOf ?? undefined,
       detail: catSplit.length
         ? catSplit.map((c) => ({ label: c.group, value: formatCompactUsd(c.mcapUsd) }))
         : undefined,

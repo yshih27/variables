@@ -8,18 +8,19 @@ import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { getGachaData } from "@/lib/data/fetchGacha";
 import { getTrendingCards } from "@/lib/data/fetchTrending";
-import { formatCompactNumber } from "@/lib/format";
+import { formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { readMetricSeries, pctChange } from "@/lib/data/metricSnapshots";
 import { rebaseSeries, readIndexSeries, weeklyChangePct, completeWeeksOnly } from "@/lib/data/indices";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
   // BUMP this version on ANY change to fetchHomepage's payload shape — a stale
-  // cache would otherwise serve the old shape and break the page. v44: added hero
-  // gachaVol24Usd + gachaVol24Pct (Σ-based 24h gacha) and Σ-based vol24Pct. Keep in
-  // lockstep with ips-fulllist:v8 (src/app/ips/page.tsx), which wraps the same
-  // fetchHomepage() and must move together.
-  ["homepage:v44"],
+  // cache would otherwise serve the old shape and break the page. v45: added hero
+  // mcapAsOf (as-of timestamp of the displayed market cap) for the >36h stale-guard.
+  // v44: added hero gachaVol24Usd + gachaVol24Pct (Σ-based 24h gacha) and Σ-based
+  // vol24Pct. Keep in lockstep with ips-fulllist:v9 (src/app/ips/page.tsx), which
+  // wraps the same fetchHomepage() and must move together.
+  ["homepage:v45"],
   { revalidate: 3600, tags: ["homepage"] },
 );
 
@@ -170,6 +171,11 @@ export default async function Home() {
   }
   const gachaKpi = { pulls: gacha.hero.totalPulls24h, avgPullUsd: gacha.hero.avgPullUsd };
 
+  // Overview stale-guard (item 7): disclose the mcap "as of" date when the source
+  // behind the hero value is >36h old (helper reads the clock internally, like
+  // floatAgeLabelOf above; the page is ISR-cached).
+  const mcapAsOfLabel = staleAsOfLabel(data.hero.mcapAsOf);
+
   return (
     <>
       <NavBar />
@@ -192,6 +198,7 @@ export default async function Home() {
           vol={volBreakdown}
           gacha={gachaKpi}
           topIP={topIP}
+          mcapAsOfLabel={mcapAsOfLabel}
         />
 
         <div className="space-y-6">
