@@ -42,6 +42,11 @@ type CatalogItem = {
    *  the dated-endpoint honesty: a weekly line's last point is usually days
    *  behind the window edge, and its value must not read as "as of today". */
   weekly?: boolean;
+  /** A per-day FLOW (volume / trades / gacha rips) rather than a level or an
+   *  index. Flows render as grouped bars in ABSOLUTE mode (a $/day quantity is a
+   *  bar, not a trend line); indices, benchmarks, and levels (market cap,
+   *  holders) stay lines. Rebased mode is lines-only for everything. */
+  flow?: boolean;
 };
 type Mode = "rebase" | "abs";
 
@@ -201,6 +206,11 @@ const SPINE_FAMILIES: { entity: string; metric: string; group: string; unit: Uni
   { entity: "ip", metric: "holders", group: "Activity", unit: "count", short: "HLD", label: "Holders" },
 ];
 
+/** Spine metrics that are per-day FLOWS (→ bars in absolute mode). mcap_usd and
+ *  holders are LEVELS / stocks (→ lines); the synthetic total_volume is a flow and
+ *  is tagged where it's built. */
+const FLOW_METRICS = new Set(["volume_usd", "gacha_volume_usd", "cards_traded", "trades"]);
+
 /** Build the picker catalog from real availability + prefetch every series' data. */
 async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]> }> {
   const data = new Map<string, SeriesPoint[]>();
@@ -305,6 +315,7 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
         group: f.group,
         unit: f.unit,
         color: nextColor(),
+        flow: FLOW_METRICS.has(f.metric),
       });
     }
   }
@@ -341,6 +352,7 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
       group: "Volume",
       unit: "usd",
       color: nextColor(),
+      flow: true,
     });
   }
 
@@ -641,6 +653,13 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       return { id, item, pts, pathPts, step: medianStep(pts) };
     });
 
+    // Flow series (volume / trades / gacha rips) render as grouped BARS in
+    // absolute mode; indices, benchmarks and levels stay lines, and rebased mode
+    // is lines-only for everything. Their presence pins the domain floor to 0
+    // below, because a bar is drawn up from zero.
+    const barCols = mode === "abs" ? cols.filter((c) => c.item.flow) : [];
+    const hasBars = barCols.length > 0;
+
     // Domain over the PATH points (boundary included): a rising sparse series'
     // interpolated anchor can sit below every in-window point, so excluding it
     // would clip the boundary segment beneath the plot floor.
@@ -657,6 +676,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     lo -= padv;
     hi += padv;
     if (clampAtZero && lo < 0) lo = 0;
+    // Bars grow up from zero — if the padded floor sat above 0 (every value large)
+    // the bar bottoms would fall off-plot, so pin the floor to 0 when bars show.
+    if (hasBars && lo > 0) lo = 0;
 
     const X = (ms: number) => PAD.l + ((ms - s) / span) * plotW;
     const Y = (v: number) => PAD.t + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
@@ -666,13 +688,42 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       path: monotonePath(c.pathPts.filter((p) => Number.isFinite(p.v)).map((p) => [X(p.ms), Y(p.v)] as [number, number])),
     }));
 
+    // Grouped-bar geometry for the flow columns — one rect per in-window point,
+    // keyed by series id so the render draws them in place of that series' line.
+    // At a shared date the N bar columns sit side by side within a band whose
+    // width is the median day-step in pixels (so daily bars nearly touch and a
+    // sparse/long window just gets thinner bars). Baseline = Y(0).
+    const bars = new Map<string, { x: number; y: number; w: number; h: number }[]>();
+    if (hasBars) {
+      const y0 = Y(Math.max(0, lo)); // lo is pinned to 0 when bars are present
+      const dates = [
+        ...new Set(barCols.flatMap((c) => c.pts.filter((p) => Number.isFinite(p.v)).map((p) => p.ms))),
+      ].sort((a, b) => a - b);
+      const gaps = dates.slice(1).map((d, i) => d - dates[i]).filter((g) => g > 0).sort((a, b) => a - b);
+      const stepMs = gaps.length ? gaps[Math.floor(gaps.length / 2)] : span;
+      const bandPx = Math.max(1.5, Math.min((stepMs / span) * plotW * 0.82, plotW));
+      const slotW = bandPx / barCols.length;
+      const rectW = Math.max(0.6, slotW * 0.86);
+      barCols.forEach((c, ci) => {
+        bars.set(
+          c.id,
+          c.pts
+            .filter((p) => Number.isFinite(p.v))
+            .map((p) => {
+              const yv = Y(p.v);
+              return { x: X(p.ms) - bandPx / 2 + ci * slotW, y: yv, w: rectW, h: Math.max(0, y0 - yv) };
+            }),
+        );
+      });
+    }
+
     // Union of REAL in-window dates (sorted) for crosshair snapping + x-ticks —
     // pts, not pathPts, so the synthetic boundary is never a snap target.
     const tsSet = new Set<number>();
     for (const c of cols) for (const p of c.pts) tsSet.add(p.ms);
     const unionTs = [...tsSet].sort((a, b) => a - b);
 
-    return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, unionTs, primary: lines[0] ?? null };
+    return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, bars, hasBars, unionTs, primary: lines[0] ?? null };
   }, [window0, visible, byId, mode, w, parsed]);
 
   // Live mirrors for the rAF flush and the native wheel listener. Both are
@@ -1228,8 +1279,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 {fmtDate(ms)}
               </text>
             ))}
-            {/* primary area */}
-            {model.primary?.path && (
+            {/* primary area — lines only; a bar primary (e.g. a platform total in
+                absolute mode) gets no area fill, it's already a solid bar. */}
+            {model.primary?.path && !(mode === "abs" && model.primary.item.flow) && (
               <>
                 <defs>
                   <linearGradient id="is-area" x1="0" y1="0" x2="0" y2="1">
@@ -1247,8 +1299,19 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 })()}
               </>
             )}
-            {/* lines + endpoint dots */}
+            {/* series — flow columns as grouped bars in absolute mode, everything
+                else as a line with an endpoint dot */}
             {model.lines.map((L) => {
+              if (mode === "abs" && L.item.flow) {
+                const rects = model.bars.get(L.id) ?? [];
+                return (
+                  <g key={L.id}>
+                    {rects.map((r, i) => (
+                      <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill={L.item.color} opacity={0.9} shapeRendering="crispEdges" />
+                    ))}
+                  </g>
+                );
+              }
               const fp = L.pts.filter((p) => Number.isFinite(p.v));
               const end = fp[fp.length - 1];
               const isPrim = L.id === model.primary?.id;
