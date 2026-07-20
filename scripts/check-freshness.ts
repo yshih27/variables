@@ -86,8 +86,17 @@ async function main() {
     console.log(`  ${"TOTAL".padEnd(20)} ~${total.toLocaleString().padStart(9)} cr / cycle`);
   }
 
+  // AF-2: an errored warmer's data is FROZEN — that IS stale. Fold error into the
+  // stale count so "0 stale" can never mask a dead warmer. (The failure mode: a
+  // warmer that ran-then-errored writes a RECENT source_freshness.generated_at
+  // with status="error", so freshnessState returns "error" but the age-based
+  // "stale" check — which only runs for non-error rows — never trips. Result was
+  // the misleading "18 ok · 0 stale · 3 error" while 3 series sat frozen for days.)
+  // The error tally stays visible as the sharper signal; the health gate below
+  // hard-fails on any required source in "error".
+  const staleTotal = tally.stale + tally.error;
   console.log(
-    `\nSUMMARY  ${tally.ok} ok · ${tally.stale} stale · ${tally.error} error · ${tally.untracked} untracked\n`,
+    `\nSUMMARY  ${tally.ok} ok · ${staleTotal} stale (incl. ${tally.error} error) · ${tally.untracked} untracked\n`,
   );
 
   // ── CI health gate ──────────────────────────────────────────────────────────
