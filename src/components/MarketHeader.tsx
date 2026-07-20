@@ -60,12 +60,16 @@ export function MarketHeader({
   vol,
   gacha,
   topIP,
+  mcapAsOfLabel,
 }: {
   hero: HeroStats;
   index: MarketIndex;
   vol: VolBreakdown;
   gacha: GachaKpi;
   topIP: IPRow | null;
+  /** "as of <Mon DD>" when the market-cap source is stale (>36h); null when live.
+   *  Rendered muted beside the hero value so a stale headline can't read as live. */
+  mcapAsOfLabel?: string | null;
 }) {
   const sinceInception = index.value != null ? index.value - 100 : null;
   // QA-7 — only ever show change / benchmark rows that have a real value; a lone
@@ -98,6 +102,12 @@ export function MarketHeader({
             <span className="text-[40px] font-bold leading-none tracking-[-0.02em] tabular text-yellow">
               {formatCompactUsd(hero.totalMcapUsd)}
             </span>
+            {/* Stale-guard: when the mcap source is >36h old, disclose its date so a
+                stale headline can't read as live (platform pages already do this via
+                freshness chips; this closes the overview gap AF-1 exposed). */}
+            {mcapAsOfLabel && (
+              <span className="text-[12px] font-medium text-ink-4">{mcapAsOfLabel}</span>
+            )}
             {/* Sparkline is a stand-in below lg; the full chart takes over at lg. */}
             {hero.mcapSpark && hero.mcapSpark.length >= 2 && (
               <span className="lg:hidden">

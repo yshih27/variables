@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
+import { RariblePolicyNote } from "@/components/RariblePolicyNote";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (mirrors /methodology).
@@ -37,6 +38,8 @@ export default function PrivacyPage() {
         </header>
 
         <DraftNotice />
+
+        <RariblePolicyNote />
 
         <Section title="No accounts, no wallet">
           <p>
@@ -148,9 +151,9 @@ export default function PrivacyPage() {
           </p>
           <ul className="mt-3 list-disc pl-5 text-[13.5px] leading-relaxed">
             <li>
-              The data controller / operating entity, and whether this is a
-              standalone policy or a supplement to Rarible&apos;s existing
-              Privacy Policy.
+              The data controller / operating entity behind Varible. Per
+              counsel, this policy is a supplement to Rarible&apos;s existing
+              Privacy Policy rather than a standalone policy.
             </li>
             <li>
               Applicable privacy law and the data-subject rights it grants, plus

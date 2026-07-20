@@ -4,24 +4,33 @@ import { useState } from "react";
 import Link from "next/link";
 import type { TrendingCard } from "@/lib/data/fetchTrending";
 import { Section } from "./Section";
-import { MetricInfo } from "./MetricInfo";
-import { TableRowLink } from "./TableRowLink";
-import type { MetricKey } from "@/lib/metrics/glossary";
+import { IPIcon } from "./IPIcon";
+import { GradeChip } from "./GradeChip";
+import { IP_CATALOG } from "@/lib/data/ipCatalog";
+import { parseGradeLabel } from "@/lib/card/grade";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 
 /**
- * TrendingCards (F6) — the homepage's card-level discovery surface: what's HOT by
- * trade velocity, ranked by the scarcity signal **hunt pressure = trades ÷ active
- * listings** ("everyone wants it, few for sale"). Default sort = hunt pressure;
- * every column is sortable; every row links to its `/card/[id]` page.
+ * TrendingCards (F6, relaid out R-launch) — the homepage's card-level discovery
+ * surface: what's HOT by trade velocity, ranked by **hunt pressure = trades ÷
+ * active listings** ("everyone wants it, few for sale").
  *
- * R4-2: All | Slabs | Sealed tabs split graded singles from sealed products
- * (`kind` from the resolver). Float-0 rows (sealed products rarely have
- * marketplace float) show a "no listings" chip instead of a meaningless
- * `trades ÷ 1 = N.0×`, and sink below real-float rows when ranked by pressure.
+ * It used to render as a dense sortable table wedged directly under the image-led
+ * Top Sales grid, which read as a jarring format switch. It now shares Top Sales'
+ * CARD anatomy — a hero number, a grade chip via the SSOT, a two-line title, and
+ * an IP + platform footer — laid out as a compact horizontal strip. These are
+ * card TYPES (no single photo, no per-token image), so the hero is the trending
+ * metric rather than a slab photo, which also keeps the strip visually distinct
+ * from the Top Sales grid above it.
  *
- * The Δ momentum column is hidden until per-card history exists (the resolver
- * returns `momentum: null` today) — no dead column of dashes.
+ * Honesty carried over from the table:
+ *   • hunt pressure is only shown as a ratio with 2+ listings; at 0–1 listed the
+ *     ratio is noise, so the card shows the raw "N sold · M listed" instead and
+ *     those cards sink to the end of the strip (R5-2).
+ *   • All | Slabs | Sealed tabs split graded singles from sealed products when
+ *     both are present (R4-2).
+ *   • the subtitle states the window, momentum coverage, float age, and the
+ *     sealed-float caveat.
  */
 const PLATFORM_LABEL: Record<string, string> = {
   "collector-crypt": "Collector Crypt",
@@ -30,27 +39,19 @@ const PLATFORM_LABEL: Record<string, string> = {
   courtyard: "Courtyard",
 };
 
-type SortKey = "huntPressure" | "trades" | "momentum" | "activeListings" | "volumeUsd" | "topPriceUsd";
+/** IP key → catalog metadata (icon, colour, name), for the footer IPIcon. The
+ *  trending payload only carries the IP KEY, so we resolve display identity from
+ *  the same catalog the backend classifies against. */
+const IP_META_BY_KEY = new Map(IP_CATALOG.map((m) => [m.key, m]));
+
 type KindTab = "all" | "slab" | "sealed";
 
-function valueFor(c: TrendingCard, key: SortKey): number {
-  const v = c[key];
-  return v == null || !Number.isFinite(v) ? NaN : (v as number);
-}
-function cmp(a: number, b: number, dir: 1 | -1): number {
-  const an = !Number.isFinite(a);
-  const bn = !Number.isFinite(b);
-  if (an && bn) return 0;
-  if (an) return 1;
-  if (bn) return -1;
-  return (a - b) * dir;
-}
 /** Hunt pressure is only a meaningful ratio with 2+ listings (R5-2) — at 0 or 1
- *  listed, `trades ÷ 1` is noise, so those rows show a plain "sold · listed"
- *  readout and rank below the ratio'd rows (by trades, then volume). */
+ *  listed, `trades ÷ 1` is noise, so those cards show raw counts and rank last. */
 function hpValue(c: TrendingCard): number {
   return c.activeListings >= 2 && Number.isFinite(c.huntPressure) ? c.huntPressure : NaN;
 }
+
 function humanizeIp(key: string): string {
   if (key === "pokemon") return "Pokémon";
   return key
@@ -72,8 +73,6 @@ export function TrendingCards({
   floatAgeLabel?: string | null;
   seeAllHref?: string;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("huntPressure");
-  const [dir, setDir] = useState<1 | -1>(-1);
   const [kind, setKind] = useState<KindTab>("all");
 
   if (cards.length === 0) return null;
@@ -87,28 +86,26 @@ export function TrendingCards({
 
   const hasMomentum = shown.some((c) => c.momentum != null && Number.isFinite(c.momentum));
   const anyThinFloat = shown.some((c) => c.activeListings < 2);
-  // Bar scale off the ratio'd rows only (2+ listed), so thin-float rows don't
+  // Bar scale off the ratio'd cards only (2+ listed), so thin-float cards don't
   // inflate the axis.
-  const maxHP = Math.max(1, ...shown.map((c) => (c.activeListings >= 2 && Number.isFinite(c.huntPressure) ? c.huntPressure : 0)));
+  const maxHP = Math.max(
+    1,
+    ...shown.map((c) => (c.activeListings >= 2 && Number.isFinite(c.huntPressure) ? c.huntPressure : 0)),
+  );
 
+  // Fixed order (the strip isn't user-sortable): hunt pressure desc with
+  // thin-float cards sinking (hpValue → NaN), then trades, then volume — the same
+  // default the table led with, so the strip opens on the same "hottest" card.
   const sorted = [...shown].sort((a, b) => {
-    if (sortKey === "huntPressure") {
-      const c = cmp(hpValue(a), hpValue(b), dir);
-      if (c !== 0) return c;
-      // ties + float-0 rows fall back to trades then volume (never trades ÷ 1).
-      return b.trades - a.trades || b.volumeUsd - a.volumeUsd;
-    }
-    return cmp(valueFor(a, sortKey), valueFor(b, sortKey), dir);
+    const av = hpValue(a);
+    const bv = hpValue(b);
+    const an = !Number.isFinite(av);
+    const bn = !Number.isFinite(bv);
+    if (an && bn) return b.trades - a.trades || b.volumeUsd - a.volumeUsd;
+    if (an) return 1;
+    if (bn) return -1;
+    return bv - av || b.trades - a.trades || b.volumeUsd - a.volumeUsd;
   });
-
-  function onSort(key: SortKey) {
-    if (key === sortKey) setDir((d) => (d === -1 ? 1 : -1));
-    else {
-      setSortKey(key);
-      setDir(-1);
-    }
-  }
-  const sp = (key: SortKey) => ({ active: sortKey === key, dir, onClick: () => onSort(key) });
 
   // X6/R4-2 honesty notes: window, momentum coverage, float age, sealed-float caveat.
   const notes = [
@@ -140,10 +137,11 @@ export function TrendingCards({
           )}
         </>
       }
+      className="font-sans"
       flush
     >
       {showKindTabs && (
-        <div className="flex gap-1 px-4 pb-1 pt-1 sm:px-4">
+        <div className="flex gap-1 px-4 pb-1 pt-1 sm:px-5">
           {kindTabs.map((t) => (
             <button
               key={t.key}
@@ -160,162 +158,93 @@ export function TrendingCards({
           ))}
         </div>
       )}
-      <div className="scroll-x">
-        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[780px]">
-          <thead>
-            <tr className="border-b border-line">
-              <Th>#</Th>
-              <Th>Card</Th>
-              <SortTh align="right" info="trades" {...sp("trades")}>Trades</SortTh>
-              <SortTh align="right" info="volume24h" {...sp("volumeUsd")}>Vol</SortTh>
-              {hasMomentum && (
-                <SortTh align="right" className="hidden sm:table-cell" info="momentum" {...sp("momentum")}>Δ Mom</SortTh>
-              )}
-              <SortTh align="right" className="hidden sm:table-cell" info="float" {...sp("activeListings")}>Float</SortTh>
-              <SortTh align="right" info="huntPressure" {...sp("huntPressure")}>Hunt pressure</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sp("topPriceUsd")}>Top price</SortTh>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((c, i) => (
-              <TableRowLink key={c.cardId} href={c.href} className="[&:last-child>td]:border-b-0">
-                <Td className="w-[40px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
-                <Td>
-                  <Link
-                    href={c.href}
-                    className="flex flex-col gap-0.5"
-                  >
-                    <span title={c.name} className="truncate font-sans font-semibold group-hover:text-yellow">{c.name}</span>
-                    <span className="truncate font-sans text-[11.5px] text-ink-3">
-                      {[humanizeIp(c.ip), c.grade, PLATFORM_LABEL[c.platform] ?? c.platform]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </span>
-                  </Link>
-                </Td>
-                <Td align="right" strong>{formatInt(c.trades)}</Td>
-                <Td align="right">{c.volumeUsd > 0 ? formatCompactUsd(c.volumeUsd) : "—"}</Td>
-                {hasMomentum && (
-                  <Td align="right" className="hidden sm:table-cell">
-                    <MomentumCell m={c.momentum} />
-                  </Td>
-                )}
-                <Td align="right" muted className="hidden sm:table-cell">
-                  {c.activeListings > 0 ? formatInt(c.activeListings) : <span className="text-ink-4">0</span>}
-                </Td>
-                <Td align="right">
-                  {c.activeListings >= 2 ? (
-                    <span
-                      className="inline-flex items-center justify-end gap-2.5"
-                      title={`${formatInt(c.trades)} sold · ${formatInt(c.activeListings)} listed`}
-                    >
-                      <span className="hidden h-1.5 w-[48px] overflow-hidden rounded-none bg-bg-3 sm:block">
-                        <span
-                          className="block h-full rounded-none bg-yellow"
-                          style={{ width: `${Math.max(6, (c.huntPressure / maxHP) * 100)}%` }}
-                        />
-                      </span>
-                      <span className="font-semibold tabular text-ink">{c.huntPressure.toFixed(1)}×</span>
-                    </span>
-                  ) : (
-                    // 0 or 1 listing → the ratio is noise; show the raw counts (R5-2).
-                    <span
-                      className="text-[12px] tabular text-ink-3"
-                      title="Too few listings for a meaningful ratio — ranked by trades instead"
-                    >
-                      {formatInt(c.trades)} sold ·{" "}
-                      {c.activeListings === 0 ? "none" : `${formatInt(c.activeListings)}`} listed
-                    </span>
-                  )}
-                </Td>
-                <Td align="right" muted className="hidden md:table-cell">
-                  {c.topPriceUsd > 0 ? formatCompactUsd(c.topPriceUsd) : "—"}
-                </Td>
-              </TableRowLink>
-            ))}
-          </tbody>
-        </table>
+      {/* Horizontal strip — fits several across on desktop and scrolls for the
+          rest; two-ish per view on mobile. Cards stretch to a uniform height. */}
+      <div className="scroll-x flex items-stretch gap-3 px-4 pb-4 pt-2 sm:px-5 sm:pb-5">
+        {sorted.map((c) => (
+          <TrendingTile key={c.cardId} card={c} maxHP={maxHP} />
+        ))}
       </div>
     </Section>
   );
 }
 
-function MomentumCell({ m }: { m: number | null }) {
-  if (m == null || !Number.isFinite(m)) return <span className="text-ink-4">—</span>;
-  const cls = m > 0 ? "text-green" : m < 0 ? "text-red" : "text-ink-3";
-  return (
-    <span className={`font-semibold tabular ${cls}`}>
-      {m > 0 ? "+" : ""}
-      {formatInt(m)}
-    </span>
-  );
-}
+function TrendingTile({ card: c, maxHP }: { card: TrendingCard; maxHP: number }) {
+  const ipMeta = IP_META_BY_KEY.get(c.ip);
+  const ipName = ipMeta?.name ?? humanizeIp(c.ip);
+  // Grade lives inline in the type identity; only chip it when it parses (the SSOT
+  // degrades "Ungraded"/blank to nothing, exactly like Top Sales).
+  const graded = !!parseGradeLabel(c.grade);
+  const ratioable = c.activeListings >= 2 && Number.isFinite(c.huntPressure);
+  // Meta line complements the hero without repeating it: the hero shows hunt
+  // pressure when ratioable (so trades belongs here) and the trade count when
+  // it isn't (so trades is already up top — show only volume).
+  const meta = [
+    ratioable ? `${formatInt(c.trades)} trades` : null,
+    c.volumeUsd > 0 ? formatCompactUsd(c.volumeUsd) : null,
+  ].filter(Boolean);
 
-function Th({ children, align, className = "" }: { children: React.ReactNode; align?: "left" | "right"; className?: string }) {
   return (
-    <th
-      className={`px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 sm:px-4 ${
-        align === "right" ? "text-right" : "text-left"
-      } ${className}`}
+    <Link
+      href={c.href}
+      className="group flex w-[186px] shrink-0 flex-col rounded-xl bg-bg-2 p-3.5 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5"
     >
-      {children}
-    </th>
-  );
-}
+      {/* Hero row — the trending metric (yellow) + grade chip, mirroring Top
+          Sales' price + grade baseline. For 2+ listed the hero is hunt pressure;
+          when the float is too thin for a ratio it's the trade count instead. */}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="tabular text-[17px] font-bold leading-none text-yellow">
+          {ratioable ? `${c.huntPressure.toFixed(1)}×` : formatInt(c.trades)}
+        </span>
+        {graded ? <GradeChip label={c.grade} /> : null}
+      </div>
+      <div className="mt-1 text-[10px] uppercase tracking-[0.06em] text-ink-4">
+        {ratioable
+          ? "hunt pressure"
+          : `sold · ${c.activeListings === 0 ? "none" : formatInt(c.activeListings)} listed`}
+      </div>
 
-function SortTh({
-  children,
-  align,
-  info,
-  active,
-  dir,
-  onClick,
-  className = "",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-  info?: MetricKey;
-  active: boolean;
-  dir: 1 | -1;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <th
-      aria-sort={active ? (dir === -1 ? "descending" : "ascending") : "none"}
-      className={`select-none px-3 py-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors sm:px-4 ${
-        active ? "text-ink" : "text-ink-3 hover:text-ink-2"
-      } ${align === "right" ? "text-right" : "text-left"} ${className}`}
-    >
-      <span className="inline-flex items-center gap-1">
-        <button type="button" onClick={onClick} className="inline-flex cursor-pointer items-center gap-1">
-          {children}
-          <span className={active ? "text-yellow" : "text-ink-4"}>{active ? (dir === -1 ? "▼" : "▲") : "↕"}</span>
-        </button>
-        {info && <MetricInfo metric={info} />}
-      </span>
-    </th>
-  );
-}
+      {/* Hunt-pressure bar (2+ listed only) — thin-float cards have no meaningful
+          ratio, so no bar; the reserved height keeps the strip's rows aligned. */}
+      <div className="mt-2 h-1.5">
+        {ratioable && (
+          <span className="block h-full w-full overflow-hidden rounded-none bg-bg-3" aria-hidden>
+            <span
+              className="block h-full bg-yellow"
+              style={{ width: `${Math.max(6, (c.huntPressure / maxHP) * 100)}%` }}
+            />
+          </span>
+        )}
+      </div>
 
-function Td({
-  children,
-  align,
-  className = "",
-  strong,
-  muted,
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-  className?: string;
-  strong?: boolean;
-  muted?: boolean;
-}) {
-  const alignCls = align === "right" ? "text-right" : "";
-  const weightCls = strong ? "font-semibold text-ink" : muted ? "text-ink-2" : "";
-  return (
-    <td className={`tabular whitespace-nowrap border-b border-line/60 px-3 py-3.5 sm:px-4 ${alignCls} ${weightCls} ${className}`}>
-      {children}
-    </td>
+      {/* Title — two-line clamp, same as Top Sales. */}
+      <div className="mt-2.5 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
+        {c.name}
+      </div>
+
+      {/* Secondary stats — omitted entirely when there's nothing to add. */}
+      {meta.length > 0 && (
+        <div className="mt-1.5 tabular text-[11px] text-ink-3">{meta.join(" · ")}</div>
+      )}
+
+      {/* Footer — IP + platform, mirroring the Top Sales tile footer. mt-auto
+          pins it to the bottom so stretched cards line their footers up. */}
+      <div className="mt-auto flex items-center gap-1.5 border-t border-line/60 pt-2.5 text-[11px] leading-none text-ink-3">
+        {ipMeta ? (
+          <IPIcon
+            name={ipMeta.name}
+            short={ipMeta.short}
+            color={ipMeta.color}
+            logo={ipMeta.logo}
+            iconBlendMode={ipMeta.iconBlendMode}
+            emoji={ipMeta.emoji}
+            size={14}
+          />
+        ) : null}
+        <span className="truncate text-ink-2">{ipName}</span>
+        <span className="text-ink-4">·</span>
+        <span className="truncate">{PLATFORM_LABEL[c.platform] ?? c.platform}</span>
+      </div>
+    </Link>
   );
 }
