@@ -42,6 +42,11 @@ type CatalogItem = {
    *  the dated-endpoint honesty: a weekly line's last point is usually days
    *  behind the window edge, and its value must not read as "as of today". */
   weekly?: boolean;
+  /** A per-day FLOW (volume / trades / gacha rips) rather than a level or an
+   *  index. Flows render as grouped bars in ABSOLUTE mode (a $/day quantity is a
+   *  bar, not a trend line); indices, benchmarks, and levels (market cap,
+   *  holders) stay lines. Rebased mode is lines-only for everything. */
+  flow?: boolean;
 };
 type Mode = "rebase" | "abs";
 
@@ -53,7 +58,12 @@ const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "180", days: 180, label: "6M" },
   { key: "all", days: null, label: "ALL" },
 ];
-const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:SP500"];
+// /ips (unscoped market studio) opens on V-MKT against the four majors it's most
+// often read against — rebased so the mixed units overlay, over the default 90D
+// window. V-MKT leads (primary → area + glow); a benchmark the /benchmarks
+// endpoint doesn't return (e.g. SOL past CoinGecko's 365d free-tier cap) is simply
+// dropped by activeValid, honestly, rather than erroring.
+const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:ETH", "bench:SOL", "bench:SP500"];
 
 /**
  * Scoping the studio to one entity (today: a platform detail page). Unscoped =
@@ -91,7 +101,12 @@ function inScope(id: string, scope: StudioScope): boolean {
  */
 function scopedDefaultActive(scope: StudioScope): string[] {
   if (scope.key) return [`sp:${scope.entity}:${scope.key}:volume_usd`];
-  return PLATFORM_SOURCES.map((p) => `sp:platform:${p.key}:volume_usd`);
+  // /platforms compares the venues on ONE comparable measure: each platform's
+  // TOTAL 24h volume (marketplace + gacha), a synthetic series built in
+  // buildCatalog. Using total (not marketplace-only volume_usd) is what lets
+  // Phygitals — gacha-only, no volume_usd — appear at all, at its real gacha
+  // volume. activeValid still drops any total that never got 2 points.
+  return PLATFORM_SOURCES.map((p) => `sp:platform:${p.key}:total_volume`);
 }
 
 // Line colors. V-MKT is the brand yellow; benchmarks keep recognizable brand hues;
@@ -190,6 +205,11 @@ const SPINE_FAMILIES: { entity: string; metric: string; group: string; unit: Uni
   { entity: "ip", metric: "trades", group: "Activity", unit: "count", short: "TRD", label: "Trades" },
   { entity: "ip", metric: "holders", group: "Activity", unit: "count", short: "HLD", label: "Holders" },
 ];
+
+/** Spine metrics that are per-day FLOWS (→ bars in absolute mode). mcap_usd and
+ *  holders are LEVELS / stocks (→ lines); the synthetic total_volume is a flow and
+ *  is tagged where it's built. */
+const FLOW_METRICS = new Set(["volume_usd", "gacha_volume_usd", "cards_traded", "trades"]);
 
 /** Build the picker catalog from real availability + prefetch every series' data. */
 async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]> }> {
@@ -295,8 +315,45 @@ async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string,
         group: f.group,
         unit: f.unit,
         color: nextColor(),
+        flow: FLOW_METRICS.has(f.metric),
       });
     }
+  }
+
+  // 4. Combined per-platform TOTAL volume — marketplace volume_usd + gacha
+  //    volume_usd, union-summed BY DAY (client-side). A day with only one lane
+  //    contributes that lane alone, so gacha-only platforms (Phygitals: no
+  //    volume_usd) surface honestly at their gacha value rather than dropping out.
+  //    Its own `total_volume` series so /platforms can compare venues on one
+  //    comparable total; the separate volume_usd / gacha_volume_usd metrics above
+  //    stay in the picker untouched.
+  const platVol = fam.find((x) => x.f.entity === "platform" && x.f.metric === "volume_usd")?.series ?? {};
+  const platGac = fam.find((x) => x.f.entity === "platform" && x.f.metric === "gacha_volume_usd")?.series ?? {};
+  const totals: { key: string; points: SeriesPoint[] }[] = [];
+  for (const key of new Set([...Object.keys(platVol), ...Object.keys(platGac)])) {
+    const byDay = new Map<string, number>();
+    for (const p of platVol[key] ?? []) if (Number.isFinite(p.value)) byDay.set(p.ts, (byDay.get(p.ts) ?? 0) + p.value);
+    for (const p of platGac[key] ?? []) if (Number.isFinite(p.value)) byDay.set(p.ts, (byDay.get(p.ts) ?? 0) + p.value);
+    const points = [...byDay.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([ts, value]) => ({ ts, value }));
+    if (points.length >= 2) totals.push({ key, points });
+  }
+  // Biggest latest value first, so the reconcile picks the largest platform as the
+  // primary (area + glow) — same rule the raw spine families use above.
+  totals.sort((a, b) => (b.points.at(-1)?.value ?? 0) - (a.points.at(-1)?.value ?? 0));
+  for (const { key, points } of totals) {
+    const id = `sp:platform:${key}:total_volume`;
+    data.set(id, points);
+    items.push({
+      id,
+      ticker: `${platShort(key)}·TOT`,
+      name: `${PLATFORM_NAME[key] ?? titleize(key)} Total Vol`,
+      group: "Volume",
+      unit: "usd",
+      color: nextColor(),
+      flow: true,
+    });
   }
 
   return { items, data };
@@ -312,7 +369,21 @@ function fmtVal(unit: Unit, v: number): string {
 }
 
 // ── URL hash state ────────────────────────────────────────────────────────────
-type UrlState = { active: string[]; mode: Mode; win: [number, number] | null };
+// The hash carries the studio's whole state PLUS an `sc` page tag. That tag is
+// what keeps the studios isolated across client-side navigation: a hash written by
+// the /ips market studio (sc=market) lingers in window.location.hash after a soft
+// nav to /platforms (Next changes the pathname but never clears the fragment), so
+// the /platforms studio would otherwise read /ips's config as its own. It instead
+// sees sc=market ≠ its own sc=platform and ignores the whole hash, mounting its
+// default. A genuine deep-link still works — it carries the tag of the page it
+// points at, so on arrival the tags match.
+type UrlState = { active: string[]; mode: Mode; win: [number, number] | null; sc: string };
+/** Stable per-page tag: "market" (/ips), "platform" (/platforms), or
+ *  "platform:<key>" (/platform/[key]). */
+function scopeTag(scope?: StudioScope): string {
+  if (!scope) return "market";
+  return scope.key ? `${scope.entity}:${scope.key}` : scope.entity;
+}
 function parseHash(): Partial<UrlState> {
   if (typeof window === "undefined") return {};
   try {
@@ -327,6 +398,8 @@ function parseHash(): Partial<UrlState> {
       const [a, b] = w.split("_").map((x) => Date.parse(x));
       if (Number.isFinite(a) && Number.isFinite(b) && a < b) out.win = [a, b];
     }
+    const sc = h.get("sc");
+    if (sc) out.sc = sc;
     return out;
   } catch {
     return {};
@@ -344,7 +417,15 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
-  const initial = useMemo(() => parseHash(), []);
+  // Only honor a hash written for THIS page. One left in the URL by a client-side
+  // nav from another studio carries a different `sc` and is discarded, so the page
+  // mounts its own default; a matching deep-link (or the browser back/forward to a
+  // page this studio itself wrote) is honored.
+  const pageTag = scopeTag(scope);
+  const initial = useMemo<Partial<UrlState>>(() => {
+    const h = parseHash();
+    return h.sc === pageTag ? h : {};
+  }, [pageTag]);
   const [active, setActive] = useState<string[]>(
     initial.active ?? (scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE),
   );
@@ -443,8 +524,13 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     p.set("m", activeValid.join(","));
     p.set("s", mode);
     if (win) p.set("w", `${new Date(win[0]).toISOString().slice(0, 10)}_${new Date(win[1]).toISOString().slice(0, 10)}`);
+    // Tag the hash with this page's identity so it can't be adopted by another
+    // studio after a client-side nav (see parseHash / scopeTag). Also self-heals a
+    // leftover foreign hash: once this page loads its default, this write replaces
+    // the stale fragment with sc=<thisPage>.
+    p.set("sc", pageTag);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${p.toString()}`);
-  }, [activeValid, mode, win, loaded]);
+  }, [activeValid, mode, win, loaded, pageTag]);
 
   // Full data range across active series → the brush extent + default window.
   const fullRange = useMemo<[number, number] | null>(() => {
@@ -567,6 +653,13 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       return { id, item, pts, pathPts, step: medianStep(pts) };
     });
 
+    // Flow series (volume / trades / gacha rips) render as grouped BARS in
+    // absolute mode; indices, benchmarks and levels stay lines, and rebased mode
+    // is lines-only for everything. Their presence pins the domain floor to 0
+    // below, because a bar is drawn up from zero.
+    const barCols = mode === "abs" ? cols.filter((c) => c.item.flow) : [];
+    const hasBars = barCols.length > 0;
+
     // Domain over the PATH points (boundary included): a rising sparse series'
     // interpolated anchor can sit below every in-window point, so excluding it
     // would clip the boundary segment beneath the plot floor.
@@ -583,6 +676,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     lo -= padv;
     hi += padv;
     if (clampAtZero && lo < 0) lo = 0;
+    // Bars grow up from zero — if the padded floor sat above 0 (every value large)
+    // the bar bottoms would fall off-plot, so pin the floor to 0 when bars show.
+    if (hasBars && lo > 0) lo = 0;
 
     const X = (ms: number) => PAD.l + ((ms - s) / span) * plotW;
     const Y = (v: number) => PAD.t + plotH - ((v - lo) / (hi - lo || 1)) * plotH;
@@ -592,13 +688,42 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       path: monotonePath(c.pathPts.filter((p) => Number.isFinite(p.v)).map((p) => [X(p.ms), Y(p.v)] as [number, number])),
     }));
 
+    // Grouped-bar geometry for the flow columns — one rect per in-window point,
+    // keyed by series id so the render draws them in place of that series' line.
+    // At a shared date the N bar columns sit side by side within a band whose
+    // width is the median day-step in pixels (so daily bars nearly touch and a
+    // sparse/long window just gets thinner bars). Baseline = Y(0).
+    const bars = new Map<string, { x: number; y: number; w: number; h: number }[]>();
+    if (hasBars) {
+      const y0 = Y(Math.max(0, lo)); // lo is pinned to 0 when bars are present
+      const dates = [
+        ...new Set(barCols.flatMap((c) => c.pts.filter((p) => Number.isFinite(p.v)).map((p) => p.ms))),
+      ].sort((a, b) => a - b);
+      const gaps = dates.slice(1).map((d, i) => d - dates[i]).filter((g) => g > 0).sort((a, b) => a - b);
+      const stepMs = gaps.length ? gaps[Math.floor(gaps.length / 2)] : span;
+      const bandPx = Math.max(1.5, Math.min((stepMs / span) * plotW * 0.82, plotW));
+      const slotW = bandPx / barCols.length;
+      const rectW = Math.max(0.6, slotW * 0.86);
+      barCols.forEach((c, ci) => {
+        bars.set(
+          c.id,
+          c.pts
+            .filter((p) => Number.isFinite(p.v))
+            .map((p) => {
+              const yv = Y(p.v);
+              return { x: X(p.ms) - bandPx / 2 + ci * slotW, y: yv, w: rectW, h: Math.max(0, y0 - yv) };
+            }),
+        );
+      });
+    }
+
     // Union of REAL in-window dates (sorted) for crosshair snapping + x-ticks —
     // pts, not pathPts, so the synthetic boundary is never a snap target.
     const tsSet = new Set<number>();
     for (const c of cols) for (const p of c.pts) tsSet.add(p.ms);
     const unionTs = [...tsSet].sort((a, b) => a - b);
 
-    return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, unionTs, primary: lines[0] ?? null };
+    return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, bars, hasBars, unionTs, primary: lines[0] ?? null };
   }, [window0, visible, byId, mode, w, parsed]);
 
   // Live mirrors for the rAF flush and the native wheel listener. Both are
@@ -1154,8 +1279,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 {fmtDate(ms)}
               </text>
             ))}
-            {/* primary area */}
-            {model.primary?.path && (
+            {/* primary area — lines only; a bar primary (e.g. a platform total in
+                absolute mode) gets no area fill, it's already a solid bar. */}
+            {model.primary?.path && !(mode === "abs" && model.primary.item.flow) && (
               <>
                 <defs>
                   <linearGradient id="is-area" x1="0" y1="0" x2="0" y2="1">
@@ -1173,8 +1299,19 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 })()}
               </>
             )}
-            {/* lines + endpoint dots */}
+            {/* series — flow columns as grouped bars in absolute mode, everything
+                else as a line with an endpoint dot */}
             {model.lines.map((L) => {
+              if (mode === "abs" && L.item.flow) {
+                const rects = model.bars.get(L.id) ?? [];
+                return (
+                  <g key={L.id}>
+                    {rects.map((r, i) => (
+                      <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill={L.item.color} opacity={0.9} shapeRendering="crispEdges" />
+                    ))}
+                  </g>
+                );
+              }
               const fp = L.pts.filter((p) => Number.isFinite(p.v));
               const end = fp[fp.length - 1];
               const isPrim = L.id === model.primary?.id;
