@@ -357,7 +357,21 @@ function fmtVal(unit: Unit, v: number): string {
 }
 
 // ── URL hash state ────────────────────────────────────────────────────────────
-type UrlState = { active: string[]; mode: Mode; win: [number, number] | null };
+// The hash carries the studio's whole state PLUS an `sc` page tag. That tag is
+// what keeps the studios isolated across client-side navigation: a hash written by
+// the /ips market studio (sc=market) lingers in window.location.hash after a soft
+// nav to /platforms (Next changes the pathname but never clears the fragment), so
+// the /platforms studio would otherwise read /ips's config as its own. It instead
+// sees sc=market ≠ its own sc=platform and ignores the whole hash, mounting its
+// default. A genuine deep-link still works — it carries the tag of the page it
+// points at, so on arrival the tags match.
+type UrlState = { active: string[]; mode: Mode; win: [number, number] | null; sc: string };
+/** Stable per-page tag: "market" (/ips), "platform" (/platforms), or
+ *  "platform:<key>" (/platform/[key]). */
+function scopeTag(scope?: StudioScope): string {
+  if (!scope) return "market";
+  return scope.key ? `${scope.entity}:${scope.key}` : scope.entity;
+}
 function parseHash(): Partial<UrlState> {
   if (typeof window === "undefined") return {};
   try {
@@ -372,6 +386,8 @@ function parseHash(): Partial<UrlState> {
       const [a, b] = w.split("_").map((x) => Date.parse(x));
       if (Number.isFinite(a) && Number.isFinite(b) && a < b) out.win = [a, b];
     }
+    const sc = h.get("sc");
+    if (sc) out.sc = sc;
     return out;
   } catch {
     return {};
@@ -389,7 +405,15 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
-  const initial = useMemo(() => parseHash(), []);
+  // Only honor a hash written for THIS page. One left in the URL by a client-side
+  // nav from another studio carries a different `sc` and is discarded, so the page
+  // mounts its own default; a matching deep-link (or the browser back/forward to a
+  // page this studio itself wrote) is honored.
+  const pageTag = scopeTag(scope);
+  const initial = useMemo<Partial<UrlState>>(() => {
+    const h = parseHash();
+    return h.sc === pageTag ? h : {};
+  }, [pageTag]);
   const [active, setActive] = useState<string[]>(
     initial.active ?? (scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE),
   );
@@ -488,8 +512,13 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     p.set("m", activeValid.join(","));
     p.set("s", mode);
     if (win) p.set("w", `${new Date(win[0]).toISOString().slice(0, 10)}_${new Date(win[1]).toISOString().slice(0, 10)}`);
+    // Tag the hash with this page's identity so it can't be adopted by another
+    // studio after a client-side nav (see parseHash / scopeTag). Also self-heals a
+    // leftover foreign hash: once this page loads its default, this write replaces
+    // the stale fragment with sc=<thisPage>.
+    p.set("sc", pageTag);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${p.toString()}`);
-  }, [activeValid, mode, win, loaded]);
+  }, [activeValid, mode, win, loaded, pageTag]);
 
   // Full data range across active series → the brush extent + default window.
   const fullRange = useMemo<[number, number] | null>(() => {
