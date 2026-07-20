@@ -138,7 +138,10 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         {/* Mark alone in the narrow slot, full lockup once there's room. */}
         <Link href="/" aria-label="VARIBLE — home" className="flex shrink-0 items-center text-ink">
           <BrandMark className="h-[22px] w-auto sm:hidden" />
-          <BrandLockup className="hidden h-[19px] w-auto sm:block" />
+          {/* +16% vs the old 19px (launch polish) — matches the mobile mark's
+              22px. Still well under the nav's height driver (the h-9 search box),
+              so header height/alignment are unaffected. */}
+          <BrandLockup className="hidden h-[22px] w-auto sm:block" />
         </Link>
 
         <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] sm:flex-none sm:overflow-visible [&::-webkit-scrollbar]:hidden">
