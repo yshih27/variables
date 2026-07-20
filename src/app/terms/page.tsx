@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
+import { RariblePolicyNote } from "@/components/RariblePolicyNote";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (mirrors /methodology).
@@ -38,6 +39,8 @@ export default function TermsPage() {
         </header>
 
         <DraftNotice />
+
+        <RariblePolicyNote />
 
         <Section title="What VARIBLE is">
           <p>
