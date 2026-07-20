@@ -16,6 +16,19 @@ const LINKS: Array<{ label: string; href: string }> = [
   { label: "Privacy", href: "/privacy" },
 ];
 
+/**
+ * Verbatim legal disclaimer — LEGAL COPY, must remain byte-identical. Kept as
+ * plain string constants (not JSX text) so the exact wording, the curly quotes
+ * around “Site”, and every comma survive review: a JS string is reproduced
+ * literally, where JSX children can be reflowed or entity-normalized. Two
+ * paragraphs → two <p> so the paragraph break renders (a lone "\n" would
+ * collapse). Do not edit the text.
+ */
+const LEGAL_DISCLAIMER: readonly string[] = [
+  "IMPORTANT DISCLAIMER: All content provided on our website, hyperlinked sites, associated applications, forums, blogs, social media accounts and other platforms (the “Site”) is for general informational purposes only and is procured primarily from publicly available information and other third-party sources. Unless expressly stated otherwise, Rarible is not affiliated with, endorsed by, sponsored by, or otherwise associated with any third party whose data, content, products, services, websites, links, or intellectual property may be displayed, referenced, or linked to on the Site. We make no warranties or representations of any kind in relation to the content available on the Site, including, without limitation, its accuracy, completeness, reliability, security, or timeliness. No part of the content provided on the Site constitutes financial, investment, legal, tax or other professional advice, nor any dealing in (or promotion of) securities. Any use of or reliance on the content is solely at your own risk and discretion. You should conduct your own research, review, analyse and verify any information before relying on it. Trading and investing in digital assets involve significant risk and may result in substantial losses. No content on this Site is intended to constitute a solicitation, offer, or recommendation to buy, sell, or transact in any asset.",
+  "The Site may display references to third-party brands, trademarks, trade names, logos, characters, artwork, product names, and other intellectual property solely for purposes of identifying, describing, categorizing, indexing, searching for, discovering, or facilitating user-generated content and marketplace activity. All such intellectual property is the property of its respective owner. Rarible does not own nor claim any rights in such intellectual property, and the display of any such materials does not imply any affiliation, sponsorship, endorsement, authorization, or approval by the applicable rights holder.",
+];
+
 export function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-line/70 px-8 py-8 font-sans">
@@ -41,13 +54,22 @@ export function SiteFooter() {
         </div>
         <p className="max-w-3xl text-[11.5px] leading-relaxed text-ink-4">
           Varible tracks prices, volume, and holders across tokenized trading-card platforms. All
-          figures are derived from on-chain activity and platform APIs and are informational only —
-          nothing here is financial advice. Spotted a wrong number? Corrections route through the{" "}
+          figures are derived from on-chain activity and platform APIs. Spotted a wrong number?
+          Corrections route through the{" "}
           <Link href="/methodology" className="text-ink-3 transition-colors hover:text-yellow">
             methodology page
           </Link>
           . A Rarible project.
         </p>
+        {/* Formal legal disclaimer — verbatim fine print, full text, no collapse.
+            Supersedes the "informational only" clause dropped from the line above. */}
+        <div className="flex flex-col gap-2 border-t border-line/40 pt-5">
+          {LEGAL_DISCLAIMER.map((para, i) => (
+            <p key={i} className="max-w-3xl text-[11px] leading-relaxed text-ink-4">
+              {para}
+            </p>
+          ))}
+        </div>
       </div>
     </footer>
   );
