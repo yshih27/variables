@@ -693,7 +693,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     // At a shared date the N bar columns sit side by side within a band whose
     // width is the median day-step in pixels (so daily bars nearly touch and a
     // sparse/long window just gets thinner bars). Baseline = Y(0).
-    const bars = new Map<string, { x: number; y: number; w: number; h: number }[]>();
+    const bars = new Map<string, { ms: number; x: number; y: number; w: number; h: number }[]>();
     if (hasBars) {
       const y0 = Y(Math.max(0, lo)); // lo is pinned to 0 when bars are present
       const dates = [
@@ -711,7 +711,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
             .filter((p) => Number.isFinite(p.v))
             .map((p) => {
               const yv = Y(p.v);
-              return { x: X(p.ms) - bandPx / 2 + ci * slotW, y: yv, w: rectW, h: Math.max(0, y0 - yv) };
+              return { ms: p.ms, x: X(p.ms) - bandPx / 2 + ci * slotW, y: yv, w: rectW, h: Math.max(0, y0 - yv) };
             }),
         );
       });
@@ -1258,6 +1258,19 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                   />
                 </filter>
               )}
+              {/* Bar hover bloom — self-coloured: blur the bar and merge it under a
+                  crisp copy, so it glows in each series' OWN colour (a fixed
+                  floodColor can't match grouped bars). Applied to the hovered
+                  date's whole bar group, the MetricBarCard emphasis idiom. */}
+              {model.hasBars && (
+                <filter id="is-bar-glow" x="-80%" y="-45%" width="260%" height="190%">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="b" />
+                  <feMerge>
+                    <feMergeNode in="b" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              )}
             </defs>
             {/* grid + y labels */}
             {Array.from({ length: 6 }, (_, g) => {
@@ -1306,9 +1319,24 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
                 const rects = model.bars.get(L.id) ?? [];
                 return (
                   <g key={L.id}>
-                    {rects.map((r, i) => (
-                      <rect key={i} x={r.x} y={r.y} width={r.w} height={r.h} fill={L.item.color} opacity={0.9} shapeRendering="crispEdges" />
-                    ))}
+                    {rects.map((r, i) => {
+                      // The hovered DATE's bars (across every bar series) brighten
+                      // to full opacity + a self-coloured bloom — the group glows.
+                      const on = hoverTs != null && r.ms === hoverTs;
+                      return (
+                        <rect
+                          key={i}
+                          x={r.x}
+                          y={r.y}
+                          width={r.w}
+                          height={r.h}
+                          fill={L.item.color}
+                          opacity={on ? 1 : 0.9}
+                          filter={on ? "url(#is-bar-glow)" : undefined}
+                          shapeRendering="crispEdges"
+                        />
+                      );
+                    })}
                   </g>
                 );
               }
@@ -1352,6 +1380,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
               <g>
                 <line x1={model.X(hoverTs)} x2={model.X(hoverTs)} y1={PAD.t} y2={PAD.t + model.plotH} stroke="var(--color-line-2)" strokeDasharray="3 3" />
                 {model.lines.map((L) => {
+                  // Bar series brighten their own hovered group instead of carrying
+                  // a floating crosshair dot — dots are for line series only.
+                  if (mode === "abs" && L.item.flow) return null;
                   const p = snapped.get(L.id);
                   return p == null ? null : <circle key={L.id} cx={model.X(p.ms)} cy={model.Y(p.v)} r={3.2} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />;
                 })}

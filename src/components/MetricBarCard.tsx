@@ -414,13 +414,20 @@ function LineSeries({
   const Y = (v: number) => H - PAD - ((v - lo) / span) * (H - PAD * 2);
 
   const hoverPt = hover != null ? present.find((s) => s.slot === hover) ?? null : null;
-  const pts = present.map((s) => [X(s.slot), Y(s.value)] as [number, number]);
-  const line = monotonePath(pts);
-  // Close the area under the DRAWN span, not the full card: filling 0→W under a
-  // line that only covers the last fifth would paint history that isn't there.
-  const area = pts.length
-    ? `${line} L${pts[pts.length - 1][0]} ${H} L${pts[0][0]} ${H} Z`
-    : "";
+
+  // Split the readings into contiguous RUNS — maximal sequences of adjacent day
+  // slots with no hole. The line is drawn PER RUN so it pens UP over interior
+  // missing days (the Jul 17–19-style holes): no solid segment is ever drawn
+  // across a day the series never reported. A subtle dashed connector bridges each
+  // gap so the level still reads continuous, while announcing "no data here" —
+  // the same story the baseline gap ticks behind it already tell.
+  const runs: (NonNullable<Slot> & { slot: number })[][] = [];
+  for (const s of present) {
+    const cur = runs[runs.length - 1];
+    if (cur && s.slot === cur[cur.length - 1].slot + 1) cur.push(s);
+    else runs.push([s]);
+  }
+  const ptOf = (s: NonNullable<Slot> & { slot: number }) => [X(s.slot), Y(s.value)] as [number, number];
 
   return (
     <svg
@@ -436,52 +443,72 @@ function LineSeries({
           <stop offset="100%" stopColor="var(--color-yellow)" stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={area} fill="url(#mbc-area)" />
-      {/* non-scaling-stroke: preserveAspectRatio="none" would otherwise stretch
+      {/* Per-run area + solid line. A one-point run draws no line — just its dot,
+          below — so an isolated reading between two gaps is still visible.
+          non-scaling-stroke: preserveAspectRatio="none" would otherwise stretch
           the stroke horizontally with the box. */}
-      <path
-        d={line}
-        fill="none"
-        stroke="var(--color-yellow)"
-        strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-      />
-      {/* A 2-point series is a bare diagonal; dots make the real readings legible
-          as readings. Only drawn when the series is short enough not to speckle. */}
-      {dataLength <= 4
-        ? present.map((s, i) => (
-            <circle
-              key={s.ts}
-              cx={pts[i][0]}
-              cy={pts[i][1]}
-              r={hover === s.slot ? 3.5 : 2.5}
-              fill="var(--color-yellow)"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))
-        : null}
-      {/* `hover` is a SLOT index and only lands on days that carry a reading, so
-          the marker reads its value from that day's slot — not from a position in
-          the compacted series, which would drift once the two stop lining up. */}
-      {hoverPt && dataLength > 4 ? (
-        <>
+      {runs.map((run, ri) => {
+        if (run.length < 2) return null;
+        const pts = run.map(ptOf);
+        const line = monotonePath(pts);
+        const area = `${line} L${pts[pts.length - 1][0]} ${H} L${pts[0][0]} ${H} Z`;
+        return (
+          <g key={`run-${ri}`}>
+            <path d={area} fill="url(#mbc-area)" />
+            <path d={line} fill="none" stroke="var(--color-yellow)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          </g>
+        );
+      })}
+      {/* Dashed connectors across the interior gaps — dimmed + dashed so they can't
+          be mistaken for a real reading. */}
+      {runs.slice(1).map((run, i) => {
+        const a = runs[i][runs[i].length - 1];
+        const b = run[0];
+        return (
           <line
-            x1={X(hoverPt.slot)}
-            y1={0}
-            x2={X(hoverPt.slot)}
-            y2={H}
-            stroke="var(--color-line-2)"
-            strokeDasharray="3 3"
+            key={`gap-${i}`}
+            x1={X(a.slot)}
+            y1={Y(a.value)}
+            x2={X(b.slot)}
+            y2={Y(b.value)}
+            stroke="var(--color-yellow)"
+            strokeOpacity="0.3"
+            strokeWidth="1.2"
+            strokeDasharray="2 2.5"
             vectorEffect="non-scaling-stroke"
           />
+        );
+      })}
+      {/* Dots: every reading on a short series (a 2-point run is a bare diagonal
+          otherwise), any ISOLATED reading whatever the length (else it's an
+          invisible point between two gaps), and the hovered reading. */}
+      {present.map((s) => {
+        const isolated = runs.some((r) => r.length === 1 && r[0].slot === s.slot);
+        if (!(dataLength <= 4 || isolated || hover === s.slot)) return null;
+        return (
           <circle
-            cx={X(hoverPt.slot)}
-            cy={Y(hoverPt.value)}
-            r={3.5}
+            key={s.ts}
+            cx={X(s.slot)}
+            cy={Y(s.value)}
+            r={hover === s.slot ? 3.5 : 2.5}
             fill="var(--color-yellow)"
             vectorEffect="non-scaling-stroke"
           />
-        </>
+        );
+      })}
+      {/* Crosshair rule for a longer series (its dot is drawn above). `hover` is a
+          SLOT index that only lands on days with a reading, so the marker never
+          drifts off the compacted series. */}
+      {hoverPt && dataLength > 4 ? (
+        <line
+          x1={X(hoverPt.slot)}
+          y1={0}
+          x2={X(hoverPt.slot)}
+          y2={H}
+          stroke="var(--color-line-2)"
+          strokeDasharray="3 3"
+          vectorEffect="non-scaling-stroke"
+        />
       ) : null}
     </svg>
   );
