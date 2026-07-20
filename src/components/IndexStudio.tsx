@@ -53,7 +53,12 @@ const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "180", days: 180, label: "6M" },
   { key: "all", days: null, label: "ALL" },
 ];
-const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:SP500"];
+// /ips (unscoped market studio) opens on V-MKT against the four majors it's most
+// often read against — rebased so the mixed units overlay, over the default 90D
+// window. V-MKT leads (primary → area + glow); a benchmark the /benchmarks
+// endpoint doesn't return (e.g. SOL past CoinGecko's 365d free-tier cap) is simply
+// dropped by activeValid, honestly, rather than erroring.
+const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:ETH", "bench:SOL", "bench:SP500"];
 
 /**
  * Scoping the studio to one entity (today: a platform detail page). Unscoped =
