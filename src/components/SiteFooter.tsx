@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { SubscribeForm } from "./SubscribeForm";
 import { BrandLockup } from "./Brand";
+import { XGlyph } from "./XGlyph";
+import { X_URL } from "@/lib/site";
 
 /**
  * App-wide footer (round-3 "trust & identity") — rendered once from the root
@@ -50,6 +52,15 @@ export function SiteFooter() {
                 {l.label}
               </Link>
             ))}
+            <a
+              href={X_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Varible on X"
+              className="inline-flex items-center transition-colors hover:text-yellow"
+            >
+              <XGlyph />
+            </a>
           </nav>
         </div>
         <p className="max-w-3xl text-[11.5px] leading-relaxed text-ink-4">
