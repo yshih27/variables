@@ -99,12 +99,41 @@ function metaFromRow(row: {
   };
 }
 
-/** Upsert card rows in chunks (PK = id). */
-export async function upsertCards(rows: CardRow[]): Promise<void> {
-  const CHUNK = 500;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const { error } = await db().from("cards").upsert(rows.slice(i, i + CHUNK));
-    if (error) throw new Error(`[cards] upsert failed: ${error.message}`);
+const UPSERT_CHUNK = 500;
+const UPSERT_FLOOR = 25;
+
+/** A big JSONB `attributes` payload can blow PostgREST's statement_timeout on a large
+ *  batch — the recurring cc-traits (~131K rows) red. Retry only those. */
+function isUpsertRetryable(error: { message?: string; code?: string }): boolean {
+  const m = (error.message ?? "").toLowerCase();
+  return (
+    error.code === "57014" || // query_canceled (statement_timeout)
+    m.includes("timeout") ||
+    m.includes("canceling statement") ||
+    m.includes("too large") ||
+    m.includes("payload")
+  );
+}
+
+/**
+ * Upsert card rows (PK = id) with ADAPTIVE chunking: start at 500, and when a batch
+ * times out / is too large, HALVE the chunk and retry just that batch — recursively —
+ * down to a floor of 25. So a heavy `attributes` payload self-tunes under the timeout
+ * instead of failing the whole cc-traits crawl. A non-retryable error (or a failure at
+ * the floor) throws.
+ */
+export async function upsertCards(rows: CardRow[], chunk: number = UPSERT_CHUNK): Promise<void> {
+  for (let i = 0; i < rows.length; i += chunk) {
+    const batch = rows.slice(i, i + chunk);
+    const { error } = await db().from("cards").upsert(batch);
+    if (!error) continue;
+    if (isUpsertRetryable(error) && chunk > UPSERT_FLOOR) {
+      const half = Math.max(UPSERT_FLOOR, Math.floor(chunk / 2));
+      console.warn(`[cards] upsert ${chunk}-batch timed out → retrying at ${half} (${error.message.slice(0, 60)})`);
+      await upsertCards(batch, half);
+      continue;
+    }
+    throw new Error(`[cards] upsert failed (chunk ${chunk}): ${error.message}`);
   }
 }
 
