@@ -10,12 +10,15 @@ import { X_URL } from "@/lib/site";
  * Status/contact links, and the data disclaimer. Deliberately quiet: one
  * bordered band, no stats, no freshness timestamps (/status owns freshness).
  */
-const LINKS: Array<{ label: string; href: string }> = [
+// Terms/Privacy go DIRECTLY to Rarible's canonical documents (legal directive
+// 7/21 — Varible is governed by the parent policies; we don't maintain our own).
+// The old /terms + /privacy routes 308-redirect there for any existing links.
+const LINKS: Array<{ label: string; href: string; external?: boolean }> = [
   { label: "Methodology", href: "/methodology" },
   { label: "Data status", href: "/status" },
   { label: "Watchlist", href: "/watchlist" },
-  { label: "Terms", href: "/terms" },
-  { label: "Privacy", href: "/privacy" },
+  { label: "Terms", href: "https://rarible.com/terms", external: true },
+  { label: "Privacy", href: "https://rarible.com/privacy", external: true },
 ];
 
 /**
@@ -47,11 +50,23 @@ export function SiteFooter() {
             <span className="text-ink-3">· real cards. real prices. indexed</span>
           </div>
           <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-ink-3">
-            {LINKS.map((l) => (
+            {LINKS.map((l) =>
+              l.external ? (
+                <a
+                  key={l.label}
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="transition-colors hover:text-yellow"
+                >
+                  {l.label}
+                </a>
+              ) : (
               <Link key={l.label} href={l.href} className="transition-colors hover:text-yellow">
                 {l.label}
               </Link>
-            ))}
+              ),
+            )}
             <a
               href={X_URL}
               target="_blank"
