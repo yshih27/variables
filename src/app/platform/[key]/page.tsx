@@ -5,12 +5,13 @@ import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
 import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
+import { CompositionChart, type CompositionSeries } from "@/components/CompositionChart";
 import { DominancePanel, type DomEntity } from "@/components/IPDominance";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
-import { pctChange, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { pctChange, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -188,6 +189,17 @@ export default async function PlatformDetailPage({
       : []),
   ];
 
+  // Volume mix — THIS platform's marketplace vs gacha over the last 30 days. A
+  // FLOW composition (all three modes legit; 100% share mode is the money view:
+  // "97% gacha / 3% marketplace" and how it shifts). Honest absence, house rules:
+  // a source with no series (Phygitals has no marketplace/secondary source) is
+  // filtered out here, never rendered as a fabricated zero — same guard the
+  // /platforms composition uses.
+  const volumeMix: CompositionSeries[] = [
+    { key: "marketplace", label: "Marketplace", color: "var(--color-blue)", points: lastNDays(volS, 30) },
+    { key: "gacha", label: "Gacha", color: "var(--color-yellow)", points: lastNDays(gachaS, 30) },
+  ].filter((s) => s.points.some((p) => Number.isFinite(p.value)));
+
   return (
     <>
       <NavBar />
@@ -200,6 +212,20 @@ export default async function PlatformDetailPage({
             <OverviewMetricColumn rows={railRows} />
             <IndexStudio scope={{ entity: "platform", key }} />
           </div>
+
+          {/* Volume mix — marketplace vs gacha for THIS platform, below the studio.
+              100% share mode is the money view. A gacha-only platform (Phygitals)
+              simply has no marketplace series — no fabricated zero. */}
+          {volumeMix.length > 0 && (
+            <CompositionChart
+              title="Volume mix"
+              subtitle="Marketplace vs gacha · last 30 days"
+              series={volumeMix}
+              unit="usd"
+              variant="bars"
+              flow
+            />
+          )}
 
           {/* ZONE 2 — 14d dailies for THIS platform. Volume and trades are flows
               (bars off zero); holders is a stock → line, headline = latest level.
