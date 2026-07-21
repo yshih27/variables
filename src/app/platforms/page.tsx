@@ -9,7 +9,7 @@ import { SectionShell } from "@/components/Section";
 import { VolumeBar } from "@/components/VolumeBar";
 import { CompositionChart } from "@/components/CompositionChart";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { pctChange, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
 
 /** HHI concentration bands — matches PlatformStatBar's cutoffs (0.25/0.4) so the
@@ -110,9 +110,15 @@ export default async function AllPlatformsPage() {
     otherPrimary: Math.max(0, vol24.primary - vol24.gacha),
     total: total24,
   };
-  // The total's own daily series (every platform's marketplace + gacha, summed by
-  // day), so its 24h Δ comes from the spine rather than a hero field it lacks.
-  const totalDailyAll = totalDaily(...Object.values(mktSeries), ...Object.values(gachaSeries));
+  // The total's 24h Δ over SOURCE-COMPLETE days only. Keying the bulk by
+  // (platform, stream) means a Dune-lagged gacha day (CC/Phygitals gacha not yet in
+  // while their marketplace + Courtyard/Beezie gacha are) is skipped, not compared to
+  // a full prior day — which printed the fake "total −79.5%". Marketplace streams are
+  // complete daily, so the honest total tracks their move.
+  const totalBulk = new Map<string, SeriesPoint[]>();
+  for (const [k, s] of Object.entries(mktSeries)) totalBulk.set(`${k}:mkt`, s);
+  for (const [k, s] of Object.entries(gachaSeries)) totalBulk.set(`${k}:gacha`, s);
+  const total24Pct = bulkDayOverDayPctComplete(totalBulk, DELTA_MIN_BASE_USD);
 
   const top = ranked[0];
   const topShare = top ? sharePct24(top, total24) : null;
@@ -139,7 +145,7 @@ export default async function AllPlatformsPage() {
       metric: "total24h",
       value: total24,
       unit: "usd",
-      deltaPct: pctChange(totalDailyAll, 1),
+      deltaPct: total24Pct,
       window: "24h",
       hero: true,
     },
@@ -198,10 +204,13 @@ export default async function AllPlatformsPage() {
     // "Gacha only" is read off the DATA, not hardcoded to Phygitals: no
     // marketplace series means we have no secondary source for this platform.
     const gachaOnly = !(mkt?.length ?? 0) && (gacha?.length ?? 0) > 0;
+    // Drop the trailing day if this platform wrote only SOME of its streams (e.g. CC
+    // marketplace in, gacha Dune-lagged) — else the last bar craters to a fake cliff.
+    const streams = new Map<string, SeriesPoint[]>([["mkt", mkt ?? []], ["gacha", gacha ?? []]]);
     return {
       key: p.key,
       name: p.name,
-      data: last14(totalDaily(mkt, gacha)),
+      data: last14(dropIncompleteTail(totalDaily(mkt, gacha), streams)),
       note: gachaOnly ? "gacha only" : undefined,
     };
   });

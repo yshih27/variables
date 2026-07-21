@@ -222,6 +222,78 @@ export function dayOverDayPct(series: SeriesPoint[], minBase = 0): number | null
   return ((cur - prev) / prev) * 100;
 }
 
+/**
+ * SOURCE-COMPLETENESS for a per-source daily bulk (Map<source, dailySeries>). A merged
+ * day is COMPLETE only when every source that wrote the IMMEDIATELY-PRIOR day also
+ * wrote it. This catches Dune lag: the spine's newest day often carries only the fast
+ * sources (Courtyard/Beezie gacha) while CC/Phygitals still end yesterday — merging
+ * that partial day and comparing it to a full prior day prints a fake collapse
+ * ("gacha −79.8%"), and stacking it draws a fake cliff. A source that permanently
+ * stops self-heals after one transition day (the expected set adjusts down); a source
+ * that returns (lag caught up) makes the day complete again.
+ * Returns the sorted days, the Σ-merged value per day, and the set of complete days.
+ */
+export function sourceDayCompleteness(bulk: Map<string, SeriesPoint[]>): {
+  days: string[];
+  merged: Map<string, number>;
+  complete: Set<string>;
+} {
+  const daySources = new Map<string, Set<string>>();
+  const merged = new Map<string, number>();
+  for (const [source, series] of bulk) {
+    for (const p of series) {
+      if (!Number.isFinite(Date.parse(p.ts)) || !Number.isFinite(p.value)) continue;
+      merged.set(p.ts, (merged.get(p.ts) ?? 0) + p.value);
+      let s = daySources.get(p.ts);
+      if (!s) daySources.set(p.ts, (s = new Set<string>()));
+      s.add(source);
+    }
+  }
+  const days = [...merged.keys()].sort();
+  const complete = new Set<string>();
+  for (let i = 0; i < days.length; i++) {
+    if (i === 0) { complete.add(days[i]); continue; } // no prior day → complete
+    const cur = daySources.get(days[i])!;
+    const prev = daySources.get(days[i - 1])!;
+    let ok = true;
+    for (const s of prev) if (!cur.has(s)) { ok = false; break; }
+    if (ok) complete.add(days[i]);
+  }
+  return { days, merged, complete };
+}
+
+/** The newest SOURCE-COMPLETE day (see sourceDayCompleteness) — the trailing day a
+ *  composition chart should end on, so a Dune-lagged partial day never draws a cliff.
+ *  null when the bulk is empty. */
+export function latestCompleteDay(bulk: Map<string, SeriesPoint[]>): string | null {
+  const { days, complete } = sourceDayCompleteness(bulk);
+  for (let i = days.length - 1; i >= 0; i--) if (complete.has(days[i])) return days[i];
+  return null;
+}
+
+/** Truncate a merged daily series to END on the latest SOURCE-COMPLETE day, so a
+ *  composition/bar chart never draws a cliff on a Dune-lagged partial trailing day.
+ *  Pass the same per-source bulk the merged series was summed from. */
+export function dropIncompleteTail(merged: SeriesPoint[], bulk: Map<string, SeriesPoint[]>): SeriesPoint[] {
+  const last = latestCompleteDay(bulk);
+  return last ? merged.filter((p) => p.ts <= last) : merged;
+}
+
+/**
+ * Completeness-aware Σ day-over-day % — the last two SOURCE-COMPLETE merged days, so a
+ * partial newest day (Dune lag) is skipped and the comparison is like-for-like. Floors
+ * the denominator with `minBase` (M4). null when <2 complete days or base too small.
+ */
+export function bulkDayOverDayPctComplete(bulk: Map<string, SeriesPoint[]>, minBase = 0): number | null {
+  const { days, merged, complete } = sourceDayCompleteness(bulk);
+  const completeDays = days.filter((d) => complete.has(d));
+  if (completeDays.length < 2) return null;
+  const cur = merged.get(completeDays[completeDays.length - 1])!;
+  const prev = merged.get(completeDays[completeDays.length - 2])!;
+  if (!(prev > 0) || prev < minBase) return null;
+  return ((cur - prev) / prev) * 100;
+}
+
 /** Midnight-UTC ISO for the day containing `ms`. The canonical bucket key. */
 export function dayStartUtc(ms: number): string {
   const d = new Date(ms);
