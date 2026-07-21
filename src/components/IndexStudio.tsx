@@ -1313,6 +1313,32 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
       : "";
 
+  // Right-click menu on the plot (both pages — this is the shared component). Every
+  // item reuses an existing handler; Reset chart returns to page defaults and drops
+  // any deep-linked state from the URL.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const resetChart = () => {
+    setActive(scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE);
+    setMode(scope ? "abs" : "rebase");
+    setHidden(new Set());
+    setWin(null);
+    if (typeof window !== "undefined")
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  };
+  const menuItems: PlotMenuItem[] = [
+    { label: "Reset chart", onClick: resetChart, headline: true },
+    { label: "Reset zoom", onClick: () => setWin(null) },
+    { divider: true },
+    {
+      label: mode === "rebase" ? "Show absolute values" : "Show rebased (100)",
+      onClick: () => setMode((m) => (m === "rebase" ? "abs" : "rebase")),
+    },
+    { divider: true },
+    { label: "Download CSV", onClick: exportCsv },
+    { label: "Download PNG", onClick: exportPng },
+    { label: "Copy link", onClick: shareUrl },
+  ];
+
   return (
     <SectionShell className="font-sans">
       {/* Header */}
@@ -1403,7 +1429,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
           // No onWheel prop: React registers wheel PASSIVE at the root, so
           // preventDefault there silently does nothing and the page scrolled
           // while the chart zoomed. The listener is attached natively above.
-          <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove}>
+          <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove} onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
             {/* data-plot-bg: the PNG export drops THIS rect from its copy so the
                 watermark can sit under the series instead of being painted over
                 by an opaque plate. Renders identically either way. */}
@@ -1632,7 +1658,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-ink-3" /> solid = index / metric</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-dashed border-ink-3" /> dashed = benchmark</span>
         <span>baseline 100 = window start</span>
-        <span className="ml-auto font-mono text-[10.5px] text-ink-4">drag the brush to zoom · scroll to zoom · click a ticker to hide</span>
+        <span className="ml-auto font-mono text-[10.5px] text-ink-4">drag the brush to zoom · scroll to zoom · right-click for options · click a ticker to hide</span>
       </div>
 
       {/* Embed modal */}
@@ -1654,6 +1680,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-yellow px-4 py-2 text-[12.5px] font-semibold text-black shadow-lg">{toast}</div>
       )}
+
+      {/* Right-click context menu (over the plot only) */}
+      {menu && <PlotContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </SectionShell>
   );
 }
@@ -1692,6 +1721,70 @@ function IconBtn({ onClick, label, title }: { onClick: () => void; label: string
     >
       {label}
     </button>
+  );
+}
+
+type PlotMenuItem = { label: string; onClick: () => void; headline?: boolean } | { divider: true };
+
+/** Right-click menu over the plot. Mirrors MetricPicker's dismissal (deferred
+ *  outside-mousedown + Esc), fixed-positioned at the cursor and clamped to the
+ *  viewport. Every item reuses one of the studio's existing handlers. */
+function PlotContextMenu({ x, y, items, onClose }: {
+  x: number;
+  y: number;
+  items: PlotMenuItem[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Defer so the opening right-click's own mousedown doesn't immediately close it.
+    const t = window.setTimeout(() => document.addEventListener("mousedown", onDoc), 0);
+    document.addEventListener("keydown", onEsc);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+
+  const W = 188;
+  const estH = items.length * 30 + 8;
+  const left = typeof window !== "undefined" ? Math.max(6, Math.min(x, window.innerWidth - W - 6)) : x;
+  const top = typeof window !== "undefined" ? Math.max(6, Math.min(y, window.innerHeight - estH - 6)) : y;
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      style={{ left, top, width: W }}
+      className="fixed z-50 overflow-hidden rounded-xl border border-line-2 bg-bg-1 py-1 shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
+    >
+      {items.map((it, i) =>
+        "divider" in it ? (
+          <div key={i} className="my-1 border-t border-line/60" />
+        ) : (
+          <button
+            key={i}
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              it.onClick();
+              onClose();
+            }}
+            className={`block w-full px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-bg-2 ${
+              it.headline ? "font-semibold text-ink" : "text-ink-2 hover:text-ink"
+            }`}
+          >
+            {it.label}
+          </button>
+        ),
+      )}
+    </div>
   );
 }
 
