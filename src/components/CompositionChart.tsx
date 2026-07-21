@@ -35,11 +35,15 @@ export type CompositionSeries = {
 };
 
 type Mode = "stacked" | "share" | "cumulative";
-const MODES: { key: Mode; label: string }[] = [
+const ALL_MODES: { key: Mode; label: string }[] = [
   { key: "stacked", label: "Stacked" },
   { key: "share", label: "100% share" },
   { key: "cumulative", label: "Cumulative" },
 ];
+// Cumulative is a FLOWS-only concept: a running sum of volume is "total traded so
+// far"; a running sum of a LEVEL (market cap) is a meaningless staircase that
+// once rendered a $62.7M market as "$1.55B". Level compositions never offer it.
+const LEVEL_MODES = ALL_MODES.filter((m) => m.key !== "cumulative");
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmtDay = (ts: string) => {
@@ -109,6 +113,7 @@ export function CompositionChart({
   series,
   unit,
   variant = "area",
+  flow = true,
   foot,
 }: {
   title: string;
@@ -118,9 +123,13 @@ export function CompositionChart({
   unit: "usd" | "count";
   /** "area" columns touch (dense data reads as a filled area); "bars" gaps them. */
   variant?: "bars" | "area";
+  /** FLOW compositions (volume) offer Cumulative; LEVEL compositions (mcap) must
+   *  not — a running sum of a level is not a number (see LEVEL_MODES note). */
+  flow?: boolean;
   /** A muted qualifier under the plot — e.g. how the "Other" bucket is composed. */
   foot?: string;
 }) {
+  const MODES = flow ? ALL_MODES : LEVEL_MODES;
   const [mode, setMode] = useState<Mode>("stacked");
   const [hover, setHover] = useState<number | null>(null);
   const fmt = (n: number) => (unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n));

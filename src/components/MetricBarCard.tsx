@@ -430,10 +430,11 @@ function LineSeries({
   const ptOf = (s: NonNullable<Slot> & { slot: number }) => [X(s.slot), Y(s.value)] as [number, number];
 
   return (
+    <div className="pointer-events-none absolute inset-0">
     <svg
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
-      className="pointer-events-none absolute inset-0 h-full w-full"
+      className="absolute inset-0 h-full w-full"
       role="img"
       aria-label={`Latest ${formatPoint(present)}`}
     >
@@ -479,26 +480,9 @@ function LineSeries({
           />
         );
       })}
-      {/* Dots: every reading on a short series (a 2-point run is a bare diagonal
-          otherwise), any ISOLATED reading whatever the length (else it's an
-          invisible point between two gaps), and the hovered reading. */}
-      {present.map((s) => {
-        const isolated = runs.some((r) => r.length === 1 && r[0].slot === s.slot);
-        if (!(dataLength <= 4 || isolated || hover === s.slot)) return null;
-        return (
-          <circle
-            key={s.ts}
-            cx={X(s.slot)}
-            cy={Y(s.value)}
-            r={hover === s.slot ? 3.5 : 2.5}
-            fill="var(--color-yellow)"
-            vectorEffect="non-scaling-stroke"
-          />
-        );
-      })}
-      {/* Crosshair rule for a longer series (its dot is drawn above). `hover` is a
-          SLOT index that only lands on days with a reading, so the marker never
-          drifts off the compacted series. */}
+      {/* Crosshair rule for a longer series (its dot is drawn in the HTML layer
+          below). `hover` is a SLOT index that only lands on days with a reading,
+          so the marker never drifts off the compacted series. */}
       {hoverPt && dataLength > 4 ? (
         <line
           x1={X(hoverPt.slot)}
@@ -511,6 +495,36 @@ function LineSeries({
         />
       ) : null}
     </svg>
+    {/* Dots live OUTSIDE the stretched SVG. preserveAspectRatio="none" scales the
+        canvas non-uniformly, which turned every <circle> into a wide ellipse
+        (vector-effect protects strokes, not geometry). HTML dots at percentage
+        coordinates with a fixed pixel size are round by construction.
+        Which readings get a dot: every reading on a short series (a 2-point run
+        is a bare diagonal otherwise), any ISOLATED reading whatever the length
+        (else it's an invisible point between two gaps), and the hovered one. */}
+    {present.map((s) => {
+      const isolated = runs.some((r) => r.length === 1 && r[0].slot === s.slot);
+      const on = hover === s.slot;
+      if (!(dataLength <= 4 || isolated || on)) return null;
+      const size = on ? 7 : 5;
+      return (
+        <span
+          key={s.ts}
+          aria-hidden
+          className="absolute rounded-full"
+          style={{
+            left: `${(X(s.slot) / W) * 100}%`,
+            top: `${(Y(s.value) / H) * 100}%`,
+            width: size,
+            height: size,
+            transform: "translate(-50%, -50%)",
+            background: "var(--color-yellow)",
+            boxShadow: on ? GLOW : undefined,
+          }}
+        />
+      );
+    })}
+    </div>
   );
 }
 

@@ -282,6 +282,9 @@ export default async function AllIPsPage() {
               series={mcapComposition}
               unit="usd"
               variant="area"
+              // Market cap is a LEVEL — no Cumulative mode (summing a level across
+              // days is meaningless; it once rendered $62.7M as a $1.55B staircase).
+              flow={false}
             />
           )}
           <CategoryTreemap rows={data.ips} />
