@@ -39,3 +39,10 @@ export const SITE_ORIGIN = normalizeOrigin(
 export function siteUrl(path: string): string {
   return `${SITE_ORIGIN}${path.startsWith("/") ? path : `/${path}`}`;
 }
+
+/**
+ * The project's official X (Twitter) account — one definition so the report CTA
+ * and the footer nav link stay in lockstep. Confirmed handle; replaces the
+ * earlier `/variable` stub.
+ */
+export const X_URL = "https://x.com/varibletrends";

@@ -3,7 +3,9 @@ import { NavBar } from "@/components/NavBar";
 import { Section } from "@/components/Section";
 import { ReportView } from "@/components/ReportView";
 import { SubscribeForm } from "@/components/SubscribeForm";
+import { XGlyph } from "@/components/XGlyph";
 import { readWeeklyReport } from "@/lib/data/weeklyReport";
+import { X_URL } from "@/lib/site";
 
 // ISR: the report is written weekly (Monday cron, B9-2); hourly revalidate picks
 // up the fresh snapshot without re-rendering per request.
@@ -48,19 +50,6 @@ export default async function ReportPage() {
         </div>
       </div>
     </>
-  );
-}
-
-// TODO(design-r1 Q4): replace with the official Varible X handle once confirmed.
-// Stubbed to /variable so the CTA is wired; flagged in the PR summary.
-const X_URL = "https://x.com/variable";
-
-/** The X (formerly Twitter) brand mark — a brand logo, kept monochrome. */
-function XGlyph() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
   );
 }
 

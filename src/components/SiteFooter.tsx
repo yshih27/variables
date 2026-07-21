@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { SubscribeForm } from "./SubscribeForm";
 import { BrandLockup } from "./Brand";
+import { XGlyph } from "./XGlyph";
+import { X_URL } from "@/lib/site";
 
 /**
  * App-wide footer (round-3 "trust & identity") — rendered once from the root
@@ -65,6 +67,15 @@ export function SiteFooter() {
               </Link>
               ),
             )}
+            <a
+              href={X_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Varible on X"
+              className="inline-flex items-center transition-colors hover:text-yellow"
+            >
+              <XGlyph />
+            </a>
           </nav>
         </div>
         <p className="max-w-3xl text-[11.5px] leading-relaxed text-ink-4">
@@ -76,11 +87,17 @@ export function SiteFooter() {
           </Link>
           . A Rarible project.
         </p>
-        {/* Formal legal disclaimer — verbatim fine print, full text, no collapse.
-            Supersedes the "informational only" clause dropped from the line above. */}
-        <div className="flex flex-col gap-2 border-t border-line/40 pt-5">
+        {/* Formal legal disclaimer — verbatim fine print, full text, still on every
+            page. Compacted to ~a third of the height: full content width, CSS
+            multi-column (1 → 2 → 3 as the viewport grows), ~10px, tight leading,
+            dimmer ink. The two paragraphs FLOW across the columns (deliberately NOT
+            break-inside-avoid): with only two paragraphs, keeping each whole leaves
+            the third column empty and barely cuts the height (measured 0.84×);
+            letting them balance fills all three columns at ~1/3. LEGAL_DISCLAIMER is
+            byte-identical legal copy — layout only, never edit the wording. */}
+        <div className="columns-1 gap-x-8 border-t border-line/40 pt-3 md:columns-2 lg:columns-3">
           {LEGAL_DISCLAIMER.map((para, i) => (
-            <p key={i} className="max-w-3xl text-[11px] leading-relaxed text-ink-4">
+            <p key={i} className="mb-2 text-[10px] leading-snug text-ink-4/75 last:mb-0">
               {para}
             </p>
           ))}
