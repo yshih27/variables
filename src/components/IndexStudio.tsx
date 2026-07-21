@@ -51,6 +51,18 @@ type CatalogItem = {
 type Mode = "rebase" | "abs";
 
 const DAY = 86_400_000;
+const MIN_SPAN = 3 * DAY; // tightest zoom — the wheel and the deep-link clamp both floor here
+// Wheel-zoom sensitivity. Zoom per event = exp(deltaY_px · k): a firm notch (~100px)
+// lands one ~28% step, a light trackpad tick barely nudges (was a violent fixed
+// ±18%/event). Pinch (ctrlKey) uses a stronger k — its deltas are small but
+// deliberate. A token bucket caps the SUSTAINED rate at ~15 steps/sec so a
+// ~100-event/sec trackpad flick can't zoom orders of magnitude in a breath, while a
+// single discrete notch still passes (the bucket refills between them).
+const WHEEL_K = 0.0025;
+const WHEEL_K_PINCH = 0.01;
+const STEP_LOG = Math.log(1.3); // per-event ceiling — one event ≤ ~30%
+const ZOOM_BUCKET_MAX = 0.55; // ~2 steps of burst headroom
+const ZOOM_REFILL_PER_MS = 0.0037; // ≈15 steps/sec sustained
 const GROUP_ORDER = ["Indices", "Benchmarks", "Market cap", "Volume", "Activity", "Ratios"];
 const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "30", days: 30, label: "30D" },
@@ -477,6 +489,82 @@ const PAD = { t: 18, r: 60, b: 24, l: 12 };
 const PH = 360;
 const BH = 54;
 
+// ── rebuild profiler (opt-in) ───────────────────────────────────────────────
+// Off unless the wheel-storm harness sets window.__STUDIO_PROFILE, so it costs a
+// single boolean read per rebuild in production and nothing else. It records each
+// full model-rebuild's duration so the Safari-crash fix can show a measured
+// before/after without shipping always-on instrumentation.
+// See scripts/repro/index-studio-wheel-storm.js.
+type ProfileWindow = Window & { __STUDIO_PROFILE?: boolean; __STUDIO_PROF?: number[] };
+function profileEnabled(): boolean {
+  return typeof window !== "undefined" && !!(window as ProfileWindow).__STUDIO_PROFILE;
+}
+function recordRebuild(ms: number): void {
+  const g = window as ProfileWindow;
+  (g.__STUDIO_PROF ??= []).push(ms);
+}
+
+// ── window math (pure, shared by the wheel handler + flush) ──────────────────
+// Two windows within WIN_EPS are the SAME view. This is what lets the wheel
+// handler tell "this event actually moves the window" from "this event is against
+// the stop" BEFORE it decides to preventDefault — so a fully-clamped momentum
+// tail neither re-commits identical state nor keeps the wheel captured. It
+// releases, and the page scrolls, which is the Safari render-process-death fix.
+const WIN_EPS = 1000; // 1s — far below a pixel of any multi-day window
+function sameWindow(a: [number, number], b: [number, number]): boolean {
+  return Math.abs(a[0] - b[0]) < WIN_EPS && Math.abs(a[1] - b[1]) < WIN_EPS;
+}
+/** Zoom `base` by `factor` about `frac` of its width, clamped to `range` with a
+ *  MIN_SPAN floor. Pure, so the handler can run it synchronously per event. */
+function zoomWindow(
+  base: [number, number],
+  range: [number, number],
+  frac: number,
+  factor: number,
+): [number, number] {
+  const [s, e] = base;
+  const span = e - s;
+  const focus = s + frac * span;
+  const ns = Math.max(MIN_SPAN, Math.min(range[1] - range[0], span * factor));
+  let na = focus - frac * ns;
+  let nb = na + ns;
+  if (na < range[0]) { na = range[0]; nb = na + ns; }
+  if (nb > range[1]) { nb = range[1]; na = nb - ns; }
+  return [na, nb];
+}
+/** Clamp any requested window into `range` with a MIN_SPAN floor and a guaranteed
+ *  start < end. A deep link can carry anything — the crash-on-load tab was a
+ *  pathological restored hash — so this makes the effective window un-poisonable
+ *  (no inverted/zero span reaches the projection maths). */
+function clampWindow(
+  [a, b]: [number, number],
+  [lo, hi]: [number, number],
+): [number, number] {
+  let s = Math.min(Math.max(a, lo), hi);
+  let e = Math.min(Math.max(b, lo), hi);
+  if (!(e - s >= MIN_SPAN)) {
+    e = Math.min(hi, s + MIN_SPAN);
+    s = Math.max(lo, e - MIN_SPAN);
+  }
+  return [s, e];
+}
+/** In-window slice of an ASCENDING-by-ms array via binary search — O(log n + k),
+ *  not the O(n) scan the model used to run on every zoom frame (total_volume now
+ *  carries years of daily points). */
+function sliceInWindow(
+  arr: { ms: number; value: number }[],
+  s: number,
+  e: number,
+): { ms: number; value: number }[] {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].ms < s) lo = m + 1; else hi = m; }
+  let j = lo;
+  let k = arr.length;
+  while (j < k) { const m = (j + k) >> 1; if (arr[m].ms <= e) j = m + 1; else k = m; }
+  return arr.slice(lo, j);
+}
+
 export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [seriesData, setSeriesData] = useState<Map<string, SeriesPoint[]>>(() => new Map());
@@ -617,7 +705,10 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const window0 = useMemo<[number, number] | null>(() => {
     if (!fullRange) return null;
     const [lo, hi] = fullRange;
-    if (win) return [Math.max(lo, win[0]), Math.min(hi, win[1])];
+    // Sanitize any explicit window (INCLUDING a deep-linked hash) into the data
+    // range with a MIN_SPAN floor: a pathological restored state can't produce an
+    // inverted/empty window that divides by a zero span in the projection below.
+    if (win) return clampWindow(win, fullRange);
     return [Math.max(lo, hi - 90 * DAY), hi];
   }, [fullRange, win]);
 
@@ -672,6 +763,11 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   // readings exclusively. Interpolation touches the anchor and the boundary
   // segment, nothing the user can hover.
   const model = useMemo(() => {
+    // Opt-in profiler: the clock is read ONLY when the harness flips the flag, and
+    // its value never feeds the returned model, so the rendered output stays pure
+    // (the impurity is a guarded, output-independent measurement). Off in prod.
+    // eslint-disable-next-line react-hooks/purity
+    const __t0 = profileEnabled() ? performance.now() : -1;
     if (!window0 || !visible.length) return null;
     const [s, e] = window0;
     const span = e - s || 1;
@@ -681,7 +777,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     const cols = visible.map((id) => {
       const item = byId.get(id)!;
       const raw = parsed.get(id) ?? []; // finite + ascending (see `parsed`)
-      const inWin = raw.filter((p) => p.ms >= s && p.ms <= e);
+      const inWin = sliceInWindow(raw, s, e); // binary-search slice, not an O(n) scan
 
       // Value at the window start — the common anchor. `interpAt` returns null
       // when s predates the whole series (a young series that simply has no
@@ -789,6 +885,8 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     for (const c of cols) for (const p of c.pts) tsSet.add(p.ms);
     const unionTs = [...tsSet].sort((a, b) => a - b);
 
+    // eslint-disable-next-line react-hooks/purity -- guarded opt-in profiler (see above)
+    if (__t0 >= 0) recordRebuild(performance.now() - __t0);
     return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, bars, hasBars, unionTs, primary: lines[0] ?? null };
   }, [window0, visible, byId, mode, w, parsed]);
 
@@ -799,6 +897,10 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const modelRef = useRef(model);
   const window0Ref = useRef(window0);
   const fullRangeRef = useRef(fullRange);
+  // The synchronous cursor the wheel advances between commits: the handler reads
+  // AND writes this per event, so it can clamp-detect without waiting for a render
+  // (see onWheelNative). Re-synced to the committed window in the effect below.
+  const liveWinRef = useRef(window0);
   // Synced after commit, not during render: the wheel handler and the rAF flush
   // both read these only in response to user input, which is always after a
   // commit, so post-render is soon enough and keeps the render itself pure.
@@ -806,6 +908,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     modelRef.current = model;
     window0Ref.current = window0;
     fullRangeRef.current = fullRange;
+    liveWinRef.current = window0;
   });
   /** Whether the <svg> the wheel binds to is mounted at all. */
   const hasPlot = loaded && !loadError && model != null;
@@ -877,7 +980,14 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
    * flurry of ticks still zooms the full amount the user asked for — it just
    * arrives in a single render.
    */
-  const wheelPending = useRef<{ factor: number; frac: number } | null>(null);
+  // Absolute TARGET window, computed synchronously by the wheel handler and
+  // applied once per frame here. Storing the target — not an accumulating factor —
+  // is what makes the flush reference-stable: a clamped tail resolves to the same
+  // window, setWin returns the identical array, and React re-renders nothing.
+  const wheelPending = useRef<[number, number] | null>(null);
+  // Token bucket for the wheel-zoom RATE cap (see WHEEL_K et al.).
+  const zoomBudget = useRef(ZOOM_BUCKET_MAX);
+  const lastWheelTime = useRef(0);
   const hoverPending = useRef<number | null>(null);
   const frame = useRef<number | null>(null);
 
@@ -890,26 +1000,8 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
 
     const wp = wheelPending.current;
     wheelPending.current = null;
-    if (wp) {
-      setWin((cur) => {
-        // Read the window from state rather than a closure: several frames can
-        // land between renders, and each must zoom from the PREVIOUS result or
-        // the gesture stalls.
-        const range = fullRangeRef.current;
-        const base = cur ?? window0Ref.current;
-        if (!range || !base) return cur;
-        const [s, e] = base;
-        const span = e - s;
-        const focus = s + wp.frac * span;
-        const ns = Math.max(3 * DAY, Math.min(range[1] - range[0], span * wp.factor));
-        let na = focus - wp.frac * ns;
-        let nb = na + ns;
-        if (na < range[0]) { na = range[0]; nb = na + ns; }
-        if (nb > range[1]) { nb = range[1]; na = nb - ns; }
-        return [na, nb];
-      });
-    }
-  }, [window0Ref, fullRangeRef]);
+    if (wp) setWin((cur) => (cur && sameWindow(cur, wp) ? cur : wp));
+  }, []);
 
   const schedule = useCallback(() => {
     if (frame.current == null) frame.current = requestAnimationFrame(flush);
@@ -935,16 +1027,39 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     const el = plotRef.current;
     if (!el) return;
     const onWheelNative = (ev: WheelEvent) => {
-      if (!modelRef.current || !fullRangeRef.current || !window0Ref.current) return; // let the page scroll
-      ev.preventDefault();
+      const range = fullRangeRef.current;
+      const base = liveWinRef.current;
+      if (!modelRef.current || !range || !base) return; // no model/data yet → page scrolls
       const rect = el.getBoundingClientRect();
       if (!rect.width) return;
       const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-      const factor = ev.deltaY < 0 ? 0.82 : 1.2;
-      wheelPending.current = {
-        factor: (wheelPending.current?.factor ?? 1) * factor,
-        frac,
-      };
+      // Zoom per event is deltaY-proportional (was a fixed ±18%): exp(px·k), so a
+      // firm notch lands ~one 28% step and a light trackpad tick barely nudges.
+      // Line/page deltas are normalized to pixels; pinch (ctrlKey) is deliberate so
+      // it uses a stronger k. deltaY<0 zooms IN (span shrinks), deltaY>0 zooms OUT.
+      const px = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY;
+      const logF = Math.max(-STEP_LOG, Math.min(STEP_LOG, px * (ev.ctrlKey ? WHEEL_K_PINCH : WHEEL_K)));
+      // Fully clamped (all the way in or out): release the wheel — momentum scrolls
+      // the PAGE instead of streaming captured no-ops that re-commit identical state
+      // (the render-process-death tail). Tested against the UNCAPPED intent.
+      if (sameWindow(zoomWindow(base, range, frac, Math.exp(logF)), base)) return;
+      ev.preventDefault();
+      // Token-bucket rate cap (~15 steps/sec): a trackpad streams ~100 events/sec;
+      // without it a single flick zooms orders of magnitude in a breath. A discrete
+      // notch still passes (the bucket refills between them).
+      const now = performance.now();
+      zoomBudget.current = Math.min(
+        ZOOM_BUCKET_MAX,
+        zoomBudget.current + (now - lastWheelTime.current) * ZOOM_REFILL_PER_MS,
+      );
+      lastWheelTime.current = now;
+      if (zoomBudget.current <= 0) return; // rate-limited this instant — swallow
+      const mag = Math.min(Math.abs(logF), zoomBudget.current);
+      zoomBudget.current -= mag;
+      const next = zoomWindow(base, range, frac, Math.exp(Math.sign(logF) * mag));
+      if (sameWindow(next, base)) return;
+      liveWinRef.current = next; // advance the cursor so the next event zooms from here
+      wheelPending.current = next;
       schedule();
     };
     el.addEventListener("wheel", onWheelNative, { passive: false });
@@ -1198,6 +1313,32 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
       : "";
 
+  // Right-click menu on the plot (both pages — this is the shared component). Every
+  // item reuses an existing handler; Reset chart returns to page defaults and drops
+  // any deep-linked state from the URL.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const resetChart = () => {
+    setActive(scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE);
+    setMode(scope ? "abs" : "rebase");
+    setHidden(new Set());
+    setWin(null);
+    if (typeof window !== "undefined")
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  };
+  const menuItems: PlotMenuItem[] = [
+    { label: "Reset chart", onClick: resetChart, headline: true },
+    { label: "Reset zoom", onClick: () => setWin(null) },
+    { divider: true },
+    {
+      label: mode === "rebase" ? "Show absolute values" : "Show rebased (100)",
+      onClick: () => setMode((m) => (m === "rebase" ? "abs" : "rebase")),
+    },
+    { divider: true },
+    { label: "Download CSV", onClick: exportCsv },
+    { label: "Download PNG", onClick: exportPng },
+    { label: "Copy link", onClick: shareUrl },
+  ];
+
   return (
     <SectionShell className="font-sans">
       {/* Header */}
@@ -1288,7 +1429,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
           // No onWheel prop: React registers wheel PASSIVE at the root, so
           // preventDefault there silently does nothing and the page scrolled
           // while the chart zoomed. The listener is attached natively above.
-          <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove}>
+          <svg ref={plotRef} viewBox={`0 0 ${w} ${PH}`} width="100%" height={PH} className="block" onMouseMove={onMove} onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}>
             {/* data-plot-bg: the PNG export drops THIS rect from its copy so the
                 watermark can sit under the series instead of being painted over
                 by an opaque plate. Renders identically either way. */}
@@ -1517,7 +1658,7 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-ink-3" /> solid = index / metric</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-dashed border-ink-3" /> dashed = benchmark</span>
         <span>baseline 100 = window start</span>
-        <span className="ml-auto font-mono text-[10.5px] text-ink-4">drag the brush to zoom · scroll to zoom · click a ticker to hide</span>
+        <span className="ml-auto font-mono text-[10.5px] text-ink-4">drag the brush to zoom · scroll to zoom · right-click for options · click a ticker to hide</span>
       </div>
 
       {/* Embed modal */}
@@ -1539,6 +1680,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       {toast && (
         <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-yellow px-4 py-2 text-[12.5px] font-semibold text-black shadow-lg">{toast}</div>
       )}
+
+      {/* Right-click context menu (over the plot only) */}
+      {menu && <PlotContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </SectionShell>
   );
 }
@@ -1577,6 +1721,70 @@ function IconBtn({ onClick, label, title }: { onClick: () => void; label: string
     >
       {label}
     </button>
+  );
+}
+
+type PlotMenuItem = { label: string; onClick: () => void; headline?: boolean } | { divider: true };
+
+/** Right-click menu over the plot. Mirrors MetricPicker's dismissal (deferred
+ *  outside-mousedown + Esc), fixed-positioned at the cursor and clamped to the
+ *  viewport. Every item reuses one of the studio's existing handlers. */
+function PlotContextMenu({ x, y, items, onClose }: {
+  x: number;
+  y: number;
+  items: PlotMenuItem[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Defer so the opening right-click's own mousedown doesn't immediately close it.
+    const t = window.setTimeout(() => document.addEventListener("mousedown", onDoc), 0);
+    document.addEventListener("keydown", onEsc);
+    window.addEventListener("scroll", onClose, true);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onEsc);
+      window.removeEventListener("scroll", onClose, true);
+    };
+  }, [onClose]);
+
+  const W = 188;
+  const estH = items.length * 30 + 8;
+  const left = typeof window !== "undefined" ? Math.max(6, Math.min(x, window.innerWidth - W - 6)) : x;
+  const top = typeof window !== "undefined" ? Math.max(6, Math.min(y, window.innerHeight - estH - 6)) : y;
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      style={{ left, top, width: W }}
+      className="fixed z-50 overflow-hidden rounded-xl border border-line-2 bg-bg-1 py-1 shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
+    >
+      {items.map((it, i) =>
+        "divider" in it ? (
+          <div key={i} className="my-1 border-t border-line/60" />
+        ) : (
+          <button
+            key={i}
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              it.onClick();
+              onClose();
+            }}
+            className={`block w-full px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-bg-2 ${
+              it.headline ? "font-semibold text-ink" : "text-ink-2 hover:text-ink"
+            }`}
+          >
+            {it.label}
+          </button>
+        ),
+      )}
+    </div>
   );
 }
 
