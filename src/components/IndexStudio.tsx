@@ -52,6 +52,17 @@ type Mode = "rebase" | "abs";
 
 const DAY = 86_400_000;
 const MIN_SPAN = 3 * DAY; // tightest zoom — the wheel and the deep-link clamp both floor here
+// Wheel-zoom sensitivity. Zoom per event = exp(deltaY_px · k): a firm notch (~100px)
+// lands one ~28% step, a light trackpad tick barely nudges (was a violent fixed
+// ±18%/event). Pinch (ctrlKey) uses a stronger k — its deltas are small but
+// deliberate. A token bucket caps the SUSTAINED rate at ~15 steps/sec so a
+// ~100-event/sec trackpad flick can't zoom orders of magnitude in a breath, while a
+// single discrete notch still passes (the bucket refills between them).
+const WHEEL_K = 0.0025;
+const WHEEL_K_PINCH = 0.01;
+const STEP_LOG = Math.log(1.3); // per-event ceiling — one event ≤ ~30%
+const ZOOM_BUCKET_MAX = 0.55; // ~2 steps of burst headroom
+const ZOOM_REFILL_PER_MS = 0.0037; // ≈15 steps/sec sustained
 const GROUP_ORDER = ["Indices", "Benchmarks", "Market cap", "Volume", "Activity", "Ratios"];
 const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "30", days: 30, label: "30D" },
@@ -974,6 +985,9 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   // is what makes the flush reference-stable: a clamped tail resolves to the same
   // window, setWin returns the identical array, and React re-renders nothing.
   const wheelPending = useRef<[number, number] | null>(null);
+  // Token bucket for the wheel-zoom RATE cap (see WHEEL_K et al.).
+  const zoomBudget = useRef(ZOOM_BUCKET_MAX);
+  const lastWheelTime = useRef(0);
   const hoverPending = useRef<number | null>(null);
   const frame = useRef<number | null>(null);
 
@@ -1019,14 +1033,31 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
       const rect = el.getBoundingClientRect();
       if (!rect.width) return;
       const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-      const factor = ev.deltaY < 0 ? 0.82 : 1.2;
-      const next = zoomWindow(base, range, frac, factor);
-      // Fully clamped (zoomed all the way in or out): this event can't move the
-      // window. Do NOT preventDefault — the wheel is released so momentum scrolls
-      // the PAGE instead of streaming captured no-ops that each re-commit identical
-      // state (the render-process-death tail). And schedule nothing.
-      if (sameWindow(next, base)) return;
+      // Zoom per event is deltaY-proportional (was a fixed ±18%): exp(px·k), so a
+      // firm notch lands ~one 28% step and a light trackpad tick barely nudges.
+      // Line/page deltas are normalized to pixels; pinch (ctrlKey) is deliberate so
+      // it uses a stronger k. deltaY<0 zooms IN (span shrinks), deltaY>0 zooms OUT.
+      const px = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY;
+      const logF = Math.max(-STEP_LOG, Math.min(STEP_LOG, px * (ev.ctrlKey ? WHEEL_K_PINCH : WHEEL_K)));
+      // Fully clamped (all the way in or out): release the wheel — momentum scrolls
+      // the PAGE instead of streaming captured no-ops that re-commit identical state
+      // (the render-process-death tail). Tested against the UNCAPPED intent.
+      if (sameWindow(zoomWindow(base, range, frac, Math.exp(logF)), base)) return;
       ev.preventDefault();
+      // Token-bucket rate cap (~15 steps/sec): a trackpad streams ~100 events/sec;
+      // without it a single flick zooms orders of magnitude in a breath. A discrete
+      // notch still passes (the bucket refills between them).
+      const now = performance.now();
+      zoomBudget.current = Math.min(
+        ZOOM_BUCKET_MAX,
+        zoomBudget.current + (now - lastWheelTime.current) * ZOOM_REFILL_PER_MS,
+      );
+      lastWheelTime.current = now;
+      if (zoomBudget.current <= 0) return; // rate-limited this instant — swallow
+      const mag = Math.min(Math.abs(logF), zoomBudget.current);
+      zoomBudget.current -= mag;
+      const next = zoomWindow(base, range, frac, Math.exp(Math.sign(logF) * mag));
+      if (sameWindow(next, base)) return;
       liveWinRef.current = next; // advance the cursor so the next event zooms from here
       wheelPending.current = next;
       schedule();
