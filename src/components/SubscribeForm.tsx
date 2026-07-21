@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { Section } from "./Section";
 
 /** Client-side shape check only — the API does the authoritative validation. */
@@ -87,12 +86,16 @@ export function SubscribeForm({
   );
 
   const consent = (
-    <Link
-      href="/privacy"
+    // Points at Rarible's canonical privacy policy (legal directive 7/21 — our
+    // /privacy route now redirects there too; direct link skips the hop).
+    <a
+      href="https://rarible.com/privacy"
+      target="_blank"
+      rel="noopener noreferrer"
       className={`text-ink-4 underline-offset-2 transition-colors hover:text-ink-2 hover:underline ${slim ? "text-[11px]" : "text-[12px]"}`}
     >
       Weekly report only. Unsubscribe anytime.
-    </Link>
+    </a>
   );
 
   const successNode = (
