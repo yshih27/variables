@@ -1,29 +1,31 @@
 /**
- * POST /api/subscribe — capture a weekly-report email opt-in (pre-launch).
- * Collection only; no sending is wired yet.
+ * POST /api/subscribe — double opt-in signup for the weekly report.
  *
  * Body: { email: string, source?: string, website?: string }
  *   • email    — validated server-side; stored lowercased + trimmed.
  *   • source   — where the signup came from ("report-page" | "footer" | …).
  *   • website  — HONEYPOT. A real form keeps this hidden + empty; a bot fills it.
- *                Non-empty → we return generic success WITHOUT writing.
+ *                Non-empty → we return generic success WITHOUT writing or sending.
+ *
+ * Flow: creates/refreshes a PENDING subscriber and sends a confirmation email; the
+ * subscriber is not active (won't receive the report) until they click the link.
  *
  * Privacy: the response is ALWAYS the same generic success for any valid email —
- * new or already-subscribed — so it never reveals whether an address is on the
- * list. Only a bad email FORMAT (which leaks nothing) or a server error differs.
- *
- * Throttling: coarse per-IP rate limit (shared limiter) so the endpoint can't be
- * hammered. Same-origin form POST, so no CORS is exposed.
+ * new, pending, or already-subscribed — so it never reveals whether an address is
+ * on the list. Only a bad email FORMAT (leaks nothing) or a server error differs.
  */
 import { rateLimitByIp } from "@/lib/api/auth";
-import { upsertSubscriber } from "@/lib/subscribe/subscribers";
+import { subscribeEmail } from "@/lib/subscribe/subscribers";
+import { sendEmail } from "@/lib/email/resend";
+import { confirmationEmail } from "@/lib/email/templates";
 
 export const dynamic = "force-dynamic";
 
 // Deliberately simple — catches obvious garbage without the false-negatives of a
-// full RFC-5322 regex. Real deliverability is a post-launch concern (double opt-in).
+// full RFC-5322 regex. Deliverability is enforced by the confirmation step.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const GENERIC_SUCCESS = { ok: true, message: "Thanks — you're on the list." };
+// Double opt-in: the CTA is "check your email", not "you're on the list".
+const GENERIC_SUCCESS = { ok: true, message: "Almost there — check your email to confirm." };
 
 export async function POST(req: Request) {
   // Throttle first (cheap; shields the DB from a flood).
@@ -51,13 +53,30 @@ export async function POST(req: Request) {
     typeof body.source === "string" && body.source.trim() ? body.source.trim().slice(0, 64) : "unknown";
 
   try {
-    await upsertSubscriber({ email, source });
+    const result = await subscribeEmail({ email, source });
+    if (result.action === "confirm") {
+      const mail = confirmationEmail(result.confirmToken, result.unsubscribeToken);
+      const sent = await sendEmail({
+        to: email,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
+        unsubscribeToken: result.unsubscribeToken,
+      });
+      if (!sent.ok) {
+        // Confirmation didn't go out. Leave the row PENDING (harmless — it's never
+        // emailed again and never receives the report until confirmed); a retry
+        // re-issues a fresh token + resends. Surface a retryable error, no details.
+        console.warn(`[subscribe] confirmation send failed: ${sent.error}`);
+        return Response.json({ ok: false, error: "Couldn't send the confirmation email. Please try again." }, { status: 502 });
+      }
+    }
+    // action === "already_active" → send nothing (never reveal they're subscribed).
   } catch (e) {
-    // A genuine write failure must surface (else signups vanish) — but never leak details.
     console.warn(`[subscribe] failed: ${(e as Error).message}`);
     return Response.json({ ok: false, error: "Something went wrong. Please try again." }, { status: 500 });
   }
 
-  // Same response whether this was a new signup or an already-subscribed address.
+  // Same response whether new, pending, or already-subscribed.
   return Response.json(GENERIC_SUCCESS);
 }
