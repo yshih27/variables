@@ -1,5 +1,6 @@
 import { NavBar } from "@/components/NavBar";
 import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
+import { X_URL } from "@/lib/site";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (F8-4).
@@ -202,6 +203,18 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
             invalidation lag (cache hasn&apos;t turned over) or scope gaps
             (off-chain activity we can&apos;t see). We add data sources, we
             don&apos;t hand-edit numbers.
+          </p>
+          <p>
+            Reach us directly:{" "}
+            <a
+              href={X_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-ink transition-colors hover:text-yellow"
+            >
+              DM @varibletrends on X
+            </a>
+            .
           </p>
         </Section>
 
