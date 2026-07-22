@@ -11,7 +11,7 @@ import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
-import { pctChange, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { pctChange, lastNDays, dropIncompleteTail, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -195,9 +195,16 @@ export default async function PlatformDetailPage({
   // a source with no series (Phygitals has no marketplace/secondary source) is
   // filtered out here, never rendered as a fabricated zero — same guard the
   // /platforms composition uses.
+  //
+  // Both series are gated to the shared latest SOURCE-COMPLETE day (same `streams`
+  // map → same cutoff) so a Dune-lagged partial trailing day — marketplace in,
+  // gacha not yet — can't render a fake 100%-marketplace share on the newest bar.
+  // A gacha-only platform contributes no marketplace days, so gacha truncates
+  // nothing; the .filter below then drops the empty marketplace series.
+  const streams = new Map<string, SeriesPoint[]>([["marketplace", volS], ["gacha", gachaS]]);
   const volumeMix: CompositionSeries[] = [
-    { key: "marketplace", label: "Marketplace", color: "var(--color-blue)", points: lastNDays(volS, 30) },
-    { key: "gacha", label: "Gacha", color: "var(--color-yellow)", points: lastNDays(gachaS, 30) },
+    { key: "marketplace", label: "Marketplace", color: "var(--color-blue)", points: lastNDays(dropIncompleteTail(volS, streams), 30) },
+    { key: "gacha", label: "Gacha", color: "var(--color-yellow)", points: lastNDays(dropIncompleteTail(gachaS, streams), 30) },
   ].filter((s) => s.points.some((p) => Number.isFinite(p.value)));
 
   return (
