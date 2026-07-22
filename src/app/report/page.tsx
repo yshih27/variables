@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
 import { Section } from "@/components/Section";
 import { ReportView } from "@/components/ReportView";
 import { SubscribeForm } from "@/components/SubscribeForm";
+import { ReportSubscribePanel } from "@/components/ReportSubscribePanel";
 import { XGlyph } from "@/components/XGlyph";
 import { readWeeklyReport } from "@/lib/data/weeklyReport";
 import { X_URL } from "@/lib/site";
@@ -45,8 +47,14 @@ export default async function ReportPage() {
 
         {report ? <ReportView report={report} /> : <EmptyState />}
 
+        {/* Subscribe slot — a Suspense boundary so ReportSubscribePanel can read
+            the confirm/unsubscribe redirect param client-side WITHOUT opting this
+            ISR page into per-request rendering. Fallback = the plain form (the
+            prerendered default for everyone who didn't just land from a redirect). */}
         <div className="mx-auto mt-10 max-w-[720px]">
-          <SubscribeForm source="report" variant="full" />
+          <Suspense fallback={<SubscribeForm source="report" variant="full" />}>
+            <ReportSubscribePanel />
+          </Suspense>
         </div>
       </div>
     </>
