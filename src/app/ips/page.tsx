@@ -9,7 +9,7 @@ import { formatCompactUsd, formatCompactNumber, staleAsOfLabel } from "@/lib/for
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { readMetricSeries, readMetricSeriesBulk, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { readMetricSeries, readMetricSeriesBulk, lastNDays, dropIncompleteTail, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
@@ -56,22 +56,24 @@ const getMarketSeries = unstable_cache(
  *  14-day bar cards: e.g. platform volume_usd + gacha_volume_usd = total volume. */
 function sumDaily(sources: Record<string, SeriesPoint[]>[], lastN: number): SeriesPoint[] {
   const byTs = new Map<string, number>();
-  for (const rec of sources) {
-    for (const series of Object.values(rec)) {
+  // Per-source bulk (keyed by record#:entity) for the completeness gate below.
+  const bulk = new Map<string, SeriesPoint[]>();
+  sources.forEach((rec, i) => {
+    for (const [k, series] of Object.entries(rec)) {
+      bulk.set(`${i}:${k}`, series);
       for (const p of series) {
         if (!Number.isFinite(p.value)) continue;
         byTs.set(p.ts, (byTs.get(p.ts) ?? 0) + p.value);
       }
     }
-  }
-  const sorted = [...byTs.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-  // lastNDays, not slice(-N): keep the label and the calendar-day plot in step on
-  // a sparse series (see the helper). The summed total is usually dense, so this
-  // is belt-and-suspenders here — but the same rule everywhere is one less trap.
-  return lastNDays(
-    sorted.map(([ts, value]) => ({ ts, value })),
-    lastN,
-  );
+  });
+  const sorted = [...byTs.entries()]
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([ts, value]) => ({ ts, value }));
+  // Drop a SOURCE-INCOMPLETE trailing day (a Dune-lagged partial: some platforms/IPs
+  // in, others still ending yesterday) so the last bar never craters to a fake cliff.
+  // lastNDays, not slice(-N): keep the label and the calendar-day plot in step.
+  return lastNDays(dropIncompleteTail(sorted, bulk), lastN);
 }
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.

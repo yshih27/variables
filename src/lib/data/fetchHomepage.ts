@@ -15,7 +15,7 @@ import { readGachaDune } from "./gachaDuneCache";
 import {
   readMetricSeriesBulk,
   sumLastCompleteDays,
-  dayOverDayPct,
+  bulkDayOverDayPctComplete,
   DELTA_MIN_BASE_USD,
   pctChange as spinePctChange,
   type SeriesPoint,
@@ -282,23 +282,14 @@ function mcapOnlyIpRow(ip: IPMeta, cardsTracked: number): IPRow {
 
 /**
  * Σ-based 24h % change from a daily spine bulk (one metric across all platforms):
- * sum every platform's value per UTC day, then compare the latest COMPLETE day to
- * the prior one. Unlike a mean-of-per-platform-ratios (the old vol24Pct), this is a
- * true market-wide Σ change. The spine excludes today, so "24h" here = the most
- * recent complete-day-over-complete-day move — the best real prior period we have
- * (gacha has no hourly feed for a rolling prior-24h). null until 2 days exist / base ≤ 0.
+ * the latest SOURCE-COMPLETE day vs the prior complete day. A merged day counts only
+ * when every source that wrote the prior day has written it — so a Dune-lagged newest
+ * day (Courtyard/Beezie gacha in, CC/Phygitals still ending yesterday) is skipped
+ * rather than compared to a full day (which printed the fake "gacha −79.8%" collapse).
+ * Floors the denominator (M4). null until 2 complete days exist / base ≤ 0.
  */
 function bulkDayOverDayPct(bulk: Map<string, SeriesPoint[]>): number | null {
-  const perDay = new Map<string, number>();
-  for (const series of bulk.values()) {
-    for (const p of series) {
-      if (Number.isFinite(p.value)) perDay.set(p.ts, (perDay.get(p.ts) ?? 0) + p.value);
-    }
-  }
-  const merged = [...perDay.entries()].map(([ts, value]) => ({ ts, value }));
-  // Shared guarded comparator — floors the denominator so a near-zero prior day
-  // can't print an absurd % (M4).
-  return dayOverDayPct(merged, DELTA_MIN_BASE_USD);
+  return bulkDayOverDayPctComplete(bulk, DELTA_MIN_BASE_USD);
 }
 
 /** Snapshot key for the precomputed homepage blob (written by scripts/warm-homepage.ts). */

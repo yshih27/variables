@@ -29,7 +29,7 @@ import { weekStartUtc } from "../src/lib/data/priceIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
-import { readMetricSeriesBulk } from "../src/lib/data/metricSnapshots";
+import { readMetricSeriesBulk, bulkDayOverDayPctComplete, DELTA_MIN_BASE_USD } from "../src/lib/data/metricSnapshots";
 import type { HomepagePayload } from "../src/lib/types";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
 
@@ -194,6 +194,34 @@ async function checkIndexCompleteness(nowMs: number = Date.now()): Promise<Resul
     : ok("index-completeness", "hard", `${series} index series end on a fully-elapsed week; no future points (${points} pts)`);
 }
 
+/**
+ * INV-8 (HARD): published Σ-based 24h deltas must be computed over SOURCE-COMPLETE days,
+ * never a Dune-lagged partial newest day (the "gacha −79.8%" fake collapse). Recompute
+ * the gated delta from the spine and compare to the homepage payload's hero.vol24Pct /
+ * gachaVol24Pct. Runs in the DAILY batch AFTER warm-homepage writes the payload from the
+ * same spine, so it's timing-robust — a mismatch means the completeness gate regressed.
+ */
+async function checkDailyDeltaCompleteness(hp: HomepagePayload | null): Promise<Result> {
+  if (!hp?.hero) return skip("daily-delta-completeness", "hard", "homepage-payload unreadable");
+  const near = (a: number | null, b: number | null) =>
+    a == null || b == null ? a === b : Math.abs(a - b) < 0.5; // 0.5pp — same computation, float slack
+  const bads: string[] = [];
+  for (const [label, metric, published] of [
+    ["marketplace", "volume_usd", hp.hero.vol24Pct],
+    ["gacha", "gacha_volume_usd", hp.hero.gachaVol24Pct],
+  ] as const) {
+    const bulk = await readMetricSeriesBulk("platform", metric).catch(() => new Map<string, never>());
+    if (!bulk.size) continue;
+    const gated = bulkDayOverDayPctComplete(bulk, DELTA_MIN_BASE_USD);
+    if (!near(published, gated)) {
+      bads.push(`${label}: published ${published?.toFixed(1) ?? "—"}% ≠ gated ${gated?.toFixed(1) ?? "—"}% (partial newest day reaching the chart?)`);
+    }
+  }
+  return bads.length
+    ? bad("daily-delta-completeness", "hard", `${bads.length} published Σ-delta(s) not gated to complete days`, bads)
+    : ok("daily-delta-completeness", "hard", "Σ 24h deltas computed over source-complete days");
+}
+
 async function main() {
   const strict = process.argv.includes("--strict");
   console.log(`\nData invariants — ${process.env.SUPABASE_URL ?? "(no SUPABASE_URL)"}\n`);
@@ -216,6 +244,7 @@ async function main() {
   results.push(await checkHolders());
   results.push(await checkSpineContinuity());
   results.push(await checkIndexCompleteness());
+  results.push(await checkDailyDeltaCompleteness(hp));
 
   const ICON: Record<Status, string> = { pass: "✓", fail: "✗", skip: "·" };
   for (const r of results) {
