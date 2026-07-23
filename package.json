@@ -29,7 +29,8 @@
     "warm-weekly-report": "tsx scripts/warm-weekly-report.ts",
     "check-freshness": "tsx scripts/check-freshness.ts",
     "check-invariants": "tsx scripts/check-invariants.ts",
-    "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts"
+    "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts",
+    "send-weekly-report": "tsx scripts/send-weekly-report.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",
