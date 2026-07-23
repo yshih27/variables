@@ -29,7 +29,7 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
     { k: "Cards Traded", sub: "distinct tokens", v: formatInt(detail.uniqueCards) },
     { k: "Avg Trade", sub: "per sale", v: formatCompactUsd(detail.avgTradeUsd) },
     { k: "Highest Sale", sub: "last 24h", v: formatCompactUsd(detail.highSaleUsd) },
-    { k: "Platforms", sub: "marketplaces tracked", v: formatInt(detail.uniquePlatforms) },
+    { k: "Platforms", sub: "with sales · 24h", v: formatInt(detail.uniquePlatforms) },
   ];
 
   return (
