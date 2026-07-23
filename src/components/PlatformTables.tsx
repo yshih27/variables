@@ -298,17 +298,26 @@ export function RecentSalesTable({
   rows,
   maxRows,
   seeAllHref,
+  salesTotal,
 }: {
   rows: RecentSaleRow[];
   maxRows?: number;
   seeAllHref?: string;
+  /** Total 24h sales that TRADED (M); `rows` is the enriched subset (N). When set,
+   *  the label reads "N of M sales enriched" rather than restating N as the 24h
+   *  sale count — some tokens have no metadata row yet (M2). */
+  salesTotal?: number;
 }) {
   if (rows.length === 0) return null;
   const visible = maxRows ? rows.slice(0, maxRows) : rows;
   return (
     <Section
       title="Recent Sales"
-      sub={`Chronological · ${rows.length} sale${rows.length === 1 ? "" : "s"} in last 24h`}
+      sub={
+        salesTotal != null
+          ? `Chronological · ${rows.length} of ${salesTotal} sales enriched · 24h`
+          : `Chronological · ${rows.length} sale${rows.length === 1 ? "" : "s"} in last 24h`
+      }
       seeAllHref={seeAllHref}
       totalRows={rows.length}
       visibleRows={visible.length}

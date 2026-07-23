@@ -141,7 +141,10 @@ function MetricRow({
             <span className="text-[11px] text-ink-3">{stat}</span>
           ) : (
             <>
-              {deltaPct != null && Number.isFinite(deltaPct) ? (
+              {/* Gate the delta on the SAME guard the value uses above: a "—" value
+                  must never sit beside a real chip like "0.0%" (e.g. Courtyard trades,
+                  where trades is "—" but its delta is a finite 0.0%). */}
+              {(valueText != null || value > 0) && deltaPct != null && Number.isFinite(deltaPct) ? (
                 <Delta pct={deltaPct} />
               ) : (
                 <span className="font-mono text-[12.5px] text-ink-4">—</span>

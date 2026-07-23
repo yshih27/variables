@@ -243,7 +243,8 @@ function buildPlatformIPs(
       // worthless), NaN renders as "—" (not tracked), matching every other reader (X5).
       cards: comp?.cards ?? NaN,
       mcapUsd: comp?.mcapUsd ?? NaN,
-      holders: holdersByIp?.[key]?.perPlatform?.[platformKey] ?? 0,
+      // No holder attribution → "—" (NaN), not a fake confident 0 — same as cards/mcap (X5).
+      holders: holdersByIp?.[key]?.perPlatform?.[platformKey] ?? NaN,
       vol24Usd: vol,
       trades24h: trades,
       buyers24h: acc?.buyers.size ?? 0,
