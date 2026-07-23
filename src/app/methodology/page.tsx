@@ -126,7 +126,7 @@ export default function MethodologyPage() {
 {`primary_revenue = Σ ( USDC inflow into platform.gacha_receivers
                       from senders NOT in platform.internal_exclusions )
 
-For CC: filter to canonical pull prices [$25, $50, $75, $80, $100, $250, $1000]
+For CC: filter to canonical pull prices [$25, $50, $75, $80, $100, $151, $250, $1000, $2500, $5000]
 For Phygitals/Courtyard: count every inbound USDC transfer.`}
           </pre>
           <p className="mt-3">

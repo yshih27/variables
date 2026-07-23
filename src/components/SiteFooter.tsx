@@ -97,7 +97,7 @@ export function SiteFooter() {
             byte-identical legal copy — layout only, never edit the wording. */}
         <div className="columns-1 gap-x-8 border-t border-line/40 pt-3 md:columns-2 lg:columns-3">
           {LEGAL_DISCLAIMER.map((para, i) => (
-            <p key={i} className="mb-2 text-[10px] leading-snug text-ink-4/75 last:mb-0">
+            <p key={i} className="mb-2 text-[10px] leading-snug text-ink-2 last:mb-0">
               {para}
             </p>
           ))}
