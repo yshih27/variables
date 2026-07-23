@@ -16,16 +16,16 @@ export default function RootLoading() {
         {/* Hero skeleton */}
         <div className="mb-12 flex flex-col gap-4">
           <div className="h-3 w-32 animate-pulse rounded-md bg-bg-2" />
-          <div className="h-12 w-[480px] max-w-full animate-pulse rounded-md bg-bg-2" />
+          <div className="h-12 w-full max-w-[480px] animate-pulse rounded-md bg-bg-2" />
         </div>
 
         {/* Stat strip */}
         <div className="mb-12 grid grid-cols-2 gap-x-10 gap-y-7 md:grid-cols-3 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex flex-col gap-2">
-              <div className="h-3 w-24 animate-pulse rounded-md bg-bg-2" />
-              <div className="h-8 w-28 animate-pulse rounded-md bg-bg-2" />
-              <div className="h-3 w-20 animate-pulse rounded-md bg-bg-2" />
+            <div key={i} className="flex min-w-0 flex-col gap-2">
+              <div className="h-3 w-24 max-w-full animate-pulse rounded-md bg-bg-2" />
+              <div className="h-8 w-28 max-w-full animate-pulse rounded-md bg-bg-2" />
+              <div className="h-3 w-20 max-w-full animate-pulse rounded-md bg-bg-2" />
             </div>
           ))}
         </div>
