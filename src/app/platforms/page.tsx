@@ -221,12 +221,19 @@ export default async function AllPlatformsPage() {
   const COMP_DAYS = 30;
   const COMP_COLORS = ["#2bd6a0", "#5fa3ff", "#ff6b9d", "#a18cff", "#22d3ee", "#fbbf24"];
   const volumeComposition = ranked
-    .map((p, i) => ({
-      key: p.key,
-      label: p.name,
-      color: COMP_COLORS[i % COMP_COLORS.length],
-      points: lastNDays(totalDaily(mktSeries[p.key], gachaSeries[p.key]), COMP_DAYS),
-    }))
+    .map((p, i) => {
+      // Same completeness gate as the 14d cards above: drop a Dune-lagged partial
+      // trailing day so the newest stacked bar can't dip on incomplete streams.
+      const mkt = mktSeries[p.key];
+      const gacha = gachaSeries[p.key];
+      const streams = new Map<string, SeriesPoint[]>([["mkt", mkt ?? []], ["gacha", gacha ?? []]]);
+      return {
+        key: p.key,
+        label: p.name,
+        color: COMP_COLORS[i % COMP_COLORS.length],
+        points: lastNDays(dropIncompleteTail(totalDaily(mkt, gacha), streams), COMP_DAYS),
+      };
+    })
     .filter((s) => s.points.some((pt) => Number.isFinite(pt.value)));
 
   return (

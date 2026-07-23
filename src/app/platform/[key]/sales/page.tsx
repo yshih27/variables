@@ -25,9 +25,9 @@ export default async function PlatformSalesPage({
           {detail.source.name} · Recent Sales
         </h1>
         <div className="mb-8 text-[13px] text-ink-3">
-          {detail.recentSales.length} sale{detail.recentSales.length === 1 ? "" : "s"} on {detail.source.name} in the last 24h, chronological.
+          {detail.salesEnriched} of {detail.salesTotal} sales enriched on {detail.source.name} in the last 24h, chronological.
         </div>
-        <RecentSalesTable rows={detail.recentSales} />
+        <RecentSalesTable rows={detail.recentSales} salesTotal={detail.salesTotal} />
       </div>
     </>
   );

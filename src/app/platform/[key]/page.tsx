@@ -105,9 +105,10 @@ export default async function PlatformDetailPage({
     },
   ];
 
-  // Zone 2 — last 14 complete days per metric. An empty array is an honest
-  // "building history" card, never a fabricated flat line.
-  const last14 = (s: SeriesPoint[]) => s.slice(-14);
+  // Zone 2 — last 14 CALENDAR days per metric (lastNDays, not slice(-14): a sparse
+  // series' 14 newest POINTS can span 16+ days, disagreeing with the "14D" badge —
+  // the same fix /platforms uses). Empty = an honest "building history" card.
+  const last14 = (s: SeriesPoint[]) => lastNDays(s, 14);
 
   // IP composition — real per-IP volume/trades/mcap/cards/holders. Top N + an
   // "Other" bucket so the donut and dominance stay honest (sum to 100%) without
@@ -287,7 +288,7 @@ export default async function PlatformDetailPage({
       )}
       <PlatformGachaPanel detail={detail} />
       <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-          <RecentSalesTable rows={detail.recentSales} maxRows={12} seeAllHref={`/platform/${key}/sales`} />
+          <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
         </div>
       </div>
     </>
