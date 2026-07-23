@@ -228,12 +228,19 @@ export function CompositionChart({
                 ))}
               </div>
 
-              {/* tooltip */}
+              {/* tooltip — sizes to content (w-max) between 176 and 264px so a
+                  platform name + value fits without truncating to "Collecto…"; the
+                  label keeps its own `truncate` as a last resort for pathological
+                  names. Centered on the bar via -translate-x-1/2, but its origin is
+                  pixel-clamped a half-width (132px = max-w-[264px] / 2) from each
+                  edge so a wide tooltip can't hang off the first/last bar — the
+                  same edge-guard MetricBarCard does, done in CSS so it holds at any
+                  card width without a ResizeObserver. */}
               {col && col.segments.length ? (
                 <div
                   role="tooltip"
-                  className="pointer-events-none absolute bottom-full z-20 mb-1 w-[176px] -translate-x-1/2 rounded-md border border-line-2 bg-bg-2/95 px-2.5 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur"
-                  style={{ left: `${leftPct}%` }}
+                  className="pointer-events-none absolute bottom-full z-20 mb-1 w-max min-w-[176px] max-w-[264px] -translate-x-1/2 rounded-md border border-line-2 bg-bg-2/95 px-2.5 py-2 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur"
+                  style={{ left: `clamp(132px, ${leftPct}%, calc(100% - 132px))` }}
                 >
                   <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3">{fmtDay(col.ts)}</div>
                   {[...col.segments].reverse().map((seg) => (
