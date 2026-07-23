@@ -150,7 +150,7 @@ export function MarketHeader({
 
         {changeDeltas.length > 0 && (
           <div className="md:border-l md:border-line md:pl-8">
-            <Label>Change</Label>
+            <Label>Index change</Label>
             <div className="mt-3 flex flex-col gap-2.5">
               {changeDeltas.map((d) => (
                 <DeltaRow key={d.label} label={d.label} pct={d.pct} />

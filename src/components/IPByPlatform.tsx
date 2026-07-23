@@ -78,8 +78,8 @@ export function IPByPlatform({
                   <Th>Cards</Th>
                   <Th>24h Vol</Th>
                   <Th>Market Cap</Th>
-                  <Th>Trades</Th>
-                  <Th>Avg Trade</Th>
+                  <Th>24h Trades</Th>
+                  <Th>Avg Trade · 24h</Th>
                   <Th>Holders</Th>
                 </tr>
               </thead>
