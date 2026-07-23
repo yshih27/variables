@@ -14,7 +14,7 @@ export const revalidate = 3600;
 export const metadata = {
   title: "Weekly Report · VARIBLE",
   description:
-    "The tokenized-collectibles market, week over week: price-index performance vs benchmarks, top movers, biggest sales, and notable pulls — every figure from on-chain reads.",
+    "The tokenized-collectibles market, week over week: price-index performance vs benchmarks, top movers, biggest sales, and notable pulls — every figure from on-chain reads and primary-source market feeds.",
 };
 
 function fmtAsOf(iso: string): string {

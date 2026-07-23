@@ -108,7 +108,7 @@ export function PlatformIPsTable({
   return (
     <Section
       title="Top IPs on this platform"
-      sub={`24h breakdown · ${rows.length} IP${rows.length === 1 ? "" : "s"} active`}
+      sub={`24h breakdown · ${rows.length} IP${rows.length === 1 ? "" : "s"} tracked`}
       seeAllHref={seeAllHref}
       totalRows={rows.length}
       visibleRows={visible.length}

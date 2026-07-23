@@ -37,7 +37,7 @@ const BENCH_LABEL: Record<ReportBenchmark["symbol"], string> = {
 const BOARDS: { key: keyof WeeklyReport["movers"]; title: string; hrefOf: (k: string) => string }[] = [
   { key: "ipVolume", title: "IP · volume", hrefOf: (k) => `/ip/${k}` },
   { key: "ipMcap", title: "IP · market cap", hrefOf: (k) => `/ip/${k}` },
-  { key: "platformVolume", title: "Platform · volume", hrefOf: (k) => `/platform/${k}` },
+  { key: "platformVolume", title: "Platform · activity (incl. gacha)", hrefOf: (k) => `/platform/${k}` },
   { key: "setVolume", title: "Set · volume", hrefOf: (k) => `/ip/${k.split(":")[0]}` },
 ];
 
@@ -57,7 +57,7 @@ export function ReportView({ report }: { report: WeeklyReport }) {
       {/* Headline: index / market cap / weekly volume */}
       <Section
         title="The market this week"
-        subtitle={`${INDEX_FAMILY_SHORT[0].toUpperCase()}${INDEX_FAMILY_SHORT.slice(1)}, market cap and volume — week over week, all on-chain`}
+        subtitle={`${INDEX_FAMILY_SHORT[0].toUpperCase()}${INDEX_FAMILY_SHORT.slice(1)}, market cap and volume — week over week, on-chain reads and primary-source market feeds`}
         flush
       >
         <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl bg-line sm:grid-cols-3">
@@ -126,7 +126,7 @@ export function ReportView({ report }: { report: WeeklyReport }) {
 
       <p className="px-1 text-[11.5px] text-ink-4">
         Reporting week {fmtDate(report.weekStart)} – {fmtDate(report.weekEnd)}. Every figure is derived
-        from on-chain reads.{" "}
+        from on-chain reads and primary-source market feeds.{" "}
         <Link href="/methodology" className="underline-offset-2 hover:text-yellow hover:underline">
           Methodology →
         </Link>

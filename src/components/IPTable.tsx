@@ -165,13 +165,13 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
               <Th>#</Th>
               <Th>IP / Category</Th>
               <SortTh align="right" info="marketCap" {...sortProps("mcap")}>Market Cap</SortTh>
-              <SortTh align="right" className={keptCls} info="volume24h" {...sortProps("vol")}>{teaser ? "24h Vol" : `${vw} Vol`}</SortTh>
+              <SortTh align="right" className={keptCls} info={vw === "24h" ? "volume24h" : "volume7d"} {...sortProps("vol")}>{teaser ? "24h Vol" : `${vw} Vol`}</SortTh>
               {full && <SortTh align="right" className="hidden lg:table-cell" info="dominance" {...sortProps("dom")}>Dom %</SortTh>}
               {/* 24h Δ dropped (F8-1): it derived from mcap_usd, which is ~static
                   day-to-day, so the column read "+0.0%" everywhere. mcap Δ needs a
                   multi-day base to mean anything — keep 7d/30d only. */}
-              <SortTh align="right" className={keptCls} {...sortProps("d7")}>{teaser ? "Δ 7d" : "7d"}</SortTh>
-              {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>30d</SortTh>}
+              <SortTh align="right" className={keptCls} {...sortProps("d7")}>{teaser ? "Mcap Δ 7d" : "Mcap 7d"}</SortTh>
+              {full && <SortTh align="right" className="hidden md:table-cell" {...sortProps("d30")}>Mcap 30d</SortTh>}
               {full && <SortTh align="right" className="hidden md:table-cell" info="cardsTraded" {...sortProps("cards")}>Cards 24h</SortTh>}
               {full && <SortTh align="right" className="hidden md:table-cell" info="holders" {...sortProps("holders")}>Holders</SortTh>}
               {full && <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sortProps("avgTrade")}>Avg Trade</SortTh>}

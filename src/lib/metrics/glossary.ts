@@ -63,7 +63,7 @@ export const METRICS = {
   },
   momentum: {
     term: "Momentum",
-    text: "Change in trade count vs the prior equal-length window. Collector Crypt only for now — the other feeds have no prior window yet.",
+    text: "Change in trade count vs the prior equal-length window. Covers Collector Crypt and Beezie; other feeds have no prior window yet.",
   },
   float: {
     term: "Float",

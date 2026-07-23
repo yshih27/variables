@@ -180,7 +180,6 @@ export default async function AllPlatformsPage() {
     },
     {
       label: "Platforms Tracked",
-      metric: "marketShare",
       value: data.platforms.length,
       unit: "count",
       deltaPct: null,

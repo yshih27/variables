@@ -110,7 +110,7 @@ export function TrendingCards({
   // X6/R4-2 honesty notes: window, momentum coverage, float age, sealed-float caveat.
   const notes = [
     `hunt pressure = ${windowLabel} trades ÷ listings (shown with 2+ listed)`,
-    hasMomentum ? "Δ mom: Collector Crypt only" : null,
+    hasMomentum ? "Δ mom: Collector Crypt + Beezie" : null,
     floatAgeLabel ? `float ${floatAgeLabel}` : null,
     activeKind !== "slab" && anyThinFloat ? "sealed products rarely have marketplace float" : null,
   ].filter(Boolean);

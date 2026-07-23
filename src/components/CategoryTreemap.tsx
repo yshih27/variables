@@ -315,7 +315,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
               <Link
                 key={t.key}
                 href={t.href}
-                aria-label={`${t.name} — ${formatCompactUsd(t.mcapUsd)}, ${pctLabel(t.share)} of category market cap`}
+                aria-label={`${t.name} — ${formatCompactUsd(t.mcapUsd)}, ${pctLabel(t.share)} of total market cap`}
                 className={common}
                 style={style}
                 onMouseEnter={() => setHover(t.key)}
@@ -363,11 +363,11 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
               </div>
               <Row label="Market cap" value={formatCompactUsd(active.mcapUsd)} />
               <Row label="Share" value={pctLabel(active.share)} />
-              <Row label="Cards" value={formatCompactNumber(active.cards)} />
+              <Row label="Cards traded · 24h" value={formatCompactNumber(active.cards)} />
               {active.href && <Row label="24h vol" value={active.vol24Usd > 0 ? formatCompactUsd(active.vol24Usd) : "—"} />}
               {active.href && active.pct7d != null && (
                 <Row
-                  label="7d"
+                  label="Mcap 7d"
                   value={formatPct(active.pct7d)}
                   valueClass={active.pct7d > 0 ? "text-green" : active.pct7d < 0 ? "text-red" : "text-ink-3"}
                 />
