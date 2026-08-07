@@ -16,6 +16,7 @@
  */
 import { recordFreshness, SOURCE_INTERVALS_MS } from "./freshness";
 import { heliusCreditsUsed } from "../helius/client";
+import { duneSpend } from "../dune/client";
 import { readSnapshot, writeSnapshot } from "./snapshots";
 
 /** A warmer may return its row count for provenance, or nothing. */
@@ -43,6 +44,31 @@ async function recordHeliusCredits(source: string): Promise<void> {
     await writeSnapshot("helius-credits", cur, now);
   } catch (e) {
     console.warn(`[helius-credits] record failed for "${source}": ${(e as Error).message}`);
+  }
+}
+
+/** Per-source Dune export spend, recorded exactly like the Helius credits above.
+ *  Dune bills every cached read by result size, so an unwindowed query is billed
+ *  again on each warm — which is how ~2.7M datapoints/day ran for 18 days with
+ *  nothing to show it. check-freshness prints this next to the account's real
+ *  credit usage. */
+export type DuneSpendSnapshot = {
+  generatedAt: string;
+  bySource: Record<string, { datapoints: number; bytes: number; calls: number; at: string }>;
+};
+
+async function recordDuneSpend(source: string): Promise<void> {
+  const { datapoints, bytes, calls } = duneSpend();
+  if (calls <= 0) return; // non-Dune warmer — nothing to record
+  try {
+    const now = new Date().toISOString();
+    const cur =
+      (await readSnapshot<DuneSpendSnapshot>("dune-spend")) ?? { generatedAt: now, bySource: {} };
+    cur.bySource[source] = { datapoints, bytes, calls, at: now };
+    cur.generatedAt = now;
+    await writeSnapshot("dune-spend", cur, now);
+  } catch (e) {
+    console.warn(`[dune-spend] record failed for "${source}": ${(e as Error).message}`);
   }
 }
 
@@ -79,5 +105,6 @@ export async function runWarmer<T extends WarmerOutcome>(
     throw err;
   } finally {
     await recordHeliusCredits(source);
+    await recordDuneSpend(source);
   }
 }

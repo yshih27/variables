@@ -1,12 +1,21 @@
 /**
  * Minimal Dune Analytics API client.
  *
- * Two usage modes:
- *   - getLatestResults(queryId) — instant read of the query's last cached run
- *     (no credits, no waiting). Best for serving when a scheduled refresh
- *     already keeps the query warm.
- *   - runQuery(queryId)         — trigger a FRESH execution, poll until done,
- *     return rows. Costs credits + takes seconds–minutes. Use in the warmer.
+ * Usage modes:
+ *   - getLatestResults(queryId)  — read the query's last cached run without
+ *     waiting for an execution. ⚠️ NOT free: Dune bills the EXPORT by result
+ *     size, so re-reading a big result set on a schedule is exactly how this
+ *     client quietly burned ~2.7M datapoints/day. The comment here used to say
+ *     "no credits" — it was wrong, and the meter below exists because of it.
+ *   - probeCachedResult(queryId) — how old is the cached result, for ~0 cost.
+ *     Use this to decide staleness; never export rows just to read a timestamp.
+ *   - runQuery(queryId)          — trigger a FRESH execution, poll until done,
+ *     return rows. Costs execution (compute) credits + takes seconds–minutes.
+ *   - duneUsage()                — authoritative account spend (free endpoint).
+ *
+ * Keep every scheduled query WINDOWED (e.g. `block_time > now() - interval '30'
+ * day`). The spine persists daily history in Postgres and never re-derives it,
+ * so an unbounded scan buys nothing and is billed on every single read.
  *
  * Auth: `DUNE_API_KEY` in .env.local (header `X-Dune-API-Key`).
  * Docs: https://docs.dune.com/api-reference/
@@ -27,6 +36,19 @@ function apiKey(): string {
 
 export type DuneRow = Record<string, unknown>;
 
+/** What a result page cost. Dune self-reports both on every response:
+ *  `datapoint_count` = billed cell count; `result_set_bytes` = exported bytes,
+ *  which is what the current pricing actually bills ("credits per MB exported"). */
+type DuneResultMetadata = {
+  column_names: string[];
+  column_types: string[];
+  row_count: number;
+  total_row_count: number;
+  datapoint_count?: number;
+  result_set_bytes?: number;
+  total_result_set_bytes?: number;
+};
+
 type DuneResultResponse = {
   execution_id: string;
   query_id: number;
@@ -36,16 +58,69 @@ type DuneResultResponse = {
   submitted_at?: string; // ISO fallback if execution_ended_at is absent
   result?: {
     rows: DuneRow[];
-    metadata: {
-      column_names: string[];
-      column_types: string[];
-      row_count: number;
-      total_row_count: number;
-    };
+    metadata: DuneResultMetadata;
   };
   next_uri?: string | null;
   next_offset?: number | null;
 };
+
+// ─────────────────────────── Credit meter ───────────────────────────
+// Every Dune response says what it cost; we add it up so a burner surfaces in
+// check-freshness instead of on the invoice. This exists because an UNWINDOWED
+// full-history query (Courtyard secondary) quietly billed ~2.7M datapoints/day
+// for 18 days — silent meters are how that goes unnoticed.
+//
+// ⚠️ Unlike the Helius meter this WARNS instead of throwing: the spend has
+// already happened by the time the response lands, so throwing would only
+// discard data we just paid for. The real stop is bounding the query itself.
+// Authoritative spend lives at POST /api/v1/usage (free) — see duneUsage().
+const DATAPOINT_BUDGET = (() => {
+  const raw = Number(process.env.DUNE_DATAPOINT_BUDGET);
+  return Number.isFinite(raw) && raw > 0 ? raw : 200_000;
+})();
+
+let datapointsUsed = 0;
+let bytesUsed = 0;
+let callsMade = 0;
+let budgetWarned = false;
+
+export type DuneSpend = { datapoints: number; bytes: number; calls: number };
+
+/** What this process (≈ this warmer run) has pulled from Dune so far. */
+export function duneSpend(): DuneSpend {
+  return { datapoints: datapointsUsed, bytes: bytesUsed, calls: callsMade };
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)}MB`;
+}
+
+function meter(label: string, md: DuneResultMetadata | undefined): void {
+  if (!md) return;
+  const dp = Number(md.datapoint_count) || 0;
+  const bytes = Number(md.result_set_bytes) || 0;
+  datapointsUsed += dp;
+  bytesUsed += bytes;
+  callsMade += 1;
+  // Zero-datapoint calls are the freshness probes — silent by design, else every
+  // warm would log a wall of no-ops.
+  if (dp > 0) {
+    console.log(
+      `[dune] ${label} → ${dp.toLocaleString()} datapoints · ${fmtBytes(bytes)}` +
+        ` (run total ${datapointsUsed.toLocaleString()} dp · ${fmtBytes(bytesUsed)})`,
+    );
+  }
+  if (!budgetWarned && datapointsUsed > DATAPOINT_BUDGET) {
+    budgetWarned = true;
+    console.warn(
+      `[dune] ⚠ credit budget exceeded this run: ${datapointsUsed.toLocaleString()} > ` +
+        `${DATAPOINT_BUDGET.toLocaleString()} datapoints. A query is scanning too much — ` +
+        `window it (see COURTYARD_SECONDARY_QUERY_ID) or raise DUNE_DATAPOINT_BUDGET.`,
+    );
+  }
+}
 
 type ExecuteResponse = { execution_id: string; state: string };
 type StatusResponse = {
@@ -77,10 +152,13 @@ async function req<T>(
  * Build the query-param string Dune expects for parameterized queries.
  * Dune wants `params.<name>=<value>` query-string entries.
  */
-function paramQuery(params?: Record<string, string | number>): string {
-  if (!params) return "";
+function paramQuery(
+  params?: Record<string, string | number>,
+  extra?: Record<string, string | number>,
+): string {
   const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) sp.set(`params.${k}`, String(v));
+  for (const [k, v] of Object.entries(params ?? {})) sp.set(`params.${k}`, String(v));
+  for (const [k, v] of Object.entries(extra ?? {})) sp.set(k, String(v));
   const s = sp.toString();
   return s ? `?${s}` : "";
 }
@@ -111,6 +189,7 @@ export async function getLatestResultsMeta(
     const page: DuneResultResponse = await req<DuneResultResponse>(path ?? "", {
       absoluteUrl,
     });
+    meter(`query ${queryId} results`, page.result?.metadata);
     if (first) {
       executionEndedAt = page.execution_ended_at ?? page.submitted_at ?? null;
       first = false;
@@ -180,6 +259,7 @@ export async function runQuery(
   let path: string | null = `/execution/${exec.execution_id}/results`;
   while (path || absoluteUrl) {
     const page: DuneResultResponse = await req<DuneResultResponse>(path ?? "", { absoluteUrl });
+    meter(`execution ${exec.execution_id} results`, page.result?.metadata);
     if (page.result?.rows) for (const row of page.result.rows) rows.push(row);
     if (rows.length >= maxRows) break;
     if (page.next_uri) {
@@ -199,6 +279,44 @@ export type AutoRefreshResult = {
 };
 
 /**
+ * A row offset past the end of any real result set. Dune answers with an EMPTY
+ * page that still carries `execution_ended_at` + `total_row_count` — documented:
+ * "if you pass in an invalid offset … you will not receive an error, but rather
+ * an empty result with metadata". Measured on query 7845248: 0 datapoints, 67
+ * bytes, vs 846 datapoints / 25.9KB for the full read.
+ *
+ * ⚠️ Do NOT reach for `limit=0` here. Dune IGNORES it and returns the whole
+ * result set at full cost (measured: all 141 rows / 846 datapoints). The
+ * out-of-range offset is the only cheap probe that actually works.
+ */
+const PROBE_OFFSET = 1_000_000_000;
+
+export type CachedResultProbe = {
+  /** When Dune last COMPUTED the cached result (null if the API omitted it). */
+  executionEndedAt: string | null;
+  /** Rows the cached result holds — 0 means there is nothing to serve. */
+  totalRowCount: number;
+};
+
+/**
+ * Near-free staleness check: how old is this query's cached result, and does it
+ * hold any rows? Costs one empty page (0 datapoints) instead of exporting the
+ * entire result set just to read a timestamp off it.
+ */
+export async function probeCachedResult(
+  queryId: number,
+  opts: { params?: Record<string, string | number> } = {},
+): Promise<CachedResultProbe> {
+  const path = `/query/${queryId}/results${paramQuery(opts.params, { offset: PROBE_OFFSET, limit: 1 })}`;
+  const page = await req<DuneResultResponse>(path);
+  meter(`query ${queryId} probe`, page.result?.metadata);
+  return {
+    executionEndedAt: page.execution_ended_at ?? page.submitted_at ?? null,
+    totalRowCount: Number(page.result?.metadata?.total_row_count) || 0,
+  };
+}
+
+/**
  * Self-healing read — the durable fix for "the scheduled fresh run silently
  * stopped and the cached result rotted for days" (how CC secondary went to $0).
  *
@@ -206,6 +324,12 @@ export type AutoRefreshResult = {
  * ago — or there are no rows — trigger a FRESH execution and return that. Every
  * cached read now repairs itself the moment the data crosses the staleness line,
  * so a missed scheduled refresh can no longer rot the data: the next warm heals it.
+ *
+ * Staleness is decided from a 0-datapoint PROBE, not from the full result set.
+ * The old order exported every row first and then, if the cache turned out to be
+ * stale, threw all of them away and executed anyway — paying full export price
+ * for data it never used. Rows are now fetched only down the branch that needs
+ * them.
  *
  * Safe degradation: if Dune doesn't report an execution timestamp, we trust a
  * non-empty cache rather than re-running on every call (which would burn credits).
@@ -219,16 +343,54 @@ export async function getResultsAutoRefresh(
     maxRows?: number;
   },
 ): Promise<AutoRefreshResult> {
-  const { rows, executionEndedAt } = await getLatestResultsMeta(queryId, {
+  const probe = await probeCachedResult(queryId, { params: opts.params });
+  const parsed = probe.executionEndedAt ? Date.parse(probe.executionEndedAt) : NaN;
+  const cachedAgeMs = Number.isFinite(parsed) ? Date.now() - parsed : null;
+  const stale =
+    probe.totalRowCount === 0 || (cachedAgeMs !== null && cachedAgeMs > opts.maxAgeMs);
+
+  if (stale) {
+    const fresh = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
+    return { rows: fresh, refreshed: true, cachedAgeMs };
+  }
+  const { rows } = await getLatestResultsMeta(queryId, {
     params: opts.params,
     maxRows: opts.maxRows,
   });
-  const parsed = executionEndedAt ? Date.parse(executionEndedAt) : NaN;
-  const cachedAgeMs = Number.isFinite(parsed) ? Date.now() - parsed : null;
-  const stale = rows.length === 0 || (cachedAgeMs !== null && cachedAgeMs > opts.maxAgeMs);
-  if (!stale) return { rows, refreshed: false, cachedAgeMs };
-  const fresh = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
-  return { rows: fresh, refreshed: true, cachedAgeMs };
+  return { rows, refreshed: false, cachedAgeMs };
+}
+
+export type DuneUsage = {
+  creditsUsed: number;
+  creditsIncluded: number;
+  periodStart: string | null;
+  periodEnd: string | null;
+};
+
+/**
+ * Authoritative account spend for the current billing period. This endpoint is
+ * metadata — free, and it does not consume credits — so it's the honest number
+ * to report next to our own per-run meter (which only ever sees export cost, not
+ * the compute charged for each execution).
+ */
+export async function duneUsage(): Promise<DuneUsage | null> {
+  type UsageResponse = {
+    billing_periods?: {
+      start_date?: string;
+      end_date?: string;
+      credits_used?: number;
+      credits_included?: number;
+    }[];
+  };
+  const res = await req<UsageResponse>("/usage", { method: "POST", body: "{}" });
+  const p = res.billing_periods?.[0];
+  if (!p) return null;
+  return {
+    creditsUsed: Number(p.credits_used) || 0,
+    creditsIncluded: Number(p.credits_included) || 0,
+    periodStart: p.start_date ?? null,
+    periodEnd: p.end_date ?? null,
+  };
 }
 
 export { DuneError };

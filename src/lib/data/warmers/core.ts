@@ -85,8 +85,8 @@ function buildPlatform(
 /**
  * Fetch sale-level rows `{ block_time, price_usd, nft_mint, buyer, seller }` from a
  * Dune secondary-sales query → NormalizedSale[]. `cachedOnly` does a self-healing
- * cached read (a stale cache triggers a fresh run). `maxRows` is generous so a
- * full-history query (Courtyard, 100k+ rows) isn't truncated at the 100k default.
+ * cached read (a stale cache triggers a fresh run). Both feeds are windowed to 30d
+ * on the Dune side; `maxRows` stays generous purely as a headroom guard.
  */
 async function fetchDuneSecondarySales(
   queryId: number,
@@ -133,7 +133,7 @@ export async function fetchCCSecondarySales(
   return fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", opts);
 }
 
-/** Courtyard secondary sales (Dune nft.trades, full history). Replaces Rarible. */
+/** Courtyard secondary sales (Dune nft.trades, 30d window). Replaces Rarible. */
 export async function fetchCourtyardSecondarySales(
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
@@ -184,7 +184,7 @@ export async function runCoreWarm(
     log(`→ beezie (Beezie /activity) FAILED: ${(err as Error).message}`);
   }
 
-  // ── Courtyard: Dune nft.trades (full history) — replaces Rarible. Its own
+  // ── Courtyard: Dune nft.trades (30d window) — replaces Rarible. Its own
   //    api.courtyard.io is WAF-blocked to servers, so Dune is the off-Rarible path. ──
   try {
     const t0 = Date.now();
