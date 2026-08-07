@@ -17,12 +17,18 @@ import {
   SOURCE_INTERVALS_MS,
 } from "../src/lib/db/freshness";
 import { readSnapshot } from "../src/lib/db/snapshots";
-import type { HeliusCreditsSnapshot } from "../src/lib/db/runWarmer";
+import type { HeliusCreditsSnapshot, DuneSpendSnapshot } from "../src/lib/db/runWarmer";
+import { duneUsage } from "../src/lib/dune/client";
 
 // A single warmer run over this many Helius credits is almost certainly a runaway
 // crawl (legit heaviest = holders ≈ 285). Flagged in the report; the HARD stop is
 // the per-run budget in the Helius client (a breach throws → error → gate red).
 const HELIUS_BURN_WARN = 50_000;
+
+// A single warm pulling more than this from Dune means a query lost its time
+// window (the Courtyard full-history scan billed ~2.7M datapoints/day for 18
+// days before anyone looked). Soft flag here; the client warns at its own budget.
+const DUNE_BURN_WARN = 200_000;
 
 function fmtAge(ms: number | null): string {
   if (ms == null) return "—";
@@ -84,6 +90,44 @@ async function main() {
       console.log(`  ${source.padEnd(20)} ~${c.toLocaleString().padStart(9)} cr  ${fmtAge(ageMs).padStart(4)} ago${flag}`);
     }
     console.log(`  ${"TOTAL".padEnd(20)} ~${total.toLocaleString().padStart(9)} cr / cycle`);
+  }
+
+  // ── Dune spend — per-warmer export cost from the client's meter, plus the
+  //    account's REAL credit usage (free metadata endpoint). Our meter only sees
+  //    exports; executions are billed for compute on top, so the account figure
+  //    is the one that decides whether we're inside the plan. ──
+  const dune = await readSnapshot<DuneSpendSnapshot>("dune-spend").catch(() => null);
+  const duneEntries = Object.entries(dune?.bySource ?? {}).sort(
+    (a, b) => b[1].datapoints - a[1].datapoints,
+  );
+  if (duneEntries.length) {
+    console.log("\nDUNE EXPORT SPEND (last run per source)");
+    let total = 0;
+    for (const [source, { datapoints, calls, at }] of duneEntries) {
+      total += datapoints;
+      const ageMs = Date.now() - new Date(at).getTime();
+      const flag = datapoints >= DUNE_BURN_WARN ? "  ⚠ UNWINDOWED QUERY?" : "";
+      console.log(
+        `  ${source.padEnd(20)} ${datapoints.toLocaleString().padStart(10)} dp  ${String(calls).padStart(3)} calls  ${fmtAge(ageMs).padStart(4)} ago${flag}`,
+      );
+    }
+    console.log(`  ${"TOTAL".padEnd(20)} ${total.toLocaleString().padStart(10)} dp / cycle`);
+  }
+
+  // Account truth. Never let a missing/invalid DUNE_API_KEY fail the report.
+  try {
+    const usage = await duneUsage();
+    if (usage) {
+      const pct = usage.creditsIncluded > 0 ? (usage.creditsUsed / usage.creditsIncluded) * 100 : 0;
+      const over = pct > 100 ? "  ⚠ OVER PLAN" : "";
+      console.log(
+        `\nDUNE ACCOUNT CREDITS  ${Math.round(usage.creditsUsed).toLocaleString()} / ` +
+          `${usage.creditsIncluded.toLocaleString()} included (${pct.toFixed(0)}%)` +
+          ` · period ${usage.periodStart ?? "?"} → ${usage.periodEnd ?? "?"}${over}`,
+      );
+    }
+  } catch (e) {
+    console.log(`\nDUNE ACCOUNT CREDITS  unavailable (${(e as Error).message.slice(0, 60)})`);
   }
 
   // AF-2: an errored warmer's data is FROZEN — that IS stale. Fold error into the

@@ -212,7 +212,9 @@ async function main() {
     }
   }
 
-  // ── Courtyard secondary daily flow — Dune nft.trades (full history; off Rarible) ──
+  // ── Courtyard secondary daily flow — Dune nft.trades (30d window; off Rarible) ──
+  // The 30d window is not a history loss: these pushes are idempotent upserts, so
+  // days already in the spine stay put and only the trailing 30d get rewritten.
   // Platform-level only: Courtyard's `cards` table is empty, so per-IP would all
   // fall to "other" (enable per-IP once the traded-mint enrichment lands).
   try {

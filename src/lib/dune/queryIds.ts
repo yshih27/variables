@@ -59,7 +59,13 @@ export const CC_SECONDARY_QUERY_ID = 7675297;
 /**
  * Courtyard secondary marketplace sales (Polygon) via Dune `nft.trades` — replaces
  * the Rarible aggregator. Same row shape as CC's 7675297
- * `{ block_time, price_usd, nft_mint, buyer, seller }`, over full history.
+ * `{ block_time, price_usd, nft_mint, buyer, seller }`, over 30d.
+ *
+ * ⚠️ WINDOWED to 30d (matching CC's 7675297) — keep it that way. It ran
+ * unbounded for 18 days and every scheduled read re-exported the full history:
+ * ~2.7M datapoints/day. The warmer only derives 24h/7d/30d aggregates from this
+ * feed and the spine persists daily history in Postgres (upserts, never
+ * re-derived), so nothing downstream wants more than 30d.
  */
 export const COURTYARD_SECONDARY_QUERY_ID = 7845248;
 
