@@ -3,27 +3,45 @@
  *
  * Created via the Dune API from the team's validated SQL. Private queries
  * named "TCG.market — …" in the Dune workspace. To inspect/edit, open
- * https://dune.com/queries/<id>.
+ * https://dune.com/queries/<id>. The SQL is mirrored in `dune/` — see
+ * dune/README.md for the file ↔ query-id manifest.
  *
- * Pulls queries return per-price-tier rows:
- *   { pack_price, pulls_7d, volume_7d, pulls_24h, volume_24h }
- * Courtyard (tokenization) returns a single aggregate row:
- *   { txns_7d, volume_7d, txns_24h, volume_24h }
+ * ⚠️ COST MODEL. Dune bills each execution by the COMPUTE it does, so the two
+ * things that matter are (a) how many queries we execute and (b) how much each
+ * one scans. Per-platform copies of the same query multiply (a); unbounded
+ * history multiplies (b). Both were true here and the account ran to 174% of
+ * plan. Hence: one multi-platform query per concern, every one time-windowed,
+ * with the loaders splitting rows on a `platform` column.
  */
-export const GACHA_QUERY_IDS = {
-  "collector-crypt": 7642633,
-  beezie: 7642705,
-  phygitals: 7642707,
-  courtyard: 7642710,
-} as const;
 
-export type GachaQueryPlatform = keyof typeof GACHA_QUERY_IDS;
+/** Platforms the combined gacha queries cover, in display order. */
+export const GACHA_PLATFORMS = ["collector-crypt", "beezie", "phygitals", "courtyard"] as const;
+
+export type GachaQueryPlatform = (typeof GACHA_PLATFORMS)[number];
+
+/**
+ * Gacha (primary) LIVE windows, ALL PLATFORMS — one execution, replacing four
+ * (7642633 CC / 7642705 Beezie / 7642707 Phygitals / 7642710 Courtyard, now
+ * dormant). Rows: `{ platform, pack_price, pulls_30d, volume_30d, pulls_7d,
+ * volume_7d, pulls_24h, volume_24h }`, 30d window.
+ *   • CC / Beezie / Phygitals → one row per pack_price tier.
+ *   • Courtyard              → ONE row, pack_price null (no pack tiers). Its
+ *     old `txns_*` columns are normalised to `pulls_*` here.
+ * Split by `platform` in runGachaWarm. SQL: dune/gacha-live-all-platforms.sql
+ */
+export const GACHA_LIVE_QUERY_ID = 8252733;
 
 /**
  * Realized rarity-tier odds (CC only — it's the one platform whose prize
  * inventory is split into named tier wallets). Returns per-tier prize counts
  * for 24h/7d/30d. 7d is the headline window (24h is small-sample; 30d can
  * include occasional bulk inventory moves).
+ *
+ * ⚠️ EXECUTION PAUSED. This feeds ONLY the /gacha page, which is gated off
+ * behind GACHA_ENABLED — so we were paying for a daily execution nothing could
+ * display. The warmer skips it while the flag is off and carries the last odds
+ * forward in the snapshot; flipping GACHA_ENABLED on resumes it. The code path
+ * is deliberately intact — do not delete it.
  */
 export const CC_ODDS_QUERY_ID = 7643215;
 
@@ -31,19 +49,25 @@ export const CC_ODDS_QUERY_ID = 7643215;
  * High-tier prize deliveries (Epic/LGND/SPrT) last 7d → the big-hit
  * candidates. Returns (block_time, mint, tier); the warmer joins each mint to
  * its Insured Value + name + image from the local cc-traits cache and ranks.
+ *
+ * ⚠️ WEEKLY, not daily. Its only consumer is the weekly report's Notable Pulls,
+ * so it runs in the Monday job (after cc-traits, before the report build) via
+ * `warm-gacha-dune.ts --big-hits`. Daily runs carry the last hits forward.
  */
 export const CC_BIG_HITS_QUERY_ID = 7643571;
 
+/** Platforms with a known on-chain buyback wallet (the only ones the query covers). */
+export const BUYBACK_PLATFORMS = ["collector-crypt", "phygitals"] as const;
+
 /**
- * Buyback payouts — USDC sent FROM a platform's gacha wallets back to players
- * (instant cash-out of a pulled card), excluding internal/house wallets.
- * Net house revenue = gacha spend − buyback payout. Returns 24h/7d/30d
- * payout volume + count. Only where the buyback wallet is known on-chain.
+ * Buyback payouts, ALL PLATFORMS — one execution, replacing two (7644128 CC /
+ * 7644129 Phygitals, now dormant). USDC sent FROM a platform's gacha wallets
+ * back to players (instant cash-out of a pulled card), excluding internal/house
+ * wallets. Net house revenue = gacha spend − buyback payout.
+ * Rows: `{ platform, bb_30d, pay_30d, bb_7d, pay_7d, bb_24h, pay_24h }` — one
+ * per platform, 30d window. SQL: dune/buyback-all-platforms.sql
  */
-export const BUYBACK_QUERY_IDS = {
-  "collector-crypt": 7644128,
-  phygitals: 7644129,
-} as const;
+export const BUYBACK_QUERY_ID = 8252735;
 
 /**
  * CC secondary marketplace sales (Collector Crypt program CcmRKTuZ…). Returns
@@ -70,16 +94,21 @@ export const CC_SECONDARY_QUERY_ID = 7675297;
 export const COURTYARD_SECONDARY_QUERY_ID = 7845248;
 
 /**
- * Daily-bucketed gacha (primary) volume per platform — `{ day, [pack_price],
- * pulls, volume_usd }` over full history. Powers the spine's `gacha_volume_usd`
- * metric. CC price list = the live /api/gachas/all catalog (incl. Rarible's $151
- * `pokemon_151`, plus 2500/5000); Phygitals excludes sub-$1 dust; Courtyard =
- * tokenization (primary); Beezie = the Claw. (Beezie secondary is its own API,
- * not Dune.)
+ * Daily-bucketed gacha (primary) volume, ALL PLATFORMS — one execution,
+ * replacing four (7845475 CC / 7845392 Beezie / 7845484 Phygitals / 7845479
+ * Courtyard, now dormant). Rows: `{ platform, day, pack_price, pulls,
+ * volume_usd }`. Powers the spine's `gacha_volume_usd` metric; the warmer groups
+ * by platform+day and sums across pack_price. CC price list = the live
+ * /api/gachas/all catalog (incl. Rarible's $151 `pokemon_151`, plus 2500/5000);
+ * Phygitals excludes sub-$1 dust; Courtyard = tokenization (primary); Beezie =
+ * the Claw. (Beezie secondary is its own API, not Dune.)
+ *
+ * ⚠️ WINDOWED to 90d — keep it that way. Unbounded, these four scans cost ~12.2
+ * min of Dune compute EVERY day (CC alone 7.6 min, already past the warmer's
+ * 8 min budget — the 4-way union simply timed out). The spine is the system of
+ * record for history: it holds every day these queries return and upserts by
+ * (entity_type, entity_key, metric, ts), so re-deriving only the trailing 90d
+ * loses nothing and leaves a quarter of headroom for late/corrected data.
+ * SQL: dune/gacha-daily-all-platforms.sql
  */
-export const GACHA_DAILY_QUERY_IDS = {
-  "collector-crypt": 7845475,
-  beezie: 7845392,
-  phygitals: 7845484,
-  courtyard: 7845479,
-} as const;
+export const GACHA_DAILY_QUERY_ID = 8252734;

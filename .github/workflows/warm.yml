@@ -208,6 +208,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Notable Pulls' only input. WEEKLY on purpose — Dune bills per execution
+      # and nothing reads this between reports; the daily gacha warms carry the
+      # previous hits forward. Must run BEFORE the composer below, and after the
+      # 04:00 cc-traits crawl it joins mints against.
+      - name: Gacha big hits (weekly — feeds Notable Pulls)
+        continue-on-error: true
+        run: npx tsx scripts/warm-gacha-dune.ts --cached --big-hits
       - name: Weekly report (movers + composer)
         continue-on-error: true
         run: npx tsx scripts/warm-weekly-report.ts
