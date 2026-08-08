@@ -14,12 +14,16 @@
  */
 import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
 import {
-  GACHA_QUERY_IDS,
+  GACHA_PLATFORMS,
+  GACHA_LIVE_QUERY_ID,
   CC_ODDS_QUERY_ID,
   CC_BIG_HITS_QUERY_ID,
-  BUYBACK_QUERY_IDS,
+  BUYBACK_PLATFORMS,
+  BUYBACK_QUERY_ID,
 } from "../../dune/queryIds";
+import { GACHA_ENABLED } from "../../flags";
 import {
+  readGachaDune,
   writeGachaDune,
   type GachaDunePlatform,
   type GachaPriceBucket,
@@ -88,26 +92,43 @@ function buildGachaPlatform(rows: DuneRow[]): GachaDunePlatform {
   };
 }
 
-// Courtyard's Dune query returns a single AGGREGATE row (txns_/volume_ per
-// window), not the per-price-tier rows the other platforms give — so it has no
-// `byPrice` breakdown. It IS gacha (pack pulls: ~23K/24h at a ~$64 avg, not
-// variable-size vault deposits), just measured in aggregate. Classifying it
-// "gacha" folds its ~$1.5M/24h into the homepage/platform Gacha lane instead of
-// leaving it invisible under "Other primary" (the 6/25 ticket). Kept a separate
-// builder because the row SHAPE differs; the empty byPrice is honestly surfaced
-// downstream as "aggregate volume — per-pack odds not tracked yet".
+// Courtyard's branch of the combined query returns a single AGGREGATE row (one
+// count/volume per window, pack_price null), not the per-price-tier rows the
+// other platforms give — so it has no `byPrice` breakdown. It IS gacha (pack
+// pulls: ~23K/24h at a ~$64 avg, not variable-size vault deposits), just
+// measured in aggregate. Classifying it "gacha" folds its ~$1.5M/24h into the
+// homepage/platform Gacha lane instead of leaving it invisible under "Other
+// primary" (the 6/25 ticket). Kept a separate builder because the row SHAPE
+// differs; the empty byPrice is honestly surfaced downstream as "aggregate
+// volume — per-pack odds not tracked yet".
+//
+// The standalone Courtyard query used to call these columns `txns_*`; the
+// combined query normalises them to `pulls_*` so every branch shares one shape.
 function buildAggregateGacha(rows: DuneRow[]): GachaDunePlatform {
   const r = rows[0] ?? {};
   return {
     kind: "gacha",
-    pulls24h: num(r.txns_24h),
+    pulls24h: num(r.pulls_24h),
     vol24h: num(r.volume_24h),
-    pulls7d: num(r.txns_7d),
+    pulls7d: num(r.pulls_7d),
     vol7d: num(r.volume_7d),
-    pulls30d: num(r.txns_30d),
+    pulls30d: num(r.pulls_30d),
     vol30d: num(r.volume_30d),
     byPrice: [],
   };
+}
+
+/** Split a combined multi-platform result set into per-platform row lists. */
+function splitByPlatform(rows: DuneRow[]): Map<string, DuneRow[]> {
+  const by = new Map<string, DuneRow[]>();
+  for (const r of rows) {
+    const key = String(r.platform ?? "");
+    if (!key) continue;
+    const list = by.get(key);
+    if (list) list.push(r);
+    else by.set(key, [r]);
+  }
+  return by;
 }
 
 export type GachaWarmResult = {
@@ -124,12 +145,23 @@ export type GachaWarmResult = {
  * Run the gacha warm: execute the Dune queries, build the snapshot, persist it
  * to Postgres. Freshness is recorded by the runWarmer wrapper at each entry point
  * (CLI script + cron route); a 0-platform result THROWS so that wrapper logs an
- * error row. Pass `cachedOnly` to read Dune's last cached results (zero credits).
+ * error row. Pass `cachedOnly` to read Dune's last cached results.
+ *
+ * Two of the four inputs are no longer fetched on every run, because Dune bills
+ * per execution and nothing consumed them daily:
+ *   • ODDS     — feeds only the /gacha page, which GACHA_ENABLED gates off.
+ *   • BIG HITS — feeds only the weekly report; refreshed by `--big-hits` in the
+ *                Monday job.
+ * Both are CARRIED FORWARD from the previous snapshot when skipped. That matters:
+ * this warmer rewrites the whole `gacha` blob, so simply not fetching them would
+ * silently blank the Notable Pulls rail and the odds table.
  */
 export async function runGachaWarm(
-  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+  opts: { cachedOnly?: boolean; bigHits?: boolean; log?: (msg: string) => void } = {},
 ): Promise<GachaWarmResult> {
   const log = opts.log ?? (() => {});
+  // Previous snapshot — the carry-forward source for anything we skip below.
+  const prev = await readGachaDune().catch(() => null);
   // Gacha queries are refreshed daily and move slowly; self-heal the cache only
   // once it's clearly missed a daily fresh run (so it can't rot like cc-secondary did).
   const GACHA_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
@@ -148,29 +180,42 @@ export async function runGachaWarm(
 
   const platforms: Record<string, GachaDunePlatform> = {};
 
-  for (const [key, queryId] of Object.entries(GACHA_QUERY_IDS)) {
+  // ONE execution for every platform's live windows; split on the `platform`
+  // column. Was four separate queries — four executions for one fan-out scan.
+  try {
     const t0 = Date.now();
-    try {
-      const rows = await fetchRows(queryId);
+    const byPlatform = splitByPlatform(await fetchRows(GACHA_LIVE_QUERY_ID));
+    for (const key of GACHA_PLATFORMS) {
+      const rows = byPlatform.get(key) ?? [];
+      if (!rows.length) {
+        log(`→ ${key} — no rows in the combined result (skipped)`);
+        continue;
+      }
       const platform =
         key === "courtyard" ? buildAggregateGacha(rows) : buildGachaPlatform(rows);
       platforms[key] = platform;
-      const dt = ((Date.now() - t0) / 1000).toFixed(0);
       log(
-        `→ ${key} (query ${queryId}) done in ${dt}s — 24h ${platform.pulls24h.toLocaleString()} ${platform.kind === "gacha" ? "pulls" : "txns"} $${Math.round(platform.vol24h).toLocaleString()} · ${platform.byPrice.length} tiers`,
+        `→ ${key} — 24h ${platform.pulls24h.toLocaleString()} pulls $${Math.round(platform.vol24h).toLocaleString()} · ${platform.byPrice.length} tiers`,
       );
-    } catch (err) {
-      log(`→ ${key} (query ${queryId}) FAILED: ${(err as Error).message}`);
     }
+    log(`  (gacha live query ${GACHA_LIVE_QUERY_ID} · ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+  } catch (err) {
+    log(`→ gacha live (query ${GACHA_LIVE_QUERY_ID}) FAILED: ${(err as Error).message}`);
   }
 
-  // Buyback — USDC paid back to players who instantly cashed out.
-  for (const [key, queryId] of Object.entries(BUYBACK_QUERY_IDS)) {
-    if (!platforms[key]) continue;
-    try {
-      const rows = await fetchRows(queryId);
-      const r = rows[0] ?? {};
-      platforms[key].buyback = {
+  // Buyback — USDC paid back to players who instantly cashed out. One execution
+  // for both platforms that have a known buyback wallet.
+  try {
+    const byPlatform = splitByPlatform(await fetchRows(BUYBACK_QUERY_ID));
+    for (const key of BUYBACK_PLATFORMS) {
+      const target = platforms[key];
+      if (!target) continue;
+      const r = byPlatform.get(key)?.[0];
+      if (!r) {
+        log(`→ ${key} buyback — no row in the combined result (skipped)`);
+        continue;
+      }
+      target.buyback = {
         payout24h: num(r.pay_24h),
         payout7d: num(r.pay_7d),
         payout30d: num(r.pay_30d),
@@ -178,34 +223,49 @@ export async function runGachaWarm(
         count7d: num(r.bb_7d),
         count30d: num(r.bb_30d),
       };
-      const net = platforms[key].vol7d - num(r.pay_7d);
-      const take = platforms[key].vol7d > 0 ? (100 * net) / platforms[key].vol7d : 0;
-      log(
-        `→ ${key} buyback (query ${queryId}) done — net 7d $${Math.round(net).toLocaleString()} (${take.toFixed(1)}% take)`,
-      );
-    } catch (err) {
-      log(`→ ${key} buyback (query ${queryId}) FAILED: ${(err as Error).message}`);
+      const net = target.vol7d - num(r.pay_7d);
+      const take = target.vol7d > 0 ? (100 * net) / target.vol7d : 0;
+      log(`→ ${key} buyback — net 7d $${Math.round(net).toLocaleString()} (${take.toFixed(1)}% take)`);
     }
+  } catch (err) {
+    log(`→ buyback (query ${BUYBACK_QUERY_ID}) FAILED: ${(err as Error).message}`);
   }
 
-  // CC odds — realized rarity-tier distribution from prize deliveries.
+  // CC odds — realized rarity-tier distribution from prize deliveries. Only the
+  // flag-gated /gacha page renders this, so while GACHA_ENABLED is off we carry
+  // the last computed odds forward instead of paying for a daily execution.
   if (platforms["collector-crypt"]) {
-    try {
-      const rows = await fetchRows(CC_ODDS_QUERY_ID);
-      const odds = buildOdds(rows);
-      platforms["collector-crypt"].odds = odds;
-      const top = odds.find((o) => o.tier === "SPrT") ?? odds[0];
-      log(
-        `→ collector-crypt odds (query ${CC_ODDS_QUERY_ID}) done — ${odds.length} tiers (SPrT ${(((top?.pct) ?? 0) * 100).toFixed(2)}%)`,
-      );
-    } catch (err) {
-      log(`→ collector-crypt odds FAILED: ${(err as Error).message}`);
+    if (GACHA_ENABLED) {
+      try {
+        const rows = await fetchRows(CC_ODDS_QUERY_ID);
+        const odds = buildOdds(rows);
+        platforms["collector-crypt"].odds = odds;
+        const top = odds.find((o) => o.tier === "SPrT") ?? odds[0];
+        log(
+          `→ collector-crypt odds (query ${CC_ODDS_QUERY_ID}) done — ${odds.length} tiers (SPrT ${(((top?.pct) ?? 0) * 100).toFixed(2)}%)`,
+        );
+      } catch (err) {
+        log(`→ collector-crypt odds FAILED: ${(err as Error).message}`);
+      }
+    } else {
+      const carried = prev?.platforms?.["collector-crypt"]?.odds;
+      if (carried?.length) {
+        platforms["collector-crypt"].odds = carried;
+        log(`→ collector-crypt odds — carried forward (${carried.length} tiers; GACHA_ENABLED off)`);
+      } else {
+        log(`→ collector-crypt odds — skipped (GACHA_ENABLED off, nothing to carry forward)`);
+      }
     }
   }
 
-  // Big Hits — high-tier prize NFTs joined to local insured value (FMV).
+  // Big Hits — high-tier prize NFTs joined to local insured value (FMV). Only
+  // the weekly report's Notable Pulls consumes this, so it refreshes weekly
+  // (--big-hits in the Monday job) and is carried forward in between.
   let bigHits: GachaBigHit[] = [];
-  try {
+  if (!opts.bigHits) {
+    bigHits = prev?.bigHits ?? [];
+    log(`→ big hits — carried forward (${bigHits.length}; pass --big-hits to refresh)`);
+  } else try {
     const rows = await fetchRows(CC_BIG_HITS_QUERY_ID);
     // Dedup by mint, keeping the most recent delivery (rows are time-desc).
     const seen = new Set<string>();
@@ -237,7 +297,9 @@ export async function runGachaWarm(
     bigHits = bigHits.slice(0, 15);
     log(`→ big hits (query ${CC_BIG_HITS_QUERY_ID}) done — top hit $${Math.round(bigHits[0]?.valueUsd ?? 0).toLocaleString()}`);
   } catch (err) {
-    log(`→ big hits FAILED: ${(err as Error).message}`);
+    // Keep the previous hits rather than publishing an empty rail on a bad run.
+    bigHits = prev?.bigHits ?? [];
+    log(`→ big hits FAILED: ${(err as Error).message} — kept ${bigHits.length} previous`);
   }
 
   const snap: GachaDuneSnapshot = {
@@ -256,7 +318,7 @@ export async function runGachaWarm(
 
   return {
     platforms: platformCount,
-    totalPlatforms: Object.keys(GACHA_QUERY_IDS).length,
+    totalPlatforms: GACHA_PLATFORMS.length,
     bigHits: bigHits.length,
     topHitUsd: bigHits[0]?.valueUsd ?? 0,
     generatedAt: snap.generatedAt,

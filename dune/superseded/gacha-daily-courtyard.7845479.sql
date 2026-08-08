@@ -1,5 +1,4 @@
 -- TCG.market — Courtyard tokenization (primary) DAILY
--- Daily version of validated query 7642710. tokens_polygon.transfers: `amount`
 -- is already USD (no /1e6). No time filter = full history. Output: day, pulls, volume_usd.
 SELECT
   date_trunc('day', block_time) AS day,

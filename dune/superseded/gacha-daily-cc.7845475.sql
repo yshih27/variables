@@ -1,13 +1,3 @@
--- TCG.market — Collector Crypt gacha DAILY
--- Daily version of validated query 7642633. tokens_solana.transfers: USDC amount /1e6.
--- No time filter = full history. Output: day, pack_price, pulls, volume_usd.
---
--- PRICE LIST = the full live /api/gachas/all catalog (re-sync when CC adds packs):
---   25,50,75,80,100,151,250,1000,2500,5000
---   151  = Rarible×CC "151 & Friends" (code pokemon_151, private)
---   2500 = Mythic, 5000 = Celestial  (were missing → undercounted)
--- NOTE: price collides across categories ($50 = 6 packs), so per-pack/category/
--- channel attribution comes from the native winners feed's pack_type (code), NOT here.
 SELECT
   date_trunc('day', block_time) AS day,
   CAST(amount/power(10,6) AS INTEGER) AS pack_price,

@@ -215,7 +215,7 @@ async function main() {
       continue;
     }
     // Solana primary (CC, Phygitals) is now sourced from the Dune gacha feeds
-    // (GACHA_QUERY_IDS → resolvePrimaryUsd reads gacha-dune first for these), so we
+    // (GACHA_LIVE_QUERY_ID → resolvePrimaryUsd reads gacha-dune first for these), so we
     // SKIP the Helius enhanced-tx crawl that used to walk 7d of getEnhancedTransactions
     // per receiver every run — a ~350K-credit/day burner. Only the cheap EVM legs
     // (Etherscan) run here now, as a fallback for when the Dune feed lacks a platform.

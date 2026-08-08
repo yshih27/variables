@@ -6,9 +6,9 @@
  * Writes one row per (entity, metric, UTC-day) into `metric_snapshots`:
  *   • flow  (volume_usd, trades, active_wallets, cards_traded) — COMPLETE-day
  *     aggregates from authoritative per-sale feeds: CC (Dune) + Beezie
- *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, full history).
+ *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, 30d window).
  *   • gacha (gacha_volume_usd per platform) — daily primary/gacha volume from the
- *     daily-bucketed Dune queries (GACHA_DAILY_QUERY_IDS), full history.
+ *     ONE daily-bucketed multi-platform Dune query (GACHA_DAILY_QUERY_ID), 90d.
  *   • dominance (entity_type set / grade / platform_ip) — daily volume/trades/
  *     cards per "{ip}:{set}", "{ip}:{grade}", "{platform}:{ip}" so the dominance
  *     panels can render a REAL historical trend (shares computed at read time).
@@ -16,7 +16,7 @@
  *     platform level; no backfill exists, so it accumulates forward.
  *
  * NOTE: all secondary volume is native/Dune now (no Rarible — it inflated Beezie
- * ~20-90×). Courtyard secondary = Dune nft.trades (full history); per-IP for
+ * ~20-90×). Courtyard secondary = Dune nft.trades (30d window); per-IP for
  * Courtyard awaits the traded-mint `cards` enrichment, so it's platform-level only.
  *
  * Runs in the DAILY batch AFTER warm-core-dune (fresh) + warm-marketcap +
@@ -29,7 +29,7 @@ config({ path: ".env.local" });
 import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/data/warmers/core";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { getResultsAutoRefresh } from "../src/lib/dune/client";
-import { GACHA_DAILY_QUERY_IDS } from "../src/lib/dune/queryIds";
+import { GACHA_DAILY_QUERY_ID } from "../src/lib/dune/queryIds";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { sanitizeStockSeries } from "../src/lib/data/indices";
 import { readHolders } from "../src/lib/data/holders";
@@ -240,34 +240,47 @@ async function main() {
   }
 
   // ── Gacha (primary) daily volume → spine (gacha_volume_usd per platform) ──
-  // Daily-bucketed Dune queries (full history): CC/Beezie/Phygitals = gacha pulls,
+  // Daily-bucketed combined Dune query (90d): CC/Beezie/Phygitals = gacha pulls,
   // Courtyard = tokenization. Summed across pack_price where a query splits tiers.
-  for (const [key, qid] of Object.entries(GACHA_DAILY_QUERY_IDS)) {
-    try {
-      const { rows } = await getResultsAutoRefresh(qid, {
-        maxAgeMs: DAY,
-        runOpts: { maxWaitMs: 480_000 },
-      });
-      const byDay = new Map<string, number>();
-      for (const r of rows) {
-        const raw = String((r as Record<string, unknown>).day ?? "");
-        const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
-        if (!Number.isFinite(t)) continue;
-        const v = Number((r as Record<string, unknown>).volume_usd);
-        if (!Number.isFinite(v)) continue;
-        const day = dayStartUtc(t);
-        byDay.set(day, (byDay.get(day) ?? 0) + v);
-      }
+  // ONE execution for every platform (was four); split on the `platform` column.
+  try {
+    const { rows } = await getResultsAutoRefresh(GACHA_DAILY_QUERY_ID, {
+      maxAgeMs: DAY,
+      runOpts: { maxWaitMs: 480_000 },
+    });
+    const byPlatformDay = new Map<string, Map<string, number>>();
+    for (const r of rows) {
+      const rec = r as Record<string, unknown>;
+      const key = String(rec.platform ?? "");
+      if (!key) continue;
+      const raw = String(rec.day ?? "");
+      const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
+      if (!Number.isFinite(t)) continue;
+      const v = Number(rec.volume_usd);
+      if (!Number.isFinite(v)) continue;
+      const day = dayStartUtc(t);
+      let days = byPlatformDay.get(key);
+      if (!days) byPlatformDay.set(key, (days = new Map()));
+      days.set(day, (days.get(day) ?? 0) + v);
+    }
+    for (const [key, byDay] of byPlatformDay) {
+      // The query is windowed (90d), so its OLDEST day is clipped by the window
+      // boundary — a partial. Publishing it would overwrite a complete stored day
+      // with a smaller number (verified: it is the only day that disagrees with
+      // the unwindowed query). Skipping is always safe here because the spine
+      // upserts and never deletes: the complete value simply stays put.
+      const oldest = [...byDay.keys()].sort()[0];
       let gd = 0;
       for (const [day, vol] of byDay) {
+        if (day === oldest) continue; // partial leading edge of the window
         if (Date.parse(day) + DAY > now) continue; // exclude today (partial)
         push("platform", key, "gacha_volume_usd", vol, day);
         gd++;
       }
       console.log(`  gacha_volume_usd ${key}: ${gd} days`);
-    } catch (e) {
-      console.warn(`  gacha daily ${key} failed: ${(e as Error).message}`);
     }
+  } catch (e) {
+    console.warn(`  gacha daily (combined) failed: ${(e as Error).message}`);
   }
 
   // ── Family 2: stock metrics — today's reading (forward only) ──
