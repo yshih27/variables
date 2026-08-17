@@ -103,12 +103,14 @@ export const COURTYARD_SECONDARY_QUERY_ID = 7845248;
  * Phygitals excludes sub-$1 dust; Courtyard = tokenization (primary); Beezie =
  * the Claw. (Beezie secondary is its own API, not Dune.)
  *
- * ⚠️ WINDOWED to 90d — keep it that way. Unbounded, these four scans cost ~12.2
+ * ⚠️ WINDOWED to 35d — keep it that way. Unbounded, these four scans cost ~12.2
  * min of Dune compute EVERY day (CC alone 7.6 min, already past the warmer's
  * 8 min budget — the 4-way union simply timed out). The spine is the system of
  * record for history: it holds every day these queries return and upserts by
- * (entity_type, entity_key, metric, ts), so re-deriving only the trailing 90d
- * loses nothing and leaves a quarter of headroom for late/corrected data.
+ * (entity_type, entity_key, metric, ts), so re-deriving only the trailing window
+ * loses nothing. Narrowed 90d → 35d because Dune bills executions by COMPUTE and
+ * these scans are the dominant credit driver — 35d still covers every window the
+ * readers use (24h / 7d / 30d) plus slack for a late or corrected day.
  * SQL: dune/gacha-daily-all-platforms.sql
  */
 export const GACHA_DAILY_QUERY_ID = 8252734;

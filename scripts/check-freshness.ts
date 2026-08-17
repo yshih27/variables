@@ -156,15 +156,29 @@ async function main() {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    const errored = required.filter((s) => stateBySource.get(s) === "error");
-    if (errored.length) {
-      console.error(
-        `✗ HEALTH GATE FAILED — warmer(s) errored this run: ${errored.join(", ")}\n` +
-          `   (see the error rows above / /status; this fails the Actions job on purpose)\n`,
-      );
+    // ⚠️ A required source fails the gate when it is error OR stale OR untracked —
+    // not just "error". The gate used to test `=== "error"` only, and that is how
+    // metric-snapshots sat dead for 6 days behind GREEN runs: a warmer that stops
+    // being INVOKED never writes an error row. Its last successful row simply
+    // stays put, ages past 2× its interval into "stale", and an error-only gate
+    // waves it through. "untracked" (no row at all) is the same failure seen from
+    // a cold start. Freshness is the property we actually require, so all three
+    // count as dead.
+    const DEAD: Record<string, string> = {
+      error: "errored",
+      stale: "STALE — no fresh run (is the step still scheduled?)",
+      untracked: "UNTRACKED — never recorded a run",
+    };
+    const dead = required
+      .map((s) => [s, stateBySource.get(s) ?? "untracked"] as const)
+      .filter(([, state]) => state in DEAD);
+    if (dead.length) {
+      console.error(`✗ HEALTH GATE FAILED — ${dead.length} required source(s) not fresh:`);
+      for (const [source, state] of dead) console.error(`   • ${source.padEnd(20)} ${DEAD[state]}`);
+      console.error(`   (see the rows above / /status; this fails the Actions job on purpose)\n`);
       process.exitCode = 1;
     } else {
-      console.log(`✓ health gate passed — all ${required.length} required warmers ok\n`);
+      console.log(`✓ health gate passed — all ${required.length} required warmers fresh\n`);
     }
   }
 }
