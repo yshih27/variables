@@ -48,7 +48,7 @@ export type PrimaryWalletConfig = {
 };
 
 export type PlatformSource = {
-  key: "courtyard" | "beezie" | "collector-crypt" | "phygitals";
+  key: "courtyard" | "beezie" | "collector-crypt" | "phygitals" | "dyli";
   name: string;
   short: string;
   chain: Chain;
@@ -69,6 +69,19 @@ export type PlatformSource = {
        */
       extraCollections?: string[];
       marketplaceProgram: string;
+    }
+  /**
+   * The platform publishes its OWN sale feed and we read it directly — no
+   * aggregator, no Dune. Nothing here is derived from chain scans, so there is
+   * no collectionId (Rarible) and no Helius program to crawl; `apiBase` is the
+   * integration point and the warmer owns the shape.
+   */
+  | {
+      kind: "native";
+      /** Root of the platform's public API, e.g. https://…/api/public/v1 */
+      apiBase: string;
+      /** Token contract the cards live on, for provenance / future chain reads. */
+      collectionAddress: string;
     }
 );
 
@@ -159,6 +172,12 @@ const PHYGITALS_PRIMARY_RECEIVERS: string[] = [
 const PHYGITALS_INTERNAL_EXCLUSIONS: string[] = [
   "5sn2nniGv88bxzxBDkqWP6i8bejsr9WwCpZXq2ZkLHgf", // treasury
 ];
+
+// ─── DYLI (Abstract, chain_id 2741) ───────────────────────────────────
+// Self-documenting public API: GET /overview is the route index and also
+// carries the contract map + field reference this integration was built from.
+// Auth is `x-api-key`; 30 req/min (see src/lib/dyli/client.ts for the pacer).
+const DYLI_API_BASE = "https://www.dyli.io/api/public/v1";
 
 // ─── Phygitals collection mints (Solana cNFT) ─────────────────────────
 // Two compressed-NFT collection trees. Verified-by-use: the marketplace
@@ -253,5 +272,23 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
       currencyAddress: USDC_SOLANA,
       currencyDecimals: 6,
     },
+  },
+  {
+    key: "dyli",
+    name: "DYLI",
+    short: "DY",
+    chain: "Abstract",
+    // Custody provider not stated for DYLI's own inventory (the PSA vault shown
+    // on /ebay/listings belongs to eBay's external stock, not DYLI). Surface "—"
+    // rather than claim a vault we haven't verified.
+    vault: null,
+    kind: "native",
+    apiBase: DYLI_API_BASE,
+    // ERC-1155 inventory contract (from GET /contracts, chain_id 2741).
+    collectionAddress: "0x458422e93BF89A109afc4fac00aAcF2F18FcF541",
+    marketplace: "0xC74d5002c10c13D2ad258B4584690829387f84dC",
+    // No `primary` wallet config: DYLI's first-sale revenue comes from its own
+    // /sales feed (classified per channel), not from watching USDC inflows to a
+    // receiver set. See src/lib/dyli/lanes.ts.
   },
 ];

@@ -103,8 +103,15 @@ function buildBucket(
   primaryUsd: number | null,
 ): PlatformBucket {
   const cv = core?.platforms?.[source.key];
+  // Only a label for the empty-stats placeholder. A `native` platform (DYLI)
+  // has no aggregator collection id and no chain-scan address to fall back on,
+  // so it uses its platform key.
   const collectionId =
-    source.kind === "helius" ? source.collectionAddress : source.collectionId;
+    source.kind === "helius"
+      ? source.collectionAddress
+      : source.kind === "rarible"
+        ? source.collectionId
+        : source.key;
   return {
     source,
     stats24h: cv?.stats24h ?? unknownStats(collectionId || source.key),

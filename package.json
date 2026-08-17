@@ -29,7 +29,9 @@
     "warm-weekly-report": "tsx scripts/warm-weekly-report.ts",
     "check-freshness": "tsx scripts/check-freshness.ts",
     "check-invariants": "tsx scripts/check-invariants.ts",
-    "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts"
+    "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts",
+    "warm-dyli-sales": "tsx scripts/warm-dyli-sales.ts",
+    "check-dyli-lanes": "tsx scripts/check-dyli-lanes.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

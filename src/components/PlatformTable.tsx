@@ -15,6 +15,7 @@ const CHAIN_DOT: Record<Chain, string> = {
   Solana: "var(--color-solana)",
   Base: "var(--color-blue)",
   Ethereum: "#9aa6ff",
+  Abstract: "#5ee6a8", // DYLI settles on Abstract (chain_id 2741)
 };
 
 type Props = {
