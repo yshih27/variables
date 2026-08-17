@@ -8,7 +8,7 @@
  *     aggregates from authoritative per-sale feeds: CC (Dune) + Beezie
  *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, 30d window).
  *   • gacha (gacha_volume_usd per platform) — daily primary/gacha volume from the
- *     ONE daily-bucketed multi-platform Dune query (GACHA_DAILY_QUERY_ID), 90d.
+ *     ONE daily-bucketed multi-platform Dune query (GACHA_DAILY_QUERY_ID), 35d.
  *   • dyli  (volume_usd / gacha_volume_usd / direct_volume_usd) — DYLI's native
  *     /sales feed, split by the lane classifier (src/lib/dyli/lanes.ts) and
  *     reconciled against its own /transactions daily GMV.
@@ -245,7 +245,7 @@ async function main() {
   }
 
   // ── Gacha (primary) daily volume → spine (gacha_volume_usd per platform) ──
-  // Daily-bucketed combined Dune query (90d): CC/Beezie/Phygitals = gacha pulls,
+  // Daily-bucketed combined Dune query (35d): CC/Beezie/Phygitals = gacha pulls,
   // Courtyard = tokenization. Summed across pack_price where a query splits tiers.
   // ONE execution for every platform (was four); split on the `platform` column.
   try {
@@ -269,7 +269,7 @@ async function main() {
       days.set(day, (days.get(day) ?? 0) + v);
     }
     for (const [key, byDay] of byPlatformDay) {
-      // The query is windowed (90d), so its OLDEST day is clipped by the window
+      // The query is windowed (35d), so its OLDEST day is clipped by the window
       // boundary — a partial. Publishing it would overwrite a complete stored day
       // with a smaller number (verified: it is the only day that disagrees with
       // the unwindowed query). Skipping is always safe here because the spine
@@ -320,42 +320,53 @@ async function main() {
     }
     console.log(`  dyli: ${pushed} day-metrics across ${byMetricDay.size} lanes`);
 
-    // Two-source reconciliation. /transactions is DYLI's own daily GMV series,
-    // derived independently of the sale rows we page — so a divergence means one
-    // of the two feeds moved and we should look before trusting the spine.
-    // ⚠️ A PERSISTENT gap is expected, not a bug: /sales applies default
+    // ── Two-source reconciliation, on the RATIO not the level ────────────────
+    // /transactions is DYLI's own daily GMV, derived independently of the sale
+    // rows we page. The two will never match: /sales applies default
     // `excluded_products: ["is_pod","live=false"]` and we additionally drop the
-    // excluded lanes, while /transactions counts every transaction (its summary
-    // reports ~631K tx against ~398K sale rows). The check is for CHANGE in that
-    // relationship, so it logs rather than throws.
-    const RECON_TOLERANCE = 0.02;
+    // excluded lanes, while /transactions counts every transaction (~631K tx
+    // against ~398K sale rows). That gap sits around 50% and is STRUCTURAL.
+    //
+    // So an absolute-difference check just prints "diverged" on every single day
+    // forever, which trains everyone to ignore it. What actually carries signal
+    // is our coverage RATIO (Σ our lanes ÷ GMV) moving away from where it has
+    // been sitting — that means one of the two feeds changed shape: a new
+    // channel we aren't classifying, a lane silently dropping out, an upstream
+    // definition change. Baseline is the trailing mean; we alert when a recent
+    // day departs from it by more than RECON_DRIFT_PP percentage points.
+    const RECON_DRIFT_PP = 10;
+    const RECON_BASELINE_DAYS = 30;
+    const RECON_CHECK_DAYS = 7;
     const gmv = await fetchDailyGmv().catch((e) => {
       console.warn(`  dyli reconciliation skipped: ${(e as Error).message}`);
       return [] as Awaited<ReturnType<typeof fetchDailyGmv>>;
     });
-    let checked = 0;
-    let diverged = 0;
+    const ratios: { day: string; pct: number }[] = [];
     for (const g of gmv) {
       const dayIso = dayStartUtc(Date.parse(g.day));
       if (Date.parse(dayIso) + DAY > now) continue; // complete days only
       const ours = salesByDay.get(dayIso);
       if (ours === undefined || !(g.gmv > 0)) continue;
-      checked++;
-      const drift = Math.abs(ours - g.gmv) / g.gmv;
-      if (drift > RECON_TOLERANCE) {
-        diverged++;
-        if (diverged <= 5) {
-          console.warn(
-            `  ⚠ dyli reconciliation ${g.day}: sales Σ $${Math.round(ours).toLocaleString()} vs /transactions GMV $${Math.round(g.gmv).toLocaleString()} (${(drift * 100).toFixed(1)}%)`,
-          );
-        }
-      }
+      ratios.push({ day: dayIso.slice(0, 10), pct: (ours / g.gmv) * 100 });
     }
-    if (checked) {
+    ratios.sort((a, b) => a.day.localeCompare(b.day));
+    const window = ratios.slice(-RECON_BASELINE_DAYS);
+    if (window.length >= 2) {
+      const baseline = window.reduce((s, r) => s + r.pct, 0) / window.length;
+      const recent = window.slice(-RECON_CHECK_DAYS);
+      const drifted = recent.filter((r) => Math.abs(r.pct - baseline) > RECON_DRIFT_PP);
       console.log(
-        `  dyli reconciliation: ${checked - diverged}/${checked} days within ${(RECON_TOLERANCE * 100).toFixed(0)}%` +
-          (diverged > 5 ? ` (${diverged} diverged, first 5 shown)` : ""),
+        `  dyli reconciliation: coverage ${baseline.toFixed(1)}% of /transactions GMV ` +
+          `(trailing ${window.length}d baseline) · last ${recent.length}d within ±${RECON_DRIFT_PP}pp: ${recent.length - drifted.length}/${recent.length}`,
       );
+      for (const r of drifted) {
+        console.warn(
+          `  ⚠ dyli coverage drift ${r.day}: ${r.pct.toFixed(1)}% vs ${baseline.toFixed(1)}% baseline ` +
+            `(${(r.pct - baseline >= 0 ? "+" : "") + (r.pct - baseline).toFixed(1)}pp) — a lane or channel may have changed shape`,
+        );
+      }
+    } else if (ratios.length) {
+      console.log(`  dyli reconciliation: only ${ratios.length} comparable day(s) — baseline not established yet`);
     }
   } catch (e) {
     console.warn(`  dyli daily failed: ${(e as Error).message}`);

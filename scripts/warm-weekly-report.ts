@@ -31,6 +31,43 @@ async function main() {
     report.movers.setVolume.gainers.length +
     report.movers.setVolume.losers.length;
 
+  // ── Sanity guard: refuse to publish a mass collapse ────────────────────────
+  // Several platforms all losing ~all of their weekly activity at once is not a
+  // market event, it is a broken pipeline — a dead spine writer, an upstream feed
+  // that stopped, a window that shifted. The report is the most quotable surface
+  // we have, so it must fail loudly rather than publish "-97% across the board".
+  // Deliberately checked AFTER buildWeeklyReport and BEFORE the write, so the
+  // previous week's snapshot survives intact and can be served while this is
+  // investigated. Throwing reaches runWarmer → an "error" freshness row → the
+  // health gate reddens; the .catch below makes the exit non-zero.
+  //
+  // The losers board is ranked most-negative-first and capped at TOP_N (5 > 3),
+  // so any platform at or below the threshold is guaranteed to appear on it.
+  // Platforms whose PRIOR week was below the mover base floor never rank at all,
+  // so a genuinely tiny platform can't trip this.
+  const COLLAPSE_PCT = -90;
+  const COLLAPSE_MIN_PLATFORMS = 3;
+  const collapsed = report.movers.platformVolume.losers.filter((m) => m.pct <= COLLAPSE_PCT);
+  if (collapsed.length >= COLLAPSE_MIN_PLATFORMS) {
+    console.error(
+      `\n✗ WEEKLY REPORT NOT WRITTEN — ${collapsed.length} platforms at ≤${COLLAPSE_PCT}% WoW activity.\n` +
+        `  That reads as a pipeline failure, not a market move. The previous snapshot is untouched.\n`,
+    );
+    for (const m of collapsed) {
+      console.error(
+        `    ${m.name.padEnd(20)} ${m.pct.toFixed(1).padStart(8)}%   ` +
+          `$${Math.round(m.previousUsd).toLocaleString()} → $${Math.round(m.currentUsd).toLocaleString()}`,
+      );
+    }
+    console.error(
+      `\n  Check: the spine's platform volume_usd streams (check-invariants INV-9 source-death),\n` +
+        `  then whether warm-metric-snapshots actually ran for this week.\n`,
+    );
+    throw new Error(
+      `weekly-report: ${collapsed.length} platforms at ≤${COLLAPSE_PCT}% WoW — refusing to publish a suspected pipeline failure`,
+    );
+  }
+
   await writeSnapshot(WEEKLY_REPORT_SNAPSHOT_KEY, report, report.generatedAt);
   console.log(
     `Weekly report ${report.weekStart.slice(0, 10)} → ${report.weekEnd.slice(0, 10)} ` +

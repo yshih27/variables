@@ -103,8 +103,14 @@ jobs:
       # block the rest), which also hid dead warmers behind a green run. This final
       # step (NOT continue-on-error) fails the job if any of this batch's warmers
       # errored, so the Actions run goes RED → built-in failure notification.
+      # Includes metric-snapshots (daily) and weekly-report (weekly) on purpose:
+      # the gate judges each source against its OWN interval, so listing them here
+      # means the 6h run — the one that fires most often — is what notices a daily
+      # or weekly writer going dead, instead of waiting for that writer's own batch
+      # to run and fail. Combined with the stale/untracked fix in check-freshness,
+      # this is what closes the "6 days dead behind green runs" hole.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,homepage
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,homepage,metric-snapshots,weekly-report
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:

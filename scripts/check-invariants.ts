@@ -29,7 +29,7 @@ import { weekStartUtc } from "../src/lib/data/priceIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
-import { readMetricSeriesBulk, bulkDayOverDayPctComplete, DELTA_MIN_BASE_USD } from "../src/lib/data/metricSnapshots";
+import { readMetricSeriesBulk, bulkDayOverDayPctComplete, dayStartUtc, DELTA_MIN_BASE_USD } from "../src/lib/data/metricSnapshots";
 import type { HomepagePayload } from "../src/lib/types";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
 
@@ -222,6 +222,67 @@ async function checkDailyDeltaCompleteness(hp: HomepagePayload | null): Promise<
     : ok("daily-delta-completeness", "hard", "Σ 24h deltas computed over source-complete days");
 }
 
+/**
+ * INV-9 (HARD) — SOURCE DEATH. A (platform, metric) stream that was writing
+ * recently but has produced nothing for the two most recent complete days is a
+ * dead writer, and nothing else catches it:
+ *   • sourceDayCompleteness detects LAG, not death. It compares each day's
+ *     source set against the previous day's, so once a source has been absent
+ *     for one full day it is absent from BOTH sides of the comparison and the
+ *     day is judged "complete" again. The gate quietly heals around the corpse.
+ *   • source_freshness tracks whether the WARMER ran, not whether a particular
+ *     stream inside it still produces rows. A warmer can exit "ok" having
+ *     written nothing for one platform.
+ *
+ * Two consecutive silent days is the threshold because one missing day is
+ * ordinary (a lagging upstream feed, a late batch); two in a row is not.
+ *
+ * ⚠️ Density guard: only streams that wrote on at least DEATH_MIN_ACTIVE_DAYS of
+ * the trailing window are judged. A genuinely sparse lane (a platform with
+ * occasional direct sales) legitimately has quiet days, and a gate that cries
+ * wolf gets switched off. Sparse streams are reported as skipped, not silently
+ * ignored, so the exemption stays visible.
+ */
+const DEATH_LOOKBACK_DAYS = 14;
+const DEATH_MIN_ACTIVE_DAYS = 7;
+const DEATH_METRICS = ["volume_usd", "gacha_volume_usd", "direct_volume_usd", "trades"] as const;
+
+async function checkSourceDeath(): Promise<Result> {
+  const DAY = 24 * 60 * 60 * 1000;
+  const today = Date.parse(dayStartUtc(Date.now()));
+  // The two most recent COMPLETE days — today is still filling up.
+  const recent = [today - DAY, today - 2 * DAY].map((t) => dayStartUtc(t));
+  const windowStart = today - DEATH_LOOKBACK_DAYS * DAY;
+
+  const dead: string[] = [];
+  let judged = 0;
+  let sparse = 0;
+  for (const metric of DEATH_METRICS) {
+    const bulk = await readMetricSeriesBulk("platform", metric).catch(() => new Map<string, { ts: string }[]>());
+    for (const [entity, points] of bulk) {
+      const days = new Set<string>();
+      for (const p of points) {
+        const t = Date.parse(p.ts);
+        if (Number.isFinite(t) && t >= windowStart && t < today) days.add(dayStartUtc(t));
+      }
+      if (days.size === 0) continue; // not writing in this window at all — not a death, just absent
+      if (days.size < DEATH_MIN_ACTIVE_DAYS) { sparse++; continue; }
+      judged++;
+      if (!recent.some((d) => days.has(d))) {
+        const newest = [...days].sort().pop() ?? "—";
+        dead.push(
+          `${entity}:${metric} — wrote ${days.size}/${DEATH_LOOKBACK_DAYS}d but nothing on ${recent[1].slice(0, 10)} or ${recent[0].slice(0, 10)} (last ${newest.slice(0, 10)})`,
+        );
+      }
+    }
+  }
+
+  const detail = `${judged} regular stream(s) checked, ${sparse} sparse skipped (<${DEATH_MIN_ACTIVE_DAYS}/${DEATH_LOOKBACK_DAYS}d)`;
+  return dead.length
+    ? bad("source-death", "hard", `${dead.length} stream(s) silent for 2 consecutive days — ${detail}`, dead)
+    : ok("source-death", "hard", `no dead streams — ${detail}`);
+}
+
 async function main() {
   const strict = process.argv.includes("--strict");
   console.log(`\nData invariants — ${process.env.SUPABASE_URL ?? "(no SUPABASE_URL)"}\n`);
@@ -245,6 +306,7 @@ async function main() {
   results.push(await checkSpineContinuity());
   results.push(await checkIndexCompleteness());
   results.push(await checkDailyDeltaCompleteness(hp));
+  results.push(await checkSourceDeath());
 
   const ICON: Record<Status, string> = { pass: "✓", fail: "✗", skip: "·" };
   for (const r of results) {
