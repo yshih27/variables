@@ -393,4 +393,14 @@ export async function duneUsage(): Promise<DuneUsage | null> {
   };
 }
 
+/**
+ * Is this saved query archived on Dune's side? An archived query 403s every
+ * execution, which is how the Aug '26 plan downgrade silently killed the spine
+ * writer for a week. Pure metadata read — zero datapoints billed.
+ */
+export async function queryArchivedStatus(queryId: number): Promise<boolean> {
+  const res = await req<{ is_archived?: boolean }>(`/query/${queryId}`);
+  return Boolean(res.is_archived);
+}
+
 export { DuneError };

@@ -18,6 +18,16 @@ import {
 } from "../src/lib/db/freshness";
 import { readSnapshot } from "../src/lib/db/snapshots";
 import type { HeliusCreditsSnapshot, DuneSpendSnapshot } from "../src/lib/db/runWarmer";
+import { queryArchivedStatus } from "../src/lib/dune/client";
+import {
+  CC_SECONDARY_QUERY_ID,
+  COURTYARD_SECONDARY_QUERY_ID,
+  GACHA_LIVE_QUERY_ID,
+  GACHA_DAILY_QUERY_ID,
+  BUYBACK_QUERY_ID,
+  CC_BIG_HITS_QUERY_ID,
+  CC_ODDS_QUERY_ID,
+} from "../src/lib/dune/queryIds";
 import { duneUsage } from "../src/lib/dune/client";
 
 // A single warmer run over this many Helius credits is almost certainly a runaway
@@ -130,6 +140,42 @@ async function main() {
     console.log(`\nDUNE ACCOUNT CREDITS  unavailable (${(e as Error).message.slice(0, 60)})`);
   }
 
+  // ── Dune query archive probe — the Aug '26 downgrade ARCHIVED active queries
+  //    and the failures only surfaced as downstream 403s (the spine writer died
+  //    silently for a week). Probe every fleet query's metadata directly (zero
+  //    datapoints billed) so a re-archive is named in the SAME run it happens.
+  //    Paused queries (odds, while GACHA_ENABLED is off) warn instead of failing:
+  //    nothing breaks today, but an unexpected archive there is the storage-
+  //    pressure canary. Probe errors (no key / network) degrade to a note.
+  const FLEET: { id: number; name: string; pausedOk?: boolean }[] = [
+    { id: CC_SECONDARY_QUERY_ID, name: "cc-secondary" },
+    { id: COURTYARD_SECONDARY_QUERY_ID, name: "courtyard-secondary" },
+    { id: GACHA_LIVE_QUERY_ID, name: "gacha-live" },
+    { id: GACHA_DAILY_QUERY_ID, name: "gacha-daily (spine)" },
+    { id: BUYBACK_QUERY_ID, name: "buyback" },
+    { id: CC_BIG_HITS_QUERY_ID, name: "cc-big-hits" },
+    { id: CC_ODDS_QUERY_ID, name: "cc-odds", pausedOk: true },
+  ];
+  const archivedFatal: string[] = [];
+  try {
+    const lines: string[] = [];
+    for (const q of FLEET) {
+      const archived = await queryArchivedStatus(q.id);
+      if (archived && q.pausedOk) lines.push(`  ⚠ ${q.name.padEnd(22)} ${q.id}  ARCHIVED (execution paused — storage-pressure canary)`);
+      else if (archived) {
+        lines.push(`  ✗ ${q.name.padEnd(22)} ${q.id}  ARCHIVED — executions will 403`);
+        archivedFatal.push(`${q.name} (${q.id})`);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    console.log(
+      `\nDUNE QUERY STATUS  ${FLEET.length - archivedFatal.length}/${FLEET.length} executable` +
+        (lines.length ? `\n${lines.join("\n")}` : " · none archived"),
+    );
+  } catch (e) {
+    console.log(`\nDUNE QUERY STATUS  unavailable (${(e as Error).message.slice(0, 60)})`);
+  }
+
   // AF-2: an errored warmer's data is FROZEN — that IS stale. Fold error into the
   // stale count so "0 stale" can never mask a dead warmer. (The failure mode: a
   // warmer that ran-then-errored writes a RECENT source_freshness.generated_at
@@ -169,6 +215,14 @@ async function main() {
       stale: "STALE — no fresh run (is the step still scheduled?)",
       untracked: "UNTRACKED — never recorded a run",
     };
+    // Archived fleet queries are a gate failure in their own right: executions
+    // will 403 on the next warm, so name the breakage NOW rather than letting it
+    // surface as a downstream warmer error (the Aug '26 failure mode).
+    if (archivedFatal.length) {
+      console.error(`✗ HEALTH GATE FAILED — ${archivedFatal.length} active Dune query(ies) ARCHIVED: ${archivedFatal.join(", ")}`);
+      console.error("   (unarchive via POST /api/v1/query/{id}/unarchive — see the Dune incident runbook)");
+      process.exit(1);
+    }
     const dead = required
       .map((s) => [s, stateBySource.get(s) ?? "untracked"] as const)
       .filter(([, state]) => state in DEAD);
