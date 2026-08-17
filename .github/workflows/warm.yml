@@ -38,6 +38,7 @@ concurrency:
 env:
   DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
   HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+  DYLI_API_KEY: ${{ secrets.DYLI_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
