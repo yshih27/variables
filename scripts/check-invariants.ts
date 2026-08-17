@@ -245,7 +245,10 @@ async function checkDailyDeltaCompleteness(hp: HomepagePayload | null): Promise<
  */
 const DEATH_LOOKBACK_DAYS = 14;
 const DEATH_MIN_ACTIVE_DAYS = 7;
-const DEATH_METRICS = ["volume_usd", "gacha_volume_usd", "direct_volume_usd", "trades"] as const;
+// ⚠️ This list is explicit, NOT derived — a new spine metric is not watched until
+// it is added here. buyback_payout_usd is dense for the platforms that have it
+// (~34 of the query's 35d window), so it clears the density guard and is judged.
+const DEATH_METRICS = ["volume_usd", "gacha_volume_usd", "direct_volume_usd", "buyback_payout_usd", "trades"] as const;
 
 async function checkSourceDeath(): Promise<Result> {
   const DAY = 24 * 60 * 60 * 1000;

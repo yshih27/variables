@@ -122,6 +122,24 @@ export type PlatformDetail = {
    *  "N of M sales enriched", never restate N as the 24h sale count. */
   salesEnriched: number;
   salesTotal: number;
+  /**
+   * Net gacha revenue — pack-pull spend MINUS buyback payouts, the figure that
+   * says what the house actually kept. NULL whenever either side is unsourced:
+   * only Collector Crypt and Phygitals have a known on-chain buyback wallet, and
+   * a platform we can't see payouts for must render "—", never spend-minus-zero
+   * (which would read as 100% take and be the most flattering possible lie).
+   *
+   * Both sides are summed from the SPINE over the same trailing COMPLETE days,
+   * so the windows and the completeness basis match by construction. They are
+   * deliberately NOT taken from the live rolling aggregates.
+   */
+  netGachaRevenue: { usd24h: number; usd7d: number; usd30d: number } | null;
+  /** Buyback payouts ÷ gacha spend over 30 complete days, as a percent. Null on
+   *  the same unsourced condition as netGachaRevenue, or when spend is 0. */
+  buybackRatePct30d: number | null;
+  /** Daily buyback payout series (complete days) for the chart. Empty when
+   *  unsourced — an empty array renders "building history", never a flat zero. */
+  buybackDaily: SeriesPoint[];
 };
 
 function spark24h(sales: NormalizedSale[], buckets = 24): number[] {
@@ -424,6 +442,51 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // surfaces here as gachaVol24Usd instead of hiding in the primary residual.
   const g = gacha?.platforms?.[key];
 
+  // ── Net gacha revenue: spend − buyback payouts ────────────────────────────
+  // Both legs come from the SPINE, which holds only complete days, so summing
+  // the same trailing N days on each side makes the windows and the completeness
+  // basis identical by construction. Deliberately not built from the live
+  // rolling aggregates: those are rolling on the spend side and calendar on the
+  // payout side, and subtracting across that mismatch is precisely the error the
+  // day-bucketed buyback query was introduced to remove.
+  const [gachaDailySeries, buybackDailySeries] = await Promise.all([
+    readMetricSeries("platform", key, "gacha_volume_usd").catch(() => [] as SeriesPoint[]),
+    readMetricSeries("platform", key, "buyback_payout_usd").catch(() => [] as SeriesPoint[]),
+  ]);
+  // sumLastCompleteDays anchors to each series' OWN newest day and returns NaN
+  // when the window isn't fully covered — both of which we want. But anchoring
+  // each side independently would silently offset the windows whenever one feed
+  // lags the other by a day, so trim BOTH to their common newest day first. Then
+  // the two anchors are identical and the subtraction is genuinely like-for-like.
+  const newestTs = (pts: SeriesPoint[]): string | null =>
+    pts.reduce<string | null>((m, p) => (m === null || p.ts > m ? p.ts : m), null);
+  const gEnd = newestTs(gachaDailySeries);
+  const bEnd = newestTs(buybackDailySeries);
+  const commonEnd = gEnd && bEnd ? (gEnd < bEnd ? gEnd : bEnd) : null;
+  const upTo = (pts: SeriesPoint[]) => (commonEnd ? pts.filter((p) => p.ts <= commonEnd) : []);
+  const spendUpTo = upTo(gachaDailySeries);
+  const payoutUpTo = upTo(buybackDailySeries);
+
+  // An EMPTY payout series means the platform has no known buyback wallet — the
+  // payout side is unsourced and net revenue is unknowable. A day missing WITHIN
+  // a sourced series is a real zero (no payouts that day) and sums fine. Only the
+  // first case may null out, and it must: spend-minus-zero would render as a 100%
+  // take rate, the most flattering possible fabrication.
+  const payoutSourced = buybackDailySeries.length > 0 && commonEnd !== null;
+  const spend30 = sumLastCompleteDays(spendUpTo, 30);
+  const payout30 = sumLastCompleteDays(payoutUpTo, 30);
+  const netGachaRevenue = payoutSourced
+    ? {
+        usd24h: sumLastCompleteDays(spendUpTo, 1) - sumLastCompleteDays(payoutUpTo, 1),
+        usd7d: sumLastCompleteDays(spendUpTo, 7) - sumLastCompleteDays(payoutUpTo, 7),
+        usd30d: spend30 - payout30,
+      }
+    : null;
+  const buybackRatePct30d =
+    payoutSourced && Number.isFinite(spend30) && Number.isFinite(payout30) && spend30 > 0
+      ? (payout30 / spend30) * 100
+      : null;
+
   return {
     source: bucket.source,
     chain: bucket.source.chain,
@@ -432,6 +495,9 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     vol7Usd,
     salesEnriched,
     salesTotal,
+    netGachaRevenue,
+    buybackRatePct30d,
+    buybackDaily: buybackDailySeries,
     primaryUsd: bucket.primaryUsd,
     gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : null,
     gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : null,
@@ -459,7 +525,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v7"], // v7: spark24h anchors to newest sale (QA-2)
+  ["platform-detail:v8"], // v8: + netGachaRevenue / buybackRatePct30d / buybackDaily
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 
