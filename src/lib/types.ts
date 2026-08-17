@@ -1,4 +1,4 @@
-export type Chain = "Polygon" | "Solana" | "Base" | "Ethereum";
+export type Chain = "Polygon" | "Solana" | "Base" | "Ethereum" | "Abstract";
 
 export type Trend = "up" | "down" | "flat";
 

@@ -1,6 +1,7 @@
 import { NavBar } from "@/components/NavBar";
 import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
 import { X_URL } from "@/lib/site";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (F8-4).
@@ -35,7 +36,7 @@ export default function MethodologyPage() {
 
         <Section title="Sources">
           <p>
-            We index four platforms directly against their canonical chains.
+            We index {PLATFORM_SOURCES.length} platforms directly against their canonical chains.
             Every metric on the site flows from one of these primitives:
           </p>
           <ul className="mt-3 flex flex-col gap-2 text-[13.5px]">
@@ -58,6 +59,11 @@ export default function MethodologyPage() {
               label="Phygitals"
               chain="Solana"
               source="SPL-USDC transfer indexing for gacha pull revenue. NFT collection not yet wired."
+            />
+            <SrcLi
+              label="DYLI"
+              chain="Abstract"
+              source="DYLI's own public sales API, read directly. Each sale is classified by its channel: user-to-user resale is marketplace volume, mystery boxes are gacha, and inventory purchases and fair-drop entries are direct sales. eBay-venue rows and zero-price box claims are excluded."
             />
           </ul>
         </Section>

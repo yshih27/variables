@@ -6,6 +6,7 @@
  *   • collector-crypt → Dune CC_SECONDARY_QUERY_ID (on-chain; replaces Helius-429)
  *   • beezie          → its own /activity feed (api.beezie.com)
  *   • courtyard       → Dune COURTYARD_SECONDARY_QUERY_ID (nft.trades; replaces Rarible)
+ *   • dyli            → its own public /sales feed (marketplace lane only)
  *
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
  * last cached results (0 credits) instead of forcing a fresh execution.
@@ -20,6 +21,7 @@ import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
 const CC_SECONDARY_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 import { type CollectionStats, type NormalizedSale } from "../../rarible/queries";
 import { fetchBeezieSales } from "../../beezie/market";
+import { fetchDyliMarketplaceSales } from "../../dyli/sales";
 import {
   writeCoreVolume,
   type CorePlatformVolume,
@@ -61,7 +63,7 @@ function statsFromSaleList(collectionId: string, sales: NormalizedSale[]): Colle
  */
 function buildPlatform(
   key: string,
-  source: "dune" | "rarible" | "beezie",
+  source: CorePlatformVolume["source"],
   allSales: NormalizedSale[],
   spanDays: number,
 ): CorePlatformVolume {
@@ -197,6 +199,23 @@ export async function runCoreWarm(
     );
   } catch (err) {
     log(`→ courtyard (Dune) FAILED: ${(err as Error).message}`);
+  }
+
+  // ── DYLI: its own public sales feed, already paged into `dyli_sales` by
+  //    warm-dyli-sales. Only the MARKETPLACE lane belongs in core-volume —
+  //    gacha and direct rows are first sales and are published through their own
+  //    spine metrics, never folded into secondary volume (see dyli/lanes.ts). ──
+  try {
+    const t0 = Date.now();
+    const sales = await fetchDyliMarketplaceSales(30 * DAY);
+    platforms["dyli"] = buildPlatform("dyli", "dyli", sales, 30);
+    log(
+      `→ dyli (native /sales) ${sales.length} secondary sales/30d · 24h $${Math.round(
+        platforms["dyli"].stats24h.volumeUsd,
+      ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+    );
+  } catch (err) {
+    log(`→ dyli (native /sales) FAILED: ${(err as Error).message}`);
   }
 
   const snap: CoreVolumeSnapshot = {

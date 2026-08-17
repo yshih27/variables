@@ -9,6 +9,9 @@
  *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, 30d window).
  *   • gacha (gacha_volume_usd per platform) — daily primary/gacha volume from the
  *     ONE daily-bucketed multi-platform Dune query (GACHA_DAILY_QUERY_ID), 90d.
+ *   • dyli  (volume_usd / gacha_volume_usd / direct_volume_usd) — DYLI's native
+ *     /sales feed, split by the lane classifier (src/lib/dyli/lanes.ts) and
+ *     reconciled against its own /transactions daily GMV.
  *   • dominance (entity_type set / grade / platform_ip) — daily volume/trades/
  *     cards per "{ip}:{set}", "{ip}:{grade}", "{platform}:{ip}" so the dominance
  *     panels can render a REAL historical trend (shares computed at read time).
@@ -30,6 +33,8 @@ import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/
 import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { getResultsAutoRefresh } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_ID } from "../src/lib/dune/queryIds";
+import { readDyliSales, fetchDailyGmv } from "../src/lib/dyli/sales";
+import { LANE_METRIC } from "../src/lib/dyli/lanes";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { sanitizeStockSeries } from "../src/lib/data/indices";
 import { readHolders } from "../src/lib/data/holders";
@@ -281,6 +286,79 @@ async function main() {
     }
   } catch (e) {
     console.warn(`  gacha daily (combined) failed: ${(e as Error).message}`);
+  }
+
+  // ── DYLI daily flow — native /sales, split by the lane classifier ──────────
+  // One row store, three published metrics: marketplace resale → volume_usd,
+  // mystery boxes → gacha_volume_usd, first sales that are NOT random-outcome →
+  // direct_volume_usd. `excluded` rows (zero-price claims, eBay-venue) are
+  // stored but never published — see src/lib/dyli/lanes.ts for the evidence
+  // behind each branch.
+  try {
+    const rows = await readDyliSales();
+    const byMetricDay = new Map<string, Map<string, number>>();
+    const salesByDay = new Map<string, number>();
+    for (const r of rows) {
+      if (r.lane === "excluded") continue;
+      const t = Date.parse(r.sold_at);
+      const usd = Number(r.price_usd);
+      if (!Number.isFinite(t) || !Number.isFinite(usd)) continue;
+      const day = dayStartUtc(t);
+      const metric = LANE_METRIC[r.lane];
+      let days = byMetricDay.get(metric);
+      if (!days) byMetricDay.set(metric, (days = new Map()));
+      days.set(day, (days.get(day) ?? 0) + usd);
+      salesByDay.set(day, (salesByDay.get(day) ?? 0) + usd);
+    }
+    let pushed = 0;
+    for (const [metric, days] of byMetricDay) {
+      for (const [day, vol] of days) {
+        if (Date.parse(day) + DAY > now) continue; // exclude today (partial)
+        push("platform", "dyli", metric, vol, day);
+        pushed++;
+      }
+    }
+    console.log(`  dyli: ${pushed} day-metrics across ${byMetricDay.size} lanes`);
+
+    // Two-source reconciliation. /transactions is DYLI's own daily GMV series,
+    // derived independently of the sale rows we page — so a divergence means one
+    // of the two feeds moved and we should look before trusting the spine.
+    // ⚠️ A PERSISTENT gap is expected, not a bug: /sales applies default
+    // `excluded_products: ["is_pod","live=false"]` and we additionally drop the
+    // excluded lanes, while /transactions counts every transaction (its summary
+    // reports ~631K tx against ~398K sale rows). The check is for CHANGE in that
+    // relationship, so it logs rather than throws.
+    const RECON_TOLERANCE = 0.02;
+    const gmv = await fetchDailyGmv().catch((e) => {
+      console.warn(`  dyli reconciliation skipped: ${(e as Error).message}`);
+      return [] as Awaited<ReturnType<typeof fetchDailyGmv>>;
+    });
+    let checked = 0;
+    let diverged = 0;
+    for (const g of gmv) {
+      const dayIso = dayStartUtc(Date.parse(g.day));
+      if (Date.parse(dayIso) + DAY > now) continue; // complete days only
+      const ours = salesByDay.get(dayIso);
+      if (ours === undefined || !(g.gmv > 0)) continue;
+      checked++;
+      const drift = Math.abs(ours - g.gmv) / g.gmv;
+      if (drift > RECON_TOLERANCE) {
+        diverged++;
+        if (diverged <= 5) {
+          console.warn(
+            `  ⚠ dyli reconciliation ${g.day}: sales Σ $${Math.round(ours).toLocaleString()} vs /transactions GMV $${Math.round(g.gmv).toLocaleString()} (${(drift * 100).toFixed(1)}%)`,
+          );
+        }
+      }
+    }
+    if (checked) {
+      console.log(
+        `  dyli reconciliation: ${checked - diverged}/${checked} days within ${(RECON_TOLERANCE * 100).toFixed(0)}%` +
+          (diverged > 5 ? ` (${diverged} diverged, first 5 shown)` : ""),
+      );
+    }
+  } catch (e) {
+    console.warn(`  dyli daily failed: ${(e as Error).message}`);
   }
 
   // ── Family 2: stock metrics — today's reading (forward only) ──

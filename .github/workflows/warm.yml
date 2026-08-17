@@ -73,6 +73,9 @@ jobs:
       - name: Backfill history
         continue-on-error: true
         run: npx tsx scripts/backfill-history.ts
+      - name: DYLI sales (native feed, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-dyli-sales.ts
       - name: Gacha (cached)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached
@@ -100,7 +103,7 @@ jobs:
       # step (NOT continue-on-error) fails the job if any of this batch's warmers
       # errored, so the Actions run goes RED → built-in failure notification.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,homepage
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,homepage
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:

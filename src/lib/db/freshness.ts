@@ -78,6 +78,8 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "phygitals-gacha": 6 * HOUR_MS,
   "cc-gacha": 6 * HOUR_MS,
   "gacha-packs": 6 * HOUR_MS,
+  // DYLI native sales feed — incremental page from the stored cursor.
+  "dyli-sales": 6 * HOUR_MS,
   // derived homepage blob (B9-1) — recomputed at the end of the core batch
   homepage: 6 * HOUR_MS,
   // always-on listener (scripts/listen-gacha.ts) — heartbeats every ~5min
