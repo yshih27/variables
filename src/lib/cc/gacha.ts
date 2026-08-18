@@ -80,6 +80,10 @@ export type CCWinner = {
   at: string; // created_at ISO
   packCode: string; // pack_type = machine code
   tier: CCTierKey | null;
+  /** Which partner surface the pull was bought through — CC's `memo_slug`.
+   *  'cc' is Collector Crypt's own storefront; 'rare' is Rarible. Null when the
+   *  feed omits it, which must read as "unknown origin", never as 'cc'. */
+  memoSlug: string | null;
 };
 
 type RawWinner = {
@@ -89,6 +93,8 @@ type RawWinner = {
   created_at?: string;
   pack_type?: string;
   prize_tier?: number;
+  /** Originating partner/surface of the pull ('cc', 'rare' = Rarible, 'jupiter', …). */
+  memo_slug?: string;
   nft?: {
     content?: {
       metadata?: { name?: string };
@@ -126,6 +132,9 @@ function mapWinners(rows: RawWinner[]): CCWinner[] {
       at: r.created_at,
       packCode: r.pack_type,
       tier: CC_PRIZE_TIER[r.prize_tier ?? -1] ?? null,
+      // Trimmed + lowercased so 'Rare' and 'rare ' can't split one partner into
+      // three rows in a rollup. Empty string collapses to null (unknown origin).
+      memoSlug: (r.memo_slug ?? "").trim().toLowerCase() || null,
     });
   }
   return out;

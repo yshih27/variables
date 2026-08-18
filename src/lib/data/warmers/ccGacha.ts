@@ -294,6 +294,9 @@ export async function ingestCCPulls(winners: CCWinner[], priceByCode: Map<string
     prize_value_usd: w.valueUsd > 0 ? w.valueUsd : null,
     tx_hash: null,
     source: "cc-gacha-api",
+    // Forward-only: rows written before the memo_slug migration keep NULL and
+    // cannot be backfilled (the feed serves only a recent stratified window).
+    memo_slug: w.memoSlug,
     pulled_at: w.at,
   }));
   const CHUNK = 500;
