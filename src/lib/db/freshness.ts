@@ -90,6 +90,8 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   phygitals: DAY_MS,
   "primary-revenue": DAY_MS, // moved off the 6h batch (Helius credit-burner)
   "metric-snapshots": DAY_MS,
+  // Full re-aggregation of ~1.5M gacha_pulls rows — minutes, daily, never per-request.
+  "player-analytics": DAY_MS,
   "secondary-sales": DAY_MS,
   // indices batch — daily 06:00 (its own job, after the daily batch)
   benchmarks: DAY_MS,

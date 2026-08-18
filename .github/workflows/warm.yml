@@ -149,6 +149,13 @@ jobs:
         run: npx tsx scripts/warm-core-dune.ts
       # Time-series spine — runs LAST: it reads the fresh core-volume (Dune),
       # marketcap, and holders output the steps above wrote.
+      # Full re-aggregation of ~1.5M gacha_pulls rows into the player-analytics
+      # snapshot. Minutes, by design: PostgREST caps every page at 1000 rows, so
+      # this is ~1,525 sequential reads. Daily and precomputed precisely so no
+      # request path ever attempts it.
+      - name: Player analytics (gacha_pulls re-aggregation)
+        continue-on-error: true
+        run: npx tsx scripts/warm-player-analytics.ts
       - name: Metric snapshots (time-series spine)
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
@@ -156,7 +163,7 @@ jobs:
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
       - name: Freshness gate # fails the job (→ Actions notifies) if any warmer errored
-        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,homepage
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,player-analytics,homepage
       # Data-integrity gate (D10-4) — everything above is fresh now. A HARD invariant
       # violation (fan-out dupes, holders union>sum, hero≠Σrows, avgTrade≠vol/trades,
       # cards>0 while vol=0) fails the run red; SOFT heuristics only warn.

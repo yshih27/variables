@@ -31,7 +31,8 @@
     "check-invariants": "tsx scripts/check-invariants.ts",
     "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts",
     "warm-dyli-sales": "tsx scripts/warm-dyli-sales.ts",
-    "check-dyli-lanes": "tsx scripts/check-dyli-lanes.ts"
+    "check-dyli-lanes": "tsx scripts/check-dyli-lanes.ts",
+    "warm-player-analytics": "tsx scripts/warm-player-analytics.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",
