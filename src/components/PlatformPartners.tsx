@@ -1,0 +1,97 @@
+import { Section } from "./Section";
+import { MetricInfo } from "./MetricInfo";
+import { formatCompactUsd } from "@/lib/format";
+
+/**
+ * Top partners — which partner surface a Collector Crypt pull was bought
+ * through (CC's `memo_slug`: 'cc' is CC's own storefront, 'rare' is Rarible, …).
+ *
+ * ⚠️ RENDERS NOTHING TODAY, BY DESIGN. `memo_slug` capture is forward-only and
+ * lands with PR #73; the player-analytics snapshot carries no partner rollup
+ * yet, so `partners` is undefined and this returns null. It lights up on its own
+ * once the backend attaches the rollup — no FE change needed. Until then there
+ * is deliberately no placeholder: an empty partner board would imply we measured
+ * the split and found nothing, when we simply have not captured it yet.
+ *
+ * DISPLAY RULES (fixed — do not special-case any individual partner):
+ *   • Top 3 by trailing-30d attributed volume, cut at DISPLAY time from the FULL
+ *     rollup the backend sends. The component never filters by slug, never
+ *     promotes or demotes a named partner, and never reorders by anything but
+ *     volume — so a partner entering or leaving the top 3 is purely data.
+ *   • A minimum-volume floor from the snapshot's OWN config (never hardcoded
+ *     here), applied before the cut, so a $12 partner can't take a podium slot.
+ *   • No "Other" row and no total row: the three rows do not sum to the whole,
+ *     and a total would invite reading them as if they did.
+ *   • Pulls with a NULL memo_slug are unknown origin — they belong to no partner
+ *     and are never folded into one. The subtitle's attributed % is what makes
+ *     that visible, so it is required, not decorative.
+ */
+export type PartnerRow = {
+  /** CC memo slug, lowercased by the capture ('cc', 'rare', …). */
+  slug: string;
+  /** Display name when the backend knows one; falls back to the slug. */
+  label?: string | null;
+  /** Attributed volume over the trailing 30 days, USD. */
+  volumeUsd30d: number;
+};
+
+export type PartnerAttribution = {
+  /** The FULL rollup — every attributed partner. Cut to the top 3 here. */
+  rows: PartnerRow[];
+  /** Snapshot-owned display config. The floor lives with the data, not in the FE. */
+  config: { minVolumeUsd: number };
+  /** Share of pulls in the window carrying a memo_slug (0–100). NULL slugs are
+   *  unknown origin and are excluded from every partner's volume. */
+  attributedPct: number;
+};
+
+const TOP_N = 3;
+
+export function PlatformPartners({ partners }: { partners: PartnerAttribution | null | undefined }) {
+  if (!partners) return null;
+
+  const floor = Number.isFinite(partners.config?.minVolumeUsd) ? partners.config.minVolumeUsd : 0;
+  // Floor first, then rank, then cut — all on the full rollup, by volume only.
+  const top = partners.rows
+    .filter((r) => Number.isFinite(r.volumeUsd30d) && r.volumeUsd30d >= floor)
+    .sort((a, b) => b.volumeUsd30d - a.volumeUsd30d)
+    .slice(0, TOP_N);
+
+  // Nothing clears the floor → nothing to show. Still not a placeholder.
+  if (!top.length) return null;
+
+  const pct = Number.isFinite(partners.attributedPct) ? partners.attributedPct : 0;
+
+  return (
+    <Section
+      title={
+        <span className="inline-flex items-center gap-1.5">
+          Top partners
+          <MetricInfo metric="partnerAttribution" />
+        </span>
+      }
+      subtitle={`top ${TOP_N} by 30d volume · ${pct.toFixed(0)}% of pulls attributed`}
+      flush
+      className="font-sans"
+    >
+      <div className="px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr className="border-b border-line text-[11px] uppercase tracking-[0.06em] text-ink-3">
+              <th className="py-1.5 text-left font-medium">Partner</th>
+              <th className="py-1.5 text-right font-medium">30d volume</th>
+            </tr>
+          </thead>
+          <tbody>
+            {top.map((r) => (
+              <tr key={r.slug} className="border-b border-line/50 last:border-b-0">
+                <td className="py-2 text-ink-2">{r.label || r.slug}</td>
+                <td className="py-2 text-right font-mono tabular text-ink">{formatCompactUsd(r.volumeUsd30d)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}

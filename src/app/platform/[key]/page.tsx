@@ -10,8 +10,19 @@ import { DominancePanel, type DomEntity } from "@/components/IPDominance";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
+import { PlatformEconomics, type EconomicsKpis } from "@/components/PlatformEconomics";
+import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
+import { PlatformPlayers } from "@/components/PlatformPlayers";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
-import { pctChange, lastNDays, dropIncompleteTail, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import {
+  pctChange,
+  lastNDays,
+  dropIncompleteTail,
+  latestCompleteDay,
+  sumLastCompleteDays,
+  type SeriesPoint,
+} from "@/lib/data/metricSnapshots";
+import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
 import { formatCompactUsd } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -26,9 +37,12 @@ export default async function PlatformDetailPage({
   const { key } = await params;
   // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
   // round-trips per request (R2-B1).
-  const [detail, series] = await Promise.all([
+  const [detail, series, playersSnap] = await Promise.all([
     getPlatformDetail(key),
     getPlatformActivitySeries(key),
+    // Snapshot read; degrades to null (readSnapshot never throws), so a missing
+    // warmer run costs the page nothing and the panel simply doesn't render.
+    readPlayerAnalytics(),
   ]);
   if (!detail) notFound();
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
@@ -208,6 +222,53 @@ export default async function PlatformDetailPage({
     { key: "gacha", label: "Gacha", color: "var(--color-yellow)", points: lastNDays(dropIncompleteTail(gachaS, streams), 30) },
   ].filter((s) => s.points.some((p) => Number.isFinite(p.value)));
 
+  // ── Platform economics (gacha FLOWS) ───────────────────────────────────────
+  // Spend (gacha_volume_usd) and buyback payouts (PlatformDetail.buybackDaily)
+  // are two independently-fed series, so they get ONE shared cutoff: the newest
+  // day BOTH wrote. Without it a Dune-lagged trailing day draws a tall spend bar
+  // beside a missing payout bar and reads as a windfall (INV-8, same gate the
+  // volume mix above uses).
+  //
+  // ⚠️ No net figure is derived here and none is passed down. detail.netGachaRevenue
+  // exists on the v8 contract and is deliberately left unread: payouts currently
+  // exceed spend on both covered platforms, so spend − payouts is not publishable
+  // until the filter-symmetry reconciliation lands.
+  const buybackS = detail.buybackDaily;
+  const econStreams = new Map<string, SeriesPoint[]>([["spend", gachaS], ["buyback", buybackS]]);
+  const econCut = latestCompleteDay(econStreams);
+  const econGate = (s: SeriesPoint[]) => (econCut ? s.filter((p) => p.ts <= econCut) : s);
+  const spendGated = econGate(gachaS);
+  const buybackGated = econGate(buybackS);
+  // Windows summed with the canonical helper — NaN when a window isn't fully
+  // covered, which the panel renders as "—" rather than a flattering $0.
+  const econKpis: EconomicsKpis = {
+    spend24h: sumLastCompleteDays(spendGated, 1),
+    spend7d: sumLastCompleteDays(spendGated, 7),
+    spend30d: sumLastCompleteDays(spendGated, 30),
+    buyback24h: sumLastCompleteDays(buybackGated, 1),
+    buyback7d: sumLastCompleteDays(buybackGated, 7),
+    buyback30d: sumLastCompleteDays(buybackGated, 30),
+  };
+  // Only where the buyback wallet is known on-chain (CC + Phygitals today). An
+  // empty series means unsourced, not zero — every other platform gets nothing.
+  const showEconomics = buybackGated.length > 0;
+
+  // Player analytics for THIS platform. A platform the snapshot excluded (no
+  // wallet-attributed rows) simply isn't in `platforms`, so this is null and the
+  // panel renders nothing — the exclusion is surfaced in the snapshot itself.
+  const player = playersSnap?.platforms.find((p) => p.platform === key) ?? null;
+  const playersData = player && playersSnap ? { player, generatedAt: playersSnap.generatedAt } : null;
+
+  // Partner attribution, read FORWARD-COMPATIBLY. `memo_slug` capture is
+  // forward-only (PR #73) and the snapshot carries no partner rollup yet, so
+  // this is undefined today and the panel renders nothing. The cast is the whole
+  // point: the day the backend attaches `partners`, the board lights up with no
+  // frontend change. The shape it must supply is `PartnerAttribution` — the FULL
+  // rollup plus its own min-volume floor and the attributed %; the top-3 cut is
+  // applied at display time in the component, never here.
+  const partners =
+    (playersSnap as { partners?: Record<string, PartnerAttribution> } | null)?.partners?.[key] ?? null;
+
   return (
     <>
       <NavBar />
@@ -234,6 +295,24 @@ export default async function PlatformDetailPage({
               flow
             />
           )}
+
+          {/* Platform economics — gacha flows (spend vs buyback payouts). Flows
+              only: no net figure anywhere, pending filter-symmetry reconciliation. */}
+          {showEconomics && (
+            <PlatformEconomics
+              spendDaily={lastNDays(spendGated, 30)}
+              buybackDaily={lastNDays(buybackGated, 30)}
+              kpis={econKpis}
+              buybackRatePct30d={detail.buybackRatePct30d}
+            />
+          )}
+
+          {/* Top partners (CC memo attribution). Renders nothing until the
+              snapshot carries the rollup — capture is forward-only (PR #73). */}
+          <PlatformPartners partners={partners} />
+
+          {/* Player analytics — only for platforms the snapshot covers. */}
+          <PlatformPlayers data={playersData} />
 
           {/* ZONE 2 — 14d dailies for THIS platform. Volume and trades are flows
               (bars off zero); holders is a stock → line, headline = latest level.
