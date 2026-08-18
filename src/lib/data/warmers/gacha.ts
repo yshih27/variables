@@ -118,6 +118,42 @@ function buildAggregateGacha(rows: DuneRow[]): GachaDunePlatform {
   };
 }
 
+/**
+ * Sum day-bucketed rows over trailing N COMPLETE UTC days, for each N requested.
+ * Today's bucket is always excluded: it is still filling, so including it would
+ * understate every window and make a "24h" number depend on what time the warmer
+ * happened to run. `days` reports how many buckets actually landed in the window,
+ * so a gap is visible rather than silently summing to a smaller number.
+ */
+function sumTrailingCompleteDays(
+  rows: DuneRow[],
+  windows: number[],
+): Record<number, { usd: number; count: number; days: number }> {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const todayUtc = Date.UTC(
+    new Date().getUTCFullYear(),
+    new Date().getUTCMonth(),
+    new Date().getUTCDate(),
+  );
+  const out: Record<number, { usd: number; count: number; days: number }> = {};
+  for (const n of windows) out[n] = { usd: 0, count: 0, days: 0 };
+  for (const r of rows) {
+    const raw = String(r.day ?? "");
+    const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
+    if (!Number.isFinite(t)) continue;
+    const age = Math.round((todayUtc - t) / DAY_MS); // 0 = today (partial), 1 = yesterday
+    if (age < 1) continue;
+    for (const n of windows) {
+      if (age <= n) {
+        out[n].usd += num(r.payout_usd);
+        out[n].count += num(r.buyback_count);
+        out[n].days += 1;
+      }
+    }
+  }
+  return out;
+}
+
 /** Split a combined multi-platform result set into per-platform row lists. */
 function splitByPlatform(rows: DuneRow[]): Map<string, DuneRow[]> {
   const by = new Map<string, DuneRow[]>();
@@ -210,22 +246,32 @@ export async function runGachaWarm(
     for (const key of BUYBACK_PLATFORMS) {
       const target = platforms[key];
       if (!target) continue;
-      const r = byPlatform.get(key)?.[0];
-      if (!r) {
-        log(`→ ${key} buyback — no row in the combined result (skipped)`);
+      const rows = byPlatform.get(key) ?? [];
+      if (!rows.length) {
+        log(`→ ${key} buyback — no rows in the combined result (skipped)`);
         continue;
       }
+      // The query is day-bucketed now, so the rolling windows it used to return
+      // are derived here as trailing COMPLETE-day sums. Today's bucket is still
+      // filling and is excluded — a partial day would understate every window and
+      // make the 24h figure swing with the hour of the warm.
+      const w = sumTrailingCompleteDays(rows, [1, 7, 30]);
       target.buyback = {
-        payout24h: num(r.pay_24h),
-        payout7d: num(r.pay_7d),
-        payout30d: num(r.pay_30d),
-        count24h: num(r.bb_24h),
-        count7d: num(r.bb_7d),
-        count30d: num(r.bb_30d),
+        payout24h: w[1].usd,
+        payout7d: w[7].usd,
+        payout30d: w[30].usd,
+        count24h: w[1].count,
+        count7d: w[7].count,
+        count30d: w[30].count,
       };
-      const net = target.vol7d - num(r.pay_7d);
-      const take = target.vol7d > 0 ? (100 * net) / target.vol7d : 0;
-      log(`→ ${key} buyback — net 7d $${Math.round(net).toLocaleString()} (${take.toFixed(1)}% take)`);
+      // Deliberately NOT printing a net/take here: vol7d comes from the live
+      // gacha query's ROLLING 7d window, while this payout is 7 complete calendar
+      // days. Subtracting them would be the mismatched-window error the whole
+      // shape change exists to avoid. Net revenue is computed in fetchPlatform
+      // from the spine, where both sides are daily and identically gated.
+      log(
+        `→ ${key} buyback — ${w[30].days}d of ${rows.length} buckets · 7d $${Math.round(w[7].usd).toLocaleString()} (${w[7].count.toLocaleString()} payouts)`,
+      );
     }
   } catch (err) {
     log(`→ buyback (query ${BUYBACK_QUERY_ID}) FAILED: ${(err as Error).message}`);

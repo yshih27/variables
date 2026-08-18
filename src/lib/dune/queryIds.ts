@@ -60,12 +60,25 @@ export const CC_BIG_HITS_QUERY_ID = 7643571;
 export const BUYBACK_PLATFORMS = ["collector-crypt", "phygitals"] as const;
 
 /**
- * Buyback payouts, ALL PLATFORMS — one execution, replacing two (7644128 CC /
- * 7644129 Phygitals, now dormant). USDC sent FROM a platform's gacha wallets
- * back to players (instant cash-out of a pulled card), excluding internal/house
- * wallets. Net house revenue = gacha spend − buyback payout.
- * Rows: `{ platform, bb_30d, pay_30d, bb_7d, pay_7d, bb_24h, pay_24h }` — one
- * per platform, 30d window. SQL: dune/buyback-all-platforms.sql
+ * Buyback payouts, ALL PLATFORMS, DAILY — one execution, replacing two (7644128
+ * CC / 7644129 Phygitals, now dormant). USDC sent FROM a platform's gacha
+ * wallets back to players (instant cash-out of a pulled card), excluding
+ * internal/house wallets. Net house revenue = gacha spend − buyback payout.
+ *
+ * Rows: `{ platform, day, buyback_count, payout_usd }` — one per platform per UTC
+ * day, 35d window, mirroring GACHA_DAILY_QUERY_ID so the two sides of net revenue
+ * share a shape AND a window and can be subtracted day-for-day.
+ *
+ * ⚠️ WINDOWS ARE CALENDAR-ALIGNED NOW. This query used to return rolling
+ * aggregates (`pay_24h` = "the last 24 hours"). Day buckets can't reproduce a
+ * rolling window, so the warmer derives its 24h/7d/30d figures as trailing
+ * COMPLETE-DAY sums instead. That is the same basis the spine and every delta on
+ * the site already use, and it is what makes net revenue subtractable: spend and
+ * payout must come from the same window on the same completeness basis, never a
+ * rolling spend minus a calendar payout.
+ *
+ * ⚠️ 35d, matching the gacha-daily query. Rewindow the two together or the net
+ * stops being like-for-like. SQL: dune/buyback-all-platforms.sql
  */
 export const BUYBACK_QUERY_ID = 8252735;
 

@@ -7,6 +7,8 @@
  *   • flow  (volume_usd, trades, active_wallets, cards_traded) — COMPLETE-day
  *     aggregates from authoritative per-sale feeds: CC (Dune) + Beezie
  *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, 30d window).
+ *   • buyback (buyback_payout_usd per platform) — the other half of net gacha
+ *     revenue; same 35d window + complete-day gating as gacha_volume_usd.
  *   • gacha (gacha_volume_usd per platform) — daily primary/gacha volume from the
  *     ONE daily-bucketed multi-platform Dune query (GACHA_DAILY_QUERY_ID), 35d.
  *   • dyli  (volume_usd / gacha_volume_usd / direct_volume_usd) — DYLI's native
@@ -32,7 +34,7 @@ config({ path: ".env.local" });
 import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/data/warmers/core";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { getResultsAutoRefresh } from "../src/lib/dune/client";
-import { GACHA_DAILY_QUERY_ID } from "../src/lib/dune/queryIds";
+import { GACHA_DAILY_QUERY_ID, BUYBACK_QUERY_ID } from "../src/lib/dune/queryIds";
 import { readDyliSales, fetchDailyGmv } from "../src/lib/dyli/sales";
 import { LANE_METRIC } from "../src/lib/dyli/lanes";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
@@ -42,6 +44,7 @@ import { readCardDims } from "../src/lib/data/cards";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
 import {
   writeMetricSnapshots,
+  readMetricSeries,
   dayStartUtc,
   type MetricRow,
 } from "../src/lib/data/metricSnapshots";
@@ -286,6 +289,75 @@ async function main() {
     }
   } catch (e) {
     console.warn(`  gacha daily (combined) failed: ${(e as Error).message}`);
+  }
+
+  // ── Buyback payouts daily → spine (buyback_payout_usd per platform) ───────
+  // The other half of net gacha revenue. Same shape, same 35d window and the
+  // same complete-day gating as gacha_volume_usd, so the two series can be
+  // subtracted day-for-day without ever mixing bases. Only platforms with a
+  // known on-chain buyback wallet appear (CC, Phygitals) — a platform whose
+  // payout side is unsourced simply has no rows here, which is what keeps
+  // fetchPlatform from computing spend-minus-zero.
+  try {
+    const { rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
+      maxAgeMs: DAY,
+      runOpts: { maxWaitMs: 480_000 },
+    });
+    const byPlatformDay = new Map<string, Map<string, number>>();
+    for (const r of bbRows) {
+      const rec = r as Record<string, unknown>;
+      const key = String(rec.platform ?? "");
+      if (!key) continue;
+      const raw = String(rec.day ?? "");
+      const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
+      const usd = Number(rec.payout_usd);
+      if (!Number.isFinite(t) || !Number.isFinite(usd)) continue;
+      const day = dayStartUtc(t);
+      let days = byPlatformDay.get(key);
+      if (!days) byPlatformDay.set(key, (days = new Map()));
+      days.set(day, (days.get(day) ?? 0) + usd);
+    }
+    for (const [key, byDay] of byPlatformDay) {
+      // Same partial-leading-edge drop as the gacha daily query: the window's
+      // oldest bucket is clipped by `now() - interval '35' day` and would
+      // overwrite a complete stored day with a smaller number.
+      const oldest = [...byDay.keys()].sort()[0];
+      let pushed = 0;
+      let sum30 = 0;
+      for (const [day, usd] of byDay) {
+        if (day === oldest) continue;
+        if (Date.parse(day) + DAY > now) continue; // exclude today (partial)
+        push("platform", key, "buyback_payout_usd", usd, day);
+        pushed++;
+        if (Date.parse(day) >= now - 30 * DAY) sum30 += usd;
+      }
+
+      // Reconciliation: what we are about to write for the trailing 30 complete
+      // days vs what the spine already holds for those same days. Both sides are
+      // the SAME days on the SAME basis, so this is not a window artefact — a
+      // divergence means the source restated (late on-chain data) or an earlier
+      // write was wrong. Logged, not thrown: a restatement is legitimate, it just
+      // has to be visible.
+      const stored = await readMetricSeries("platform", key, "buyback_payout_usd").catch(() => []);
+      const storedSum = stored
+        .filter((p) => {
+          const t = Date.parse(p.ts);
+          return t >= now - 30 * DAY && t + DAY <= now;
+        })
+        .reduce((s, p) => s + p.value, 0);
+      const drift = storedSum > 0 ? Math.abs(sum30 - storedSum) / storedSum : 0;
+      if (storedSum > 0 && drift > 0.05) {
+        console.warn(
+          `  ⚠ buyback reconciliation ${key}: 30d source Σ $${Math.round(sum30).toLocaleString()} vs spine Σ $${Math.round(storedSum).toLocaleString()} (${(drift * 100).toFixed(1)}%) — restated upstream, or a bad earlier write`,
+        );
+      }
+      console.log(
+        `  buyback_payout_usd ${key}: ${pushed} days · 30d $${Math.round(sum30).toLocaleString()}` +
+          (storedSum > 0 ? ` (spine had $${Math.round(storedSum).toLocaleString()}, ${(drift * 100).toFixed(1)}% drift)` : " (first write)"),
+      );
+    }
+  } catch (e) {
+    console.warn(`  buyback daily failed: ${(e as Error).message}`);
   }
 
   // ── DYLI daily flow — native /sales, split by the lane classifier ──────────
