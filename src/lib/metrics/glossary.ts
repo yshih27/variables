@@ -114,6 +114,36 @@ export const METRICS = {
     term: "vs benchmarks",
     text: "The market price-index return minus a benchmark's (BTC / ETH / S&P 500 / NASDAQ) return over the same window.",
   },
+  // ── Platform economics (gacha flows) ──────────────────────────────────────
+  // NOTE: there is deliberately NO `netGachaRevenue` entry. Buyback payouts
+  // currently exceed gacha spend on both covered platforms, so spend − payouts
+  // is not publishable until the filter-symmetry reconciliation lands. Defining
+  // the term here would invite a UI to render it.
+  buybackRate: {
+    term: "Buyback rate",
+    text: "Buyback payouts ÷ gacha spend over trailing 30 complete days. These are flows, not platform profit — payouts repurchase cards that re-enter the machine.",
+  },
+  partnerAttribution: {
+    term: "Top partners",
+    text: "The partner surface a pull was purchased through (Collector Crypt memo attribution). Top 3 shown.",
+  },
+  // ── Player analytics ──────────────────────────────────────────────────────
+  spendTier: {
+    term: "Spending tier",
+    text: "Wallets bucketed by LIFETIME gacha spend on this platform — every pull we've recorded for that wallet, summed, not a single session or window. A wallet sits in exactly one tier, so the tiers partition both the player base and the revenue.",
+  },
+  spendConcentration: {
+    term: "Top-10% share",
+    text: "Share of all lifetime gacha spend coming from the highest-spending 10% of wallets. The single clearest read on whether a platform's revenue rests on a broad base or a handful of whales. Wallets, not people — one person can hold several.",
+  },
+  avgLifetimeSpend: {
+    term: "Avg lifetime spend",
+    text: "Total recorded gacha spend ÷ wallets that ever pulled. A mean over a heavily skewed distribution, so it sits far above the typical player — read it next to the tier table, never alone.",
+  },
+  activePlayers30d: {
+    term: "Active wallets 30d",
+    text: "Wallets that pulled at least once in the last 30 days. Distinct from the secondary-market 'active wallets' metric, which counts buyers and sellers of resold cards — this one counts gacha players only.",
+  },
 } as const satisfies Record<string, MetricDef>;
 
 export type MetricKey = keyof typeof METRICS;
