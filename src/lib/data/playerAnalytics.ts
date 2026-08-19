@@ -82,6 +82,56 @@ export type PlatformPlayerAnalytics = {
   concentration: ConcentrationStats;
 };
 
+/**
+ * Partner attribution rollup — CC's `memo_slug`, i.e. which partner surface a
+ * pull was bought through.
+ *
+ * ⚠️ THIS SHAPE IS A CONTRACT with src/components/PlatformPartners.tsx, which is
+ * already deployed and already wired at /platform/[key]. It reads exactly three
+ * things — `rows[].slug`, `rows[].volumeUsd30d`, `config.minVolumeUsd` and
+ * `attributedPct` — and it does its own flooring, ranking and top-3 cut. So the
+ * backend sends the FULL rollup, unranked and unfiltered, and never pre-cuts it:
+ * pre-cutting here would silently move the display rule into two places.
+ * The extra per-window fields below are a superset the component ignores.
+ *
+ * ⚠️ Placement is also a contract: the page reads
+ * `playerAnalyticsSnapshot.partners[platformKey]` — a TOP-LEVEL map keyed by
+ * platform, not a field on the per-platform entries in `platforms[]`. Nesting it
+ * there would typecheck and silently never render.
+ */
+export type PartnerRow = {
+  /** CC memo slug, already lowercased/trimmed by the capture ('cc', 'rare', …). */
+  slug: string;
+  /** Display name where we actually know one; null falls back to the slug in the
+   *  component. Deliberately sparse — see PARTNER_LABELS. */
+  label?: string | null;
+  /** REQUIRED by the component: attributed volume over the trailing 30 days. */
+  volumeUsd30d: number;
+  // ── superset: the component ignores these; they exist so the rollup can
+  //    answer 24h/7d/lifetime questions without a second scan. ──
+  pulls24h: number;
+  volumeUsd24h: number;
+  pulls7d: number;
+  volumeUsd7d: number;
+  pulls30d: number;
+  pullsLifetime: number;
+  volumeUsdLifetime: number;
+};
+
+export type PartnerAttribution = {
+  /** The FULL rollup — every attributed partner. The component cuts to top 3. */
+  rows: PartnerRow[];
+  /** Snapshot-owned display config; the floor lives with the data, not the FE. */
+  config: { minVolumeUsd: number };
+  /** Share of pulls in the TRAILING 30 DAYS carrying a memo_slug (0-100), to
+   *  match the 30d volumes the component displays beside it. */
+  attributedPct: number;
+  /** Same ratio over the other windows — superset, for provenance. */
+  attributedPct24h: number;
+  attributedPct7d: number;
+  attributedPctLifetime: number;
+};
+
 export type PlayerAnalyticsSnapshot = {
   generatedAt: string;
   /** Platforms with per-wallet attribution. Absent = no attribution, not zero. */
@@ -90,7 +140,55 @@ export type PlayerAnalyticsSnapshot = {
   excluded: { platform: string; reason: string }[];
   /** Rows scanned, for provenance against the table's own count. */
   rowsScanned: number;
+  /**
+   * Partner attribution, keyed by platform key. A platform appears only once it
+   * has at least one attributed pull — an entry with 0% attribution would read
+   * as "we measured the split and found none", when in fact capture simply has
+   * not reached it yet. Only Collector Crypt emits memo_slug today.
+   */
+  partners?: Record<string, PartnerAttribution>;
 };
+
+/**
+ * Display names for slugs whose partner we have actually confirmed. Everything
+ * else falls back to the raw slug in the component.
+ *
+ * ⚠️ Deliberately sparse. The live feed also carries 'sol', 'comic', 'slabz',
+ * 'watch', 'glyde', 'roll', 'me' — plausible guesses exist for several, but a
+ * guessed brand name on a published board is a fabrication, and the slug itself
+ * is honest. Add entries here only once a partner is confirmed.
+ */
+export const PARTNER_LABELS: Record<string, string> = {
+  cc: "Collector Crypt",
+  rare: "Rarible",
+};
+
+/**
+ * Minimum trailing-30d attributed volume for a partner to be eligible for the
+ * board. Lives in the snapshot (the component reads it from `config`) so the
+ * threshold is versioned with the data rather than frozen into the FE.
+ *
+ * $250k is ~0.17% of Collector Crypt's measured trailing-30d gacha volume
+ * (~$144.7M). A "top partner" moving less than 1/500th of the platform is not a
+ * top partner, so the floor is what keeps the podium meaningful.
+ *
+ * ⚠️ SIZED SO THE BOARD STAYS HIDDEN FOR NOW, deliberately. memo_slug capture is
+ * forward-only (shipped 2026-08-18) and currently attributes 0.08% of trailing
+ * -30d pulls. At a $10k floor four slugs already clear it (cc $127,979, sol
+ * $48,375, slabz $30,000, jupiter $13,775) and the component would publish a
+ * three-row ranking derived from 296 of ~800,000 pulls — a ranking of who
+ * happened to be captured first, not of partner share. Raise-not-lower: do not
+ * cut this to light the board up early.
+ *
+ * ⚠️ KNOWN LIMITATION: this one knob conflates two questions — "is this partner
+ * non-trivial?" (its actual job) and "is attribution complete enough to rank at
+ * all?" (what is really gating today). The component floors on volume only, so
+ * volume is the only lever the snapshot has. The cleaner fix, if the board is
+ * wanted sooner, is a separate sufficiency gate on `attributedPct` — either
+ * withholding `partners` below a share threshold here, or teaching the component
+ * to require one. Flagged rather than silently encoded.
+ */
+export const PARTNER_MIN_VOLUME_USD = 250_000;
 
 export function readPlayerAnalytics(): Promise<PlayerAnalyticsSnapshot | null> {
   return readSnapshot<PlayerAnalyticsSnapshot>(PLAYER_ANALYTICS_SNAPSHOT_KEY);
@@ -103,8 +201,19 @@ export function writePlayerAnalytics(snap: PlayerAnalyticsSnapshot): Promise<voi
 // ── Aggregation ────────────────────────────────────────────────────────────
 
 type WalletAcc = { spend: number; pulls: number; lastAt: number };
+type PartnerAcc = {
+  pulls24h: number; usd24h: number;
+  pulls7d: number; usd7d: number;
+  pulls30d: number; usd30d: number;
+  pullsLife: number; usdLife: number;
+};
+type WindowCounts = { total24h: number; total7d: number; total30d: number; totalLife: number;
+                      attr24h: number; attr7d: number; attr30d: number; attrLife: number };
+
 type PlatformAcc = {
   wallets: Map<string, WalletAcc>;
+  partners: Map<string, PartnerAcc>;
+  win: WindowCounts;
   monthly: Map<string, { byPrice: Map<number, number>; total: number; pulls: number }>;
   rows: number;
   walletRows: number;
@@ -115,6 +224,8 @@ type PlatformAcc = {
 
 const blank = (): PlatformAcc => ({
   wallets: new Map(),
+  partners: new Map(),
+  win: { total24h: 0, total7d: 0, total30d: 0, totalLife: 0, attr24h: 0, attr7d: 0, attr30d: 0, attrLife: 0 },
   monthly: new Map(),
   rows: 0,
   walletRows: 0,
@@ -146,6 +257,10 @@ export async function aggregatePlayerAnalytics(opts: {
   const log = opts.log ?? (() => {});
   const maxPages = opts.maxPages ?? Infinity;
   const PAGE = 1000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  // Pinned once so every window boundary in this run is measured from the same
+  // instant — a per-row Date.now() would drift across a multi-minute scan.
+  const now = Date.now();
   const byPlatform = new Map<string, PlatformAcc>();
 
   let cursor = "";
@@ -154,7 +269,7 @@ export async function aggregatePlayerAnalytics(opts: {
   for (; page < maxPages; page++) {
     const { data, error } = await db()
       .from("gacha_pulls")
-      .select("pull_id, platform_id, buyer, price_usd, pulled_at")
+      .select("pull_id, platform_id, buyer, price_usd, pulled_at, memo_slug")
       .gt("pull_id", cursor)
       .order("pull_id", { ascending: true })
       .limit(PAGE);
@@ -178,6 +293,35 @@ export async function aggregatePlayerAnalytics(opts: {
       const price = Number(r.price_usd);
       const priced = Number.isFinite(price) && price > 0;
       if (priced) acc.pricedRows += 1;
+
+      // ── Partner attribution ────────────────────────────────────────────────
+      // A NULL/empty memo_slug is UNKNOWN ORIGIN. It counts toward the window
+      // totals (so attributedPct is honest about how much we cannot attribute)
+      // and toward no partner, ever. There is no catch-all bucket on purpose: an
+      // "unknown" row on a partner board reads as a partner named Unknown.
+      const at_ms = Date.parse(at);
+      if (Number.isFinite(at_ms)) {
+        const age = now - at_ms;
+        const slug = r.memo_slug ? String(r.memo_slug).trim().toLowerCase() : "";
+        const inW = [age <= DAY_MS, age <= 7 * DAY_MS, age <= 30 * DAY_MS] as const;
+        acc.win.totalLife += 1;
+        if (inW[0]) acc.win.total24h += 1;
+        if (inW[1]) acc.win.total7d += 1;
+        if (inW[2]) acc.win.total30d += 1;
+        if (slug) {
+          acc.win.attrLife += 1;
+          if (inW[0]) acc.win.attr24h += 1;
+          if (inW[1]) acc.win.attr7d += 1;
+          if (inW[2]) acc.win.attr30d += 1;
+          let pa = acc.partners.get(slug);
+          if (!pa) acc.partners.set(slug, (pa = { pulls24h: 0, usd24h: 0, pulls7d: 0, usd7d: 0, pulls30d: 0, usd30d: 0, pullsLife: 0, usdLife: 0 }));
+          const usd = priced ? price : 0;
+          pa.pullsLife += 1; pa.usdLife += usd;
+          if (inW[0]) { pa.pulls24h += 1; pa.usd24h += usd; }
+          if (inW[1]) { pa.pulls7d += 1; pa.usd7d += usd; }
+          if (inW[2]) { pa.pulls30d += 1; pa.usd30d += usd; }
+        }
+      }
 
       const buyer = r.buyer ? String(r.buyer) : "";
       if (buyer) {
@@ -214,6 +358,7 @@ export async function aggregatePlayerAnalytics(opts: {
 
   log(`  scan complete: ${scanned.toLocaleString()} rows over ${page + 1} pages`);
 
+  const partners: Record<string, PartnerAttribution> = {};
   const platforms: PlatformPlayerAnalytics[] = [];
   const excluded: { platform: string; reason: string }[] = [];
   for (const [platform, acc] of [...byPlatform.entries()].sort()) {
@@ -225,6 +370,34 @@ export async function aggregatePlayerAnalytics(opts: {
       continue;
     }
     platforms.push(buildPlatform(platform, acc));
+
+    // Emit a partner entry only when something is actually attributed. An entry
+    // with an empty rows[] would still render nothing (the component floors and
+    // cuts, then bails on an empty top), but publishing 0% attribution asserts
+    // we measured the split and found none — we simply have not captured it yet.
+    if (acc.partners.size > 0) {
+      const pct = (a: number, t: number) => (t > 0 ? (a / t) * 100 : 0);
+      partners[platform] = {
+        // FULL rollup, unranked and uncut — the component owns floor/rank/top-N.
+        rows: [...acc.partners.entries()].map(([slug, v]) => ({
+          slug,
+          label: PARTNER_LABELS[slug] ?? null,
+          volumeUsd30d: v.usd30d,
+          pulls24h: v.pulls24h,
+          volumeUsd24h: v.usd24h,
+          pulls7d: v.pulls7d,
+          volumeUsd7d: v.usd7d,
+          pulls30d: v.pulls30d,
+          pullsLifetime: v.pullsLife,
+          volumeUsdLifetime: v.usdLife,
+        })),
+        config: { minVolumeUsd: PARTNER_MIN_VOLUME_USD },
+        attributedPct: pct(acc.win.attr30d, acc.win.total30d),
+        attributedPct24h: pct(acc.win.attr24h, acc.win.total24h),
+        attributedPct7d: pct(acc.win.attr7d, acc.win.total7d),
+        attributedPctLifetime: pct(acc.win.attrLife, acc.win.totalLife),
+      };
+    }
   }
 
   return {
@@ -232,6 +405,9 @@ export async function aggregatePlayerAnalytics(opts: {
     platforms,
     excluded,
     rowsScanned: scanned,
+    // Omit the key entirely when nothing is attributed anywhere, so the page's
+    // `partners?.[key] ?? null` lookup stays a clean absence.
+    ...(Object.keys(partners).length ? { partners } : {}),
   };
 }
 

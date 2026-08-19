@@ -61,6 +61,22 @@ async function run() {
   }
   for (const e of snap.excluded) console.log(`\n· excluded ${e.platform}: ${e.reason}`);
 
+  for (const [platform, pa] of Object.entries(snap.partners ?? {})) {
+    console.log(
+      `\n${platform} partners — ${pa.rows.length} attributed · ${pa.attributedPct.toFixed(2)}% of 30d pulls` +
+        ` (24h ${pa.attributedPct24h.toFixed(2)}% · 7d ${pa.attributedPct7d.toFixed(2)}% · lifetime ${pa.attributedPctLifetime.toFixed(2)}%)`,
+    );
+    console.log(`  floor $${pa.config.minVolumeUsd.toLocaleString()} — rows below it are sent but the component hides them`);
+    console.log(`  slug            30d pulls    30d volume     lifetime pulls    lifetime vol   clears floor?`);
+    for (const r of [...pa.rows].sort((a, b) => b.volumeUsd30d - a.volumeUsd30d)) {
+      console.log(
+        `    ${r.slug.padEnd(12)} ${String(r.pulls30d).padStart(9)} $${Math.round(r.volumeUsd30d).toLocaleString().padStart(12)} ` +
+          `${String(r.pullsLifetime).padStart(15)} $${Math.round(r.volumeUsdLifetime).toLocaleString().padStart(13)}   ${r.volumeUsd30d >= pa.config.minVolumeUsd ? "YES" : "no"}`,
+      );
+    }
+  }
+  if (!snap.partners) console.log(`\n· no partner attribution yet (no pull carries a memo_slug)`);
+
   if (dryRun) {
     console.log(`\nDRY RUN — nothing written. (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     return { rowsWritten: 0 };
