@@ -410,6 +410,15 @@ export async function getResultsAutoRefresh(
   try {
     probe = await probeCachedResult(queryId, { params: opts.params });
   } catch (e) {
+    // 404 = no result exists — a definitive answer, not an outage; the fallback
+    // is only for 5xx/timeouts. Treat it exactly like the totalRowCount === 0
+    // staleness branch and execute, or the freshness fallback would "serve
+    // cached" from a query that has no cached result and throw on the read.
+    if (e instanceof DuneError && e.status === 404) {
+      console.warn(`[dune] query ${queryId} has no cached result (404) — executing fresh`);
+      const rows = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
+      return { rows, refreshed: true, cachedAgeMs: null };
+    }
     const ageMs = opts.freshnessSource ? await snapshotAgeMs(opts.freshnessSource) : null;
     const fresh = ageMs !== null && ageMs <= opts.maxAgeMs;
     if (fresh) {
