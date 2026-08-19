@@ -115,13 +115,21 @@ export const METRICS = {
     text: "The market price-index return minus a benchmark's (BTC / ETH / S&P 500 / NASDAQ) return over the same window.",
   },
   // ── Platform economics (gacha flows) ──────────────────────────────────────
-  // NOTE: there is deliberately NO `netGachaRevenue` entry. Buyback payouts
-  // currently exceed gacha spend on both covered platforms, so spend − payouts
+  // NOTE: there is deliberately NO `netGachaRevenue` entry. Gacha-wallet outflow
+  // currently exceeds gacha spend on both covered platforms, so spend − outflow
   // is not publishable until the filter-symmetry reconciliation lands. Defining
   // the term here would invite a UI to render it.
+  //
+  // The outbound leg is a GROSS WALLET FLOW, not a player-payout figure — these
+  // terms have to carry that distinction, because the number itself cannot. See
+  // docs/roadmap/net-gacha-reconciliation.md §5.
+  grossOutbound: {
+    term: "Outbound to players & partners (gross)",
+    text: "All USDC leaving the platform's gacha wallets in the window — instant-buyback payouts to players PLUS transfers to partners, vendors and internal accounts, which we cannot yet separate. A correctly-measured gross flow, not a player-payout figure.",
+  },
   buybackRate: {
     term: "Buyback rate",
-    text: "Buyback payouts ÷ gacha spend over trailing 30 complete days. These are flows, not platform profit — payouts repurchase cards that re-enter the machine.",
+    text: "Gross outbound ÷ gacha spend — includes non-player counterparties; a player-verified figure lands with rule R3 (see methodology).",
   },
   partnerAttribution: {
     term: "Top partners",
