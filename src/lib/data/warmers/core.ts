@@ -99,6 +99,7 @@ async function fetchDuneSecondarySales(
   if (opts.cachedOnly) {
     const r = await getResultsAutoRefresh(queryId, {
       maxAgeMs: CC_SECONDARY_MAX_CACHE_AGE_MS,
+      freshnessSource: "core-volume",
       runOpts: { maxWaitMs: 480_000, maxRows: 250_000 },
       maxRows: 250_000,
     });
