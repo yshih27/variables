@@ -49,8 +49,117 @@ import {
   type MetricRow,
 } from "../src/lib/data/metricSnapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
+import { createHash } from "node:crypto";
+import { db } from "../src/lib/db/client";
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/** 8252735's one-character platform codes. Short because every byte of that
+ *  result is billed — see dune/buyback-all-platforms.sql. */
+const PLATFORM_BY_CODE: Record<string, string> = {
+  c: "collector-crypt",
+  p: "phygitals",
+};
+
+/**
+ * Platforms whose `gacha_pulls.buyer` set we trust enough to apply R3 with.
+ *
+ * ⚠️ NOT "every platform with pulls". Measured 2026-08-19 over an identical 35d
+ * window, distinct buyers in `gacha_pulls` vs the spender set Dune derives from
+ * on-chain inflow:
+ *     collector-crypt   10,167 vs 10,107   ratio 1.006  ← faithful
+ *     phygitals          5,796 vs  6,822   ratio 0.850  ← 15% SHORT
+ * Phygitals' pull ingestion comes off its own rate-limited API and misses ~1,026
+ * spenders. Classifying with it would mark real players as non-spenders, strip
+ * their payouts, and overstate net — the exact direction of error this whole
+ * reconciliation exists to prevent. So Phygitals' payouts stay GROSS (the pre-R3
+ * definition, unchanged) and it gets no basis marker, which keeps its net held
+ * on data grounds as well as policy grounds.
+ *
+ * Removing a platform from this set is safe; adding one requires re-measuring
+ * that ratio, because nothing downstream can detect the under-coverage — the
+ * cheap query no longer scans inflow, so there is no second opinion to compare.
+ */
+const R3_CLASSIFIED = new Set<string>(["collector-crypt"]);
+
+/**
+ * The recipient key 8252735 emits: sha256(address) hex, first 16 characters,
+ * from `substr(to_hex(sha256(to_utf8(to_owner))), 1, 16)`.
+ *
+ * ⚠️ CASE. Trino's `to_hex` returns UPPERCASE; Node's `digest("hex")` returns
+ * lowercase. Both sides are lower-cased here so the comparison cannot depend on
+ * which one is doing the hashing. This is not hypothetical tidiness — the first
+ * end-to-end run matched 7 recipients out of 10,961 because of exactly this, and
+ * the 7 were the hashes that happened to be all digits. A silent near-total miss
+ * like that reads as "almost nothing is a player payout", which is a plausible
+ * enough number to ship unnoticed. Truncating after hashing is safe either way:
+ * case does not move character positions.
+ */
+function recipientKey(address: string): string {
+  return createHash("sha256").update(address, "utf8").digest("hex").slice(0, 16).toLowerCase();
+}
+
+/** Re-derive a platform's per-day GROSS outflow from the raw rows. Used only by
+ *  the classification sanity gate, to fall back to the pre-R3 definition for a
+ *  platform whose spender join has evidently broken. */
+function grossDaysFor(rows: unknown[], platform: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const rec = r as Record<string, unknown>;
+    if (PLATFORM_BY_CODE[String(rec.p ?? "")] !== platform) continue;
+    const raw = String(rec.d ?? "");
+    const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
+    const usd = Number(rec.u);
+    if (!Number.isFinite(t) || !Number.isFinite(usd)) continue;
+    const day = dayStartUtc(t);
+    out.set(day, (out.get(day) ?? 0) + usd);
+  }
+  return out;
+}
+
+/**
+ * The R3 spender set, built from our own pull spine rather than a second Dune
+ * scan: every wallet that pulled on a platform inside the window, keyed the same
+ * way 8252735 keys its recipients.
+ *
+ * Keyset-paginated because PostgREST caps a page at 1000 rows however large a
+ * limit you ask for (verified). ~765k rows over 35d ⇒ a few minutes, which is
+ * the same order as warm-player-analytics' full scan and fine for a daily job.
+ */
+async function loadSpenderKeys(sinceMs: number): Promise<Map<string, Set<string>>> {
+  const since = new Date(sinceMs).toISOString();
+  const out = new Map<string, Set<string>>();
+  const t0 = Date.now();
+  let cursor = "";
+  let scanned = 0;
+  for (let page = 0; page < 5000; page++) {
+    const { data, error } = await db()
+      .from("gacha_pulls")
+      .select("pull_id, platform_id, buyer")
+      .gte("pulled_at", since)
+      .gt("pull_id", cursor)
+      .order("pull_id", { ascending: true })
+      .limit(1000);
+    if (error) throw new Error(`[buyback] spender scan failed: ${error.message}`);
+    const rows = data ?? [];
+    if (!rows.length) break;
+    for (const r of rows) {
+      const platform = String(r.platform_id ?? "");
+      const buyer = r.buyer == null ? "" : String(r.buyer);
+      if (!platform || !buyer) continue;
+      let set = out.get(platform);
+      if (!set) out.set(platform, (set = new Set()));
+      set.add(recipientKey(buyer));
+    }
+    scanned += rows.length;
+    cursor = String(rows[rows.length - 1].pull_id);
+  }
+  console.log(
+    `  R3 spender set: ${scanned.toLocaleString()} pulls since ${since.slice(0, 10)} in ${((Date.now() - t0) / 1000).toFixed(0)}s · ` +
+      [...out].map(([k, v]) => `${k} ${v.size.toLocaleString()}`).join(" · "),
+  );
+  return out;
+}
 
 async function main() {
   const now = Date.now();
@@ -300,52 +409,130 @@ async function main() {
   // payout side is unsourced simply has no rows here, which is what keeps
   // fetchPlatform from computing spend-minus-zero.
   //
-  // ⚠️ TWO SERIES, ONE ROW. Since the R3 switchover the query returns both
-  // `payout_usd` (R3-counted: the recipient also spent into this platform's gacha
-  // receivers) and `outflow_gross_usd` (the pre-R3 definition — every outflow bar
-  // the internal-wallet list). They are written as separate metrics, never summed
-  // together. The gross column is ALSO the basis marker: fetchPlatform only
-  // publishes a net figure for days that carry it, because its presence is what
-  // proves the day's payout is R3-counted. A pre-cutover result has no such
-  // column, so `outflow_gross_usd` simply isn't pushed and net stays held — which
-  // is why this reads the column defensively instead of assuming it.
+  // ⚠️ TWO SERIES FROM ONE PER-RECIPIENT RESULT. 8252735 no longer does the R3
+  // test itself — it returns `{p,d,w,n,u}`, one row per recipient per day, and
+  // the spender test happens HERE against our own `gacha_pulls.buyer`. Doing it
+  // this way is a COST decision, measured, not a style preference: R3 inside Dune
+  // needed a second scan of tokens_solana.transfers and came to 71.2 cr/run,
+  // while one scan plus a wider export comes to 42.9 cr/run. See the PR.
+  //
+  //   `outflow_gross_usd`   Σ u over the day — every outflow bar the internal
+  //                         list. Byte-identical to what the pre-R3 query
+  //                         published as `payout_usd`.
+  //   `buyback_payout_usd`  Σ u over the day, RESTRICTED to recipients that also
+  //                         spent into this platform's gacha (rule R3).
+  //
+  // They are separate metrics and are never summed together. `outflow_gross_usd`
+  // doubles as the R3 BASIS MARKER — fetchPlatform publishes a net figure only
+  // for days carrying it — so it is written ONLY for platforms whose spender set
+  // we actually trust (see R3_CLASSIFIED below). Everything here is defensive
+  // about the row shape so a rollback to the pre-R3 query degrades rather than
+  // crashes.
   try {
     const { rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
       maxAgeMs: DAY,
       freshnessSource: "metric-snapshots",
       runOpts: { maxWaitMs: 480_000 },
     });
+
+    const spenders = await loadSpenderKeys(now - 35 * DAY);
     const byPlatformDay = new Map<string, Map<string, number>>();
     const grossByPlatformDay = new Map<string, Map<string, number>>();
-    let grossRows = 0;
+    // Per-platform recipient tallies, for the sanity gate below.
+    const seenRecipients = new Map<string, Set<string>>();
+    const matchedRecipients = new Map<string, Set<string>>();
+    let classifiedRows = 0;
+    let legacyRows = 0;
     for (const r of bbRows) {
       const rec = r as Record<string, unknown>;
-      const key = String(rec.platform ?? "");
+      // New shape {p,d,w,n,u}; fall back to the pre-R3 {platform,day,payout_usd}
+      // so a rolled-back query still writes the gross series instead of nothing.
+      const isNew = rec.w != null;
+      const key = isNew ? PLATFORM_BY_CODE[String(rec.p ?? "")] : String(rec.platform ?? "");
       if (!key) continue;
-      const raw = String(rec.day ?? "");
+      const raw = String((isNew ? rec.d : rec.day) ?? "");
       const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
-      const usd = Number(rec.payout_usd);
+      const usd = Number(isNew ? rec.u : rec.payout_usd);
       if (!Number.isFinite(t) || !Number.isFinite(usd)) continue;
       const day = dayStartUtc(t);
+
+      if (!isNew) {
+        legacyRows++;
+        let days = byPlatformDay.get(key);
+        if (!days) byPlatformDay.set(key, (days = new Map()));
+        days.set(day, (days.get(day) ?? 0) + usd);
+        continue;
+      }
+
+      classifiedRows++;
+      // Gross, but ONLY for a platform we actually apply R3 to. This series is
+      // the basis marker: writing it for an untrusted platform would tell
+      // fetchPlatform that platform's payouts are R3-counted when they are not.
+      const trusted = R3_CLASSIFIED.has(key);
+      if (trusted) {
+        let gd = grossByPlatformDay.get(key);
+        if (!gd) grossByPlatformDay.set(key, (gd = new Map()));
+        gd.set(day, (gd.get(day) ?? 0) + usd);
+      }
+
+      // R3: does this recipient appear as a gacha spender on this platform? For a
+      // platform we do NOT trust the spender set for, fall through to gross —
+      // never to zero, which would print a 100% margin.
+      const w = String(rec.w).toLowerCase();
+      const isSpender = !trusted || (spenders.get(key)?.has(w) ?? false);
+      if (trusted) {
+        let seen = seenRecipients.get(key);
+        if (!seen) seenRecipients.set(key, (seen = new Set()));
+        seen.add(w);
+        if (isSpender) {
+          let hit = matchedRecipients.get(key);
+          if (!hit) matchedRecipients.set(key, (hit = new Set()));
+          hit.add(w);
+        }
+      }
+      if (!isSpender) continue;
       let days = byPlatformDay.get(key);
       if (!days) byPlatformDay.set(key, (days = new Map()));
       days.set(day, (days.get(day) ?? 0) + usd);
+    }
 
-      // Absent pre-cutover. `null`/undefined must NOT become 0: a zero gross with
-      // a non-zero payout is arithmetically impossible and would publish an R3
-      // share above 100%.
-      if (rec.outflow_gross_usd == null) continue;
-      const gross = Number(rec.outflow_gross_usd);
-      if (!Number.isFinite(gross)) continue;
-      grossRows++;
-      let gd = grossByPlatformDay.get(key);
-      if (!gd) grossByPlatformDay.set(key, (gd = new Map()));
-      gd.set(day, (gd.get(day) ?? 0) + gross);
+    // ── CLASSIFICATION SANITY GATE ────────────────────────────────────────────
+    // A join that silently stops matching does not fail loudly — it reports that
+    // almost nothing was a player payout, which makes net revenue ≈ gross spend
+    // and prints a ~100% margin. That is the most flattering possible lie and it
+    // is exactly what a key-format drift produces: the first end-to-end run of
+    // this path matched 7 recipients out of 10,961 because Trino hexes uppercase
+    // and Node hexes lowercase. Measured, the real overlap is ~86% of recipients,
+    // so anything under half means the join is broken, not that the players left.
+    // Such a platform is demoted to unclassified for this run: its payouts revert
+    // to gross and its basis marker is withheld, which holds net rather than
+    // publishing an invented one.
+    const MIN_MATCH_RATE = 0.5;
+    for (const key of [...grossByPlatformDay.keys()]) {
+      const seen = seenRecipients.get(key)?.size ?? 0;
+      const hit = matchedRecipients.get(key)?.size ?? 0;
+      const rate = seen > 0 ? hit / seen : 0;
+      if (seen > 0 && rate < MIN_MATCH_RATE) {
+        console.warn(
+          `  ⚠ R3 classification FAILED for ${key}: only ${hit.toLocaleString()}/${seen.toLocaleString()} recipients (${(rate * 100).toFixed(1)}%) matched a gacha_pulls buyer — expected ~86%. Treating this run as unclassified: payouts revert to gross, no basis marker, net stays held. Check the recipient key format on both sides.`,
+        );
+        grossByPlatformDay.delete(key);
+        byPlatformDay.set(key, grossDaysFor(bbRows, key));
+      } else if (seen > 0) {
+        console.log(
+          `  R3 match ${key}: ${hit.toLocaleString()}/${seen.toLocaleString()} recipients (${(rate * 100).toFixed(1)}%)`,
+        );
+      }
+    }
+    if (legacyRows > 0) {
+      console.warn(
+        `  ⚠ buyback: ${legacyRows} rows in the PRE-R3 shape — query ${BUYBACK_QUERY_ID} has been rolled back. Writing the gross series as payouts and NO basis marker, so net revenue stays held.`,
+      );
     }
     console.log(
-      grossRows > 0
-        ? `  buyback basis: R3 (${grossRows}/${bbRows.length} rows carry outflow_gross_usd)`
-        : `  ⚠ buyback basis: PRE-R3 — query ${BUYBACK_QUERY_ID} returned no outflow_gross_usd column, so payouts are still gross-of-list and net revenue stays held. Cut the Dune query over (dune/buyback-all-platforms.sql).`,
+      classifiedRows > 0
+        ? `  buyback basis: R3 (${classifiedRows.toLocaleString()} per-recipient rows) · classified: ${[...R3_CLASSIFIED].join(", ")}`
+        : `  ⚠ buyback basis: PRE-R3 — query ${BUYBACK_QUERY_ID} returned no per-recipient rows, so payouts are gross-of-list and net revenue stays held. Apply dune/buyback-all-platforms.sql.`,
     );
     for (const [key, byDay] of byPlatformDay) {
       // Same partial-leading-edge drop as the gacha daily query: the window's

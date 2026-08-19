@@ -441,3 +441,106 @@ Reasoning and standing conditions:
 - **The genuinely open question is temporal, not counterparty.** Cohorting payouts
   to the pulls they settle is what would make "net gacha revenue" a real figure.
   That is a new piece of work, and this run says it is the one that matters.
+
+## A8. Making R3 affordable — measured, and applied (2026-08-19)
+
+R3 shipped into production counting on 8252735 the same day it was measured. What
+took a second pass was the price: the obvious implementation does not fit.
+
+### The three variants, measured
+
+Dune bills **compute per execution AND results per exported MB** (10 cr/MB on
+Analyst), and the two terms trade against each other. All three were run over the
+same 35d window within minutes of each other.
+
+| variant | rows | MB | compute | export | **all-in** | ≤50 cr/day |
+|---|---|---|---|---|---|---|
+| **A** — R3 inside Dune, day-bucketed (2 scans) | 72 | 0.004 | 71.16 | 0.04 | **71.19 cr** | ✗ |
+| **B** — per-recipient, wide payload (1 scan) | 45,325 | 3.493 | 28.21 | 34.93 | **63.14 cr** | ✗ |
+| **B-narrow** — per-recipient, narrow payload | 45,323 | 1.599 | 26.91 | 15.99 | **42.90 cr** | ✓ **applied** |
+
+**Dropping the inflow scan is necessary but not sufficient.** Moving the spender
+test out of Dune halves compute — 71.2 → 28.2 cr — but the per-recipient export
+hands most of it straight back. What actually clears the ceiling is narrowing the
+ROW: a one-character platform code, a `DATE` instead of a timestamp, and a 16-hex
+hash instead of a 44-char base58 address took **80.8 → 37.0 bytes/row**, cutting
+the export from 34.9 to 16.0 cr for the same information.
+
+Against the pre-R3 query's ~34 cr/day, R3 now costs **~+9 cr/day** rather than the
+~+73 cr/day variant A implied. On an account at 238% of plan that is the
+difference between shipping and not.
+
+⚠️ **An export can be priced without paying for it.** Execute, then read
+`/execution/{id}/results?limit=1`: Dune reports `total_result_set_bytes` for the
+FULL result regardless of the page fetched. Every export figure above was measured
+that way, for ~0 export credits. Use this before putting any wide query on a
+schedule.
+
+### Where R3 is now computed, and where it is not
+
+The SQL no longer knows what R3 is. Dune returns who received what on which day;
+`warm-metric-snapshots` classifies each recipient against our own
+`gacha_pulls.buyer` — the source §6 R3 already noted needs no new plumbing.
+
+⚠️ **The spender set is only faithful where we measured it to be.** Distinct
+buyers in `gacha_pulls` vs the spender set Dune derives from on-chain inflow, same
+35d window:
+
+| platform | `gacha_pulls` buyers | Dune spenders | ratio |
+|---|---|---|---|
+| collector-crypt | 10,167 | 10,107 | **1.006** |
+| phygitals | 5,796 | 6,822 | **0.850** |
+
+Collector Crypt is faithful. **Phygitals is 15% short** — its pull ingestion comes
+off its own rate-limited API and misses ~1,026 spenders. Classifying with it would
+mark real players as non-spenders, strip their payouts and OVERSTATE net, which is
+the one direction of error this document exists to prevent. So Phygitals is not
+R3-classified at all: its payouts stay on the gross definition and it gets no
+basis marker, which holds its net shut on data grounds as well as policy grounds.
+
+This is the cost of the cheap variant, and it should be stated plainly: **removing
+the inflow scan also removed our second opinion.** Nothing downstream can now
+detect spender-set under-coverage, because there is no longer an independent
+measurement to compare against. Adding a platform to `R3_CLASSIFIED` therefore
+requires re-running the two-scan variant once to re-measure that ratio — cheap and
+occasional, but not optional.
+
+### A8.1 ⚠️ The cheap path is accurate enough for the flows, NOT for net
+
+Validated end-to-end against the two-scan query over the same window — Postgres
+classification vs Dune's own R3:
+
+| | Postgres-classified | Dune two-scan | Δ |
+|---|---|---|---|
+| CC gross outflow | $159,579,396 | $159,760,183 | −0.11% |
+| CC R3 payouts | $158,162,192 | $159,140,835 | **−0.61%** |
+| CC buyback rate | 94.33% | 94.92% | −0.59 pp |
+| CC recipients matched | 9,544 / 10,961 (**87.1%**) | — | — |
+| **CC net (35d)** | **$9.50M** | **$8.52M** | **+11.5%** |
+| PHY R3 payouts | $12,771,942 | $13,149,887 | −2.87% |
+
+**Net is a small difference of two large numbers.** It is ~5% of spend, so a 0.61%
+error in the payout leg is levered roughly 20× into it — and it lands in the
+flattering direction, because a missing spender drops a payout. The 1,417
+unmatched CC recipients are real players: they paid the gacha receivers on-chain,
+we just have no pull recorded for them.
+
+So the flows and the rate are fine on this path (0.59 pp on the rate is
+immaterial), and **net is not**. `NET_HELD_FOR_SPENDER_COVERAGE` therefore holds
+net for every platform with `heldReason: "spender-coverage"`. The §A7 lift stands
+as a decision; it cannot be *served* off this measurement. Flip that constant when
+the match rate reaches ~99% rather than 87%, or when a periodic two-scan
+reconciliation corrects the payout leg.
+
+⚠️ **The first end-to-end run matched 7 recipients out of 10,961** — Trino's
+`to_hex` returns UPPERCASE and Node's `digest("hex")` returns lowercase, so only
+the all-digit hashes collided. That failure mode publishes "almost nothing was a
+player payout", i.e. net ≈ gross spend and a ~100% margin, and it is completely
+silent. The loader now lower-cases both sides and refuses to write a basis marker
+for any platform whose recipient match rate falls below 50% (measured normal:
+87%), reverting that platform to gross payouts instead of inventing a margin.
+
+⚠️ **Datapoint budget.** The per-recipient result is 226,615 datapoints, over the
+client's default `DUNE_DATAPOINT_BUDGET` of 200,000. The meter warns, it does not
+throw, so nothing breaks — but the warning fires on every run until the env var is
+raised (~300,000), and a permanently-firing alarm is one nobody reads.

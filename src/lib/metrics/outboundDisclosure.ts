@@ -56,7 +56,37 @@ export function outboundDisclosureFor(platformKey: string): OutboundDisclosure {
  *                        not yet proven to be on the R3 basis. Transitional —
  *                        it clears itself once the Dune cutover has run.
  */
-export type NetHeldReason = "unsourced" | "reconciliation" | "awaiting-r3-basis";
+export type NetHeldReason =
+  | "unsourced"
+  | "reconciliation"
+  | "awaiting-r3-basis"
+  | "spender-coverage";
+
+/**
+ * ⚠️ NET IS HELD FOR EVERYONE while R3 is classified from `gacha_pulls.buyer`.
+ *
+ * The cheap R3 path (one Dune scan + a Postgres spender set) is accurate enough
+ * for the FLOWS and the RATE, and not accurate enough for NET. Measured
+ * 2026-08-19 against the two-scan Dune query over the same window:
+ *
+ *     CC gross outflow    −0.11%   (windows differ slightly; this is the floor)
+ *     CC R3 payouts       −0.61%   ← 1,417 of 10,961 recipients unmatched
+ *     CC buyback rate     −0.59pp  (94.33% vs 94.92%) — immaterial
+ *     CC NET              +11.5%   ($9.50M vs $8.52M / 35d) — NOT immaterial
+ *
+ * Net is a small difference of two large numbers: it is ~5% of spend, so a 0.6%
+ * error in the payout leg is levered ~20× into it, and it lands in the flattering
+ * direction because a missing spender means a payout is dropped. The wallets we
+ * miss are real — they paid the gacha receivers on-chain — we simply have no pull
+ * recorded for them.
+ *
+ * So the R3 lift ruled in Addendum A §A7 stands as a decision but cannot be
+ * served off this measurement. Flip this to `false` when either the spender set
+ * is complete enough (re-measure the match rate; it needs to be ~99%, not 87%),
+ * or a periodic two-scan reconciliation corrects the payout leg. Everything else
+ * — the R3-counted payout series, the rate, the R3-verified share — ships now.
+ */
+export const NET_HELD_FOR_SPENDER_COVERAGE = true;
 
 /**
  * May this platform publish a NET figure (spend − payouts) at all?

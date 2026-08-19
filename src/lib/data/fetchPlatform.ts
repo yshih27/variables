@@ -22,7 +22,11 @@ import {
   type SeriesPoint,
 } from "./metricSnapshots";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
-import { netRevenueEligible, type NetHeldReason } from "@/lib/metrics/outboundDisclosure";
+import {
+  netRevenueEligible,
+  NET_HELD_FOR_SPENDER_COVERAGE,
+  type NetHeldReason,
+} from "@/lib/metrics/outboundDisclosure";
 import type { Chain, Trend } from "@/lib/types";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 
@@ -517,7 +521,9 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
       ? "reconciliation"
       : !r3Basis
         ? "awaiting-r3-basis"
-        : null;
+        : NET_HELD_FOR_SPENDER_COVERAGE
+          ? "spender-coverage"
+          : null;
 
   const netGachaRevenue =
     heldReason === null

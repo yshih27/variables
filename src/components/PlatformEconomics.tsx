@@ -100,13 +100,20 @@ export function PlatformEconomics({
   buybackRatePct30d,
   outboundDisclosure,
   net,
+  netDaily,
   r3VerifiedPct30d,
 }: {
   /** Daily gacha spend (gacha_volume_usd), completeness-gated by the page. */
   spendDaily: SeriesPoint[];
-  /** Daily gacha-wallet outflow (PlatformDetail.buybackDaily), same gate. Empty
-   *  means the platform has no known buyback wallet — the page renders nothing. */
+  /** Daily GROSS gacha-wallet outflow — every outflow bar the internal-wallet
+   *  list. This is what the bars and the "Outbound … (gross)" row show. Empty
+   *  means the platform has no known buyback wallet and the page renders nothing.
+   *  ⚠️ NOT the R3 payout series; net is not derivable from it. */
   buybackDaily: SeriesPoint[];
+  /** Daily net (spend − R3-counted payouts), pre-joined by the page. Empty when
+   *  net is held. Passed rather than derived because the two outbound quantities
+   *  differ — see the note beside `netByDay`. */
+  netDaily: SeriesPoint[];
   kpis: EconomicsKpis;
   /** PlatformDetail.buybackRatePct30d — outflow ÷ spend over 30 complete days. */
   buybackRatePct30d: number | null;
@@ -138,12 +145,18 @@ export function PlatformEconomics({
   );
   const active = hover != null ? days[hover] ?? null : null;
 
-  // Net is drawn only where fetchPlatform published one. A day the outbound side
-  // never reported gets `null`, not spend-minus-zero, so the line BREAKS there
-  // rather than drawing a 100%-margin day across a gap we never measured.
+  // Net is drawn only where fetchPlatform published one, and it comes in as its
+  // OWN series rather than being re-derived from the bars: the blue bars are
+  // GROSS outflow while net is spend minus R3-COUNTED payouts, so subtracting
+  // what is drawn would quietly overstate the margin. A day the page could not
+  // pair gets `null` and the line BREAKS there.
   const showNet = net != null && !held;
+  const netAt = new Map(netDaily.map((p) => [p.ts, p.value]));
   const netByDay = showNet
-    ? days.map((d) => (d.spend != null && d.buyback != null ? d.spend - d.buyback : null))
+    ? days.map((d) => {
+        const v = netAt.get(d.ts);
+        return v == null || !Number.isFinite(v) ? null : v;
+      })
     : [];
   // A daily net goes negative whenever cash-outs of EARLIER pulls outrun fresh
   // spend — a real reading, not an error. So the plot needs a signed domain, and

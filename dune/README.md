@@ -30,7 +30,7 @@ both:
 |---|---|---|---|---|
 | `gacha-live-all-platforms.sql` | 8252733 | 30d | daily | `runGachaWarm` → homepage rips, platform gacha panels |
 | `gacha-daily-all-platforms.sql` | 8252734 | 90d | daily | `warm-metric-snapshots` → spine `gacha_volume_usd` |
-| `buyback-all-platforms.sql` | 8252735 | 35d | daily | `runGachaWarm` → net-take / buyback; `warm-metric-snapshots` → `buyback_payout_usd` + `outflow_gross_usd` |
+| `buyback-all-platforms.sql` | 8252735 | 35d | daily (42.9 cr) | `warm-metric-snapshots` → `buyback_payout_usd` (R3) + `outflow_gross_usd`; `runGachaWarm` → buyback windows |
 | `cc-secondary.sql` | 7675297 | 30d | daily | `warm-core-dune` → CC secondary volume |
 | `courtyard-secondary.sql` | 7845248 | 30d | daily | `warm-core-dune` → Courtyard secondary volume |
 | `cc-big-hits.sql` | 7643571 | 7d | **weekly** | weekly report → Notable Pulls |
@@ -74,18 +74,34 @@ Results and interpretation: `docs/roadmap/net-gacha-reconciliation.md` Addendum 
 the inflow and outflow scans — roughly 3.6× the one-scan estimate the findings doc
 assumed. Re-run by hand only when the rule itself changes.
 
-## ⚠️ Pending cutover — 8252735 (R3)
+## R3 counting — where the work happens, and what it cost
 
-`buyback-all-platforms.sql` in this repo is the **R3** version and the Dune side
-has **not been switched over yet**. Until it is, 8252735 still returns the pre-R3
-columns and the repo copy is ahead of the workspace — the one place this repo
-deliberately tolerates drift, because the cutover is a production action.
+`buyback-all-platforms.sql` was cut over on 8252735 on 2026-08-19 (read-back
+verified). **The R3 spender test is not in the SQL.** Dune returns one row per
+recipient per day and `warm-metric-snapshots` classifies each recipient against
+our own `gacha_pulls.buyer`. That split is a measured cost decision, not a
+preference — Dune bills compute per execution AND results per exported MB
+(10 cr/MB on Analyst), and the two terms trade against each other:
 
-Cut over with a `PATCH /api/v1/query/8252735 {query_sql}` carrying this file, then
-run it once and confirm the result carries `outflow_gross_usd`. Nothing else needs
-to change: `warm-metric-snapshots` reads the new column defensively, logs which
-basis it saw, and `fetchPlatform` keeps net revenue held until the column appears.
-Rolling back is the same call with the previous SQL.
+| variant | rows | MB | compute | export | **all-in** |
+|---|---|---|---|---|---|
+| R3 inside Dune (2 scans, day-bucketed) | 72 | 0.004 | 71.16 | 0.04 | **71.19 cr** |
+| per-recipient, wide payload | 45,325 | 3.493 | 28.21 | 34.93 | **63.14 cr** |
+| **per-recipient, narrow payload** ← shipped | 45,323 | 1.599 | 26.91 | 15.99 | **42.90 cr** |
+
+Dropping the inflow scan halves compute but the export costs most of it back;
+what actually fits the ≤50 cr/day ceiling is narrowing the row — a one-character
+platform code, a DATE instead of a timestamp, and a 16-hex hash instead of a
+44-char address took 80.8 → 37.0 bytes/row. **Do not widen those columns.**
+
+Roll back with the same `PATCH` carrying `git show origin/main:dune/buyback-all-platforms.sql`
+(the pre-R3 SQL). The loader detects the old shape, writes the gross series as
+payouts, emits no basis marker, and net revenue re-holds by itself.
+
+⚠️ **Pricing an export without paying for it:** execute, then read
+`/execution/{id}/results?limit=1` — Dune reports `total_result_set_bytes` for the
+FULL result regardless of the page fetched. That is how the table above was
+measured for ~0 export credits.
 
 ## Gotchas
 

@@ -234,25 +234,53 @@ export default async function PlatformDetailPage({
   // exists on the v8 contract and is deliberately left unread: payouts currently
   // exceed spend on both covered platforms, so spend − payouts is not publishable
   // until the filter-symmetry reconciliation lands.
+  // TWO outbound series now, and they are NOT interchangeable:
+  //   buybackS — `buyback_payout_usd`, R3-COUNTED since the switchover. Feeds the
+  //              net line and the buyback rate.
+  //   grossS   — `outflow_gross_usd`, every outflow bar the internal list. Feeds
+  //              the "Outbound … (gross)" row and the blue bars.
+  // Before the switchover `outflow_gross_usd` does not exist AND
+  // `buyback_payout_usd` still holds the gross definition — so falling back to it
+  // is not a fudge, it is the same quantity under its old name. That fallback is
+  // what keeps the outbound bars drawn through the transition; the net stays held
+  // regardless, because fetchPlatform gates that on the marker series itself.
   const buybackS = detail.buybackDaily;
-  const econStreams = new Map<string, SeriesPoint[]>([["spend", gachaS], ["buyback", buybackS]]);
+  const grossS = detail.outflowGrossDaily.length > 0 ? detail.outflowGrossDaily : buybackS;
+  const econStreams = new Map<string, SeriesPoint[]>([
+    ["spend", gachaS],
+    ["outbound", grossS],
+    ["payout", buybackS],
+  ]);
   const econCut = latestCompleteDay(econStreams);
   const econGate = (s: SeriesPoint[]) => (econCut ? s.filter((p) => p.ts <= econCut) : s);
   const spendGated = econGate(gachaS);
-  const buybackGated = econGate(buybackS);
+  const grossGated = econGate(grossS);
+  const payoutGated = econGate(buybackS);
   // Windows summed with the canonical helper — NaN when a window isn't fully
   // covered, which the panel renders as "—" rather than a flattering $0.
   const econKpis: EconomicsKpis = {
     spend24h: sumLastCompleteDays(spendGated, 1),
     spend7d: sumLastCompleteDays(spendGated, 7),
     spend30d: sumLastCompleteDays(spendGated, 30),
-    buyback24h: sumLastCompleteDays(buybackGated, 1),
-    buyback7d: sumLastCompleteDays(buybackGated, 7),
-    buyback30d: sumLastCompleteDays(buybackGated, 30),
+    buyback24h: sumLastCompleteDays(grossGated, 1),
+    buyback7d: sumLastCompleteDays(grossGated, 7),
+    buyback30d: sumLastCompleteDays(grossGated, 30),
   };
+  // Daily net for the chart line — spend minus R3 payouts, joined on the day and
+  // emitted ONLY for days both sides reported. A day only one side covers is left
+  // out entirely so the line breaks there rather than asserting a margin.
+  const payoutByTs = new Map(payoutGated.map((p) => [p.ts, p.value]));
+  const netDaily: SeriesPoint[] = detail.netGachaRevenue
+    ? spendGated.flatMap((p) => {
+        const payout = payoutByTs.get(p.ts);
+        return payout == null || !Number.isFinite(p.value) || !Number.isFinite(payout)
+          ? []
+          : [{ ts: p.ts, value: p.value - payout }];
+      })
+    : [];
   // Only where the buyback wallet is known on-chain (CC + Phygitals today). An
   // empty series means unsourced, not zero — every other platform gets nothing.
-  const showEconomics = buybackGated.length > 0;
+  const showEconomics = grossGated.length > 0;
   // Whether that outflow may be PUBLISHED, which is a separate question from
   // whether it is sourced. Held for Phygitals: its exclusion list misses the
   // dominant non-player counterparties, so the flow is real but the label would
@@ -312,7 +340,8 @@ export default async function PlatformDetailPage({
           {showEconomics && (
             <PlatformEconomics
               spendDaily={lastNDays(spendGated, 30)}
-              buybackDaily={lastNDays(buybackGated, 30)}
+              buybackDaily={lastNDays(grossGated, 30)}
+              netDaily={lastNDays(netDaily, 30)}
               kpis={econKpis}
               buybackRatePct30d={detail.buybackRatePct30d}
               outboundDisclosure={outboundDisclosure}
