@@ -408,9 +408,23 @@ grows with the window.
 density. Expect a similar ~100 cr. **Run it only if the lift decision needs the
 per-counterparty breakdown.**
 
-## A7. What this means for the display hold
+## A7. The lift decision — RULED 2026-08-19
 
-Recommendation, for the orchestrator — not applied in this PR:
+**Collector Crypt lifts under R3. Phygitals stays held.**
+
+Implemented by this change: `dune/buyback-all-platforms.sql` counts `payout_usd`
+under R3 and retains the pre-R3 definition as a second series
+`outflow_gross_usd`; `PlatformDetail.netGachaRevenue` populates for CC and stays
+null for Phygitals with `heldReason: "reconciliation"`.
+
+⚠️ **The lift is conditional on the data actually being on the R3 basis.** CC's
+net publishes only where the spine carries `outflow_gross_usd` over the same days
+— the presence of that series is what proves the Dune cutover happened. Until
+then CC's net stays null with `heldReason: "awaiting-r3-basis"`, because
+publishing a gross-basis payout under an R3 label is the exact failure this whole
+document exists to prevent.
+
+Reasoning and standing conditions:
 
 - **Phygitals: keep the outbound leg suppressed.** R3 was the proposed unblock and
   it leaves the rate above 100%. Nothing here supports publishing a payout or rate

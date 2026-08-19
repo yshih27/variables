@@ -30,7 +30,7 @@ both:
 |---|---|---|---|---|
 | `gacha-live-all-platforms.sql` | 8252733 | 30d | daily | `runGachaWarm` → homepage rips, platform gacha panels |
 | `gacha-daily-all-platforms.sql` | 8252734 | 90d | daily | `warm-metric-snapshots` → spine `gacha_volume_usd` |
-| `buyback-all-platforms.sql` | 8252735 | 30d | daily | `runGachaWarm` → net-take / buyback |
+| `buyback-all-platforms.sql` | 8252735 | 35d | daily | `runGachaWarm` → net-take / buyback; `warm-metric-snapshots` → `buyback_payout_usd` + `outflow_gross_usd` |
 | `cc-secondary.sql` | 7675297 | 30d | daily | `warm-core-dune` → CC secondary volume |
 | `courtyard-secondary.sql` | 7845248 | 30d | daily | `warm-core-dune` → Courtyard secondary volume |
 | `cc-big-hits.sql` | 7643571 | 7d | **weekly** | weekly report → Notable Pulls |
@@ -73,6 +73,19 @@ Results and interpretation: `docs/roadmap/net-gacha-reconciliation.md` Addendum 
 ⚠️ **Do not put either on a schedule.** Each costs ~100 cr because R3 needs BOTH
 the inflow and outflow scans — roughly 3.6× the one-scan estimate the findings doc
 assumed. Re-run by hand only when the rule itself changes.
+
+## ⚠️ Pending cutover — 8252735 (R3)
+
+`buyback-all-platforms.sql` in this repo is the **R3** version and the Dune side
+has **not been switched over yet**. Until it is, 8252735 still returns the pre-R3
+columns and the repo copy is ahead of the workspace — the one place this repo
+deliberately tolerates drift, because the cutover is a production action.
+
+Cut over with a `PATCH /api/v1/query/8252735 {query_sql}` carrying this file, then
+run it once and confirm the result carries `outflow_gross_usd`. Nothing else needs
+to change: `warm-metric-snapshots` reads the new column defensively, logs which
+basis it saw, and `fetchPlatform` keeps net revenue held until the column appears.
+Rolling back is the same call with the previous SQL.
 
 ## Gotchas
 
