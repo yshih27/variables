@@ -303,10 +303,12 @@ export default async function PlatformDetailPage({
             />
           )}
 
-          {/* Platform economics — gacha flows (spend vs gross wallet outflow). Flows
-              only: no net figure anywhere, pending filter-symmetry reconciliation.
-              The outbound leg is suppressed per-platform where its counterparty
-              split is known-wrong (Phygitals) — see outboundDisclosureFor. */}
+          {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
+              net where it is publishable. `detail.netGachaRevenue` is null unless
+              the platform is eligible AND its payout days are on the R3 basis, so
+              the panel needs no policy of its own: null means draw no net. The
+              outbound leg is separately suppressed where its counterparty split is
+              known-wrong (Phygitals) — see outboundDisclosureFor. */}
           {showEconomics && (
             <PlatformEconomics
               spendDaily={lastNDays(spendGated, 30)}
@@ -314,6 +316,8 @@ export default async function PlatformDetailPage({
               kpis={econKpis}
               buybackRatePct30d={detail.buybackRatePct30d}
               outboundDisclosure={outboundDisclosure}
+              net={detail.netGachaRevenue}
+              r3VerifiedPct30d={detail.r3VerifiedPct30d}
             />
           )}
 

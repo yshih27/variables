@@ -55,7 +55,12 @@ export type EconomicsKpis = {
 
 const SPEND_COLOR = "var(--color-yellow)";
 const BUYBACK_COLOR = "var(--color-blue)";
+const NET_COLOR = "var(--color-ink)";
 const PLOT_H = 190;
+
+/** Rolling net over the three windows, from `PlatformDetail.netGachaRevenue`.
+ *  null = held; the panel then draws no net anywhere. */
+export type NetKpis = { usd24h: number; usd7d: number; usd30d: number };
 
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmtDay = (ts: string) => {
@@ -64,6 +69,10 @@ const fmtDay = (ts: string) => {
 };
 /** A window that isn't fully covered sums to NaN — say so, never print $0. */
 const money = (n: number) => (Number.isFinite(n) ? formatCompactUsd(n) : "—");
+/** Signed money. formatCompactUsd renders a negative as "$-980K"; net goes
+ *  negative often enough that the sign belongs in front of the unit. */
+const signedMoney = (n: number) =>
+  !Number.isFinite(n) ? "—" : n < 0 ? `−${formatCompactUsd(Math.abs(n))}` : formatCompactUsd(n);
 
 type Day = { ts: string; spend: number | null; buyback: number | null };
 
@@ -90,6 +99,8 @@ export function PlatformEconomics({
   kpis,
   buybackRatePct30d,
   outboundDisclosure,
+  net,
+  r3VerifiedPct30d,
 }: {
   /** Daily gacha spend (gacha_volume_usd), completeness-gated by the page. */
   spendDaily: SeriesPoint[];
@@ -102,6 +113,14 @@ export function PlatformEconomics({
   /** Display policy for the outbound leg — see the header note. "suppressed"
    *  drops every outbound mark; it never changes a number. */
   outboundDisclosure: OutboundDisclosure;
+  /** PlatformDetail.netGachaRevenue. NULL = held, and the panel then draws no net
+   *  KPI and no net line. fetchPlatform owns that decision — a null here can mean
+   *  the platform is unsourced, held for reconciliation, or simply not yet on the
+   *  R3 basis, and none of those may render a number. */
+  net: NetKpis | null;
+  /** PlatformDetail.r3VerifiedPct30d — the share of gross outbound that R3
+   *  verifies as reaching a wallet which has spent in. Cited in the rate's ⓘ. */
+  r3VerifiedPct30d: number | null;
 }) {
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const [hover, setHover] = useState<number | null>(null);
@@ -118,6 +137,22 @@ export function PlatformEconomics({
     ...days.map((d) => Math.max(Number.isFinite(d.spend ?? NaN) ? d.spend! : 0, Number.isFinite(d.buyback ?? NaN) ? d.buyback! : 0)),
   );
   const active = hover != null ? days[hover] ?? null : null;
+
+  // Net is drawn only where fetchPlatform published one. A day the outbound side
+  // never reported gets `null`, not spend-minus-zero, so the line BREAKS there
+  // rather than drawing a 100%-margin day across a gap we never measured.
+  const showNet = net != null && !held;
+  const netByDay = showNet
+    ? days.map((d) => (d.spend != null && d.buyback != null ? d.spend - d.buyback : null))
+    : [];
+  // A daily net goes negative whenever cash-outs of EARLIER pulls outrun fresh
+  // spend — a real reading, not an error. So the plot needs a signed domain, and
+  // the bars have to sit on the zero line rather than on the floor.
+  const netLo = Math.min(0, ...netByDay.filter((v): v is number => v != null));
+  const lo = showNet ? netLo : 0;
+  const span = max - lo || 1;
+  /** Height of the zero rule above the plot floor, as a fraction. */
+  const zeroFrac = (0 - lo) / span;
 
   return (
     <Section
@@ -179,19 +214,65 @@ export function PlatformEconomics({
               {buybackRatePct30d != null ? `${buybackRatePct30d.toFixed(1)}%` : "—"}
             </span>
             <span className="text-[11.5px] text-ink-3">of pull spend flowing back out · 30d</span>
+            {/* The R3 evidence, stated as a measured share rather than a claim.
+                Rendered only where we actually have the number — an unqualified
+                "R3-verified" with nothing behind it is the failure mode here. */}
+            {r3VerifiedPct30d != null && (
+              <span className="ml-auto shrink-0 rounded-md border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-ink-4">
+                R3-verified{" "}
+                <span className="tabular text-ink-2">{r3VerifiedPct30d.toFixed(1)}%</span>
+              </span>
+            )}
           </div>
         )}
 
-        {/* Grouped daily bars: spend and outbound side by side, no net overlay. A
-            held platform draws the spend bar alone, at full cell width. */}
+        {/* Net gacha revenue — the margin, un-held for platforms whose payout leg
+            passes R3 (Addendum A §A7). Rendered ONLY where fetchPlatform published
+            a figure; a held platform shows no net row at all rather than dashes,
+            which would read as "we looked and it was nothing". */}
+        {showNet && (
+          <div className="mb-4 grid grid-cols-3 gap-x-4 gap-y-2 border-b border-line/60 pb-3">
+            {([["24h", net.usd24h], ["7d", net.usd7d], ["30d", net.usd30d]] as const).map(
+              ([w, v]) => (
+                <div key={w}>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
+                      <MetricInfo metric="netGachaRevenue">Net gacha revenue</MetricInfo>
+                    </span>
+                    <span className="shrink-0 font-mono text-[9.5px] uppercase tracking-[0.04em] text-ink-4">
+                      {w}
+                    </span>
+                  </div>
+                  <div
+                    className={`mt-1 font-mono text-[17px] font-bold leading-none tabular ${
+                      Number.isFinite(v) && v < 0 ? "text-red" : "text-ink"
+                    }`}
+                  >
+                    {signedMoney(v)}
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+
+        {/* Grouped daily bars: spend and outbound side by side, with net as a line
+            when it is published. A held platform draws the spend bar alone, at
+            full cell width. Bars grow from the ZERO rule, which only sits on the
+            plot floor while nothing goes negative. */}
         <div className="relative" style={{ height: PLOT_H }} onMouseLeave={() => { setHover(null); setAnchor(null); }}>
           {[0, 0.5, 1].map((f) => (
-            <div key={f} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${f * 100}%` }}>
+            <div key={f} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${(zeroFrac + f * (1 - zeroFrac)) * 100}%` }}>
               <span className="h-px w-full bg-line/40" />
               <span className="ml-1.5 shrink-0 font-mono text-[9.5px] leading-none text-ink-4">{formatCompactUsd(max * f)}</span>
             </div>
           ))}
-          <div className="absolute inset-0 flex items-end gap-[2px]">
+          {/* The zero rule, drawn only when the axis actually crosses it — a
+              dashed baseline under a chart that never goes negative is noise. */}
+          {zeroFrac > 0 && (
+            <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-line-2" style={{ bottom: `${zeroFrac * 100}%` }} />
+          )}
+          <div className="absolute inset-x-0 top-0 flex items-end gap-[2px]" style={{ bottom: `${zeroFrac * 100}%` }}>
             {days.map((d, i) => (
               <div
                 key={d.ts}
@@ -205,11 +286,13 @@ export function PlatformEconomics({
               </div>
             ))}
           </div>
+          {showNet && <NetLine nets={netByDay} lo={lo} span={span} />}
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink-3">
           <Key color={SPEND_COLOR} label="Gacha spend" />
           {!held && <Key color={BUYBACK_COLOR} label="Outbound (gross)" />}
+          {showNet && <Key color={NET_COLOR} label="Net gacha revenue" line />}
           <span className="ml-auto font-mono text-[10.5px] text-ink-4">
             {days.length > 0 ? `${fmtDay(days[0].ts)} – ${fmtDay(days[days.length - 1].ts)}` : ""}
           </span>
@@ -227,10 +310,61 @@ export function PlatformEconomics({
             <div className="mb-1 text-[10px] uppercase tracking-[0.06em] text-ink-3">{fmtDay(active.ts)}</div>
             <TipRow color={SPEND_COLOR} label="Spend" value={active.spend} />
             {!held && <TipRow color={BUYBACK_COLOR} label="Outbound" value={active.buyback} />}
+            {showNet && hover != null && (
+              <TipRow color={NET_COLOR} label="Net" value={netByDay[hover] ?? null} signed />
+            )}
           </ChartTooltip>
         )}
       </div>
     </Section>
+  );
+}
+
+/**
+ * Net (spend − R3 payouts) as a line over the bars.
+ *
+ * One SVG spanning the whole plot with `preserveAspectRatio="none"`, so the
+ * line's zero and the bars' baseline are the same pixel by construction rather
+ * than by two calculations agreeing. Drawn in runs of CONSECUTIVE measured days:
+ * a gap in either series is a gap in the line, because bridging it would assert a
+ * margin across days we never measured a payout for.
+ */
+function NetLine({ nets, lo, span }: { nets: (number | null)[]; lo: number; span: number }) {
+  const n = nets.length;
+  const x = (i: number) => i + 0.5;
+  const y = (v: number) => (lo + span - v) / span;
+
+  const runs: string[] = [];
+  let cur: string[] = [];
+  nets.forEach((v, i) => {
+    if (v == null) {
+      if (cur.length) runs.push(cur.join(" "));
+      cur = [];
+      return;
+    }
+    cur.push(`${cur.length ? "L" : "M"}${x(i)},${y(v)}`);
+  });
+  if (cur.length) runs.push(cur.join(" "));
+
+  // A run of one has no line to draw — dot it, or that day's net is invisible.
+  const singles = nets
+    .map((v, i) => ({ v, i }))
+    .filter(({ v, i }) => v != null && nets[i - 1] == null && nets[i + 1] == null);
+
+  return (
+    <svg
+      viewBox={`0 0 ${n} 1`}
+      preserveAspectRatio="none"
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      aria-hidden="true"
+    >
+      {runs.map((d, i) => (
+        <path key={i} d={d} fill="none" stroke={NET_COLOR} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+      ))}
+      {singles.map(({ v, i }) => (
+        <circle key={i} cx={x(i)} cy={y(v as number)} r={2} fill={NET_COLOR} vectorEffect="non-scaling-stroke" />
+      ))}
+    </svg>
   );
 }
 
@@ -262,23 +396,38 @@ function FlowRow({ color, label, a, b, c }: { color: string; label: React.ReactN
   );
 }
 
-function Key({ color, label }: { color: string; label: string }) {
+function Key({ color, label, line }: { color: string; label: string; line?: boolean }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: color }} />
+      <span
+        className={line ? "h-[2px] w-3.5 shrink-0" : "h-2.5 w-2.5 shrink-0 rounded-sm"}
+        style={{ background: color }}
+      />
       {label}
     </span>
   );
 }
 
-function TipRow({ color, label, value }: { color: string; label: string; value: number | null }) {
+function TipRow({
+  color,
+  label,
+  value,
+  signed,
+}: {
+  color: string;
+  label: string;
+  value: number | null;
+  signed?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 py-[1px]">
       <span className="flex items-center gap-1.5 text-ink-2">
         <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: color }} />
         {label}
       </span>
-      <span className="font-mono tabular text-ink">{value == null ? "no reading" : formatCompactUsd(value)}</span>
+      <span className="font-mono tabular text-ink">
+        {value == null ? "no reading" : signed ? signedMoney(value) : formatCompactUsd(value)}
+      </span>
     </div>
   );
 }
