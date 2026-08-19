@@ -254,6 +254,7 @@ async function main() {
   try {
     const { rows } = await getResultsAutoRefresh(GACHA_DAILY_QUERY_ID, {
       maxAgeMs: DAY,
+      freshnessSource: "metric-snapshots",
       runOpts: { maxWaitMs: 480_000 },
     });
     const byPlatformDay = new Map<string, Map<string, number>>();
@@ -301,6 +302,7 @@ async function main() {
   try {
     const { rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
       maxAgeMs: DAY,
+      freshnessSource: "metric-snapshots",
       runOpts: { maxWaitMs: 480_000 },
     });
     const byPlatformDay = new Map<string, Map<string, number>>();

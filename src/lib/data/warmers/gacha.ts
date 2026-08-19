@@ -205,6 +205,7 @@ export async function runGachaWarm(
     if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: 180_000 });
     const r = await getResultsAutoRefresh(id, {
       maxAgeMs: GACHA_MAX_CACHE_AGE_MS,
+      freshnessSource: "gacha-dune",
       runOpts: { maxWaitMs: 180_000 },
     });
     if (r.refreshed) {

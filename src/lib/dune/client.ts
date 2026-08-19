@@ -7,7 +7,8 @@
  *     size, so re-reading a big result set on a schedule is exactly how this
  *     client quietly burned ~2.7M datapoints/day. The comment here used to say
  *     "no credits" — it was wrong, and the meter below exists because of it.
- *   - probeCachedResult(queryId) — how old is the cached result, for ~0 cost.
+ *   - probeCachedResult(queryId) — how old is the cached result, for ≈0 cost
+ *     (one row of datapoints; ~0.01 credits/day fleet-wide).
  *     Use this to decide staleness; never export rows just to read a timestamp.
  *   - runQuery(queryId)          — trigger a FRESH execution, poll until done,
  *     return rows. Costs execution (compute) credits + takes seconds–minutes.
@@ -20,6 +21,8 @@
  * Auth: `DUNE_API_KEY` in .env.local (header `X-Dune-API-Key`).
  * Docs: https://docs.dune.com/api-reference/
  */
+import { readFreshness } from "../db/freshness";
+
 const BASE = "https://api.dune.com/api/v1";
 
 class DuneError extends Error {
@@ -97,18 +100,21 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(2)}MB`;
 }
 
-function meter(label: string, md: DuneResultMetadata | undefined): void {
+function meter(label: string, md: DuneResultMetadata | undefined, ms?: number): void {
   if (!md) return;
   const dp = Number(md.datapoint_count) || 0;
   const bytes = Number(md.result_set_bytes) || 0;
   datapointsUsed += dp;
   bytesUsed += bytes;
   callsMade += 1;
-  // Zero-datapoint calls are the freshness probes — silent by design, else every
-  // warm would log a wall of no-ops.
+  // Probes now cost one row rather than zero, so they log too — deliberately.
+  // Their LATENCY is the signal: probe time creeping up under Dune load is what
+  // precedes the 504s that used to hang a warmer for minutes per query, and the
+  // health-gate output is where that drift needs to be visible early.
   if (dp > 0) {
     console.log(
       `[dune] ${label} → ${dp.toLocaleString()} datapoints · ${fmtBytes(bytes)}` +
+        (ms != null ? ` · ${ms}ms` : "") +
         ` (run total ${datapointsUsed.toLocaleString()} dp · ${fmtBytes(bytesUsed)})`,
     );
   }
@@ -132,12 +138,16 @@ type StatusResponse = {
 
 async function req<T>(
   path: string,
-  init?: RequestInit & { absoluteUrl?: string },
+  init?: RequestInit & { absoluteUrl?: string; timeoutMs?: number },
 ): Promise<T> {
   const url = init?.absoluteUrl ?? `${BASE}${path}`;
   const res = await fetch(url, {
     ...init,
     cache: "no-store",
+    // Only set where a caller asks. The heavy reads and the execution poll must
+    // keep their existing unbounded behaviour — a 250k-row export legitimately
+    // takes minutes, and capping it here would turn a slow read into a failure.
+    ...(init?.timeoutMs ? { signal: AbortSignal.timeout(init.timeoutMs) } : {}),
     headers: {
       "X-Dune-API-Key": apiKey(),
       "content-type": "application/json",
@@ -278,18 +288,13 @@ export type AutoRefreshResult = {
   cachedAgeMs: number | null;
 };
 
-/**
- * A row offset past the end of any real result set. Dune answers with an EMPTY
- * page that still carries `execution_ended_at` + `total_row_count` — documented:
- * "if you pass in an invalid offset … you will not receive an error, but rather
- * an empty result with metadata". Measured on query 7845248: 0 datapoints, 67
- * bytes, vs 846 datapoints / 25.9KB for the full read.
- *
- * ⚠️ Do NOT reach for `limit=0` here. Dune IGNORES it and returns the whole
- * result set at full cost (measured: all 141 rows / 846 datapoints). The
- * out-of-range offset is the only cheap probe that actually works.
- */
-const PROBE_OFFSET = 1_000_000_000;
+/** Probe request budget. Dune under load has answered the results endpoint in
+ *  minutes rather than seconds; a probe that hangs is worse than a probe that
+ *  fails, because the caller can recover from a failure and cannot recover from
+ *  a five-minute stall. One retry covers a transient blip without turning a
+ *  sustained outage into a long wait. */
+const PROBE_TIMEOUT_MS = 20_000;
+const PROBE_ATTEMPTS = 2;
 
 export type CachedResultProbe = {
   /** When Dune last COMPUTED the cached result (null if the API omitted it). */
@@ -300,20 +305,66 @@ export type CachedResultProbe = {
 
 /**
  * Near-free staleness check: how old is this query's cached result, and does it
- * hold any rows? Costs one empty page (0 datapoints) instead of exporting the
- * entire result set just to read a timestamp off it.
+ * hold any rows? Reads ONE row instead of exporting the entire result set just
+ * to take a timestamp off it — ≈0 cost (a single row of datapoints, ~0.01
+ * credits/day across the whole fleet).
+ *
+ * ⚠️ This used to ask for an out-of-range `offset` to get a genuinely
+ * zero-datapoint empty page. That shape was abandoned: under Dune load the giant
+ * offset took MINUTES and then 504'd — four probes hanging 5 minutes each is what
+ * failed a core job after 44 minutes. `limit=1` returns the same
+ * `execution_ended_at` and the same `metadata.total_row_count`, measured 3.4×
+ * faster, and does not depend on undocumented behaviour for out-of-range offsets.
+ * The one row of datapoints it costs is the price of not hanging.
+ *
+ * ⚠️ Still do NOT reach for `limit=0`: Dune IGNORES it and returns the whole
+ * result set at full cost (measured: all 141 rows / 846 datapoints on 7845248).
+ *
+ * Throws on failure — `getResultsAutoRefresh` owns the fallback, so a probe
+ * outage degrades to our own freshness rather than to an execution storm.
  */
 export async function probeCachedResult(
   queryId: number,
   opts: { params?: Record<string, string | number> } = {},
 ): Promise<CachedResultProbe> {
-  const path = `/query/${queryId}/results${paramQuery(opts.params, { offset: PROBE_OFFSET, limit: 1 })}`;
-  const page = await req<DuneResultResponse>(path);
-  meter(`query ${queryId} probe`, page.result?.metadata);
-  return {
-    executionEndedAt: page.execution_ended_at ?? page.submitted_at ?? null,
-    totalRowCount: Number(page.result?.metadata?.total_row_count) || 0,
-  };
+  const path = `/query/${queryId}/results${paramQuery(opts.params, { limit: 1 })}`;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt++) {
+    const t0 = Date.now();
+    try {
+      const page = await req<DuneResultResponse>(path, { timeoutMs: PROBE_TIMEOUT_MS });
+      meter(`query ${queryId} probe`, page.result?.metadata, Date.now() - t0);
+      return {
+        executionEndedAt: page.execution_ended_at ?? page.submitted_at ?? null,
+        totalRowCount: Number(page.result?.metadata?.total_row_count) || 0,
+      };
+    } catch (e) {
+      lastErr = e;
+      console.warn(
+        `[dune] query ${queryId} probe attempt ${attempt}/${PROBE_ATTEMPTS} failed after ${Date.now() - t0}ms: ${(e as Error).message.slice(0, 120)}`,
+      );
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/**
+ * Age of OUR OWN last successful warm for a source — the fallback when Dune's
+ * probe is unavailable. Only a status of "ok" counts: an "error" row means the
+ * warmer ran and failed, which is no evidence that the data behind it is fresh.
+ * Null when we have no usable row, which the caller treats as "unknown", not
+ * "fresh".
+ */
+async function snapshotAgeMs(source: string): Promise<number | null> {
+  try {
+    const rows = await readFreshness([source]);
+    const row = rows.find((r) => r.source === source);
+    if (!row || row.status !== "ok") return null;
+    const t = Date.parse(row.generated_at);
+    return Number.isFinite(t) ? Date.now() - t : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -331,8 +382,15 @@ export async function probeCachedResult(
  * for data it never used. Rows are now fetched only down the branch that needs
  * them.
  *
- * Safe degradation: if Dune doesn't report an execution timestamp, we trust a
- * non-empty cache rather than re-running on every call (which would burn credits).
+ * Safe degradation, two kinds:
+ *   • Dune reports no execution timestamp → trust a non-empty cache rather than
+ *     re-running on every call (which would burn credits).
+ *   • The PROBE ITSELF fails (timeout, 504, outage) → fall back to how fresh OUR
+ *     OWN last successful warm is, via `freshnessSource`. If our snapshot is
+ *     younger than `maxAgeMs` the data is fine and we serve cached; only a
+ *     genuinely stale snapshot justifies paying for an execution. Without this a
+ *     Dune wobble either hangs the warmer or stampedes it into executing every
+ *     query at once — the run that failed after 44 minutes did the former.
  */
 export async function getResultsAutoRefresh(
   queryId: number,
@@ -341,9 +399,45 @@ export async function getResultsAutoRefresh(
     params?: Record<string, string | number>;
     runOpts?: { maxWaitMs?: number; pollMs?: number; maxRows?: number };
     maxRows?: number;
+    /** The caller's `source_freshness` key (the name it passes to runWarmer).
+     *  Used ONLY when the probe fails, to decide whether our own data is still
+     *  fresh enough to serve cached. Omit and a probe failure falls through to an
+     *  execution, which is correct but expensive — so callers should pass it. */
+    freshnessSource?: string;
   },
 ): Promise<AutoRefreshResult> {
-  const probe = await probeCachedResult(queryId, { params: opts.params });
+  let probe: CachedResultProbe;
+  try {
+    probe = await probeCachedResult(queryId, { params: opts.params });
+  } catch (e) {
+    // 404 = no result exists — a definitive answer, not an outage; the fallback
+    // is only for 5xx/timeouts. Treat it exactly like the totalRowCount === 0
+    // staleness branch and execute, or the freshness fallback would "serve
+    // cached" from a query that has no cached result and throw on the read.
+    if (e instanceof DuneError && e.status === 404) {
+      console.warn(`[dune] query ${queryId} has no cached result (404) — executing fresh`);
+      const rows = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
+      return { rows, refreshed: true, cachedAgeMs: null };
+    }
+    const ageMs = opts.freshnessSource ? await snapshotAgeMs(opts.freshnessSource) : null;
+    const fresh = ageMs !== null && ageMs <= opts.maxAgeMs;
+    if (fresh) {
+      console.warn(
+        `[dune] query ${queryId} probe unavailable — snapshot fresh (${(ageMs / 3.6e6).toFixed(1)}h), serving cached: ${(e as Error).message.slice(0, 100)}`,
+      );
+      const { rows } = await getLatestResultsMeta(queryId, {
+        params: opts.params,
+        maxRows: opts.maxRows,
+      });
+      return { rows, refreshed: false, cachedAgeMs: null };
+    }
+    console.warn(
+      `[dune] query ${queryId} probe unavailable — snapshot ${ageMs === null ? "age unknown" : `stale (${(ageMs / 3.6e6).toFixed(1)}h)`}, executing fresh: ${(e as Error).message.slice(0, 100)}`,
+    );
+    const rows = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
+    return { rows, refreshed: true, cachedAgeMs: null };
+  }
+
   const parsed = probe.executionEndedAt ? Date.parse(probe.executionEndedAt) : NaN;
   const cachedAgeMs = Number.isFinite(parsed) ? Date.now() - parsed : null;
   const stale =
