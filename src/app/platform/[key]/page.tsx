@@ -11,6 +11,7 @@ import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
 import { PlatformEconomics, type EconomicsKpis } from "@/components/PlatformEconomics";
+import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
 import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
 import { PlatformPlayers } from "@/components/PlatformPlayers";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
@@ -252,6 +253,12 @@ export default async function PlatformDetailPage({
   // Only where the buyback wallet is known on-chain (CC + Phygitals today). An
   // empty series means unsourced, not zero — every other platform gets nothing.
   const showEconomics = buybackGated.length > 0;
+  // Whether that outflow may be PUBLISHED, which is a separate question from
+  // whether it is sourced. Held for Phygitals: its exclusion list misses the
+  // dominant non-player counterparties, so the flow is real but the label would
+  // not be. Spend is a different query and still renders. Nothing above changes —
+  // the KPIs are still computed, the suppressed ones simply aren't passed on.
+  const outboundDisclosure = outboundDisclosureFor(key);
 
   // Player analytics for THIS platform. A platform the snapshot excluded (no
   // wallet-attributed rows) simply isn't in `platforms`, so this is null and the
@@ -296,14 +303,17 @@ export default async function PlatformDetailPage({
             />
           )}
 
-          {/* Platform economics — gacha flows (spend vs buyback payouts). Flows
-              only: no net figure anywhere, pending filter-symmetry reconciliation. */}
+          {/* Platform economics — gacha flows (spend vs gross wallet outflow). Flows
+              only: no net figure anywhere, pending filter-symmetry reconciliation.
+              The outbound leg is suppressed per-platform where its counterparty
+              split is known-wrong (Phygitals) — see outboundDisclosureFor. */}
           {showEconomics && (
             <PlatformEconomics
               spendDaily={lastNDays(spendGated, 30)}
               buybackDaily={lastNDays(buybackGated, 30)}
               kpis={econKpis}
               buybackRatePct30d={detail.buybackRatePct30d}
+              outboundDisclosure={outboundDisclosure}
             />
           )}
 

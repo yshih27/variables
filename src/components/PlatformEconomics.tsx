@@ -6,23 +6,40 @@ import { MetricInfo } from "./MetricInfo";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartTooltip";
 import { formatCompactUsd } from "@/lib/format";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
+import type { OutboundDisclosure } from "@/lib/metrics/outboundDisclosure";
 
 /**
- * Platform economics — gacha FLOWS: what players spent on pulls, and what the
- * platform paid back out through instant buybacks.
+ * Platform economics — gacha FLOWS: what players spent on pulls, and what left
+ * the platform's gacha wallets.
  *
  * ⚠️ FLOWS ONLY — no net figure, no net line, no subtraction anywhere in this
  * component. `PlatformDetail.netGachaRevenue` exists on the contract and is
- * deliberately NOT read here: buyback payouts currently EXCEED gacha spend on
- * both covered platforms, which means the two sides are not measuring the same
- * population of transactions. Publishing spend − payouts before that
+ * deliberately NOT read here: outflow currently EXCEEDS gacha spend on both
+ * covered platforms, which means the two sides are not measuring the same
+ * population of transactions. Publishing spend − outflow before that
  * filter-symmetry reconciliation lands would print a confidently wrong "what the
  * house kept". Until then the honest thing is to show each flow on its own and
  * let the ratio speak. Do not add a net row back without the backend fix.
  *
+ * ⚠️ THE OUTBOUND LEG IS NOT "PAYOUTS TO PLAYERS". It is gross outbound USDC
+ * from the gacha wallets — correctly measured as a flow, but it carries partner,
+ * vendor and internal transfers that we cannot yet split out. Hence two
+ * disclosure states, decided per platform by `outboundDisclosureFor` and NOT by
+ * this component (see docs/roadmap/net-gacha-reconciliation.md §5):
+ *
+ *   "gross"      → render the flow under a label that says what it is. CC's
+ *                  exclusion list already removes its largest counterparties, so
+ *                  the residual has a plausible player shape (§3c).
+ *   "suppressed" → render NOTHING on the outbound side: no flow row, no rate, no
+ *                  bar, no tooltip line. Phygitals' exclusion list misses its
+ *                  dominant non-player counterparties, so its 102.9% "rate" is an
+ *                  artifact of that omission (§3d). Spend comes off a separate
+ *                  query and is untouched, so the panel stays — spend-only, with
+ *                  a note saying the outbound side is held rather than zero.
+ *
  * Both series arrive ALREADY completeness-gated by the page (same cutoff for
  * both, so a Dune-lagged trailing day can't draw a tall spend bar next to a
- * missing payout bar and read as a windfall).
+ * missing outflow bar and read as a windfall).
  */
 
 /** Rolling-window sums, computed server-side with the canonical
@@ -72,20 +89,28 @@ export function PlatformEconomics({
   buybackDaily,
   kpis,
   buybackRatePct30d,
+  outboundDisclosure,
 }: {
   /** Daily gacha spend (gacha_volume_usd), completeness-gated by the page. */
   spendDaily: SeriesPoint[];
-  /** Daily buyback payouts (PlatformDetail.buybackDaily), same gate. Empty means
-   *  the platform has no known buyback wallet — the page renders nothing. */
+  /** Daily gacha-wallet outflow (PlatformDetail.buybackDaily), same gate. Empty
+   *  means the platform has no known buyback wallet — the page renders nothing. */
   buybackDaily: SeriesPoint[];
   kpis: EconomicsKpis;
-  /** PlatformDetail.buybackRatePct30d — payouts ÷ spend over 30 complete days. */
+  /** PlatformDetail.buybackRatePct30d — outflow ÷ spend over 30 complete days. */
   buybackRatePct30d: number | null;
+  /** Display policy for the outbound leg — see the header note. "suppressed"
+   *  drops every outbound mark; it never changes a number. */
+  outboundDisclosure: OutboundDisclosure;
 }) {
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const [hover, setHover] = useState<number | null>(null);
 
-  const days = toDays(spendDaily, buybackDaily);
+  // Suppression is total: the outbound series never reaches `toDays`, so there is
+  // no bar to draw, no day contributed by an outflow-only date, and no way for a
+  // withheld figure to leak through the tooltip.
+  const held = outboundDisclosure === "suppressed";
+  const days = toDays(spendDaily, held ? [] : buybackDaily);
   if (!days.length) return null;
 
   const max = Math.max(
@@ -97,7 +122,11 @@ export function PlatformEconomics({
   return (
     <Section
       title="Platform economics"
-      subtitle="Gacha spend vs buyback payouts · flows, not profit · last 30 complete days"
+      subtitle={
+        held
+          ? "Gacha pull spend · last 30 complete days"
+          : "Gacha spend vs gross outbound · flows, not profit · last 30 complete days"
+      }
       flush
       className="font-sans"
     >
@@ -121,29 +150,40 @@ export function PlatformEconomics({
                 b={kpis.spend7d}
                 c={kpis.spend30d}
               />
-              <FlowRow
-                color={BUYBACK_COLOR}
-                label={<MetricInfo metric="buybackRate">Buyback payouts</MetricInfo>}
-                a={kpis.buyback24h}
-                b={kpis.buyback7d}
-                c={kpis.buyback30d}
-              />
+              {!held && (
+                <FlowRow
+                  color={BUYBACK_COLOR}
+                  label={
+                    <MetricInfo metric="grossOutbound">
+                      Outbound to players &amp; partners (gross)
+                    </MetricInfo>
+                  }
+                  a={kpis.buyback24h}
+                  b={kpis.buyback7d}
+                  c={kpis.buyback30d}
+                />
+              )}
             </tbody>
           </table>
         </div>
 
-        {/* Buyback rate — a ratio of the two flows above, never a difference. */}
-        <div className="mb-4 flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-y border-line/60 py-2.5">
-          <span className="text-[11px] uppercase tracking-[0.06em] text-ink-3">
-            <MetricInfo metric="buybackRate">Buyback rate</MetricInfo>
-          </span>
-          <span className="font-mono text-[15px] font-bold tabular text-ink">
-            {buybackRatePct30d != null ? `${buybackRatePct30d.toFixed(1)}%` : "—"}
-          </span>
-          <span className="text-[11.5px] text-ink-3">of pull spend paid back out · 30d</span>
-        </div>
+        {/* Buyback rate — a ratio of the two flows above, never a difference. The
+            caption says "flowing back out", not "paid back to players": the
+            numerator is gross outbound and a share of it is not player money. */}
+        {!held && (
+          <div className="mb-4 flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-y border-line/60 py-2.5">
+            <span className="text-[11px] uppercase tracking-[0.06em] text-ink-3">
+              <MetricInfo metric="buybackRate">Buyback rate</MetricInfo>
+            </span>
+            <span className="font-mono text-[15px] font-bold tabular text-ink">
+              {buybackRatePct30d != null ? `${buybackRatePct30d.toFixed(1)}%` : "—"}
+            </span>
+            <span className="text-[11.5px] text-ink-3">of pull spend flowing back out · 30d</span>
+          </div>
+        )}
 
-        {/* Grouped daily bars: spend and payouts side by side, no net overlay. */}
+        {/* Grouped daily bars: spend and outbound side by side, no net overlay. A
+            held platform draws the spend bar alone, at full cell width. */}
         <div className="relative" style={{ height: PLOT_H }} onMouseLeave={() => { setHover(null); setAnchor(null); }}>
           {[0, 0.5, 1].map((f) => (
             <div key={f} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${f * 100}%` }}>
@@ -161,7 +201,7 @@ export function PlatformEconomics({
                 style={{ opacity: hover == null || hover === i ? 1 : 0.45 }}
               >
                 <Bar value={d.spend} max={max} color={SPEND_COLOR} />
-                <Bar value={d.buyback} max={max} color={BUYBACK_COLOR} />
+                {!held && <Bar value={d.buyback} max={max} color={BUYBACK_COLOR} />}
               </div>
             ))}
           </div>
@@ -169,17 +209,24 @@ export function PlatformEconomics({
 
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-ink-3">
           <Key color={SPEND_COLOR} label="Gacha spend" />
-          <Key color={BUYBACK_COLOR} label="Buyback payouts" />
+          {!held && <Key color={BUYBACK_COLOR} label="Outbound (gross)" />}
           <span className="ml-auto font-mono text-[10.5px] text-ink-4">
             {days.length > 0 ? `${fmtDay(days[0].ts)} – ${fmtDay(days[days.length - 1].ts)}` : ""}
           </span>
         </div>
 
+        {held && (
+          <p className="mt-2.5 border-t border-line/60 pt-2.5 text-[11px] leading-snug text-ink-4">
+            Outbound flows under reconciliation — payout and rate figures are withheld
+            for this platform, not zero. Pull spend is unaffected.
+          </p>
+        )}
+
         {active && (
           <ChartTooltip anchor={anchor}>
             <div className="mb-1 text-[10px] uppercase tracking-[0.06em] text-ink-3">{fmtDay(active.ts)}</div>
             <TipRow color={SPEND_COLOR} label="Spend" value={active.spend} />
-            <TipRow color={BUYBACK_COLOR} label="Buyback" value={active.buyback} />
+            {!held && <TipRow color={BUYBACK_COLOR} label="Outbound" value={active.buyback} />}
           </ChartTooltip>
         )}
       </div>
