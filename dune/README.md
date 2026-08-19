@@ -30,7 +30,7 @@ both:
 |---|---|---|---|---|
 | `gacha-live-all-platforms.sql` | 8252733 | 30d | daily | `runGachaWarm` → homepage rips, platform gacha panels |
 | `gacha-daily-all-platforms.sql` | 8252734 | 90d | daily | `warm-metric-snapshots` → spine `gacha_volume_usd` |
-| `buyback-all-platforms.sql` | 8252735 | 30d | daily | `runGachaWarm` → net-take / buyback |
+| `buyback-all-platforms.sql` | 8252735 | 35d | daily | `runGachaWarm` → net-take / buyback; `warm-metric-snapshots` → `buyback_payout_usd` + `outflow_gross_usd` |
 | `cc-secondary.sql` | 7675297 | 30d | daily | `warm-core-dune` → CC secondary volume |
 | `courtyard-secondary.sql` | 7845248 | 30d | daily | `warm-core-dune` → Courtyard secondary volume |
 | `cc-big-hits.sql` | 7643571 | 7d | **weekly** | weekly report → Notable Pulls |
@@ -54,7 +54,38 @@ weeks.
 |---|---|
 | `gacha-live-all-platforms.sql` | `gacha-live-{cc,beezie,phygitals,courtyard}` (7642633 / 7642705 / 7642707 / 7642710) |
 | `gacha-daily-all-platforms.sql` | `gacha-daily-{cc,beezie,phygitals,courtyard}` (7845475 / 7845392 / 7845484 / 7845479) |
-| `buyback-all-platforms.sql` | `buyback-{cc,phygitals}` (7644128 / 7644129) |
+| `buyback-all-platforms.sql` | `buyback-{cc,phygitals}` (7644128 / 7644129) — ⚠️ **both IDs RECLAIMED**, see below |
+
+## One-shot / diagnostic
+
+Not scheduled, not referenced from `src/`. These exist because the 402
+private-query cap blocks CREATE but not UPDATE, so a diagnostic has to reclaim a
+dormant slot. **Their IDs were previously the per-platform buyback queries** —
+that SQL is still mirrored under `superseded/` with its original filename, but
+those two IDs no longer hold it.
+
+| File | Query | Window | Executed | Purpose |
+|---|---|---|---|---|
+| `r3-buyback-reconciliation.sql` | 7644128 | 35d | **once**, 2026-08-19 (107.6 cr) | §6 R3 measured — payouts counted only where the recipient spent in, beside current counting |
+| `r3-recipient-drilldown.sql` | 7644129 | 35d | **never** (~100 cr if run) | top-40 recipients per platform with `is_spender` / `not_excluded` — the named evidence behind §3d |
+
+Results and interpretation: `docs/roadmap/net-gacha-reconciliation.md` Addendum A.
+⚠️ **Do not put either on a schedule.** Each costs ~100 cr because R3 needs BOTH
+the inflow and outflow scans — roughly 3.6× the one-scan estimate the findings doc
+assumed. Re-run by hand only when the rule itself changes.
+
+## ⚠️ Pending cutover — 8252735 (R3)
+
+`buyback-all-platforms.sql` in this repo is the **R3** version and the Dune side
+has **not been switched over yet**. Until it is, 8252735 still returns the pre-R3
+columns and the repo copy is ahead of the workspace — the one place this repo
+deliberately tolerates drift, because the cutover is a production action.
+
+Cut over with a `PATCH /api/v1/query/8252735 {query_sql}` carrying this file, then
+run it once and confirm the result carries `outflow_gross_usd`. Nothing else needs
+to change: `warm-metric-snapshots` reads the new column defensively, logs which
+basis it saw, and `fetchPlatform` keeps net revenue held until the column appears.
+Rolling back is the same call with the previous SQL.
 
 ## Gotchas
 

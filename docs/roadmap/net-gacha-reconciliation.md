@@ -227,3 +227,217 @@ Note this is also why §3d's truncated addresses are sufficient: the recommended
 | §4 asymmetries | committed SQL: `dune/gacha-daily-all-platforms.sql`, `dune/buyback-all-platforms.sql` | free |
 | §5 anchors | spine `gacha_volume_usd` + Dune query 8252735 cached read | free (cached) |
 | exclusion-list membership | grep against committed SQL | free |
+
+---
+
+# Addendum A — R3 measured (2026-08-19)
+
+**Status:** R3 is no longer a proposal. It was implemented, executed once, and it
+**does not do what §7 predicted for Phygitals.**
+**Ran:** query 7644128 (slot reclaimed, see §A6), execution
+`01M0CHYNMVGWV1XR9MFX1787S8`, 2026-08-19 08:24–08:27 UTC.
+**Not wired into production counting.** This addendum is the input to that decision,
+not the decision.
+
+## A0. The three answers, up front
+
+| Question §7 left open | Answer |
+|---|---|
+| What does R3 count for CC? | Payout $159.14M / 35d → **net +$8.52M** (take 5.08%), up from +$7.90M |
+| What does R3 count for Phygitals? | Payout $13.15M / 35d → **net −$76.8K. Still negative. Still >100%.** |
+| Is the canonical allowlist behind the press gap? | **No.** It captures **96.8%** of CC gross inflow, **99.996%** of PHY |
+
+**The headline: R3 fixes CC's label and does NOT lift Phygitals' hold.** §7 asserted
+"a genuine buyback cannot exceed spend … **true net > $0**" for PHY. Measured under
+R3, PHY's payout ratio falls from 102.56% to **100.59% — still above 1.0**. The
+suppression shipped for Phygitals should stay.
+
+## A1. Method, and why these two columns are comparable
+
+Both legs are computed **in one execution, over one 35d window, off one `now()`**,
+so nothing drifts between the "current" and "R3" columns. `payout_current_usd`
+reproduces live query 8252735 exactly — same sender scope, same 17/2-wallet
+exclusion list, no amount filter — and it checks out against the spine
+($159.76M here vs $159.97M for the spine's trailing 35d; the 3-day window offset
+accounts for the difference).
+
+⚠️ **Window: 35d, not §6's 90d.** 35d matches 8252734/8252735 so spend and payout
+stay like-for-like, but it is the **tighter** spender gate: fewer recipients
+qualify, so **more** payout is removed and net comes out **higher**. Every R3 net
+below is therefore an **upper bound** on what R3@90d would print. This matters for
+the conclusion: PHY is negative *at its most favourable setting*.
+
+## A2. R3-counted payouts and net, beside current counting
+
+35d rolling window ending 2026-08-19 08:27 UTC. Spend = `inflow_canon_usd`, the
+same canonical-price leg the site publishes.
+
+### Collector Crypt — spend $167,657,703
+
+| Rule | Payout | Rate | **Net** | Take |
+|---|---|---|---|---|
+| Current (live 8252735) | $159,760,183 | 95.29% | **+$7,897,520** | 4.71% |
+| **R3** (recipient spent in) | $159,140,835 | 94.92% | **+$8,516,868** | 5.08% |
+| R3 + exclusion list kept | $159,140,835 | 94.92% | +$8,516,868 | — |
+| R3 on canonical spenders | $159,014,650 | 94.84% | +$8,643,053 | — |
+| R1+R3 (symmetric wallets) | $159,140,835 | 94.92% | +$8,516,868 | — |
+
+R3 removes **$619,348 — 0.39%** of the current payout. 9,478 of 11,047 recipients
+(85.8%) are spenders.
+
+### Phygitals — spend $13,073,074
+
+| Rule | Payout | Rate | **Net** | Take |
+|---|---|---|---|---|
+| Current (live 8252735) | $13,407,251 | 102.56% | **−$334,178** | −2.56% |
+| **R3** (recipient spent in) | $13,149,887 | **100.59%** | **−$76,814** | −0.59% |
+| R3 + exclusion list kept | $13,149,887 | 100.59% | −$76,814 | — |
+| R3 on canonical spenders | $13,148,171 | 100.57% | −$75,097 | — |
+| R1+R3 (symmetric wallets) | $13,367,039 | 102.25% | −$293,965 | — |
+
+R3 removes **$257,364 — 1.92%**. 6,549 of 7,311 recipients (89.6%) are spenders.
+Note R1 makes it **worse**: adding the missing `42oNTi…` sender pulls another
+$217,151 of outflow in, exactly as §4's asymmetry-1 predicted.
+
+## A3. R3 works as designed — it is just not big enough
+
+Two results vindicate the rule's *construction*, which is worth separating from
+its *sufficiency*:
+
+- **R3 strictly subsumes the hand-curated exclusion lists.** `payout_r3_excl_usd`
+  equals `payout_r3_usd` to the cent on **both** platforms: every wallet the lists
+  exclude is already a non-spender, so R3 removes it without being told. §6's
+  "self-maintaining, list-free" claim holds.
+- **R3 removes strictly more.** Of CC's $173.36M gross outflow, the exclusion list
+  drops $13.60M (7.85%); R3 drops $14.22M — the same money plus $619K the list
+  never knew about. The maintenance-failure diagnosis in §3d was right.
+
+But the magnitudes are the story. On CC, R3 moves the take rate 4.71% → 5.08%.
+On Phygitals it closes barely a fifth of the gap to 100%. **Non-player
+counterparties are not what makes PHY's payout exceed its spend.**
+
+## A4. What is actually left in Phygitals (falsifies §7's inference)
+
+§7 reasoned: a genuine buyback cannot exceed spend in aggregate, therefore the
+excess must be non-player flow, therefore R3 removes it and net turns positive.
+The first clause is sound; the inference is not. R3 tests **who the counterparty
+is**, never **what the transfer was for** — so a wallet that both plays gacha and
+withdraws other proceeds passes R3 for its *entire* outflow.
+
+Two candidate residuals, neither excluded by this run:
+
+1. **Declining volume — a timing artifact, not a counting error.** Buybacks settle
+   cards pulled *earlier*; on a shrinking platform the payout window is servicing
+   inventory bought when volume was far higher. Measured off the spine:
+
+   | Platform | 0–35d | 35–70d | 70–105d | trend |
+   |---|---|---|---|---|
+   | collector-crypt | $176.09M | $242.05M | $118.33M | **−27.2%** |
+   | phygitals | $13.50M | $20.01M | $62.94M | **−32.5%** (−79% over ~3 months) |
+
+   Phygitals' spend is down 79% from three months ago. A payout leg tracking that
+   larger cohort against today's smaller spend produces a ratio above 1.0 with no
+   miscounting anywhere. **A rate >100% is therefore not, by itself, proof of a
+   broken rule** — which weakens the premise behind proposed invariant R5/INV-10.
+
+2. **Non-gacha outflow to genuine players.** Marketplace proceeds or deposit
+   withdrawals leaving the same wallets would be counted in full by both the
+   current rule and R3.
+
+Distinguishing these needs a **temporal** matching rule (cohort the payout to the
+pull it settles), not a counterparty rule. That is a different piece of work from
+R3 and it is not one query.
+
+## A5. The press gap ($209M) — settled on our side
+
+§4 could not measure gross-vs-filtered inflow: Helius returned ~0.2% of expected
+density (§2) and Dune could not be funded. This run measures it at full density.
+
+| Platform | canonical (published) | gross inflow | canonical capture |
+|---|---|---|---|
+| collector-crypt | $167,657,703 | $173,232,471 | **96.78%** |
+| phygitals | $13,073,074 | $13,073,623 | **99.996%** |
+
+**The allowlist is not a material under-count.** It drops 3.2% on CC — round-number
+treasury-shaped transfers, consistent with §3a — and essentially nothing on
+Phygitals, confirming its `amount >= 1` dust filter is doing correct work.
+
+So a 3.5× press gap **cannot** be explained by our filter: even swapping in gross
+inflow moves CC only 3.2%. The remaining explanations are definitional (press
+"gross GMV" spanning channels/secondary we don't count, a different month, or
+non-USDC settlement) or a volume difference across periods — note CC's spend has
+*grown* well past the ~$60M/month figure §4 compared against, so the two sides of
+that comparison were never the same period. **§4's standing instruction still
+holds: do not cite our figure against the press figure.** What is now settled is
+narrower and useful — *our* number is not the thing that is wrong.
+
+## A6. Slots, cost, and provenance
+
+Two dormant `superseded/` slots were reclaimed by API SQL-overwrite (the 402 cap
+blocks CREATE, not UPDATE). Both were archived; both were unarchived, PATCHed, and
+the SQL read back and verified byte-identical to the repo copy.
+
+| ID | Was | Now | Executed |
+|---|---|---|---|
+| 7644128 | `TCG.market — CC buyback` | `dune/r3-buyback-reconciliation.sql` | **once** |
+| 7644129 | `TCG.market — Phygitals buyback` | `dune/r3-recipient-drilldown.sql` | **no** |
+
+The overwritten SQL is preserved unchanged in `dune/superseded/buyback-cc.7644128.sql`
+and `dune/superseded/buyback-phygitals.7644129.sql` — the files keep their original
+names, but **those two IDs no longer hold that SQL**.
+
+**Cost — standing rule, size × cadence × measured credits:**
+
+| | |
+|---|---|
+| Result size | **2 rows / 14 cols / 28 datapoints / 232 bytes** |
+| Cadence | **one-shot, by hand. Nothing in `src/` references either id; neither is scheduled** |
+| Measured `execution_cost_credits` | **107.579** (166s compute) |
+| Estimate in §7 | ~30 cr — **the estimate was 3.6× low** |
+| Account at run time | **9,283 / 4,000 credits = 232% of plan** (worse than the 183% in §1) |
+| Usage delta across the run | 9,283.242 → 9,396.855 = **113.613** (execution + export + metadata probes) |
+
+The estimate missed because §7 assumed "the same scan as 8252735, differing only
+in `GROUP BY to_owner`". R3 needs the **inflow** leg too, to build the spender set —
+two scans of `tokens_solana.transfers`, not one. Any future R3 variant costs about
+this much; the 90d bracket would cost materially more, because the inflow scan
+grows with the window.
+
+7644129 is authored but unrun. It returns the top 40 recipients per platform with
+`is_spender` / `not_excluded` flags — the named evidence behind §3d at full
+density. Expect a similar ~100 cr. **Run it only if the lift decision needs the
+per-counterparty breakdown.**
+
+## A7. The lift decision — RULED 2026-08-19
+
+**Collector Crypt lifts under R3. Phygitals stays held.**
+
+Implemented by this change: `dune/buyback-all-platforms.sql` counts `payout_usd`
+under R3 and retains the pre-R3 definition as a second series
+`outflow_gross_usd`; `PlatformDetail.netGachaRevenue` populates for CC and stays
+null for Phygitals with `heldReason: "reconciliation"`.
+
+⚠️ **The lift is conditional on the data actually being on the R3 basis.** CC's
+net publishes only where the spine carries `outflow_gross_usd` over the same days
+— the presence of that series is what proves the Dune cutover happened. Until
+then CC's net stays null with `heldReason: "awaiting-r3-basis"`, because
+publishing a gross-basis payout under an R3 label is the exact failure this whole
+document exists to prevent.
+
+Reasoning and standing conditions:
+
+- **Phygitals: keep the outbound leg suppressed.** R3 was the proposed unblock and
+  it leaves the rate above 100%. Nothing here supports publishing a payout or rate
+  figure for Phygitals.
+- **Collector Crypt: R3 is a real but small improvement** (95.29% → 94.92%,
+  net +$7.90M → +$8.52M/35d). It is defensible on a methodology page and it makes
+  the figure list-free. It does **not** by itself turn the gross-outbound label
+  into a player-payout label — R3 filters counterparties, not purposes, and §A4's
+  non-gacha-outflow residual is untested.
+- **Reconsider R5/INV-10 before building it.** "payout ÷ spend > 1.0 = HARD fail"
+  assumes a ratio above 1.0 can only mean a broken rule. §A4 shows a declining
+  platform produces one legitimately. As specified it would fire on Phygitals
+  forever and teach the team to ignore it.
+- **The genuinely open question is temporal, not counterparty.** Cohorting payouts
+  to the pulls they settle is what would make "net gacha revenue" a real figure.
+  That is a new piece of work, and this run says it is the one that matters.

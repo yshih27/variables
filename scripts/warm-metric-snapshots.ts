@@ -299,6 +299,16 @@ async function main() {
   // known on-chain buyback wallet appear (CC, Phygitals) — a platform whose
   // payout side is unsourced simply has no rows here, which is what keeps
   // fetchPlatform from computing spend-minus-zero.
+  //
+  // ⚠️ TWO SERIES, ONE ROW. Since the R3 switchover the query returns both
+  // `payout_usd` (R3-counted: the recipient also spent into this platform's gacha
+  // receivers) and `outflow_gross_usd` (the pre-R3 definition — every outflow bar
+  // the internal-wallet list). They are written as separate metrics, never summed
+  // together. The gross column is ALSO the basis marker: fetchPlatform only
+  // publishes a net figure for days that carry it, because its presence is what
+  // proves the day's payout is R3-counted. A pre-cutover result has no such
+  // column, so `outflow_gross_usd` simply isn't pushed and net stays held — which
+  // is why this reads the column defensively instead of assuming it.
   try {
     const { rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
       maxAgeMs: DAY,
@@ -306,6 +316,8 @@ async function main() {
       runOpts: { maxWaitMs: 480_000 },
     });
     const byPlatformDay = new Map<string, Map<string, number>>();
+    const grossByPlatformDay = new Map<string, Map<string, number>>();
+    let grossRows = 0;
     for (const r of bbRows) {
       const rec = r as Record<string, unknown>;
       const key = String(rec.platform ?? "");
@@ -318,7 +330,23 @@ async function main() {
       let days = byPlatformDay.get(key);
       if (!days) byPlatformDay.set(key, (days = new Map()));
       days.set(day, (days.get(day) ?? 0) + usd);
+
+      // Absent pre-cutover. `null`/undefined must NOT become 0: a zero gross with
+      // a non-zero payout is arithmetically impossible and would publish an R3
+      // share above 100%.
+      if (rec.outflow_gross_usd == null) continue;
+      const gross = Number(rec.outflow_gross_usd);
+      if (!Number.isFinite(gross)) continue;
+      grossRows++;
+      let gd = grossByPlatformDay.get(key);
+      if (!gd) grossByPlatformDay.set(key, (gd = new Map()));
+      gd.set(day, (gd.get(day) ?? 0) + gross);
     }
+    console.log(
+      grossRows > 0
+        ? `  buyback basis: R3 (${grossRows}/${bbRows.length} rows carry outflow_gross_usd)`
+        : `  ⚠ buyback basis: PRE-R3 — query ${BUYBACK_QUERY_ID} returned no outflow_gross_usd column, so payouts are still gross-of-list and net revenue stays held. Cut the Dune query over (dune/buyback-all-platforms.sql).`,
+    );
     for (const [key, byDay] of byPlatformDay) {
       // Same partial-leading-edge drop as the gacha daily query: the window's
       // oldest bucket is clipped by `now() - interval '35' day` and would
@@ -356,6 +384,45 @@ async function main() {
       console.log(
         `  buyback_payout_usd ${key}: ${pushed} days · 30d $${Math.round(sum30).toLocaleString()}` +
           (storedSum > 0 ? ` (spine had $${Math.round(storedSum).toLocaleString()}, ${(drift * 100).toFixed(1)}% drift)` : " (first write)"),
+      );
+    }
+
+    // Gross outflow — the pre-R3 definition, kept as its own series so the panel
+    // can show the flow and the buyback-rate ⓘ can cite what share of it R3
+    // verifies. Same oldest-bucket and today-is-partial drops as above, so the
+    // two series cover exactly the same days and their ratio is never a window
+    // artefact.
+    for (const [key, byDay] of grossByPlatformDay) {
+      const oldest = [...byDay.keys()].sort()[0];
+      const payoutDays = byPlatformDay.get(key);
+      let pushed = 0;
+      let sum30 = 0;
+      for (const [day, usd] of byDay) {
+        if (day === oldest) continue;
+        if (Date.parse(day) + DAY > now) continue;
+        push("platform", key, "outflow_gross_usd", usd, day);
+        pushed++;
+        if (Date.parse(day) >= now - 30 * DAY) sum30 += usd;
+      }
+      // R3 can only ever be a SUBSET of gross. If a day's payout exceeds its
+      // gross outflow the two columns are not describing the same rows, and the
+      // ⓘ would print an R3 share above 100% — louder than a silent bad write.
+      let inverted = 0;
+      for (const [day, gross] of byDay) {
+        const pay = payoutDays?.get(day);
+        if (pay != null && pay > gross + 0.01) inverted++;
+      }
+      if (inverted > 0) {
+        console.warn(
+          `  ⚠ outflow_gross_usd ${key}: ${inverted} day(s) where R3 payout EXCEEDS gross outflow — the two columns disagree on scope, do not publish a net figure off this run`,
+        );
+      }
+      const paid30 = [...(payoutDays ?? new Map())]
+        .filter(([d]) => Date.parse(d) >= now - 30 * DAY && Date.parse(d) + DAY <= now && d !== oldest)
+        .reduce((s, [, v]) => s + v, 0);
+      console.log(
+        `  outflow_gross_usd ${key}: ${pushed} days · 30d $${Math.round(sum30).toLocaleString()}` +
+          (sum30 > 0 ? ` · R3 verifies ${((paid30 / sum30) * 100).toFixed(2)}% of it` : ""),
       );
     }
   } catch (e) {

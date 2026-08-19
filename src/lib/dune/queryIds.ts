@@ -65,9 +65,27 @@ export const BUYBACK_PLATFORMS = ["collector-crypt", "phygitals"] as const;
  * wallets back to players (instant cash-out of a pulled card), excluding
  * internal/house wallets. Net house revenue = gacha spend − buyback payout.
  *
- * Rows: `{ platform, day, buyback_count, payout_usd }` — one per platform per UTC
- * day, 35d window, mirroring GACHA_DAILY_QUERY_ID so the two sides of net revenue
- * share a shape AND a window and can be subtracted day-for-day.
+ * Rows: `{ platform, day, buyback_count, payout_usd, outflow_gross_count,
+ * outflow_gross_usd }` — one per platform per UTC day, 35d window, mirroring
+ * GACHA_DAILY_QUERY_ID so the two sides of net revenue share a shape AND a window
+ * and can be subtracted day-for-day.
+ *
+ * ⚠️ BASIS CHANGE (2026-08-19, rule R3). `payout_usd` counts an outflow as a
+ * player payout ONLY where the recipient also spent into this platform's gacha
+ * receivers inside the same window. The previous definition — every outflow minus
+ * a hand-curated internal-wallet list — is retained as `outflow_gross_usd`, and
+ * the two are written to the spine as SEPARATE metrics (`buyback_payout_usd`,
+ * `outflow_gross_usd`). Never sum them.
+ *
+ * ⚠️ `outflow_gross_usd` DOUBLES AS THE BASIS MARKER. It is emitted by the same
+ * query in the same row, so a spine day carrying it is a day whose payout is
+ * R3-counted. fetchPlatform publishes a net figure only for days that have it —
+ * that is what stops a gross-basis payout shipping under an R3 label while the
+ * Dune switchover and this code deploy independently.
+ *
+ * ⚠️ SPINE DAYS OLDER THAN THE 35d WINDOW KEEP THEIR PRE-R3 VALUES. Every reader
+ * uses 24h/7d/30d, all inside the rewritten range. Do not sum `buyback_payout_usd`
+ * past 35d without re-deriving it.
  *
  * ⚠️ WINDOWS ARE CALENDAR-ALIGNED NOW. This query used to return rolling
  * aggregates (`pay_24h` = "the last 24 hours"). Day buckets can't reproduce a
