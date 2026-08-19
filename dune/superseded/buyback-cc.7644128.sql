@@ -1,3 +1,8 @@
+-- ⚠️ ID 7644128 HAS BEEN RECLAIMED (2026-08-19). This file is the SQL that id
+-- USED to hold; the id now runs dune/r3-buyback-reconciliation.sql. Kept under its original name as
+-- provenance for the UNION branches in buyback-all-platforms.sql — do NOT read
+-- it as the current definition of query 7644128.
+
 SELECT 
   COUNT(*) AS bb_30d, SUM(amount/power(10,6)) AS pay_30d,
   COUNT(*) FILTER (WHERE block_time > now() - interval '7' day) AS bb_7d,
