@@ -183,6 +183,62 @@ export async function fetchDyliMarketplaceSales(windowMs: number): Promise<Norma
     }));
 }
 
+/**
+ * One read of the recent window, split into everything core-volume needs:
+ * the marketplace rows AND the gacha lane's rolling totals.
+ *
+ * ⚠️ ROLLING, deliberately. Every other platform's `gachaVol24Usd` is a rolling
+ * 24h figure off its live gacha feed, and the panel that renders it labels the
+ * window "24h". DYLI has no live gacha feed — its box sales arrive through this
+ * same store — so the choice was between a rolling window computed here and a
+ * complete-calendar-day sum off the spine. The spine sum would have been easier
+ * and would have put a different basis behind an identical "24h" chip on one
+ * platform only. Rolling keeps the column meaning one thing.
+ *
+ * One `readDyliSales` for both outputs: the marketplace projection and the gacha
+ * sums come off the same rows, and paging the store twice for them would double
+ * a read that is already the expensive part of the core batch's DYLI step.
+ */
+export async function fetchDyliLaneWindows(windowMs: number): Promise<{
+  marketplace: NormalizedSale[];
+  gachaVol24Usd: number;
+  gachaVol7Usd: number;
+  gachaSales24h: number;
+}> {
+  const now = Date.now();
+  const since = new Date(now - windowMs).toISOString();
+  const rows = await readDyliSales({ since });
+
+  const marketplace: NormalizedSale[] = [];
+  let gachaVol24Usd = 0;
+  let gachaVol7Usd = 0;
+  let gachaSales24h = 0;
+
+  for (const r of rows) {
+    const usd = Number(r.price_usd);
+    if (!(usd > 0)) continue;
+    if (r.lane === "marketplace") {
+      marketplace.push({
+        date: r.sold_at,
+        tokenId: r.token_id ?? String(r.product_id ?? ""),
+        buyer: r.buyer ?? "",
+        seller: r.seller ?? "",
+        priceUsd: usd,
+      });
+      continue;
+    }
+    if (r.lane !== "gacha") continue;
+    const age = now - Date.parse(r.sold_at);
+    if (!Number.isFinite(age) || age < 0) continue;
+    if (age <= 7 * 24 * 60 * 60 * 1000) gachaVol7Usd += usd;
+    if (age <= 24 * 60 * 60 * 1000) {
+      gachaVol24Usd += usd;
+      gachaSales24h += 1;
+    }
+  }
+  return { marketplace, gachaVol24Usd, gachaVol7Usd, gachaSales24h };
+}
+
 /** Every stored row, paginated past PostgREST's 1000-row cap. */
 export async function readDyliSales(opts: { since?: string } = {}): Promise<DyliStoredSale[]> {
   const PAGE = 1000;

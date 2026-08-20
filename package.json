@@ -32,6 +32,8 @@
     "heal-spine": "tsx scripts/heal-spine.ts",
     "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts",
     "warm-dyli-sales": "tsx scripts/warm-dyli-sales.ts",
+    "warm-dyli-listings": "tsx scripts/warm-dyli-listings.ts",
+    "warm-dyli-boxes": "tsx scripts/warm-dyli-boxes.ts",
     "check-dyli-lanes": "tsx scripts/check-dyli-lanes.ts",
     "warm-player-analytics": "tsx scripts/warm-player-analytics.ts"
   },

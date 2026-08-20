@@ -21,7 +21,7 @@ import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
 const CC_SECONDARY_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 import { type CollectionStats, type NormalizedSale } from "../../rarible/queries";
 import { fetchBeezieSales } from "../../beezie/market";
-import { fetchDyliMarketplaceSales } from "../../dyli/sales";
+import { fetchDyliLaneWindows } from "../../dyli/sales";
 import {
   writeCoreVolume,
   type CorePlatformVolume,
@@ -208,11 +208,19 @@ export async function runCoreWarm(
   //    spine metrics, never folded into secondary volume (see dyli/lanes.ts). ──
   try {
     const t0 = Date.now();
-    const sales = await fetchDyliMarketplaceSales(30 * DAY);
-    platforms["dyli"] = buildPlatform("dyli", "dyli", sales, 30);
+    const w = await fetchDyliLaneWindows(30 * DAY);
+    platforms["dyli"] = buildPlatform("dyli", "dyli", w.marketplace, 30);
+    // DYLI's gacha rides the same feed, so it is carried here rather than in the
+    // Dune gacha snapshot (which has no DYLI entry and never will — DYLI is not
+    // a Dune source). Rolling windows, matching every other platform's basis.
+    platforms["dyli"].gachaVol24Usd = w.gachaVol24Usd;
+    platforms["dyli"].gachaVol7Usd = w.gachaVol7Usd;
+    platforms["dyli"].gachaSales24h = w.gachaSales24h;
     log(
-      `→ dyli (native /sales) ${sales.length} secondary sales/30d · 24h $${Math.round(
+      `→ dyli (native /sales) ${w.marketplace.length} secondary sales/30d · 24h $${Math.round(
         platforms["dyli"].stats24h.volumeUsd,
+      ).toLocaleString()} · gacha 24h $${Math.round(w.gachaVol24Usd).toLocaleString()} / 7d $${Math.round(
+        w.gachaVol7Usd,
       ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
     );
   } catch (err) {
