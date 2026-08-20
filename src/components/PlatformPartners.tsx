@@ -1,17 +1,23 @@
 import { Section } from "./Section";
 import { MetricInfo } from "./MetricInfo";
-import { formatCompactUsd } from "@/lib/format";
+import { formatCompactUsd, formatMonthDayUtc } from "@/lib/format";
 
 /**
  * Top partners — which partner surface a Collector Crypt pull was bought
  * through (CC's `memo_slug`: 'cc' is CC's own storefront, 'rare' is Rarible, …).
  *
- * ⚠️ RENDERS NOTHING TODAY, BY DESIGN. `memo_slug` capture is forward-only and
- * lands with PR #73; the player-analytics snapshot carries no partner rollup
- * yet, so `partners` is undefined and this returns null. It lights up on its own
- * once the backend attaches the rollup — no FE change needed. Until then there
- * is deliberately no placeholder: an empty partner board would imply we measured
- * the split and found nothing, when we simply have not captured it yet.
+ * THREE STATES, and the difference between them is the honesty:
+ *   • No rollup at all (`partners` null) or zero attributed rows → render
+ *     NOTHING. We have not measured the split, so we say nothing about it.
+ *   • Attribution accruing but no partner over the floor → the section header
+ *     plus an accrual note (same honest-absence family as "Building history").
+ *     Capture is forward-only, so a young, truthful "0.5% attributed" is the
+ *     expected state for a while and deserves an explanation, not silence.
+ *   • A partner clears the floor → the board, which replaces the note by itself.
+ *
+ * `memo_slug` capture is forward-only and lands with PR #73; the snapshot carries
+ * no partner rollup yet, so today this returns null and lights up on its own once
+ * the backend attaches the rollup — no FE change needed.
  *
  * DISPLAY RULES (fixed — do not special-case any individual partner):
  *   • Top 3 by trailing-30d attributed volume, cut at DISPLAY time from the FULL
@@ -45,9 +51,23 @@ export type PartnerAttribution = {
   /** Share of pulls in the window carrying a memo_slug (0–100). NULL slugs are
    *  unknown origin and are excluded from every partner's volume. */
   attributedPct: number;
+  /** When memo_slug capture began — the migration's ship date. Dates the accrual
+   *  note so "0.5% attributed" reads as "young", not as "broken". Optional: the
+   *  note simply drops the clause when the rollup doesn't carry it. */
+  capturedSince?: string | null;
 };
 
 const TOP_N = 3;
+
+/** Shared by the board and the accrual note, so the ⓘ reads the same in both. */
+function PartnersTitle() {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      Top partners
+      <MetricInfo metric="partnerAttribution" />
+    </span>
+  );
+}
 
 export function PlatformPartners({ partners }: { partners: PartnerAttribution | null | undefined }) {
   if (!partners) return null;
@@ -57,26 +77,45 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
   // Which slug is the house is the snapshot's call (CC sends "cc"), not a
   // hardcoded name here — that keeps this free of per-partner special-casing.
   const house = (partners.config?.houseSlug ?? "").trim().toLowerCase();
+  // Any row with a real volume = attribution is landing, even if no partner is
+  // big enough to show yet. That distinction is what picks the state below.
+  const attributed = partners.rows.filter((r) => Number.isFinite(r.volumeUsd30d));
   // House out, then floor, then rank, then cut — all on the full rollup, by volume only.
-  const top = partners.rows
+  const top = attributed
     .filter((r) => !house || r.slug.trim().toLowerCase() !== house)
-    .filter((r) => Number.isFinite(r.volumeUsd30d) && r.volumeUsd30d >= floor)
+    .filter((r) => r.volumeUsd30d >= floor)
     .sort((a, b) => b.volumeUsd30d - a.volumeUsd30d)
     .slice(0, TOP_N);
 
-  // Nothing clears the floor → nothing to show. Still not a placeholder.
-  if (!top.length) return null;
-
   const pct = Number.isFinite(partners.attributedPct) ? partners.attributedPct : 0;
+
+  // Attribution is landing but nothing has cleared the floor yet — say so, with
+  // the numbers that make it legible: how long it's been accruing, how much of
+  // the feed is attributed, and the bar a partner has to clear. Nothing at all
+  // is captured → still render nothing (we measured nothing, so we claim nothing).
+  if (!top.length) {
+    if (!attributed.length) return null;
+    const since = formatMonthDayUtc(partners.capturedSince);
+    const note =
+      [
+        since ? `Partner attribution accruing since ${since}` : "Partner attribution accruing",
+        `${fmtAttributedPct(pct)} of pulls attributed`,
+        `partners appear at ${formatCompactUsd(floor)}/30d volume`,
+      ].join(" · ") + ".";
+    return (
+      <Section title={<PartnersTitle />} flush className="font-sans">
+        <div className="px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
+          <div className="flex min-h-[64px] items-center justify-center rounded-lg border border-dashed border-line px-4 py-3 text-center text-[12px] leading-relaxed text-ink-3">
+            {note}
+          </div>
+        </div>
+      </Section>
+    );
+  }
 
   return (
     <Section
-      title={
-        <span className="inline-flex items-center gap-1.5">
-          Top partners
-          <MetricInfo metric="partnerAttribution" />
-        </span>
-      }
+      title={<PartnersTitle />}
       subtitle={`top ${TOP_N} by 30d volume · ${fmtAttributedPct(pct)} of pulls attributed`}
       flush
       className="font-sans"
