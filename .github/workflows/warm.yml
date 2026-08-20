@@ -159,6 +159,13 @@ jobs:
       - name: Metric snapshots (time-series spine)
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
+      # ⚠️ KEEP THIS BETWEEN metric-snapshots AND the invariants gate. The spine
+      # step above REWRITES the trailing 35 days, so any payload derived before it
+      # is stale by construction — and the gate below compares payload against
+      # spine (INV-3 / INV-6 / INV-8). Moving or dropping this turns the gate into
+      # a source of false "completeness regressed" alarms. Same rule applies to the
+      # indices job, which ends in the same gate; scripts/heal-spine.ts exists so a
+      # manual heal follows this order too.
       - name: Homepage payload precompute # re-derive off the fresh daily data (B9-1)
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
@@ -201,6 +208,27 @@ jobs:
         run: npx tsx scripts/warm-weekly-report.ts
       - name: Health gate # fails the job (→ Actions notifies) if any warmer errored
         run: npx tsx scripts/check-freshness.ts --require=benchmarks,price-index,weekly-report
+      # ⚠️ MUST PRECEDE THE INVARIANTS GATE BELOW — this is not a data refresh, it is
+      # what makes the gate's comparison valid. check-invariants reads the homepage
+      # payload and re-derives the same figures live: INV-3 (column semantics), INV-6
+      # (hero == Σ platform rows) and INV-8 (Σ 24h deltas gated to source-complete
+      # days) all compare PAYLOAD against SPINE. If the spine moved since the payload
+      # was last written, they diverge and the gate fails describing a completeness
+      # regression that did not happen.
+      #
+      # That is the 06:00 false positive seen on 2026-08-19 and 2026-08-20. The daily
+      # batch (05:30) does re-warm the payload after metric-snapshots, but this job is
+      # a SEPARATE 06:00 run: the 6h core batch shares this slot, both queue on the
+      # `warm` concurrency group, and the daily batch's own payload step is
+      # continue-on-error — so by the time this gate runs the payload can legitimately
+      # be older than the spine it is checked against.
+      #
+      # Rule, for any job that ends in check-invariants: re-warm the payload
+      # immediately before it. Cheap (pure derivation, no external calls) next to a
+      # gate that pages someone.
+      - name: Homepage payload precompute # re-derive so the gate compares like for like
+        continue-on-error: true
+        run: npx tsx scripts/warm-homepage.ts
       # Data-integrity gate — the price index was just rewritten above. INV-7 (HARD)
       # fails the run if any index series published a FUTURE-dated point or the
       # IN-PROGRESS week (the post-#44 completeness regression), so a thin partial-week

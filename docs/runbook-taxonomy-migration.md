@@ -38,14 +38,19 @@ metrics roll up. The two metric families react differently:
    ```
    Pass only the *shrinking* bucket(s). Promoted keys have no pre-migration stock
    rows, so listing them is harmless but unnecessary.
-4. Re-warm downstream so the surfaces refresh:
+4. Re-warm downstream and verify — **one command**, or wait for the daily batch:
    ```
-   npx tsx scripts/warm-metric-snapshots.ts   # (or wait for the daily batch)
-   npx tsx scripts/warm-homepage.ts
+   npm run heal-spine
    ```
-5. Verify: `npx tsx scripts/check-invariants.ts` — the spine-continuity invariant
-   (no entity mcap moving >±30% day-over-day) should pass. A remaining flag means a
-   key that shrank wasn't reset.
+   It runs `warm-metric-snapshots` → `warm-homepage` → `check-invariants` in that
+   order and refuses to skip the trailing steps. Do not run the spine warmer on its
+   own: it rewrites the trailing 35 days, and `check-invariants` compares the stored
+   homepage payload against figures re-derived live (INV-3 / INV-6 / INV-8), so a
+   payload left behind makes the next scheduled gate fail describing a completeness
+   regression that never happened.
+
+   The spine-continuity invariant (no entity mcap moving >±30% day-over-day) should
+   pass. A remaining flag means a key that shrank wasn't reset.
 
 ## Pending
 
