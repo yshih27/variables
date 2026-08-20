@@ -41,6 +41,14 @@ export type PlatformBucket = {
   history: HourBucket[] | null;
   /** 24h primary-market USD volume (tokenization fees etc). Null if N/A. */
   primaryUsd: number | null;
+  /**
+   * Rolling gacha volume for a platform whose gacha arrives on its SECONDARY
+   * feed rather than the Dune gacha snapshot (DYLI). Undefined everywhere else;
+   * fetchPlatform prefers the gacha snapshot and only falls back to these, so a
+   * platform present in both is unaffected.
+   */
+  gachaVol24Usd?: number;
+  gachaVol7Usd?: number;
 };
 
 /**
@@ -119,6 +127,8 @@ function buildBucket(
     hasSecondarySource: !!cv,
     history,
     primaryUsd,
+    gachaVol24Usd: cv?.gachaVol24Usd,
+    gachaVol7Usd: cv?.gachaVol7Usd,
   };
 }
 

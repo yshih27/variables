@@ -80,6 +80,12 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "gacha-packs": 6 * HOUR_MS,
   // DYLI native sales feed — incremental page from the stored cursor.
   "dyli-sales": 6 * HOUR_MS,
+  // DYLI active book (~2 requests) → floor + market cap. Daily: the book is
+  // small and slow-moving, and the mcap it feeds is a daily stock reading.
+  "dyli-listings": DAY_MS,
+  // DYLI box catalog + realized pulls. Daily; the pull sweep is incremental so
+  // the steady state is about one request per live box.
+  "dyli-boxes": DAY_MS,
   // derived homepage blob (B9-1) — recomputed at the end of the core batch
   homepage: 6 * HOUR_MS,
   // always-on listener (scripts/listen-gacha.ts) — heartbeats every ~5min
