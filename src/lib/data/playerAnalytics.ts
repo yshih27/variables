@@ -121,8 +121,11 @@ export type PartnerRow = {
 export type PartnerAttribution = {
   /** The FULL rollup — every attributed partner. The component cuts to top 3. */
   rows: PartnerRow[];
-  /** Snapshot-owned display config; the floor lives with the data, not the FE. */
-  config: { minVolumeUsd: number };
+  /** Snapshot-owned display config; the floor AND the house slug live with the
+   *  data, not the FE. `houseSlug` = the platform's own storefront channel (CC's
+   *  memo_slug 'cc') — a partner board renders partner SURFACES, so the component
+   *  filters it out. Optional: rollups that predate the field filter nothing. */
+  config: { minVolumeUsd: number; houseSlug?: string | null };
   /** Share of pulls in the TRAILING 30 DAYS carrying a memo_slug (0-100), to
    *  match the 30d volumes the component displays beside it. */
   attributedPct: number;
@@ -391,7 +394,7 @@ export async function aggregatePlayerAnalytics(opts: {
           pullsLifetime: v.pullsLife,
           volumeUsdLifetime: v.usdLife,
         })),
-        config: { minVolumeUsd: PARTNER_MIN_VOLUME_USD },
+        config: { minVolumeUsd: PARTNER_MIN_VOLUME_USD, houseSlug: "cc" },
         attributedPct: pct(acc.win.attr30d, acc.win.total30d),
         attributedPct24h: pct(acc.win.attr24h, acc.win.total24h),
         attributedPct7d: pct(acc.win.attr7d, acc.win.total7d),
