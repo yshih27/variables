@@ -38,8 +38,10 @@ export type PartnerRow = {
 export type PartnerAttribution = {
   /** The FULL rollup — every attributed partner. Cut to the top 3 here. */
   rows: PartnerRow[];
-  /** Snapshot-owned display config. The floor lives with the data, not in the FE. */
-  config: { minVolumeUsd: number };
+  /** Snapshot-owned display config. The floor and the house slug live with the
+   *  data, not in the FE — CC's rollup sends `houseSlug: "cc"`. Optional so a
+   *  rollup that predates the field still renders (it just filters nothing). */
+  config: { minVolumeUsd: number; houseSlug?: string | null };
   /** Share of pulls in the window carrying a memo_slug (0–100). NULL slugs are
    *  unknown origin and are excluded from every partner's volume. */
   attributedPct: number;
@@ -51,8 +53,13 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
   if (!partners) return null;
 
   const floor = Number.isFinite(partners.config?.minVolumeUsd) ? partners.config.minVolumeUsd : 0;
-  // Floor first, then rank, then cut — all on the full rollup, by volume only.
+  // The house storefront is not a partner; boards render partner surfaces only.
+  // Which slug is the house is the snapshot's call (CC sends "cc"), not a
+  // hardcoded name here — that keeps this free of per-partner special-casing.
+  const house = (partners.config?.houseSlug ?? "").trim().toLowerCase();
+  // House out, then floor, then rank, then cut — all on the full rollup, by volume only.
   const top = partners.rows
+    .filter((r) => !house || r.slug.trim().toLowerCase() !== house)
     .filter((r) => Number.isFinite(r.volumeUsd30d) && r.volumeUsd30d >= floor)
     .sort((a, b) => b.volumeUsd30d - a.volumeUsd30d)
     .slice(0, TOP_N);
@@ -70,7 +77,7 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
           <MetricInfo metric="partnerAttribution" />
         </span>
       }
-      subtitle={`top ${TOP_N} by 30d volume · ${pct.toFixed(0)}% of pulls attributed`}
+      subtitle={`top ${TOP_N} by 30d volume · ${fmtAttributedPct(pct)} of pulls attributed`}
       flush
       className="font-sans"
     >
@@ -94,4 +101,20 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
       </div>
     </Section>
   );
+}
+
+/**
+ * Attributed share of pulls. One decimal below 10% (the early-accrual range,
+ * where "3%" and "3.4%" are different stories), whole percent above it.
+ *
+ * Floors at "<0.1%" and never prints a bare "0%": this only renders when partner
+ * rows are visible, so attribution is provably non-zero — a rounded "0%" beside
+ * real volume would read as "we attributed nothing", which is false. Forward-only
+ * capture means the true figure sits near zero for a long while, so this is the
+ * normal case, not an edge case.
+ */
+function fmtAttributedPct(pct: number): string {
+  if (!Number.isFinite(pct) || pct < 0.1) return "<0.1%";
+  if (pct < 10) return `${pct.toFixed(1)}%`;
+  return `${pct.toFixed(0)}%`;
 }
