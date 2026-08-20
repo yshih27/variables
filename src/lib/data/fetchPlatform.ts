@@ -22,6 +22,11 @@ import {
   type SeriesPoint,
 } from "./metricSnapshots";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
+import {
+  netRevenueEligible,
+  NET_HELD_FOR_SPENDER_COVERAGE,
+  type NetHeldReason,
+} from "@/lib/metrics/outboundDisclosure";
 import type { Chain, Trend } from "@/lib/types";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 
@@ -123,23 +128,44 @@ export type PlatformDetail = {
   salesEnriched: number;
   salesTotal: number;
   /**
-   * Net gacha revenue — pack-pull spend MINUS buyback payouts, the figure that
-   * says what the house actually kept. NULL whenever either side is unsourced:
-   * only Collector Crypt and Phygitals have a known on-chain buyback wallet, and
-   * a platform we can't see payouts for must render "—", never spend-minus-zero
-   * (which would read as 100% take and be the most flattering possible lie).
+   * Net gacha revenue — canonical pack-pull spend MINUS R3-counted payouts: the
+   * platform's gacha MARGIN, not its P&L. Both sides are summed from the SPINE
+   * over the same trailing COMPLETE days, so the windows and the completeness
+   * basis match by construction. Deliberately NOT taken from the live rolling
+   * aggregates.
    *
-   * Both sides are summed from the SPINE over the same trailing COMPLETE days,
-   * so the windows and the completeness basis match by construction. They are
-   * deliberately NOT taken from the live rolling aggregates.
+   * NULL is the normal case and `heldReason` says which one — see NetHeldReason.
+   * Three gates, all of which must pass:
+   *   1. the payout side is SOURCED (only CC and Phygitals have a known on-chain
+   *      buyback wallet; spend-minus-zero would read as a 100% take rate);
+   *   2. the platform is ELIGIBLE (`netRevenueEligible` — Phygitals is not; see
+   *      Addendum A §A7, R3 left it above 100%);
+   *   3. the payout days are proven to be on the R3 BASIS, which the presence of
+   *      `outflowGrossDaily` over the same days is what demonstrates.
+   *
+   * Gate 3 exists because the Dune switchover is a separate deploy from this
+   * code. Without it, a CC net computed off gross-basis payout days would ship
+   * under an R3 label — the precise failure the reconciliation exists to prevent.
    */
   netGachaRevenue: { usd24h: number; usd7d: number; usd30d: number } | null;
-  /** Buyback payouts ÷ gacha spend over 30 complete days, as a percent. Null on
-   *  the same unsourced condition as netGachaRevenue, or when spend is 0. */
+  /** Why `netGachaRevenue` is null; null when it is populated. */
+  heldReason: NetHeldReason | null;
+  /** R3-counted payouts ÷ gacha spend over 30 complete days, as a percent. Null
+   *  when the payout side is unsourced, or when spend is 0. Note this is NOT
+   *  gated on eligibility — a rate is a ratio of two published flows, and the
+   *  panel suppresses it per-platform in the view layer. */
   buybackRatePct30d: number | null;
-  /** Daily buyback payout series (complete days) for the chart. Empty when
+  /** Share of gross gacha-wallet outflow that R3 verifies as reaching a wallet
+   *  which has spent in, over 30 complete days, as a percent. Null until the
+   *  spine carries both series. This is what the buyback-rate ⓘ cites. */
+  r3VerifiedPct30d: number | null;
+  /** Daily R3-counted payout series (complete days) for the chart. Empty when
    *  unsourced — an empty array renders "building history", never a flat zero. */
   buybackDaily: SeriesPoint[];
+  /** Daily GROSS gacha-wallet outflow (the pre-R3 definition: every outflow bar
+   *  the hand-curated internal-wallet list). Empty until the Dune cutover writes
+   *  it. Its presence over a day is the proof that day's payout is R3-counted. */
+  outflowGrossDaily: SeriesPoint[];
 };
 
 function spark24h(sales: NormalizedSale[], buckets = 24): number[] {
@@ -449,9 +475,10 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // rolling aggregates: those are rolling on the spend side and calendar on the
   // payout side, and subtracting across that mismatch is precisely the error the
   // day-bucketed buyback query was introduced to remove.
-  const [gachaDailySeries, buybackDailySeries] = await Promise.all([
+  const [gachaDailySeries, buybackDailySeries, outflowGrossDailySeries] = await Promise.all([
     readMetricSeries("platform", key, "gacha_volume_usd").catch(() => [] as SeriesPoint[]),
     readMetricSeries("platform", key, "buyback_payout_usd").catch(() => [] as SeriesPoint[]),
+    readMetricSeries("platform", key, "outflow_gross_usd").catch(() => [] as SeriesPoint[]),
   ]);
   // sumLastCompleteDays anchors to each series' OWN newest day and returns NaN
   // when the window isn't fully covered — both of which we want. But anchoring
@@ -475,17 +502,47 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   const payoutSourced = buybackDailySeries.length > 0 && commonEnd !== null;
   const spend30 = sumLastCompleteDays(spendUpTo, 30);
   const payout30 = sumLastCompleteDays(payoutUpTo, 30);
-  const netGachaRevenue = payoutSourced
-    ? {
-        usd24h: sumLastCompleteDays(spendUpTo, 1) - sumLastCompleteDays(payoutUpTo, 1),
-        usd7d: sumLastCompleteDays(spendUpTo, 7) - sumLastCompleteDays(payoutUpTo, 7),
-        usd30d: spend30 - payout30,
-      }
-    : null;
+
+  // ── R3 BASIS GATE ─────────────────────────────────────────────────────────
+  // `buyback_payout_usd` changed meaning on the Dune side (gross-of-list → R3);
+  // this code and that switchover deploy independently. `outflow_gross_usd` is
+  // written by the SAME query in the SAME row, so a day that carries it is a day
+  // whose payout is R3-counted, and a day that doesn't is pre-cutover. Requiring
+  // it to cover the whole 30d window is what stops a net figure being computed
+  // over a mix of the two bases — silently understating payouts, overstating net.
+  const grossUpTo = upTo(outflowGrossDailySeries);
+  const gross30 = sumLastCompleteDays(grossUpTo, 30);
+  const r3Basis = payoutSourced && Number.isFinite(gross30) && gross30 > 0;
+
+  const eligible = netRevenueEligible(key);
+  const heldReason: NetHeldReason | null = !payoutSourced
+    ? "unsourced"
+    : !eligible
+      ? "reconciliation"
+      : !r3Basis
+        ? "awaiting-r3-basis"
+        : NET_HELD_FOR_SPENDER_COVERAGE
+          ? "spender-coverage"
+          : null;
+
+  const netGachaRevenue =
+    heldReason === null
+      ? {
+          usd24h: sumLastCompleteDays(spendUpTo, 1) - sumLastCompleteDays(payoutUpTo, 1),
+          usd7d: sumLastCompleteDays(spendUpTo, 7) - sumLastCompleteDays(payoutUpTo, 7),
+          usd30d: spend30 - payout30,
+        }
+      : null;
   const buybackRatePct30d =
     payoutSourced && Number.isFinite(spend30) && Number.isFinite(payout30) && spend30 > 0
       ? (payout30 / spend30) * 100
       : null;
+  // R3-verified share of gross outbound — the ⓘ's evidence. Denominator is
+  // `outflow_gross_usd` (outflow minus the internal-wallet list), which is what
+  // the panel's outbound row shows, NOT the unfiltered wallet total. Measured
+  // 2026-08-19: CC 99.61%, Phygitals 98.08%.
+  const r3VerifiedPct30d =
+    r3Basis && Number.isFinite(payout30) && gross30 > 0 ? (payout30 / gross30) * 100 : null;
 
   return {
     source: bucket.source,
@@ -496,8 +553,11 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     salesEnriched,
     salesTotal,
     netGachaRevenue,
+    heldReason,
     buybackRatePct30d,
+    r3VerifiedPct30d,
     buybackDaily: buybackDailySeries,
+    outflowGrossDaily: outflowGrossDailySeries,
     primaryUsd: bucket.primaryUsd,
     gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : null,
     gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : null,
@@ -525,7 +585,13 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
 
 export const getPlatformDetail = unstable_cache(
   async (key: string) => buildPlatformDetail(key),
-  ["platform-detail:v8"], // v8: + netGachaRevenue / buybackRatePct30d / buybackDaily
+  // v9: + heldReason / r3VerifiedPct30d / outflowGrossDaily, and netGachaRevenue
+  // changed BASIS (payouts are R3-counted now, not gross-of-list). BUMP REQUIRED
+  // on both counts — a v8 row deserializes with the three new fields undefined,
+  // which reads as "no R3 basis" and would hold CC's net shut for a cache cycle;
+  // worse, a cached v8 net was computed off gross-basis payouts and must not be
+  // served under the new label.
+  ["platform-detail:v9"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

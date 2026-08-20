@@ -30,7 +30,7 @@ both:
 |---|---|---|---|---|
 | `gacha-live-all-platforms.sql` | 8252733 | 30d | daily | `runGachaWarm` → homepage rips, platform gacha panels |
 | `gacha-daily-all-platforms.sql` | 8252734 | 90d | daily | `warm-metric-snapshots` → spine `gacha_volume_usd` |
-| `buyback-all-platforms.sql` | 8252735 | 30d | daily | `runGachaWarm` → net-take / buyback |
+| `buyback-all-platforms.sql` | 8252735 | 35d | daily (42.9 cr) | `warm-metric-snapshots` → `buyback_payout_usd` (R3) + `outflow_gross_usd`; `runGachaWarm` → buyback windows |
 | `cc-secondary.sql` | 7675297 | 30d | daily | `warm-core-dune` → CC secondary volume |
 | `courtyard-secondary.sql` | 7845248 | 30d | daily | `warm-core-dune` → Courtyard secondary volume |
 | `cc-big-hits.sql` | 7643571 | 7d | **weekly** | weekly report → Notable Pulls |
@@ -54,7 +54,54 @@ weeks.
 |---|---|
 | `gacha-live-all-platforms.sql` | `gacha-live-{cc,beezie,phygitals,courtyard}` (7642633 / 7642705 / 7642707 / 7642710) |
 | `gacha-daily-all-platforms.sql` | `gacha-daily-{cc,beezie,phygitals,courtyard}` (7845475 / 7845392 / 7845484 / 7845479) |
-| `buyback-all-platforms.sql` | `buyback-{cc,phygitals}` (7644128 / 7644129) |
+| `buyback-all-platforms.sql` | `buyback-{cc,phygitals}` (7644128 / 7644129) — ⚠️ **both IDs RECLAIMED**, see below |
+
+## One-shot / diagnostic
+
+Not scheduled, not referenced from `src/`. These exist because the 402
+private-query cap blocks CREATE but not UPDATE, so a diagnostic has to reclaim a
+dormant slot. **Their IDs were previously the per-platform buyback queries** —
+that SQL is still mirrored under `superseded/` with its original filename, but
+those two IDs no longer hold it.
+
+| File | Query | Window | Executed | Purpose |
+|---|---|---|---|---|
+| `r3-buyback-reconciliation.sql` | 7644128 | 35d | **once**, 2026-08-19 (107.6 cr) | §6 R3 measured — payouts counted only where the recipient spent in, beside current counting |
+| `r3-recipient-drilldown.sql` | 7644129 | 35d | **never** (~100 cr if run) | top-40 recipients per platform with `is_spender` / `not_excluded` — the named evidence behind §3d |
+
+Results and interpretation: `docs/roadmap/net-gacha-reconciliation.md` Addendum A.
+⚠️ **Do not put either on a schedule.** Each costs ~100 cr because R3 needs BOTH
+the inflow and outflow scans — roughly 3.6× the one-scan estimate the findings doc
+assumed. Re-run by hand only when the rule itself changes.
+
+## R3 counting — where the work happens, and what it cost
+
+`buyback-all-platforms.sql` was cut over on 8252735 on 2026-08-19 (read-back
+verified). **The R3 spender test is not in the SQL.** Dune returns one row per
+recipient per day and `warm-metric-snapshots` classifies each recipient against
+our own `gacha_pulls.buyer`. That split is a measured cost decision, not a
+preference — Dune bills compute per execution AND results per exported MB
+(10 cr/MB on Analyst), and the two terms trade against each other:
+
+| variant | rows | MB | compute | export | **all-in** |
+|---|---|---|---|---|---|
+| R3 inside Dune (2 scans, day-bucketed) | 72 | 0.004 | 71.16 | 0.04 | **71.19 cr** |
+| per-recipient, wide payload | 45,325 | 3.493 | 28.21 | 34.93 | **63.14 cr** |
+| **per-recipient, narrow payload** ← shipped | 45,323 | 1.599 | 26.91 | 15.99 | **42.90 cr** |
+
+Dropping the inflow scan halves compute but the export costs most of it back;
+what actually fits the ≤50 cr/day ceiling is narrowing the row — a one-character
+platform code, a DATE instead of a timestamp, and a 16-hex hash instead of a
+44-char address took 80.8 → 37.0 bytes/row. **Do not widen those columns.**
+
+Roll back with the same `PATCH` carrying `git show origin/main:dune/buyback-all-platforms.sql`
+(the pre-R3 SQL). The loader detects the old shape, writes the gross series as
+payouts, emits no basis marker, and net revenue re-holds by itself.
+
+⚠️ **Pricing an export without paying for it:** execute, then read
+`/execution/{id}/results?limit=1` — Dune reports `total_result_set_bytes` for the
+FULL result regardless of the page fetched. That is how the table above was
+measured for ~0 export credits.
 
 ## Gotchas
 

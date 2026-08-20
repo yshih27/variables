@@ -136,29 +136,51 @@ function sumTrailingCompleteDays(
     new Date().getUTCDate(),
   );
   const out: Record<number, { usd: number; count: number; days: number }> = {};
-  for (const n of windows) out[n] = { usd: 0, count: 0, days: 0 };
+  // Distinct days, not row count — per-recipient rows put many rows on one day.
+  const seenDays: Record<number, Set<number>> = {};
+  for (const n of windows) {
+    out[n] = { usd: 0, count: 0, days: 0 };
+    seenDays[n] = new Set();
+  }
   for (const r of rows) {
-    const raw = String(r.day ?? "");
+    // ⚠️ TWO ROW SHAPES. Since the R3 switchover the buyback query returns one
+    // row per RECIPIENT per day as `{d, w, n, u}`; before it, one row per day as
+    // `{day, payout_usd, buyback_count}`. Summing per-recipient rows across a
+    // window gives the same day totals, so the windows below are unchanged in
+    // meaning — but the field names are not, and reading the old ones off the new
+    // shape yields a silent 0 (num() coerces undefined to 0), which would publish
+    // a zero payout and a 100% house take. Hence the explicit fallback.
+    const raw = String((r.d ?? r.day) ?? "");
     const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
     if (!Number.isFinite(t)) continue;
     const age = Math.round((todayUtc - t) / DAY_MS); // 0 = today (partial), 1 = yesterday
     if (age < 1) continue;
     for (const n of windows) {
       if (age <= n) {
-        out[n].usd += num(r.payout_usd);
-        out[n].count += num(r.buyback_count);
-        out[n].days += 1;
+        out[n].usd += num(r.u ?? r.payout_usd);
+        out[n].count += num(r.n ?? r.buyback_count);
+        seenDays[n].add(t);
       }
     }
   }
+  for (const n of windows) out[n].days = seenDays[n].size;
   return out;
 }
 
-/** Split a combined multi-platform result set into per-platform row lists. */
+/** The buyback query's one-character platform codes (see queryIds). Only that
+ *  query uses them; every other combined result still carries a full slug. */
+const PLATFORM_BY_CODE: Record<string, string> = {
+  c: "collector-crypt",
+  p: "phygitals",
+};
+
+/** Split a combined multi-platform result set into per-platform row lists.
+ *  Accepts either a `platform` slug or the buyback query's short `p` code — an
+ *  unrecognised code drops the row rather than inventing a platform key. */
 function splitByPlatform(rows: DuneRow[]): Map<string, DuneRow[]> {
   const by = new Map<string, DuneRow[]>();
   for (const r of rows) {
-    const key = String(r.platform ?? "");
+    const key = r.platform != null ? String(r.platform) : (PLATFORM_BY_CODE[String(r.p ?? "")] ?? "");
     if (!key) continue;
     const list = by.get(key);
     if (list) list.push(r);
