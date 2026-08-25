@@ -33,7 +33,7 @@ config({ path: ".env.local" });
 
 import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/data/warmers/core";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
-import { getResultsAutoRefresh } from "../src/lib/dune/client";
+import { getResultsAutoRefresh, getResultsIngested } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_ID, BUYBACK_QUERY_ID } from "../src/lib/dune/queryIds";
 import { readDyliSales, fetchDailyGmv } from "../src/lib/dyli/sales";
 import { LANE_METRIC } from "../src/lib/dyli/lanes";
@@ -431,7 +431,10 @@ async function main() {
   // about the row shape so a rollback to the pre-R3 query degrades rather than
   // crashes.
   try {
-    const { rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
+    // Execution-keyed: the gacha warmer runs earlier in this same daily job and
+    // has already ingested this execution, so this normally costs ZERO Dune
+    // transport. If it runs standalone it downloads and stores as usual.
+    const { rows: bbRows, source: bbSource } = await getResultsIngested(BUYBACK_QUERY_ID, {
       maxAgeMs: DAY,
       freshnessSource: "metric-snapshots",
       runOpts: { maxWaitMs: 480_000 },
@@ -441,7 +444,7 @@ async function main() {
     const byPlatformDay = new Map<string, Map<string, number>>();
     const grossByPlatformDay = new Map<string, Map<string, number>>();
     // Per-platform recipient tallies, for the sanity gate below.
-    if (bbRows === null) throw new Error("buyback returned an unrequested reuse signal");
+    console.log(`  buyback rows via ${bbSource}${bbSource === "store" ? " (no Dune export)" : ""}`);
     const seenRecipients = new Map<string, Set<string>>();
     const matchedRecipients = new Map<string, Set<string>>();
     let classifiedRows = 0;

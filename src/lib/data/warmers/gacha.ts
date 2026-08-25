@@ -12,7 +12,7 @@
  * where the trait data is available (locally, or post-Phase-2 anywhere) so the
  * Big Hits rail is populated. Core volumes/odds/buyback don't depend on it.
  */
-import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
+import { runQuery, getResultsAutoRefresh, getResultsIngested, type DuneRow } from "../../dune/client";
 import {
   GACHA_PLATFORMS,
   GACHA_LIVE_QUERY_ID,
@@ -298,9 +298,17 @@ export async function runGachaWarm(
     }
     log(`→ buyback — carried forward from our snapshot (6h batch does not read query ${BUYBACK_QUERY_ID})`);
   } else try {
-    const bbRows = await fetchRows(BUYBACK_QUERY_ID);
-    if (bbRows === null) throw new Error("buyback returned an unrequested reuse signal");
-    const byPlatform = splitByPlatform(bbRows);
+    // Execution-keyed ingest: this forces the daily refresh AND stores the result
+    // under its execution id, so the spine — the other consumer of this query in
+    // the same daily job — reads it back from Postgres instead of paying for a
+    // second ~1.75MB export of byte-identical rows.
+    const bb = await getResultsIngested(BUYBACK_QUERY_ID, {
+      maxAgeMs: GACHA_MAX_CACHE_AGE_MS,
+      freshnessSource: "gacha-dune",
+      forceFresh: true,
+      runOpts: { maxWaitMs: 180_000 },
+    });
+    const byPlatform = splitByPlatform(bb.rows);
     for (const key of BUYBACK_PLATFORMS) {
       const target = platforms[key];
       if (!target) continue;

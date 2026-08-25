@@ -22,6 +22,7 @@
  * Docs: https://docs.dune.com/api-reference/
  */
 import { readFreshness } from "../db/freshness";
+import { readIngest, writeIngest } from "./ingestStore";
 
 const BASE = "https://api.dune.com/api/v1";
 
@@ -239,6 +240,20 @@ export async function runQuery(
     maxRows?: number;
   } = {},
 ): Promise<DuneRow[]> {
+  return (await runQueryWithId(queryId, opts)).rows;
+}
+
+/** Same as runQuery, but also returns the execution id so the caller can key an
+ *  ingest on it. Internal — runQuery stays the public row-only shape. */
+async function runQueryWithId(
+  queryId: number,
+  opts: {
+    params?: Record<string, string | number>;
+    maxWaitMs?: number;
+    pollMs?: number;
+    maxRows?: number;
+  } = {},
+): Promise<{ rows: DuneRow[]; executionId: string }> {
   const maxWaitMs = opts.maxWaitMs ?? 180_000; // 3 min
   const pollMs = opts.pollMs ?? 3_000;
 
@@ -277,7 +292,7 @@ export async function runQuery(
       path = null;
     } else break;
   }
-  return rows;
+  return { rows, executionId: exec.execution_id };
 }
 
 export type AutoRefreshResult = {
@@ -313,6 +328,9 @@ export type CachedResultProbe = {
   executionEndedAt: string | null;
   /** Rows the cached result holds — 0 means there is nothing to serve. */
   totalRowCount: number;
+  /** Which execution produced it. A Dune result is immutable per execution id,
+   *  so this is the cache key the ingest store dedupes transport on. */
+  executionId: string | null;
 };
 
 /**
@@ -349,6 +367,7 @@ export async function probeCachedResult(
       return {
         executionEndedAt: page.execution_ended_at ?? page.submitted_at ?? null,
         totalRowCount: Number(page.result?.metadata?.total_row_count) || 0,
+        executionId: page.execution_id ?? null,
       };
     } catch (e) {
       lastErr = e;
@@ -507,6 +526,108 @@ export async function getResultsAutoRefresh(
     maxRows: opts.maxRows,
   });
   return { rows, refreshed: false, cachedAgeMs };
+}
+
+export type IngestedResult = {
+  rows: DuneRow[];
+  /** Where the rows came from — the whole point of the metric. */
+  source: "store" | "download" | "execution";
+  executionId: string | null;
+  cachedAgeMs: number | null;
+};
+
+/**
+ * Execution-keyed read: serve an execution we have already downloaded from
+ * Postgres at ZERO Dune cost, otherwise download it once and store it.
+ *
+ * A Dune result is immutable for a given execution id, so the second consumer of
+ * the same execution never has to pay for it again. This dedupes TRANSPORT
+ * globally, across warmers and across runs; STALENESS policy is unchanged and
+ * still per-warmer via `maxAgeMs` + `freshnessSource`.
+ *
+ * Unlike `getResultsAutoRefresh` this always returns rows — callers of this API
+ * do not need a "nothing new" branch, because the store can always supply them.
+ */
+export async function getResultsIngested(
+  queryId: number,
+  opts: {
+    maxAgeMs: number;
+    params?: Record<string, string | number>;
+    runOpts?: { maxWaitMs?: number; pollMs?: number; maxRows?: number };
+    maxRows?: number;
+    freshnessSource?: string;
+    /** Always execute, ignoring cache age — the daily "fresh" warmers' contract.
+     *  The result is still stored, so a later consumer of the SAME execution
+     *  reads Postgres instead of paying for the export again. Without this a
+     *  26h maxAge would let a daily query quietly never refresh. */
+    forceFresh?: boolean;
+  },
+): Promise<IngestedResult> {
+  if (opts.forceFresh) {
+    const fresh = await runQueryWithId(queryId, { params: opts.params, ...opts.runOpts });
+    await writeIngest(queryId, fresh.executionId, fresh.rows).catch((e) =>
+      console.warn(`[dune-ingest] store after forced execution failed: ${(e as Error).message}`),
+    );
+    console.log(
+      `[dune] query ${queryId} forced execution ${fresh.executionId.slice(0, 8)}… — ${fresh.rows.length.toLocaleString()} rows ingested for reuse`,
+    );
+    return { rows: fresh.rows, source: "execution", executionId: fresh.executionId, cachedAgeMs: null };
+  }
+  let probe: CachedResultProbe;
+  try {
+    probe = await probeCachedResult(queryId, { params: opts.params });
+  } catch {
+    // Probe outage — reuse the hardened self-healing path rather than
+    // duplicating its freshness fallback here. No ingest keying is possible
+    // without an execution id, so this run simply does not dedupe.
+    const r = await getResultsAutoRefresh(queryId, { ...opts, reuseIfUnchanged: false });
+    return {
+      rows: r.rows ?? [],
+      source: r.refreshed ? "execution" : "download",
+      executionId: null,
+      cachedAgeMs: r.cachedAgeMs,
+    };
+  }
+
+  const parsed = probe.executionEndedAt ? Date.parse(probe.executionEndedAt) : NaN;
+  const cachedAgeMs = Number.isFinite(parsed) ? Date.now() - parsed : null;
+  const stale =
+    probe.totalRowCount === 0 || (cachedAgeMs !== null && cachedAgeMs > opts.maxAgeMs);
+
+  if (stale) {
+    const fresh = await runQueryWithId(queryId, { params: opts.params, ...opts.runOpts });
+    await writeIngest(queryId, fresh.executionId, fresh.rows).catch((e) =>
+      console.warn(`[dune-ingest] store after execution failed: ${(e as Error).message}`),
+    );
+    return { rows: fresh.rows, source: "execution", executionId: fresh.executionId, cachedAgeMs };
+  }
+
+  if (probe.executionId) {
+    const stored = await readIngest(queryId, probe.executionId);
+    if (stored) {
+      console.log(
+        `[dune] query ${queryId} execution ${probe.executionId.slice(0, 8)}… already ingested — ${stored.length.toLocaleString()} rows from Postgres, 0 Dune cost`,
+      );
+      return { rows: stored, source: "store", executionId: probe.executionId, cachedAgeMs };
+    }
+  }
+
+  const { rows } = await getLatestResultsMeta(queryId, {
+    params: opts.params,
+    maxRows: opts.maxRows,
+  });
+  if (probe.executionId) {
+    const w = await writeIngest(queryId, probe.executionId, rows).catch((e) => {
+      console.warn(`[dune-ingest] store failed: ${(e as Error).message}`);
+      return null;
+    });
+    if (w) {
+      console.log(
+        `[dune] query ${queryId} execution ${probe.executionId.slice(0, 8)}… ingested — ${rows.length.toLocaleString()} rows, ${(w.bytes / 1024).toFixed(0)}KB gz stored${w.swept ? `, swept ${w.swept} older` : ""}`,
+      );
+    }
+  }
+  return { rows, source: "download", executionId: probe.executionId, cachedAgeMs };
 }
 
 export type DuneUsage = {
