@@ -629,6 +629,15 @@ async function main() {
     const rows = await readDyliSales();
     const byMetricDay = new Map<string, Map<string, number>>();
     const salesByDay = new Map<string, number>();
+    // Daily TRADE COUNT, marketplace lane only. `trades` means the same thing on
+    // every platform that publishes it — a secondary-market sale — so a first
+    // sale (box / fair drop / inventory purchase) must not be counted here even
+    // though it is a row in the same store. Without this DYLI was the one
+    // platform with a volume_usd series and no trades series, which made the
+    // platform page's Trades card render "no secondary-sales source yet" — false:
+    // the source exists (core-volume already builds DYLI's live 24h stats from
+    // these very rows), only the daily series was missing.
+    const tradesByDay = new Map<string, number>();
     for (const r of rows) {
       if (r.lane === "excluded") continue;
       const t = Date.parse(r.sold_at);
@@ -640,6 +649,11 @@ async function main() {
       if (!days) byMetricDay.set(metric, (days = new Map()));
       days.set(day, (days.get(day) ?? 0) + usd);
       salesByDay.set(day, (salesByDay.get(day) ?? 0) + usd);
+      // Priced resale only — a $0 row is not a trade anyone can read a price off,
+      // and counting it would make avgTrade (vol ÷ trades) sag for free reasons.
+      if (r.lane === "marketplace" && usd > 0) {
+        tradesByDay.set(day, (tradesByDay.get(day) ?? 0) + 1);
+      }
     }
     let pushed = 0;
     for (const [metric, days] of byMetricDay) {
@@ -649,7 +663,15 @@ async function main() {
         pushed++;
       }
     }
-    console.log(`  dyli: ${pushed} day-metrics across ${byMetricDay.size} lanes`);
+    let tradeDays = 0;
+    for (const [day, n] of tradesByDay) {
+      if (Date.parse(day) + DAY > now) continue; // same partial-day rule
+      push("platform", "dyli", "trades", n, day);
+      tradeDays++;
+    }
+    console.log(
+      `  dyli: ${pushed} day-metrics across ${byMetricDay.size} lanes · trades ${tradeDays} days`,
+    );
 
     // ── Two-source reconciliation, on the RATIO not the level ────────────────
     // /transactions is DYLI's own daily GMV, derived independently of the sale

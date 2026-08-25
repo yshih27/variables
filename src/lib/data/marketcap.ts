@@ -27,6 +27,11 @@ export const MCAP_BASIS: Record<string, McapBasis> = {
   "collector-crypt": "appraisal",
   beezie: "floor",
   phygitals: "floor",
+  // DYLI prices its LISTED book at ask (Σ cheapest listing × units available).
+  // Same construction as Beezie — cards without a listing contribute nothing —
+  // so it shares the floor label. It is not floor × supply: DYLI settles on
+  // Abstract with no holder scan, so no supply figure exists to multiply by.
+  dyli: "floor",
 };
 
 /** The qualifier shown beside the number. */

@@ -35,6 +35,7 @@ import { readCardValuations } from "../src/lib/data/cards";
 import { readHolders } from "../src/lib/data/holders";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
 import { db } from "../src/lib/db/client";
+import { readSnapshot } from "../src/lib/db/snapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 type Acc = {
@@ -179,6 +180,52 @@ async function processPhygitals(byPlatform: Map<string, PlatAcc>) {
   );
 }
 
+/**
+ * DYLI market cap = Σ (cheapest active listing × units available), from the
+ * `dyli-listings` snapshot.
+ *
+ * ⚠️ NOT floor × supply, and the difference matters. Phygitals can do floor ×
+ * supply because the holder scan enumerates every cNFT it holds; DYLI settles on
+ * Abstract with no holder scan, so we have NO supply figure — only the book. So
+ * this prices the LISTED inventory at its own ask and says nothing about
+ * unlisted cards, which makes it a strict LOWER BOUND rather than an estimate of
+ * the whole collection. It is the same construction Beezie already publishes
+ * (per-card cheapest listing, cards without a listing contributing nothing), so
+ * it carries the existing "floor" basis label rather than inventing a new one.
+ *
+ * byIp is deliberately empty, as for Phygitals: this is a book-level figure, and
+ * folding it into the cross-platform byIp/totals would move the headline TOTAL
+ * MARKET CAP on a different basis from the CC+Beezie number it is built from.
+ * DYLI gets its own `platform/dyli/mcap_usd` spine point and nothing else moves.
+ */
+async function processDyli(byPlatform: Map<string, PlatAcc>) {
+  const snap = await readSnapshot<{
+    floorUsd: number | null;
+    listedValueUsd: number;
+    listedUnits: number;
+    products: number;
+  }>("dyli-listings");
+  const floor = snap?.floorUsd ?? null;
+  const value = snap?.listedValueUsd ?? 0;
+  const units = snap?.listedUnits ?? 0;
+  if (!snap || floor == null || !(value > 0) || !(units > 0)) {
+    console.log(
+      `→ DYLI: skipped mcap (snapshot ${snap ? "present but empty" : "missing"}) — run warm-dyli-listings`,
+    );
+    return;
+  }
+  const pAcc = platAccFor(byPlatform, "dyli");
+  pAcc.cards = units;
+  pAcc.cardsValued = units; // every counted unit is priced by construction
+  pAcc.mcap = value;
+  pAcc.floor = floor;
+  // byIp intentionally empty — see doc above.
+  console.log(
+    `→ DYLI: ${units.toLocaleString()} listed unit(s) across ${snap.products.toLocaleString()} product(s) ` +
+      `= $${Math.round(value).toLocaleString()} mcap · floor $${floor.toFixed(2)} (listed-inventory lower bound)`,
+  );
+}
+
 const finalFloor = (floor: number): number => (Number.isFinite(floor) ? floor : 0);
 
 async function main() {
@@ -188,6 +235,7 @@ async function main() {
   await processBeezie(byPlatform);
   await processCC(byPlatform);
   await processPhygitals(byPlatform);
+  await processDyli(byPlatform);
 
   // Derive cross-platform byIp from byPlatform (single source of truth). Phygitals
   // contributes a platform-level mcap only (empty byIp), so it doesn't fold into

@@ -467,6 +467,13 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // Gacha-only split. Courtyard is now classified gacha (R5), so its ~$1.5M/24h
   // surfaces here as gachaVol24Usd instead of hiding in the primary residual.
   const g = gacha?.platforms?.[key];
+  // DYLI's gacha does not come from the Dune gacha snapshot and never will — it
+  // is not a Dune source. Its mystery-box sales arrive on the same native feed
+  // as its resale, so core-volume carries them (rolling windows, same basis as
+  // every other platform's). Preferring `g` keeps this a pure fallback: a
+  // platform present in both is untouched.
+  const coreGacha24 = bucket.gachaVol24Usd;
+  const coreGacha7 = bucket.gachaVol7Usd;
 
   // ── Net gacha revenue: spend − buyback payouts ────────────────────────────
   // Both legs come from the SPINE, which holds only complete days, so summing
@@ -559,8 +566,8 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     buybackDaily: buybackDailySeries,
     outflowGrossDaily: outflowGrossDailySeries,
     primaryUsd: bucket.primaryUsd,
-    gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : null,
-    gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : null,
+    gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : (coreGacha24 ?? null),
+    gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : (coreGacha7 ?? null),
     total24Usd: volumeUsd + (bucket.primaryUsd ?? 0),
     trades24h: unknown(allSales.length),
     uniqueBuyers: unknown(buyers.size),

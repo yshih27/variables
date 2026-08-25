@@ -144,6 +144,18 @@ jobs:
       - name: Primary revenue # moved off the 6h batch — its Helius enhanced-tx crawl is a heavy credit-burner (see script header)
         continue-on-error: true
         run: npx tsx scripts/warm-primary-revenue.ts
+      # DYLI Phase 2. Both are DAILY and both are small: the active book is ~2
+      # requests, and the box sweep is incremental (one page per live box once
+      # caught up). They must run BEFORE marketcap and metric-snapshots below —
+      # listings is what gives DYLI a floor and a market cap at all, and the
+      # 30 req/min pacer means putting them on the 6h batch would spend four
+      # times the budget for a figure that only moves daily.
+      - name: DYLI listings (active book → floor + market cap)
+        continue-on-error: true
+        run: npx tsx scripts/warm-dyli-listings.ts
+      - name: DYLI boxes (catalog + declared EV, then realized pulls)
+        continue-on-error: true
+        run: npx tsx scripts/warm-dyli-boxes.ts
       - name: Core volume (fresh Dune execution)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts
@@ -170,7 +182,7 @@ jobs:
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
       - name: Freshness gate # fails the job (→ Actions notifies) if any warmer errored
-        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,player-analytics,homepage
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,player-analytics,homepage,dyli-listings,dyli-boxes
       # Data-integrity gate (D10-4) — everything above is fresh now. A HARD invariant
       # violation (fan-out dupes, holders union>sum, hero≠Σrows, avgTrade≠vol/trades,
       # cards>0 while vol=0) fails the run red; SOFT heuristics only warn.

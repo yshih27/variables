@@ -25,6 +25,15 @@ export type CorePlatformVolume = {
   vol30dUsd: number | null;
   sales7dCount: number | null;
   sales30dCount: number | null;
+  /**
+   * Rolling GACHA-lane volume, for platforms whose gacha arrives through this
+   * feed rather than the Dune gacha snapshot (DYLI). Optional and absent
+   * everywhere else — `fetchPlatform` prefers the gacha snapshot and only falls
+   * back here, so a platform present in both keeps its existing numbers.
+   */
+  gachaVol24Usd?: number;
+  gachaVol7Usd?: number;
+  gachaSales24h?: number;
 };
 
 export type CoreVolumeSnapshot = {
