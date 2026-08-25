@@ -281,11 +281,23 @@ export async function runQuery(
 }
 
 export type AutoRefreshResult = {
-  rows: DuneRow[];
+  /**
+   * Rows from Dune — NULL only when `reuseIfUnchanged` was set and the cached
+   * result is one we have already ingested (see `unchanged`). Nullable on
+   * purpose: it makes every caller decide what to do with "nothing new", instead
+   * of an empty array quietly rebuilding a snapshot out of no data.
+   */
+  rows: DuneRow[] | null;
   /** True if the cache was stale and we ran a fresh execution instead. */
   refreshed: boolean;
   /** Age of the cached result we found, in ms (null if Dune omitted the time). */
   cachedAgeMs: number | null;
+  /**
+   * True when the download was SKIPPED because Dune's cached result predates our
+   * own last successful ingest of this source — i.e. we already have exactly
+   * these rows. The caller must reuse what it persisted last run.
+   */
+  unchanged?: boolean;
 };
 
 /** Probe request budget. Dune under load has answered the results endpoint in
@@ -355,6 +367,19 @@ export async function probeCachedResult(
  * Null when we have no usable row, which the caller treats as "unknown", not
  * "fresh".
  */
+/** Wall-clock ms of our last SUCCESSFUL warm for a source, or null. */
+async function lastIngestMs(source: string): Promise<number | null> {
+  try {
+    const rows = await readFreshness([source]);
+    const row = rows.find((r) => r.source === source);
+    if (!row || row.status !== "ok") return null;
+    const t = Date.parse(row.generated_at);
+    return Number.isFinite(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
 async function snapshotAgeMs(source: string): Promise<number | null> {
   try {
     const rows = await readFreshness([source]);
@@ -399,6 +424,17 @@ export async function getResultsAutoRefresh(
     params?: Record<string, string | number>;
     runOpts?: { maxWaitMs?: number; pollMs?: number; maxRows?: number };
     maxRows?: number;
+    /**
+     * Skip the row download when Dune's cached result is older than our own last
+     * successful warm of `freshnessSource` — a result we have already ingested is
+     * never worth re-exporting. Requires `freshnessSource`. Returns
+     * `rows: null, unchanged: true`; the caller reuses what it persisted.
+     *
+     * This is the difference between paying for a query once per EXECUTION and
+     * once per READ. The 6h batches re-read results that only change on the daily
+     * execution, so three of every four downloads were re-buying identical bytes.
+     */
+    reuseIfUnchanged?: boolean;
     /** The caller's `source_freshness` key (the name it passes to runWarmer).
      *  Used ONLY when the probe fails, to decide whether our own data is still
      *  fresh enough to serve cached. Omit and a probe failure falls through to an
@@ -442,6 +478,25 @@ export async function getResultsAutoRefresh(
   const cachedAgeMs = Number.isFinite(parsed) ? Date.now() - parsed : null;
   const stale =
     probe.totalRowCount === 0 || (cachedAgeMs !== null && cachedAgeMs > opts.maxAgeMs);
+
+  // Already-ingested short circuit. Only when NOT stale: a stale result still
+  // needs re-executing even if we ingested this (old) version of it.
+  if (!stale && opts.reuseIfUnchanged && opts.freshnessSource && probe.executionEndedAt) {
+    const ingestedAtMs = await lastIngestMs(opts.freshnessSource);
+    const executedAtMs = Date.parse(probe.executionEndedAt);
+    if (
+      ingestedAtMs !== null &&
+      Number.isFinite(executedAtMs) &&
+      executedAtMs <= ingestedAtMs
+    ) {
+      console.log(
+        `[dune] query ${queryId} unchanged since our last ${opts.freshnessSource} write ` +
+          `(executed ${new Date(executedAtMs).toISOString().slice(0, 16)}, ingested ` +
+          `${new Date(ingestedAtMs).toISOString().slice(0, 16)}) — skipping download`,
+      );
+      return { rows: null, refreshed: false, cachedAgeMs, unchanged: true };
+    }
+  }
 
   if (stale) {
     const fresh = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
