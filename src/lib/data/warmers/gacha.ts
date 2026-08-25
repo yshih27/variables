@@ -223,11 +223,14 @@ export async function runGachaWarm(
   // Gacha queries are refreshed daily and move slowly; self-heal the cache only
   // once it's clearly missed a daily fresh run (so it can't rot like cc-secondary did).
   const GACHA_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
-  const fetchRows = async (id: number): Promise<DuneRow[]> => {
+  /** `reuse` opt-in returns NULL when Dune's cached result is one we already
+   *  ingested — the caller must then carry its previous snapshot entry forward. */
+  const fetchRows = async (id: number, reuse = false): Promise<DuneRow[] | null> => {
     if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: 180_000 });
     const r = await getResultsAutoRefresh(id, {
       maxAgeMs: GACHA_MAX_CACHE_AGE_MS,
       freshnessSource: "gacha-dune",
+      reuseIfUnchanged: reuse,
       runOpts: { maxWaitMs: 180_000 },
     });
     if (r.refreshed) {
@@ -243,7 +246,18 @@ export async function runGachaWarm(
   // column. Was four separate queries — four executions for one fan-out scan.
   try {
     const t0 = Date.now();
-    const byPlatform = splitByPlatform(await fetchRows(GACHA_LIVE_QUERY_ID));
+    const liveRows = await fetchRows(GACHA_LIVE_QUERY_ID, true);
+    if (liveRows === null) {
+      // Unchanged since our last warm — rebuilding would produce identical
+      // entries at full export price. Shallow-copy so the buyback assignment
+      // below cannot mutate the previous snapshot in place.
+      for (const key of GACHA_PLATFORMS) {
+        const carried = prev?.platforms?.[key];
+        if (carried) platforms[key] = { ...carried };
+      }
+      log(`→ gacha live — unchanged since our last warm, carried ${Object.keys(platforms).length} platform(s) forward (no download)`);
+    } else {
+    const byPlatform = splitByPlatform(liveRows);
     for (const key of GACHA_PLATFORMS) {
       const rows = byPlatform.get(key) ?? [];
       if (!rows.length) {
@@ -258,14 +272,35 @@ export async function runGachaWarm(
       );
     }
     log(`  (gacha live query ${GACHA_LIVE_QUERY_ID} · ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    }
   } catch (err) {
     log(`→ gacha live (query ${GACHA_LIVE_QUERY_ID}) FAILED: ${(err as Error).message}`);
   }
 
-  // Buyback — USDC paid back to players who instantly cashed out. One execution
-  // for both platforms that have a known buyback wallet.
-  try {
-    const byPlatform = splitByPlatform(await fetchRows(BUYBACK_QUERY_ID));
+  // Buyback — USDC paid back to players who instantly cashed out.
+  //
+  // ⚠️ The 6h batch does NOT read this query. Since R3 it is a per-recipient
+  // export (~47k rows, ~1.75MB, ~17.5 cr) that changes at most once a day, and
+  // the 6h path was re-downloading it four times daily for numbers that could
+  // not have moved. Our own snapshot is ≤24h old by construction — it is written
+  // by the daily fresh run — so the 6h batch carries it forward and only the
+  // daily job pays for the export.
+  if (opts.cachedOnly) {
+    for (const key of BUYBACK_PLATFORMS) {
+      const target = platforms[key];
+      const carried = prev?.platforms?.[key]?.buyback;
+      if (!target) continue;
+      if (carried) {
+        target.buyback = carried;
+      } else {
+        log(`→ ${key} buyback — no previous snapshot to carry forward (left unset)`);
+      }
+    }
+    log(`→ buyback — carried forward from our snapshot (6h batch does not read query ${BUYBACK_QUERY_ID})`);
+  } else try {
+    const bbRows = await fetchRows(BUYBACK_QUERY_ID);
+    if (bbRows === null) throw new Error("buyback returned an unrequested reuse signal");
+    const byPlatform = splitByPlatform(bbRows);
     for (const key of BUYBACK_PLATFORMS) {
       const target = platforms[key];
       if (!target) continue;
@@ -307,6 +342,8 @@ export async function runGachaWarm(
     if (GACHA_ENABLED) {
       try {
         const rows = await fetchRows(CC_ODDS_QUERY_ID);
+        // Never null: this does not opt into reuse.
+        if (rows === null) throw new Error("cc-odds returned an unrequested reuse signal");
         const odds = buildOdds(rows);
         platforms["collector-crypt"].odds = odds;
         const top = odds.find((o) => o.tier === "SPrT") ?? odds[0];
@@ -336,6 +373,8 @@ export async function runGachaWarm(
     log(`→ big hits — carried forward (${bigHits.length}; pass --big-hits to refresh)`);
   } else try {
     const rows = await fetchRows(CC_BIG_HITS_QUERY_ID);
+    // Never null: this does not opt into reuse.
+    if (rows === null) throw new Error("cc-big-hits returned an unrequested reuse signal");
     // Dedup by mint, keeping the most recent delivery (rows are time-desc).
     const seen = new Set<string>();
     const ordered: Array<{ mint: string; tier: string; at: string }> = [];

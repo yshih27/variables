@@ -23,6 +23,7 @@ import { type CollectionStats, type NormalizedSale } from "../../rarible/queries
 import { fetchBeezieSales } from "../../beezie/market";
 import { fetchDyliMarketplaceSales } from "../../dyli/sales";
 import {
+  readCoreVolume,
   writeCoreVolume,
   type CorePlatformVolume,
   type CoreVolumeSnapshot,
@@ -93,16 +94,22 @@ function buildPlatform(
 async function fetchDuneSecondarySales(
   queryId: number,
   label: string,
-  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
-): Promise<NormalizedSale[]> {
+  opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
+): Promise<NormalizedSale[] | null> {
   let rows: DuneRow[];
   if (opts.cachedOnly) {
     const r = await getResultsAutoRefresh(queryId, {
       maxAgeMs: CC_SECONDARY_MAX_CACHE_AGE_MS,
       freshnessSource: "core-volume",
+      // Opt-in: only a caller that can carry its previous entry forward may ask
+      // for this. The spine and backfill need the rows themselves, so they don't.
+      reuseIfUnchanged: opts.reuseIfUnchanged === true,
       runOpts: { maxWaitMs: 480_000, maxRows: 250_000 },
       maxRows: 250_000,
     });
+    // NULL = we already ingested this exact execution. The caller keeps the
+    // platform entry it wrote last run rather than re-deriving identical output.
+    if (r.rows === null) return null; // only reachable when reuseIfUnchanged was set
     rows = r.rows;
     if (r.refreshed) {
       const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
@@ -129,18 +136,29 @@ async function fetchDuneSecondarySales(
   return sales;
 }
 
+/**
+ * The exported wrappers never request reuse, so a null is unreachable — but the
+ * type allows it, and turning that into a silent `[]` is exactly how an empty
+ * feed becomes a hollow snapshot. Fail loudly instead.
+ */
+async function mustHaveRows(p: Promise<NormalizedSale[] | null>): Promise<NormalizedSale[]> {
+  const rows = await p;
+  if (rows === null) throw new Error("dune secondary feed returned an unrequested reuse signal");
+  return rows;
+}
+
 /** CC secondary sales (Dune). Shared by the core warmer, the spine, and backfill. */
 export async function fetchCCSecondarySales(
-  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+  opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
-  return fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", opts);
+  return mustHaveRows(fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
 }
 
 /** Courtyard secondary sales (Dune nft.trades, 30d window). Replaces Rarible. */
 export async function fetchCourtyardSecondarySales(
-  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+  opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
-  return fetchDuneSecondarySales(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", opts);
+  return mustHaveRows(fetchDuneSecondarySales(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", opts));
 }
 
 export type CoreWarmResult = {
@@ -156,17 +174,34 @@ export async function runCoreWarm(
 ): Promise<CoreWarmResult> {
   const log = opts.log ?? (() => {});
   const platforms: Record<string, CorePlatformVolume> = {};
+  // Previous snapshot — the carry-forward source when a Dune leg reports that
+  // its cached result is one we already ingested. Re-deriving it would produce a
+  // byte-identical entry at full export price.
+  const prev = await readCoreVolume().catch(() => null);
+  const carryForward = (key: string, label: string): void => {
+    const carried = prev?.platforms?.[key];
+    if (carried) {
+      platforms[key] = carried;
+      log(`→ ${label} — unchanged since our last warm, carried forward (no download)`);
+    } else {
+      log(`→ ${label} — unchanged but no previous entry to carry forward (skipped)`);
+    }
+  };
 
   // ── Collector Crypt: Dune (full chain scan, no Helius 429) ──
   try {
     const t0 = Date.now();
-    const ccSales = await fetchCCSecondarySales(opts);
-    platforms["collector-crypt"] = buildPlatform("collector-crypt", "dune", ccSales, 30);
-    log(
-      `→ collector-crypt (Dune) ${ccSales.length} sales/30d · 24h $${Math.round(
-        platforms["collector-crypt"].stats24h.volumeUsd,
-      ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
-    );
+    const ccSales = await fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, reuseIfUnchanged: true });
+    if (ccSales === null) {
+      carryForward("collector-crypt", "collector-crypt (Dune)");
+    } else {
+      platforms["collector-crypt"] = buildPlatform("collector-crypt", "dune", ccSales, 30);
+      log(
+        `→ collector-crypt (Dune) ${ccSales.length} sales/30d · 24h $${Math.round(
+          platforms["collector-crypt"].stats24h.volumeUsd,
+        ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+      );
+    }
   } catch (err) {
     log(`→ collector-crypt (Dune) FAILED: ${(err as Error).message}`);
   }
@@ -191,13 +226,17 @@ export async function runCoreWarm(
   //    api.courtyard.io is WAF-blocked to servers, so Dune is the off-Rarible path. ──
   try {
     const t0 = Date.now();
-    const sales = await fetchCourtyardSecondarySales(opts);
-    platforms["courtyard"] = buildPlatform("courtyard", "dune", sales, 30);
-    log(
-      `→ courtyard (Dune) ${sales.length} sales · 24h $${Math.round(
-        platforms["courtyard"].stats24h.volumeUsd,
-      ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
-    );
+    const sales = await fetchDuneSecondarySales(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", { ...opts, reuseIfUnchanged: true });
+    if (sales === null) {
+      carryForward("courtyard", "courtyard (Dune)");
+    } else {
+      platforms["courtyard"] = buildPlatform("courtyard", "dune", sales, 30);
+      log(
+        `→ courtyard (Dune) ${sales.length} sales · 24h $${Math.round(
+          platforms["courtyard"].stats24h.volumeUsd,
+        ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+      );
+    }
   } catch (err) {
     log(`→ courtyard (Dune) FAILED: ${(err as Error).message}`);
   }

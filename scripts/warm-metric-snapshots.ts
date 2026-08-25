@@ -366,6 +366,8 @@ async function main() {
       freshnessSource: "metric-snapshots",
       runOpts: { maxWaitMs: 480_000 },
     });
+    // Never null: reuse is opt-in and the spine needs the rows to push days.
+    if (rows === null) throw new Error("gacha-daily returned an unrequested reuse signal");
     const byPlatformDay = new Map<string, Map<string, number>>();
     for (const r of rows) {
       const rec = r as Record<string, unknown>;
@@ -439,6 +441,7 @@ async function main() {
     const byPlatformDay = new Map<string, Map<string, number>>();
     const grossByPlatformDay = new Map<string, Map<string, number>>();
     // Per-platform recipient tallies, for the sanity gate below.
+    if (bbRows === null) throw new Error("buyback returned an unrequested reuse signal");
     const seenRecipients = new Map<string, Set<string>>();
     const matchedRecipients = new Map<string, Set<string>>();
     let classifiedRows = 0;
