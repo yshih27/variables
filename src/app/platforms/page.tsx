@@ -9,8 +9,10 @@ import { SectionShell } from "@/components/Section";
 import { VolumeBar } from "@/components/VolumeBar";
 import { CompositionChart } from "@/components/CompositionChart";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
+import { getPlatformSeries, totalDaily, platformVolumeBands } from "@/lib/data/platformSeries";
+import { StackedAreaChart } from "@/components/StackedAreaChart";
 
 /** HHI concentration bands — matches PlatformStatBar's cutoffs (0.25/0.4) so the
  *  rail detail and the ribbon can't disagree on whether the market is "High". */
@@ -31,30 +33,6 @@ const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist
 /** Per-entity daily spine series (keyed by metric) for the whole platform family.
  *  v2 (R5-1): v1 cached an empty `mcap_usd` map from before the spine carried
  *  per-platform market cap. */
-const getPlatformSeries = unstable_cache(
-  async (metric: string) => Object.fromEntries(await readMetricSeriesBulk("platform", metric)),
-  ["platforms-series:v2"],
-  { revalidate: 3600, tags: ["homepage"] },
-);
-
-/** One platform's daily TOTAL — its marketplace and gacha series added per day.
- *  Mirrors the total24Usd the rail and table rank by, so the card under a
- *  platform's name measures the same thing its row does. Non-finite points are
- *  skipped rather than zeroed: a day with no reading isn't a day worth $0, and
- *  MetricBarCard now lays points into true day slots, so an absent day stays
- *  absent instead of drawing a false floor. */
-function totalDaily(...sources: (SeriesPoint[] | undefined)[]): SeriesPoint[] {
-  const byTs = new Map<string, number>();
-  for (const series of sources) {
-    for (const p of series ?? []) {
-      if (!Number.isFinite(p.value)) continue;
-      byTs.set(p.ts, (byTs.get(p.ts) ?? 0) + p.value);
-    }
-  }
-  return [...byTs.entries()]
-    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-    .map(([ts, value]) => ({ ts, value }));
-}
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
 // All reads are unstable_cache-backed; no cookies/headers/searchParams here.
@@ -219,22 +197,13 @@ export default async function AllPlatformsPage() {
   // stack). The same totalDaily the 14d cards use, so a day here reconciles with
   // the card above it.
   const COMP_DAYS = 30;
-  const COMP_COLORS = ["#2bd6a0", "#5fa3ff", "#ff6b9d", "#a18cff", "#22d3ee", "#fbbf24"];
-  const volumeComposition = ranked
-    .map((p, i) => {
-      // Same completeness gate as the 14d cards above: drop a Dune-lagged partial
-      // trailing day so the newest stacked bar can't dip on incomplete streams.
-      const mkt = mktSeries[p.key];
-      const gacha = gachaSeries[p.key];
-      const streams = new Map<string, SeriesPoint[]>([["mkt", mkt ?? []], ["gacha", gacha ?? []]]);
-      return {
-        key: p.key,
-        label: p.name,
-        color: COMP_COLORS[i % COMP_COLORS.length],
-        points: lastNDays(dropIncompleteTail(totalDaily(mkt, gacha), streams), COMP_DAYS),
-      };
-    })
-    .filter((s) => s.points.some((pt) => Number.isFinite(pt.value)));
+  const volumeComposition = platformVolumeBands(ranked, mktSeries, gachaSeries, COMP_DAYS);
+  // The HERO runs a longer window than the composition below it on purpose: the
+  // area answers "what is the long arc, and what happened in any slice of it"
+  // (brushable), the columns answer "how did the last 30 days split, and what is
+  // each platform's share" (100% + cumulative modes). Same data, different question.
+  const HERO_DAYS = 120;
+  const volumeHero = platformVolumeBands(ranked, mktSeries, gachaSeries, HERO_DAYS);
 
   return (
     <>
@@ -243,6 +212,21 @@ export default async function AllPlatformsPage() {
         <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">
           Platforms Overview
         </h1>
+
+        {/* HERO — the venue race as one continuous picture, brushable. Lead
+            position because "who is winning, and since when" is the question this
+            page exists to answer; the rail and table below quantify it. */}
+        {volumeHero.length > 0 && (
+          <StackedAreaChart
+            title="Volume by platform"
+            readMe="who is winning turnover — band thickness is one platform's daily take"
+            subtitle={`Marketplace + gacha, per platform · last ${HERO_DAYS} days · complete days only`}
+            metric="total24h"
+            series={volumeHero}
+            unit="usd"
+            className="mb-3"
+          />
+        )}
 
         {/* Breadth + concentration, the questions a sorted list doesn't answer. */}
         <PlatformStatBar rows={data.platforms} />

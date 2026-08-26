@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { TrendingCard } from "@/lib/data/fetchTrending";
 import { Section } from "./Section";
 import { IPIcon } from "./IPIcon";
+import { CardThumb } from "./CardThumb";
 import { GradeChip } from "./GradeChip";
 import { IP_CATALOG } from "@/lib/data/ipCatalog";
 import { parseGradeLabel } from "@/lib/card/grade";
@@ -218,9 +219,15 @@ function TrendingTile({ card: c, maxHP }: { card: TrendingCard; maxHP: number })
         )}
       </div>
 
-      {/* Title — two-line clamp, same as Top Sales. */}
-      <div className="mt-2.5 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
-        {c.name}
+      {/* Title + art. The thumb is the type's REPRESENTATIVE token (its top sale
+          in the window), not a picture of the group — a card type has no single
+          photo. It sits beside the name rather than above it so the tile's height
+          and the strip's alignment are unchanged. */}
+      <div className="mt-2.5 flex items-start gap-2">
+        <CardThumb src={c.image} size={32} />
+        <div className="line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
+          {c.name}
+        </div>
       </div>
 
       {/* Secondary stats — omitted entirely when there's nothing to add. */}

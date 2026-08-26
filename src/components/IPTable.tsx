@@ -6,6 +6,7 @@ import type { IPRow } from "@/lib/types";
 import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
+import { TableFoot } from "./TableFoot";
 import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import { hasRealMcap } from "@/lib/ip/mcap";
@@ -246,6 +247,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
           </tbody>
         </table>
       </div>
+      <TableFoot shown={visible.length} total={facetRows.length} noun="IP" filtered={facetRows.length !== rows.length ? rows.length : null} />
     </Section>
   );
 }

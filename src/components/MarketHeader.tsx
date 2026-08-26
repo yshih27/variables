@@ -97,9 +97,11 @@ export function MarketHeader({
       {/* Row 1 — hero market cap, the index chart, its change, and vs-benchmarks. */}
       <div className={`grid grid-cols-1 gap-x-8 gap-y-6 px-6 py-6 ${mdCols} ${lgCols}`}>
         <div className="min-w-0">
-          <Label info="marketCap">Total market cap</Label>
-          <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span className="text-[40px] font-bold leading-none tracking-[-0.02em] tabular text-yellow">
+          {/* Headline scale, label beneath (see StatCard). Kept inline rather than
+              swapped for <StatCard> because this cell also carries the mobile
+              sparkline and the stale-guard chip on the value's own baseline. */}
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <span className="font-mono text-[44px] font-bold leading-[0.95] tracking-[-0.03em] tabular text-yellow sm:text-[56px] lg:text-[64px]">
               {formatCompactUsd(hero.totalMcapUsd)}
             </span>
             {/* Stale-guard: when the mcap source is >36h old, disclose its date so a
@@ -120,7 +122,10 @@ export function MarketHeader({
               </span>
             )}
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ink-3">
+          <div className="mt-2.5">
+            <Label info="marketCap">Total market cap</Label>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ink-3">
             {index.value != null && Number.isFinite(index.value) ? (
               <>
                 <span className="inline-flex items-center gap-1">
@@ -189,7 +194,7 @@ export function MarketHeader({
       <VolumeBar vol={vol} marketplacePct={hero.vol24Pct} gachaPct={hero.gachaVol24Pct} />
 
       {/* Row 3 — slim secondary-signal strip; every cell links into its page. */}
-      <div className="grid grid-cols-2 border-t border-line md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px border-t border-line bg-line md:grid-cols-4">
         {/* Gacha section gated → keep the market signal as a plain stat, but drop the
             link into the gated /gacha surface (href undefined → no anchor). */}
         <StatCell
@@ -239,30 +244,33 @@ function StatCell({
   sub?: string;
   accent?: boolean;
 }) {
+  // Value first at headline scale, label beneath at 11px — the StatCard rule. The
+  // delta and `sub` ride WITH the label, not the number: they qualify it, and a
+  // 48px figure with a 48px-adjacent qualifier reads as two competing figures.
   const inner = (
     <>
-      <Label>{label}</Label>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span
-          className={`text-[19px] font-bold leading-none tabular transition-colors group-hover:text-yellow ${accent ? "text-yellow" : ""}`}
-        >
-          {value}
-        </span>
+      <div
+        className={`font-mono text-[34px] font-bold leading-[0.95] tracking-[-0.03em] tabular transition-colors group-hover:text-yellow sm:text-[40px] lg:text-[48px] ${accent ? "text-yellow" : ""}`}
+      >
+        {value}
+      </div>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Label>{label}</Label>
         {deltaPct != null && Number.isFinite(deltaPct) && (
           <span className="flex items-center gap-1">
             <Delta pct={deltaPct} />
-            {deltaLabel && <span className="text-[11px] text-ink-4">{deltaLabel}</span>}
+            {deltaLabel && <span className="text-[10.5px] text-ink-4">{deltaLabel}</span>}
           </span>
         )}
-        {sub && <span className="text-[11.5px] text-ink-3">{sub}</span>}
       </div>
+      {sub && <div className="mt-1 text-[10.5px] leading-snug text-ink-4">{sub}</div>}
     </>
   );
   // No href → a plain stat, not a link: same figure, no navigation into the gated
   // surface, no hover affordance. Keeps the 4-up strip balanced.
   if (!href) {
     return (
-      <div className="flex flex-col gap-2 border-line px-5 py-4 odd:border-r md:[&:not(:last-child)]:border-r">
+      <div className="flex flex-col justify-end bg-bg-1 px-5 py-5">
         {inner}
       </div>
     );
@@ -270,7 +278,7 @@ function StatCell({
   return (
     <Link
       href={href}
-      className="group relative flex flex-col gap-2 border-line px-5 py-4 transition-colors odd:border-r hover:bg-bg-2 md:[&:not(:last-child)]:border-r"
+      className="group relative flex flex-col justify-end bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2"
     >
       {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
       <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
@@ -284,14 +292,14 @@ function StatCell({
 function EntityCell({ topIP }: { topIP: IPRow | null }) {
   if (!topIP) {
     return (
-      <div className="flex flex-col gap-2 px-5 py-4">
+      <div className="flex flex-col justify-end gap-2 bg-bg-1 px-5 py-5">
         <Label>Most traded · 24h</Label>
         <span className="text-[19px] font-bold leading-none text-ink-3">—</span>
       </div>
     );
   }
   return (
-    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col gap-2 px-5 py-4 transition-colors hover:bg-bg-2">
+    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col justify-end gap-2 bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2">
       {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
       <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
         ↗

@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { MCAP_BASIS, MCAP_BASIS_LABEL } from "@/lib/data/marketcap";
 import { NavBar } from "@/components/NavBar";
 import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
-import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { StatCard, StatCardRow } from "@/components/StatCard";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
 import { CompositionChart, type CompositionSeries } from "@/components/CompositionChart";
@@ -25,11 +26,16 @@ import {
   type SeriesPoint,
 } from "@/lib/data/metricSnapshots";
 import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
-import { formatCompactUsd } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
 // Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
 export const revalidate = 1800;
+
+/** Same formatter OverviewMetricColumn uses — a NaN value renders "—" (not
+ *  tracked), never a fabricated 0. */
+const kpiValue = (n: number, unit: "usd" | "count") =>
+  !Number.isFinite(n) ? "—" : unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n);
 
 export default async function PlatformDetailPage({
   params,
@@ -148,6 +154,12 @@ export default async function PlatformDetailPage({
       chain: "",
       chainColor: "",
       color: ip.color,
+      // Real IP identity — the table renders the catalogue icon (logo/emoji)
+      // rather than a 2-letter colour chip wherever we actually have one.
+      short: ip.short,
+      logo: ip.logo,
+      emoji: ip.emoji,
+      iconBlendMode: ip.iconBlendMode,
       cards: ip.cards,
       vol24Usd: ip.vol24Usd,
       mcapUsd: ip.mcapUsd,
@@ -323,10 +335,31 @@ export default async function PlatformDetailPage({
 
         <div className="space-y-3">
           {/* ZONE 1 — platform levels + the Index Studio scoped to this platform. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
-            <OverviewMetricColumn rows={railRows} />
-            <IndexStudio scope={{ entity: "platform", key }} />
-          </div>
+          {/* KPIs as dedicated stat cards, full width, with the studio beneath at
+              full width too. The 264px rail put five headline figures in a column
+              narrower than the numbers deserve; at card scale they read first and
+              the chart gets the whole span. Every row's window, basis and delta
+              survives — `sub`/`stat` carry them under the label. */}
+          <StatCardRow cols={5}>
+            {railRows.map((r) => (
+              <StatCard
+                key={r.label}
+                label={r.label}
+                metric={r.metric}
+                value={r.valueText ?? kpiValue(r.value, r.unit)}
+                // Uniform scale across a 5-up row: a 64px value does not fit a
+                // fifth of the width, and the hero is already marked by the lime
+                // accent — two signals for one row is one too many anyway.
+                size="lg"
+                accent={r.hero}
+                href={r.valueHref}
+                deltaPct={r.deltaPct}
+                deltaLabel={r.window}
+                sub={[r.sub, r.stat].filter(Boolean).join(" · ") || undefined}
+              />
+            ))}
+          </StatCardRow>
+          <IndexStudio scope={{ entity: "platform", key }} />
 
           {/* Volume mix — marketplace vs gacha for THIS platform, below the studio.
               100% share mode is the money view. A gacha-only platform (Phygitals)

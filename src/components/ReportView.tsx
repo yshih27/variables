@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { CardThumb } from "./CardThumb";
+import { StatCard, StatCardRow } from "./StatCard";
 import { Section } from "./Section";
 import { formatCompactUsd, formatPct } from "@/lib/format";
 import { cardHref } from "@/lib/card/ids";
@@ -61,21 +63,32 @@ export function ReportView({ report }: { report: WeeklyReport }) {
         subtitle={`${INDEX_FAMILY_SHORT[0].toUpperCase()}${INDEX_FAMILY_SHORT.slice(1)}, market cap and volume — week over week, on-chain reads and primary-source market feeds`}
         flush
       >
-        <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl bg-line sm:grid-cols-3">
-          <StatTile label={tickerOf("market", "total")} value={formatPct(report.index.wowPct)} tone={report.index.wowPct} sub="week over week" big />
-          <StatTile
+        {/* Headline tiles at headline scale. `sub` keeps every qualifier the old
+            StatTile carried — the WoW figure is the basis for the number above it
+            and does not survive being dropped for size. */}
+        <StatCardRow cols={3} className="border-0 rounded-none">
+          <StatCard
+            label={tickerOf("market", "total")}
+            value={formatPct(report.index.wowPct)}
+            tone={report.index.wowPct}
+            sub="week over week"
+            size="hero"
+          />
+          <StatCard
             label="Market cap"
             value={report.mcap.totalUsd != null ? formatCompactUsd(report.mcap.totalUsd) : "—"}
-            sub={formatPct(report.mcap.wowPct)}
-            subTone={report.mcap.wowPct}
+            metric="marketCap"
+            deltaPct={report.mcap.wowPct}
+            deltaLabel="WoW"
           />
-          <StatTile
+          <StatCard
             label="Tracked volume"
             value={formatCompactUsd(report.volume.weekUsd)}
-            sub={formatPct(report.volume.wowPct)}
-            subTone={report.volume.wowPct}
+            metric="total24h"
+            deltaPct={report.volume.wowPct}
+            deltaLabel="WoW"
           />
-        </div>
+        </StatCardRow>
       </Section>
 
       {/* vs benchmarks (spread = index WoW − benchmark WoW) */}
@@ -151,36 +164,6 @@ export function ReportView({ report }: { report: WeeklyReport }) {
   );
 }
 
-function StatTile({
-  label,
-  value,
-  tone,
-  sub,
-  subTone,
-  big,
-}: {
-  label: string;
-  value: string;
-  tone?: number | null;
-  sub?: string;
-  subTone?: number | null;
-  big?: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-1 bg-bg-1 px-5 py-5">
-      <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3">{label}</span>
-      <span className={`tabular font-semibold ${big ? "text-[40px]" : "text-[26px]"} ${tone !== undefined ? pctClass(tone) : "text-ink"}`}>
-        {value}
-      </span>
-      {sub && (
-        <span className={`tabular text-[12px] ${subTone !== undefined ? pctClass(subTone) : "text-ink-3"}`}>
-          {sub}
-          {subTone !== undefined ? " WoW" : ""}
-        </span>
-      )}
-    </div>
-  );
-}
 
 function MoverBoardCard({ title, board, hrefOf }: { title: string; board: MoverBoard; hrefOf: (k: string) => string }) {
   if (board.gainers.length === 0 && board.losers.length === 0) return null;
@@ -222,12 +205,15 @@ function SaleRow({ sale }: { sale: ReportSale }) {
   const href = cardHref(sale.platform, sale.tokenId);
   const inner = (
     <>
-      <span className="flex min-w-0 flex-col">
+      <span className="flex min-w-0 items-center gap-3">
+        <CardThumb src={sale.image} size={32} />
+        <span className="flex min-w-0 flex-col">
         <span className="truncate font-sans text-[13.5px] font-medium">{sale.name}</span>
         {/* Display names, not raw slugs ("one_piece · collector-crypt"). */}
         <span className="text-[11.5px] text-ink-3">
           {sale.ip !== "other" ? `${sale.ipName} · ` : ""}
           {sale.platformName} · {fmtDate(sale.date)}
+        </span>
         </span>
       </span>
       <span className="tabular shrink-0 text-[13.5px] font-semibold text-ink">{formatCompactUsd(sale.priceUsd)}</span>
