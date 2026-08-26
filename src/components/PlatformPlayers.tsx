@@ -6,6 +6,10 @@ import { MetricInfo } from "./MetricInfo";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartTooltip";
 import { formatCompactUsd, formatCompactNumber, formatInt, formatMonthDayUtc } from "@/lib/format";
 import type { PlatformPlayerAnalytics } from "@/lib/data/playerAnalytics";
+import {
+  PULL_COVERAGE_MIN_PCT,
+  type PullCoverage,
+} from "@/lib/metrics/pullCoverage";
 
 /**
  * Players — who actually spends on a gacha platform, and how unevenly.
@@ -70,9 +74,17 @@ function fmtPrice(p: string): string {
 
 export function PlatformPlayers({
   data,
+  monthCoverage,
+  overallCoverage,
 }: {
   /** null → render nothing (no attribution, or the warmer hasn't run). */
   data: { player: PlatformPlayerAnalytics; generatedAt: string } | null;
+  /** Month → share of spine gacha spend our pulls hold (0–100). Months below
+   *  PULL_COVERAGE_MIN_PCT are withheld from the chart — see pullCoverage.ts. */
+  monthCoverage?: PullCoverage;
+  /** Capture rate across every month we hold pulls for; qualifies the LIFETIME
+   *  figures (tiers, concentration), which sum over all months regardless. */
+  overallCoverage?: number | null;
 }) {
   if (!data) return null;
   const { player } = data;
@@ -85,9 +97,18 @@ export function PlatformPlayers({
     coverage.rows > 0 ? (coverage.walletAttributedRows / coverage.rows) * 100 : 0;
   const from = formatMonthDayUtc(coverage.firstPullAt);
   const to = formatMonthDayUtc(coverage.lastPullAt);
+  // ⚠️ "100% wallet-attributed" is a share of the rows we CAPTURED, not of the
+  // market. Without the capture rate beside it the subtitle reads as complete
+  // coverage of the platform, which for Phygitals (~24% of spend) it is nowhere
+  // near. Both numbers, always — the second is what makes the first legible.
+  const capture =
+    overallCoverage != null && Number.isFinite(overallCoverage)
+      ? `captures ${overallCoverage < 99.5 ? overallCoverage.toFixed(0) : "100"}% of on-chain gacha spend`
+      : null;
   const subtitle = [
     `${formatCompactNumber(coverage.rows)} pulls`,
     `${attributionPct >= 99.5 ? "100" : attributionPct.toFixed(1)}% wallet-attributed`,
+    capture,
     from && to ? `${from} – ${to}` : null,
     "lifetime spend per wallet",
   ]
@@ -95,7 +116,12 @@ export function PlatformPlayers({
     .join(" · ");
 
   return (
-    <Section title="Players" subtitle={subtitle} className="mb-12 font-sans">
+    <Section
+      title="Players"
+      readMe="who funds the machine — lifetime spend per wallet. thin bar left, thick bar right = whales."
+      subtitle={subtitle}
+      className="mb-12 font-sans"
+    >
       {/* Stat row — the three-number summary the tier table then explains. */}
       <div className="grid grid-cols-1 gap-x-5 gap-y-5 border-b border-line pb-5 sm:grid-cols-3">
         <Stat
@@ -121,7 +147,7 @@ export function PlatformPlayers({
       </div>
 
       <TierTable tiers={tiers} totalWallets={c.totalWallets} totalSpend={c.totalSpendUsd} />
-      <MonthlyChart monthly={monthly} />
+      <MonthlyChart monthly={monthly} coverage={monthCoverage} />
     </Section>
   );
 }
@@ -282,15 +308,39 @@ function PctBar({ pct, width, color }: { pct: number; width: number; color: stri
  * Bands are chosen by spend over the VISIBLE window, so switching range re-picks
  * them rather than carrying a 6-month ranking into an all-time view.
  */
-function MonthlyChart({ monthly }: { monthly: PlatformPlayerAnalytics["monthly"] }) {
+function MonthlyChart({
+  monthly,
+  coverage,
+}: {
+  monthly: PlatformPlayerAnalytics["monthly"];
+  coverage?: PullCoverage;
+}) {
   const [win, setWin] = useState<number>(0);
   const [hover, setHover] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
 
+  /**
+   * The capture boundary. Months our pulls under-cover are DROPPED, not dimmed
+   * and not scaled: a half-captured month drawn at half height is a lie about
+   * player spending, and grossing it up would invent a price mix we never saw
+   * (see pullCoverage.ts). With no coverage map supplied nothing is withheld —
+   * the gate is opt-in, so a caller that can't measure completeness still
+   * renders exactly what it did before.
+   */
+  const { complete, withheld, since } = useMemo(() => {
+    if (!coverage) return { complete: monthly, withheld: 0, since: null as string | null };
+    const complete = monthly.filter((m) => (coverage[m.month] ?? 0) >= PULL_COVERAGE_MIN_PCT);
+    return {
+      complete,
+      withheld: monthly.length - complete.length,
+      since: complete.length ? complete[0].month : null,
+    };
+  }, [monthly, coverage]);
+
   const months = useMemo(() => {
     const n = WINDOWS[win].months;
-    return n === Infinity ? monthly : monthly.slice(-n);
-  }, [monthly, win]);
+    return n === Infinity ? complete : complete.slice(-n);
+  }, [complete, win]);
 
   const { bands, stacks, max, total } = useMemo(() => {
     const byBand = new Map<string, number>();
@@ -325,15 +375,38 @@ function MonthlyChart({ monthly }: { monthly: PlatformPlayerAnalytics["monthly"]
   }, [months]);
 
   if (!stacks.length) {
+    // Two different absences, and they must not read alike: nothing recorded at
+    // all, versus recorded but too incomplete to plot. The second is the live
+    // case for Phygitals (best month 35% captured) — showing "building history"
+    // there would imply the data is on its way, when what we have is a series we
+    // are choosing not to draw.
+    const allWithheld = withheld > 0 && monthly.length > 0;
     return (
-      <div className="mt-6 flex h-24 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-center">
-        <span className="text-[12px] text-ink-3">Building history</span>
-        <span className="text-[10.5px] text-ink-4">no monthly spend recorded yet</span>
+      <div className="mt-6 flex min-h-24 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line px-4 py-4 text-center">
+        <span className="text-[12px] text-ink-3">
+          {allWithheld ? "Below the capture threshold" : "Building history"}
+        </span>
+        <span className="text-[10.5px] leading-snug text-ink-4">
+          {allWithheld
+            ? `${withheld} month${withheld === 1 ? "" : "s"} recorded, none holding ${PULL_COVERAGE_MIN_PCT}% of on-chain gacha spend — pull capture is too partial here to plot a monthly mix`
+            : "no monthly spend recorded yet"}
+        </span>
       </div>
     );
   }
 
   const active = hover != null ? stacks[hover] : null;
+
+  /**
+   * ⚠️ A LONE COLUMN MUST NOT FILL THE CARD. Once the capture gate withholds the
+   * under-covered months a platform can be down to one qualifying month (Collector
+   * Crypt today), and a single flex-1 column stretches edge to edge — it stops
+   * reading as "one month's spend" and starts reading as a 100%-share band. Below
+   * four columns they take a fixed width and the row packs from the left, so the
+   * axis reads as a series that starts here and will grow rightward.
+   */
+  const narrow = stacks.length < 4;
+  const colCls = narrow ? "w-[104px] flex-none" : "min-w-0 flex-1";
 
   return (
     <div className="mt-7">
@@ -342,6 +415,17 @@ function MonthlyChart({ monthly }: { monthly: PlatformPlayerAnalytics["monthly"]
           <div className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
             Monthly spend by pack price
           </div>
+          {/* The capture boundary, stated on the chart it governs. Without it the
+              first bar reads as the month the platform started selling packs,
+              rather than the month we started recording. */}
+          {since && (
+            <div className="mt-1 font-mono text-[10.5px] text-ink-4">
+              pull-level data since {fmtMonth(since)}
+              {withheld > 0
+                ? ` · ${withheld} earlier month${withheld === 1 ? "" : "s"} below ${PULL_COVERAGE_MIN_PCT}% capture, withheld`
+                : ""}
+            </div>
+          )}
           <div className="mt-1.5 font-mono text-[21px] font-bold leading-none tabular text-ink">
             {formatCompactUsd(active ? active.total : total)}
           </div>
@@ -379,7 +463,7 @@ function MonthlyChart({ monthly }: { monthly: PlatformPlayerAnalytics["monthly"]
             const h = (s.total / max) * 100;
             const on = hover === i;
             return (
-              <div key={s.month} className="flex h-full min-w-0 flex-1 flex-col justify-end">
+              <div key={s.month} className={`flex h-full flex-col justify-end ${colCls}`}>
                 <div
                   className="flex w-full flex-col-reverse transition-opacity"
                   style={{ height: `${Math.max(1.5, h)}%`, opacity: on || hover == null ? 1 : 0.45 }}
@@ -409,7 +493,7 @@ function MonthlyChart({ monthly }: { monthly: PlatformPlayerAnalytics["monthly"]
           {stacks.map((s, i) => (
             <div
               key={s.month}
-              className="min-w-0 flex-1 cursor-default"
+              className={`cursor-default ${colCls}`}
               onMouseEnter={(e) => {
                 setHover(i);
                 setAnchor(anchorFromEvent(e));
@@ -440,7 +524,7 @@ function MonthlyChart({ monthly }: { monthly: PlatformPlayerAnalytics["monthly"]
           months fit without collision, unlike a daily axis. */}
       <div className="mt-2 flex gap-[6px] font-mono text-[10px] text-ink-4">
         {stacks.map((s) => (
-          <div key={s.month} className="min-w-0 flex-1 truncate text-center">
+          <div key={s.month} className={`truncate text-center ${colCls}`}>
             {fmtMonth(s.month)}
           </div>
         ))}

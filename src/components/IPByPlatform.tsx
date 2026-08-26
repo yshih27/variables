@@ -40,7 +40,8 @@ function metricValue(r: PlatformRow, m: DonutMetric): number {
 export function IPByPlatform({
   rows,
   title = "By Platform",
-  subtitle = "How this IP trades across tracked marketplaces",
+  readMe = "how this IP trades across tracked marketplaces — the donut is volume share",
+  subtitle,
   entityHeader = "Platform",
   donutTitle = "Platform share",
   showChain = true,
@@ -48,6 +49,8 @@ export function IPByPlatform({
 }: {
   rows: PlatformRow[];
   title?: string;
+  /** How to read it (see <ReadMe>); defaults to the cross-marketplace framing. */
+  readMe?: string;
   subtitle?: string;
   entityHeader?: string;
   donutTitle?: string;
@@ -64,7 +67,7 @@ export function IPByPlatform({
   const shares = rows.map((r) => ({ ...r, share: metricValue(r, metric) / total }));
 
   return (
-    <Section title={title} subtitle={subtitle} className="mb-12 font-sans">
+    <Section title={title} readMe={readMe} subtitle={subtitle} className="mb-12 font-sans">
       <div className="grid grid-cols-1 gap-10 pt-1 min-[1024px]:grid-cols-[1.7fr_1fr] min-[1024px]:gap-0 min-[1024px]:divide-x min-[1024px]:divide-line">
         {/* Left — table */}
         <div className="min-[1024px]:pr-8">

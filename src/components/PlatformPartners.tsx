@@ -6,12 +6,18 @@ import { formatCompactUsd } from "@/lib/format";
  * Top partners — which partner surface a Collector Crypt pull was bought
  * through (CC's `memo_slug`: 'cc' is CC's own storefront, 'rare' is Rarible, …).
  *
- * ⚠️ RENDERS NOTHING TODAY, BY DESIGN. `memo_slug` capture is forward-only and
- * lands with PR #73; the player-analytics snapshot carries no partner rollup
- * yet, so `partners` is undefined and this returns null. It lights up on its own
- * once the backend attaches the rollup — no FE change needed. Until then there
- * is deliberately no placeholder: an empty partner board would imply we measured
- * the split and found nothing, when we simply have not captured it yet.
+ * ⚠️ TWO ABSENCES, TWO BEHAVIOURS. `memo_slug` capture is forward-only (PR #73,
+ * live 2026-08-18), so the board spends a long time under-populated:
+ *   • NO rollup at all (`partners` null) → render nothing. Either the platform
+ *     emits no memo_slug or the warmer has not reached it; we cannot tell which,
+ *     and an empty board would assert we measured the split and found none.
+ *   • A rollup exists but nothing clears the volume floor → render the ACCRUAL
+ *     NOTE. Here we CAN say something true and useful: capture is running, this
+ *     much is attributed so far, and here is the bar a partner must clear. That
+ *     is a state, not a blank.
+ * The note also rides along beneath a populated board, because a three-row
+ * podium drawn from a low attributed share is exactly where a reader most needs
+ * to know the denominator is still filling.
  *
  * DISPLAY RULES (fixed — do not special-case any individual partner):
  *   • Top 3 by trailing-30d attributed volume, cut at DISPLAY time from the FULL
@@ -49,6 +55,18 @@ export type PartnerAttribution = {
 
 const TOP_N = 3;
 
+/**
+ * When memo_slug capture went live (PR #73). Attribution is forward-only, so this
+ * date is what makes a low attributed share legible: it is elapsed capture time,
+ * not a measurement of partner concentration.
+ *
+ * ⚠️ BELONGS IN THE SNAPSHOT. Every other display rule here reads from
+ * `partners.config` precisely so the FE holds no policy; this one is a constant
+ * only because the rollup does not carry a capture-start field yet. Move it to
+ * `config.captureStartedAt` when the backend can supply it, and delete this.
+ */
+const CAPTURE_START_LABEL = "Aug 18";
+
 export function PlatformPartners({ partners }: { partners: PartnerAttribution | null | undefined }) {
   if (!partners) return null;
 
@@ -64,10 +82,31 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
     .sort((a, b) => b.volumeUsd30d - a.volumeUsd30d)
     .slice(0, TOP_N);
 
-  // Nothing clears the floor → nothing to show. Still not a placeholder.
-  if (!top.length) return null;
-
   const pct = Number.isFinite(partners.attributedPct) ? partners.attributedPct : 0;
+  const accrual = `attribution accruing since ${CAPTURE_START_LABEL} · ${fmtAttributedPct(pct)} attributed · partners appear at ${formatCompactUsd(floor)}/30d`;
+
+  // Nothing clears the floor yet → the accrual state IS the content. Capture is
+  // demonstrably running (a rollup exists), so this says where it has got to
+  // rather than leaving a gap the reader has to interpret.
+  if (!top.length) {
+    return (
+      <Section
+        title={
+          <span className="inline-flex items-center gap-1.5">
+            Top partners
+            <MetricInfo metric="partnerAttribution" />
+          </span>
+        }
+        readMe="which storefronts route pulls here · attribution grows as capture accrues"
+        className="font-sans"
+      >
+        <div className="flex min-h-[68px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line px-4 py-4 text-center">
+          <span className="text-[12px] text-ink-3">No partner clears the floor yet</span>
+          <span className="font-mono text-[10.5px] leading-snug text-ink-4">{accrual}</span>
+        </div>
+      </Section>
+    );
+  }
 
   return (
     <Section
@@ -77,6 +116,7 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
           <MetricInfo metric="partnerAttribution" />
         </span>
       }
+      readMe="which storefronts route pulls here · attribution grows as capture accrues"
       subtitle={`top ${TOP_N} by 30d volume · ${fmtAttributedPct(pct)} of pulls attributed`}
       flush
       className="font-sans"
@@ -98,6 +138,10 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
             ))}
           </tbody>
         </table>
+        {/* Same accrual note under a populated board. A podium built from a small
+            attributed share is the case most likely to be screenshotted and read
+            as settled partner share — the denominator has to travel with it. */}
+        <p className="mt-3 font-mono text-[10.5px] leading-snug text-ink-4">{accrual}</p>
       </div>
     </Section>
   );

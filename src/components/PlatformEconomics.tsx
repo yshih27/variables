@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Section } from "./Section";
+import { Section, ReadMe } from "./Section";
 import { MetricInfo } from "./MetricInfo";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartTooltip";
 import { formatCompactUsd } from "@/lib/format";
@@ -170,6 +170,7 @@ export function PlatformEconomics({
   return (
     <Section
       title="Platform economics"
+      readMe="gross flows through the gacha wallets — spend in, buybacks out. the gap is the gacha margin."
       subtitle={
         held
           ? "Gacha pull spend · last 30 complete days"
@@ -266,6 +267,13 @@ export function PlatformEconomics({
                 </div>
               ),
             )}
+            {/* The net line's own definition, stated where the net number is —
+                "the gap" in the section read-me is not self-explanatory once a
+                reader asks WHICH payouts were subtracted. R3 = a payout counts
+                only if the recipient also spent into the gacha. */}
+            <ReadMe className="col-span-3">
+              net = canonical spend − payouts to player wallets (rule R3)
+            </ReadMe>
           </div>
         )}
 

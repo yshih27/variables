@@ -279,6 +279,7 @@ export default async function AllIPsPage() {
           {mcapComposition.length > 0 && (
             <CompositionChart
               title="Market cap composition"
+              readMe="which IPs hold the market's value — share mode shows rotation"
               subtitle="Top IPs by market cap + Other · last 30 days"
               metric="marketCap"
               series={mcapComposition}

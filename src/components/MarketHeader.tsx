@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { HeroStats, IPRow } from "@/lib/types";
-import { SectionShell } from "./Section";
+import { SectionShell, ReadMe } from "./Section";
 import { IPIcon } from "./IPIcon";
 import { Sparkline } from "./Sparkline";
 import { MarketIndexChart } from "./MarketIndexChart";
@@ -145,6 +145,10 @@ export function MarketHeader({
         {hasChart && (
           <div className="hidden min-w-0 lg:flex lg:flex-col lg:justify-center">
             <MarketIndexChart points={index.series!} />
+            <ReadMe className="mt-2">
+              constant-quality index — same cards, same grades, week to week. moves are
+              price, not mix.
+            </ReadMe>
           </div>
         )}
 
@@ -169,6 +173,9 @@ export function MarketHeader({
                 </span>
               )}
             </div>
+            <ReadMe className="mt-1.5">
+              V-MKT return minus benchmark · green = cards outperformed
+            </ReadMe>
             <div className="mt-3 flex flex-col gap-2.5">
               {relDeltas.map((d) => (
                 <RelRow key={d.label} rel={d} sinceLabel={index.relSinceLabel ?? null} />

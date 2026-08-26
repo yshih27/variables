@@ -57,6 +57,7 @@ export function ReportView({ report }: { report: WeeklyReport }) {
       {/* Headline: index / market cap / weekly volume */}
       <Section
         title="The market this week"
+        readMe="one week's move in three numbers — index, cap, turnover"
         subtitle={`${INDEX_FAMILY_SHORT[0].toUpperCase()}${INDEX_FAMILY_SHORT.slice(1)}, market cap and volume — week over week, on-chain reads and primary-source market feeds`}
         flush
       >
@@ -79,7 +80,12 @@ export function ReportView({ report }: { report: WeeklyReport }) {
 
       {/* vs benchmarks (spread = index WoW − benchmark WoW) */}
       {report.benchmarks.length > 0 && (
-        <Section title="vs benchmarks" subtitle="Index return minus each benchmark, this week" flush>
+        <Section
+          title="vs benchmarks"
+          readMe="V-MKT return minus benchmark · green = cards outperformed"
+          subtitle="Index return minus each benchmark, this week"
+          flush
+        >
           <div className="flex flex-wrap gap-2.5 px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
             {report.benchmarks.map((b) => (
               <div key={b.symbol} className="flex items-center gap-2 rounded-lg border border-line bg-bg-1 px-3 py-2">
@@ -104,7 +110,12 @@ export function ReportView({ report }: { report: WeeklyReport }) {
 
       {/* Biggest sales */}
       {report.biggestSales.length > 0 && (
-        <Section title="Biggest sales" subtitle="Largest single sales this week" flush>
+        <Section
+          title="Biggest sales"
+          readMe="the week's largest single trades — where conviction showed up"
+          subtitle="Largest single sales this week"
+          flush
+        >
           <ul className="divide-y divide-line/60">
             {report.biggestSales.map((s, i) => (
               <SaleRow key={`${s.platform}:${s.tokenId}:${i}`} sale={s} />
@@ -115,7 +126,12 @@ export function ReportView({ report }: { report: WeeklyReport }) {
 
       {/* Notable pulls */}
       {report.notablePulls.length > 0 && (
-        <Section title="Notable pulls" subtitle="Biggest gacha hits this week" flush>
+        <Section
+          title="Notable pulls"
+          readMe="the week's biggest pack hits — what the odds actually paid"
+          subtitle="Biggest gacha hits this week"
+          flush
+        >
           <ul className="divide-y divide-line/60">
             {report.notablePulls.map((p) => (
               <PullRow key={`${p.platform}:${p.mint}:${p.at}`} pull={p} />
@@ -169,7 +185,7 @@ function StatTile({
 function MoverBoardCard({ title, board, hrefOf }: { title: string; board: MoverBoard; hrefOf: (k: string) => string }) {
   if (board.gainers.length === 0 && board.losers.length === 0) return null;
   return (
-    <Section title={title} flush>
+    <Section title={title} readMe="biggest week-over-week movers — gainers first, then losers" flush>
       <div className="flex flex-col">
         {board.gainers.map((m) => (
           <MoverRow key={`g:${m.key}`} m={m} href={hrefOf(m.key)} arrow="▲" />

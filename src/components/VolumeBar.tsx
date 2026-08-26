@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MetricInfo } from "./MetricInfo";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, deltaDir, formatDelta } from "@/lib/format";
+import { ReadMe } from "./Section";
 
 /** 24h volume split — marketplace resale + gacha pulls + other primary = total. */
 export type VolBreakdown = {
@@ -79,6 +80,9 @@ export function VolumeBar({
           )}
         </div>
       </div>
+      <ReadMe className="mt-1.5">
+        marketplace resale + gacha + direct — the market&apos;s full daily turnover
+      </ReadMe>
       {segs.length > 0 && (
         <div className="mt-3.5">
           <div className="flex h-2 overflow-hidden rounded-none bg-bg-3">

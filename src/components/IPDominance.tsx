@@ -88,6 +88,7 @@ export function DominancePanel({
   return (
     <Section
       title={title}
+      readMe="a snapshot, not a trend — segment width is share right now"
       subtitle={
         <>
           current share of {metricLabel}
