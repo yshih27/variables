@@ -274,23 +274,29 @@ export default async function AllIPsPage() {
             />
           </div>
 
-          {/* ZONE 3 — market-cap composition (the treemap through TIME), then the
-              treemap snapshot + full IP list. */}
-          {mcapComposition.length > 0 && (
-            <CompositionChart
-              title="Market cap composition"
-              readMe="which IPs hold the market's value — share mode shows rotation"
-              subtitle="Top IPs by market cap + Other · last 30 days"
-              metric="marketCap"
-              series={mcapComposition}
-              unit="usd"
-              variant="area"
-              // Market cap is a LEVEL — no Cumulative mode (summing a level across
-              // days is meaningless; it once rendered $62.7M as a $1.55B staircase).
-              flow={false}
-            />
-          )}
-          <CategoryTreemap rows={data.ips} />
+          {/* ZONE 3 — the same quantity twice, side by side: the treemap is
+              market cap NOW, the composition is the month that produced it.
+              Grid items stretch, so the two card frames stay flush; when the
+              composition series hasn't accrued yet the treemap takes the full
+              width rather than half a row. Below xl they stack — half of a
+              1024px row is too narrow for 21 treemap tiles + the mode toggles. */}
+          <div className={mcapComposition.length > 0 ? "grid grid-cols-1 gap-3 xl:grid-cols-2" : undefined}>
+            <CategoryTreemap rows={data.ips} />
+            {mcapComposition.length > 0 && (
+              <CompositionChart
+                title="Market cap composition"
+                readMe="which IPs hold the market's value — share mode shows rotation"
+                subtitle="Top IPs by market cap + Other · last 30 days"
+                metric="marketCap"
+                series={mcapComposition}
+                unit="usd"
+                variant="area"
+                // Market cap is a LEVEL — no Cumulative mode (summing a level across
+                // days is meaningless; it once rendered $62.7M as a $1.55B staircase).
+                flow={false}
+              />
+            )}
+          </div>
           <IPTable rows={data.ips} />
         </div>
       </div>
