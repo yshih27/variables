@@ -40,7 +40,8 @@ function metricValue(r: PlatformRow, m: DonutMetric): number {
 export function IPByPlatform({
   rows,
   title = "By Platform",
-  subtitle = "How this IP trades across tracked marketplaces",
+  readMe = "how this IP trades across tracked marketplaces",
+  subtitle,
   entityHeader = "Platform",
   donutTitle = "Platform share",
   showChain = true,
@@ -48,6 +49,10 @@ export function IPByPlatform({
 }: {
   rows: PlatformRow[];
   title?: string;
+  /** How to read it (see <ReadMe>) — the FRAMING only. The donut clause is
+   *  appended inside the component, because which share the donut shows depends
+   *  on the live Volume/Trades toggle. */
+  readMe?: string;
   subtitle?: string;
   entityHeader?: string;
   donutTitle?: string;
@@ -63,8 +68,12 @@ export function IPByPlatform({
   const total = rows.reduce((a, r) => a + metricValue(r, metric), 0) || 1;
   const shares = rows.map((r) => ({ ...r, share: metricValue(r, metric) / total }));
 
+  // MODE-AWARE like IndexStudio's line: a fixed "the donut is volume share"
+  // becomes a false claim the moment the Volume/Trades dropdown flips.
+  const donutClause = metric === "trades" ? "the donut is trade share" : "the donut is volume share";
+
   return (
-    <Section title={title} subtitle={subtitle} className="mb-12 font-sans">
+    <Section title={title} readMe={`${readMe} — ${donutClause}`} subtitle={subtitle} className="mb-12 font-sans">
       <div className="grid grid-cols-1 gap-10 pt-1 min-[1024px]:grid-cols-[1.7fr_1fr] min-[1024px]:gap-0 min-[1024px]:divide-x min-[1024px]:divide-line">
         {/* Left — table */}
         <div className="min-[1024px]:pr-8">

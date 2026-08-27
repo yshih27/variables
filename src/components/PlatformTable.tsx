@@ -114,7 +114,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
   return (
     <Section
       title={title ?? "Top Platforms"}
-      subtitle="Where the trading happens."
+      readMe="every tracked venue, ranked — share is of total 24h activity"
       right={
         seeAllHref && overflow > 0 ? (
           <Link href={seeAllHref} className="text-[12px] text-ink-3 transition-colors hover:text-yellow">

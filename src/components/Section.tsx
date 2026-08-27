@@ -22,8 +22,32 @@ export function SectionShell({ className, children }: { className?: string; chil
   );
 }
 
+/**
+ * ReadMe — the "how to read this" line that sits directly under a surface's
+ * title, above any window/coverage/basis note.
+ *
+ * House voice: lowercase, mono, analytical, no hype. It states the CONCLUSION a
+ * fluent reader would draw from the surface, not an inventory of what the
+ * surface contains — "moves are price, not mix", never "a chart of the index".
+ *
+ * ⚠️ NO `lowercase` CSS TRANSFORM. The voice is lowercase because the COPY is
+ * written lowercase; forcing it in CSS would also flatten the tickers and rule
+ * names that legitimately carry case — "V-MKT" would render "v-mkt" and "R3"
+ * "r3", turning a real identifier into a typo.
+ *
+ * ⚠️ NEVER REPLACES AN HONESTY NOTE. Windows, coverage and basis stay exactly
+ * where they were; this layer sits above them. A read-me line that absorbed
+ * "last 30 complete days" would quietly drop the window from the page.
+ */
+export function ReadMe({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <p className={`font-mono text-[11px] leading-snug text-ink-3 ${className ?? ""}`}>{children}</p>
+  );
+}
+
 export function Section({
   title,
+  readMe,
   subtitle,
   right,
   badge,
@@ -32,6 +56,9 @@ export function Section({
   children,
 }: {
   title: ReactNode;
+  /** How to read this surface — see <ReadMe>. Renders above `subtitle`, which
+   *  keeps carrying the window / coverage / basis note. */
+  readMe?: ReactNode;
   subtitle?: ReactNode;
   /** Right-aligned header slot — toggles, "see all →", a summary stat, etc. */
   right?: ReactNode;
@@ -54,7 +81,10 @@ export function Section({
                 Overview's density budget is tight (D1). */}
             <h2 className="text-[16px] font-bold leading-tight tracking-[-0.01em] text-ink">{title}</h2>
           </div>
-          {subtitle && <div className="mt-1 text-[12px] text-ink-3">{subtitle}</div>}
+          {readMe && <ReadMe className="mt-1.5">{readMe}</ReadMe>}
+          {/* The honesty note keeps its own line, and keeps it BELOW the read-me:
+              interpretation first, then the fine print it is qualified by. */}
+          {subtitle && <div className="mt-1 text-[12px] text-ink-4">{subtitle}</div>}
         </div>
         {right && <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">{right}</div>}
       </header>

@@ -124,6 +124,7 @@ export function TrendingCards({
   return (
     <Section
       title="Trending cards"
+      readMe="demand outrunning supply — sales per listing, highest first"
       subtitle={`Selling faster than they're listed · ${notes.join(" · ")}`}
       right={
         <>

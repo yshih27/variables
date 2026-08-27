@@ -274,6 +274,7 @@ export default async function AllPlatformsPage() {
           {volumeComposition.length > 0 && (
             <CompositionChart
               title="Volume composition"
+              readMe="who is winning turnover — band height is one platform's daily take"
               subtitle="Per-platform total volume (marketplace + gacha) · last 30 days"
               metric="total24h"
               series={volumeComposition}

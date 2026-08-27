@@ -54,6 +54,7 @@ export function GachaHitsTicker({
   return (
     <Section
       title="Live hits"
+      readMe="the tail of the odds — what the luckiest packs actually paid"
       subtitle={`Biggest realized pulls · ${windowLabel}`}
       className="mt-7 font-sans"
       flush

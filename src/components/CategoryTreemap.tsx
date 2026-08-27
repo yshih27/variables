@@ -214,7 +214,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
   return (
     <Section
       title="Market cap by IP"
-      subtitle="Tiles sized by market cap. Click an IP to drill in."
+      readMe="area = tracked market cap · click any tile to drill in"
       right={
         <div className="flex items-baseline gap-2">
           <span className="text-[20px] font-semibold tabular">{formatCompactUsd(total)}</span>

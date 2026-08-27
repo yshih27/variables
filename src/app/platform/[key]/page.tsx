@@ -14,6 +14,7 @@ import { PlatformEconomics, type EconomicsKpis } from "@/components/PlatformEcon
 import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
 import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
 import { PlatformPlayers } from "@/components/PlatformPlayers";
+import { monthlyPullCoverage, overallPullCoverage } from "@/lib/metrics/pullCoverage";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
 import {
   pctChange,
@@ -294,6 +295,16 @@ export default async function PlatformDetailPage({
   const player = playersSnap?.platforms.find((p) => p.platform === key) ?? null;
   const playersData = player && playersSnap ? { player, generatedAt: playersSnap.generatedAt } : null;
 
+  // ── Pull-capture completeness ───────────────────────────────────────────────
+  // Player analytics comes from `gacha_pulls`; `gachaS` is the SAME flow measured
+  // independently by the spine. Their ratio per month is how complete our capture
+  // is, and it is nowhere near 100% for the early months — the capture switched on
+  // partway and ramped. Measured 2026-08-25: CC 50.5% / 74.6% / 81.4% for Jun/Jul/
+  // Aug, Phygitals 11.3% / 35.3% / 20.0%. Withhold the under-covered months rather
+  // than plot a capture ramp as if it were player behaviour (see pullCoverage.ts).
+  const monthCoverage = player ? monthlyPullCoverage(player.monthly, gachaS) : undefined;
+  const overallCoverage = player ? overallPullCoverage(player.monthly, gachaS) : null;
+
   // Partner attribution, read FORWARD-COMPATIBLY. `memo_slug` capture is
   // forward-only (PR #73) and the snapshot carries no partner rollup yet, so
   // this is undefined today and the panel renders nothing. The cast is the whole
@@ -323,6 +334,7 @@ export default async function PlatformDetailPage({
           {volumeMix.length > 0 && (
             <CompositionChart
               title="Volume mix"
+              readMe="where this platform's money flows — packs vs resale vs direct. 100% share mode answers: what is this platform's business?"
               subtitle="Marketplace vs gacha · last 30 days"
               series={volumeMix}
               unit="usd"
@@ -355,7 +367,11 @@ export default async function PlatformDetailPage({
           <PlatformPartners partners={partners} />
 
           {/* Player analytics — only for platforms the snapshot covers. */}
-          <PlatformPlayers data={playersData} />
+          <PlatformPlayers
+            data={playersData}
+            monthCoverage={monthCoverage}
+            overallCoverage={overallCoverage}
+          />
 
           {/* ZONE 2 — 14d dailies for THIS platform. Volume and trades are flows
               (bars off zero); holders is a stock → line, headline = latest level.
@@ -401,7 +417,7 @@ export default async function PlatformDetailPage({
         <IPByPlatform
           rows={ipRows}
           title="By IP"
-          subtitle="How this platform's 24h volume breaks down across IPs"
+          readMe="this platform's 24h activity by IP"
           entityHeader="IP"
           donutTitle="IP share"
           showChain={false}

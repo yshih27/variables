@@ -13,7 +13,7 @@
  * synced crosshair tooltip — wired to real data on Varible's dark/yellow/mono system.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SectionShell } from "./Section";
+import { SectionShell, ReadMe } from "./Section";
 import { monotonePath } from "@/lib/chart/path";
 import { indexRegistry } from "@/lib/indices/naming";
 import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
@@ -1368,6 +1368,16 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
           <IconBtn onClick={() => setEmbedOpen(true)} label="Embed" title="Embed" />
         </div>
       </div>
+
+      {/* How to read it. MODE-AWARE on purpose: the brief's line ("every series
+          rebased to 100 at window start") is only TRUE in Rebased mode, and this
+          module ships an Absolute toggle right beside it — a fixed string would
+          become a false claim the moment a reader pressed Absolute. */}
+      <ReadMe className="px-4 pb-3 sm:px-5">
+        {mode === "rebase"
+          ? "every series rebased to 100 at window start — slope is relative performance"
+          : "raw values per series — scales differ, so read shape, not height"}
+      </ReadMe>
 
       {/* Chips */}
       <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 sm:px-5">

@@ -16,6 +16,8 @@ import { cardHref, cardSupported } from "@/lib/card/ids";
 
 type SectionProps = {
   title: string;
+  /** How to read it (see <ReadMe>) — above the coverage note, never instead of it. */
+  readMe?: string;
   sub?: string;
   seeAllHref?: string;
   totalRows?: number;
@@ -27,6 +29,7 @@ type SectionProps = {
  *  tables carry the app-wide card treatment without touching each call site. */
 function Section({
   title,
+  readMe,
   sub,
   seeAllHref,
   totalRows = 0,
@@ -37,6 +40,7 @@ function Section({
   return (
     <SectionFrame
       title={title}
+      readMe={readMe}
       subtitle={sub}
       right={
         seeAllHref && overflow > 0 ? (
@@ -108,6 +112,7 @@ export function PlatformIPsTable({
   return (
     <Section
       title="Top IPs on this platform"
+      readMe="which IPs carry this platform's trading — ranked by 24h volume"
       sub={`24h breakdown · ${rows.length} IP${rows.length === 1 ? "" : "s"} tracked`}
       seeAllHref={seeAllHref}
       totalRows={rows.length}
@@ -199,6 +204,7 @@ export function PlatformTopCardsTable({
   return (
     <Section
       title="Top Cards"
+      readMe="the individual cards moving this platform's money today"
       sub={`Highest 24h volume cards on this platform · ${rows.length} total`}
       seeAllHref={seeAllHref}
       totalRows={rows.length}
@@ -313,6 +319,7 @@ export function RecentSalesTable({
   return (
     <Section
       title="Recent Sales"
+      readMe="the live tape — what cleared, at what price, just now"
       sub={
         salesTotal != null
           ? `Chronological · ${rows.length} of ${salesTotal} sales enriched · 24h`

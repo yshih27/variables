@@ -39,6 +39,7 @@ export function PlatformGachaPanel({ detail }: { detail: PlatformDetail }) {
   return (
     <Section
       title="Gacha sales"
+      readMe="realized pull spend, on-chain · the mix splits fresh spend from recycled resale"
       subtitle="Pack-pull spend on this platform · realized on-chain"
       right={
         GACHA_ENABLED ? (

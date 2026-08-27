@@ -125,7 +125,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
   return (
     <Section
       title={title ?? `Top ${visible.length} IPs`}
-      subtitle="Breakdown by IP across tracked platforms."
+      readMe="the whole tracked market by IP — rank is market cap"
       right={
         <>
           {!teaser && <WindowToggle value={vw} onChange={setVw} />}

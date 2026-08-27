@@ -108,6 +108,7 @@ function buildStacks(series: CompositionSeries[], mode: Mode): { columns: Column
 
 export function CompositionChart({
   title,
+  readMe,
   subtitle,
   metric,
   series,
@@ -117,6 +118,8 @@ export function CompositionChart({
   foot,
 }: {
   title: string;
+  /** How to read it (see <ReadMe>) — sits above `subtitle`, never replaces it. */
+  readMe?: string;
   subtitle?: string;
   metric?: MetricKey;
   series: CompositionSeries[];
@@ -144,6 +147,7 @@ export function CompositionChart({
   return (
     <Section
       title={metric ? <span className="inline-flex items-center gap-1.5">{title}<MetricInfo metric={metric} /></span> : title}
+      readMe={readMe}
       subtitle={subtitle}
       right={
         <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">

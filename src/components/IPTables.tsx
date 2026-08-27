@@ -26,6 +26,7 @@ export function IPTopCards({
   return (
     <Section
       title="Top Cards"
+      readMe="what actually changed hands here — ranked by volume"
       subtitle="Most traded in this window"
       right={<SeeAll href={seeAllHref} label={`See all ${total} →`} />}
       className="mb-12 font-sans"
@@ -129,6 +130,7 @@ export function IPSets({
   return (
     <Section
       title="Sets"
+      readMe="which sets are carrying this IP's volume today"
       subtitle={`Top sets by 24h volume · ${total} total`}
       right={<SeeAll href={seeAllHref} label={`See all ${total} →`} />}
       className="mb-12 font-sans"
