@@ -7,8 +7,11 @@
  * Coverage:
  *   • beezie — api.beezie.com/activity (order_fulfilled) reaches months back; a single
  *     call yields ~30d of real secondary sales (~2.6K rows). This is the R4-2 win.
- *   • collector-crypt already has its own 30d Dune cache (fetchCCSecondarySales), so it
- *     is NOT duplicated here.
+ *   • collector-crypt + courtyard — written by runCoreWarm from the SAME cleaned Dune
+ *     rows it ingests for core-volume. They used to be excluded ("CC already has its
+ *     own 30d Dune cache") — but that cache was a per-cold-reader Dune EXPORT billed
+ *     at 10 cr/MB (~5.6 cr per cold card-page render, and a deploy makes every token
+ *     cold at once). App readers read THIS store instead; only warmers touch Dune.
  *   • phygitals is intentionally absent: its /sales feed is 100% gacha (CLAW/BUY pulls)
  *     — zero peer-to-peer secondary sales — and its real secondary trades happen on
  *     Tensor / Magic Eden, which need a Dune query that doesn't exist yet. It slots in
@@ -28,6 +31,12 @@ export type SecondarySalesSnapshot = {
 export async function readSecondarySales(platform: string): Promise<NormalizedSale[]> {
   const snap = await readSnapshot<SecondarySalesSnapshot>("secondary-sales").catch(() => null);
   return snap?.platforms?.[platform] ?? [];
+}
+
+/** The whole store, for writers doing a read-modify-write of their own keys
+ *  (writers are serialized by the Actions `warm` concurrency group). */
+export async function readSecondarySalesSnapshot(): Promise<SecondarySalesSnapshot | null> {
+  return readSnapshot<SecondarySalesSnapshot>("secondary-sales").catch(() => null);
 }
 
 export function writeSecondarySales(snap: SecondarySalesSnapshot): Promise<void> {
