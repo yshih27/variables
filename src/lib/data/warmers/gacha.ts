@@ -225,13 +225,20 @@ export async function runGachaWarm(
   const GACHA_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
   /** `reuse` opt-in returns NULL when Dune's cached result is one we already
    *  ingested — the caller must then carry its previous snapshot entry forward. */
+  // ⚠️ 180s was calibrated for a healthy execution queue. An over-plan account
+  // (Aug '26: 394% of included credits) gets deprioritized, and both daily
+  // executions sat in the starved queue past 180s two days running — which
+  // stopped CC/Phygitals gacha dailies and let the completeness gate freeze
+  // every published Σ-chart. 600s rides out the throttle; the daily job's
+  // 75-minute ceiling has room for both reads at the cap.
+  const DUNE_EXEC_WAIT_MS = 600_000;
   const fetchRows = async (id: number, reuse = false): Promise<DuneRow[] | null> => {
-    if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: 180_000 });
+    if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: DUNE_EXEC_WAIT_MS });
     const r = await getResultsAutoRefresh(id, {
       maxAgeMs: GACHA_MAX_CACHE_AGE_MS,
       freshnessSource: "gacha-dune",
       reuseIfUnchanged: reuse,
-      runOpts: { maxWaitMs: 180_000 },
+      runOpts: { maxWaitMs: DUNE_EXEC_WAIT_MS },
     });
     if (r.refreshed) {
       const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
