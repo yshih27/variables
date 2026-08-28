@@ -82,5 +82,15 @@ jobs:
             else
               echo "$batch: no successful run in ${window_hours}h — re-dispatching"
               gh workflow run warm -R "$REPO" --field batch="$batch"
+              # ⚠️ The `warm` concurrency group holds ONE pending run — a second
+              # dispatch while the first is still queued CANCELS it (measured
+              # Aug 28: a daily dispatch was eaten by the indices dispatch two
+              # seconds later). Before any further dispatch, wait for this one
+              # to leave the queue (start running) or time out trying.
+              for i in $(seq 1 24); do
+                sleep 5
+                q=$(gh run list -R "$REPO" --workflow=warm.yml --status queued --json databaseId --jq length || echo 1)
+                [ "$q" = "0" ] && break
+              done
             fi
           done
