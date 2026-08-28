@@ -33,7 +33,7 @@ config({ path: ".env.local" });
 
 import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/data/warmers/core";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
-import { getResultsAutoRefresh } from "../src/lib/dune/client";
+import { getResultsAutoRefresh, type DuneRow } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_ID, BUYBACK_QUERY_ID } from "../src/lib/dune/queryIds";
 import { readDyliSales, fetchDailyGmv } from "../src/lib/dyli/sales";
 import { LANE_METRIC } from "../src/lib/dyli/lanes";
@@ -430,18 +430,34 @@ async function main() {
   // we actually trust (see R3_CLASSIFIED below). Everything here is defensive
   // about the row shape so a rollback to the pre-R3 query degrades rather than
   // crashes.
+  // SINGLE PAYER, 2-DAY CADENCE (Aug '26 credit crisis). This is now the ONLY
+  // reader of the buyback query — warm-gacha-dune's read fed a blob field
+  // nothing consumed. The per-recipient export grew ~47K → ~241K rows with
+  // August's volume (~240 cr per execution+read at 1cr/1K datapoints), so it
+  // executes every OTHER day and `reuseIfUnchanged` skips the re-download in
+  // between. Cost of the cadence: the payout/gross series (and therefore the
+  // published net) trail one day further on off days — fetchPlatform already
+  // holds net for days without a basis marker, so the lag is honest, not wrong.
+  let bbRows: DuneRow[] | null = null;
   try {
-    const { rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
-      maxAgeMs: DAY,
+    ({ rows: bbRows } = await getResultsAutoRefresh(BUYBACK_QUERY_ID, {
+      maxAgeMs: 2 * DAY,
       freshnessSource: "metric-snapshots",
-      runOpts: { maxWaitMs: 480_000 },
-    });
-
+      reuseIfUnchanged: true,
+      runOpts: { maxWaitMs: 600_000 },
+    }));
+  } catch (e) {
+    console.warn(`  buyback read failed: ${(e as Error).message} — spine rows stand`);
+  }
+  if (bbRows === null) {
+    // Reuse said our ingest is already current (or the read failed, logged
+    // above). Either way the idempotent spine rows stand — no re-export.
+    console.log("  buyback: no new export this run — spine rows stand (2d cadence)");
+  } else try {
     const spenders = await loadSpenderKeys(now - 35 * DAY);
     const byPlatformDay = new Map<string, Map<string, number>>();
     const grossByPlatformDay = new Map<string, Map<string, number>>();
     // Per-platform recipient tallies, for the sanity gate below.
-    if (bbRows === null) throw new Error("buyback returned an unrequested reuse signal");
     const seenRecipients = new Map<string, Set<string>>();
     const matchedRecipients = new Map<string, Set<string>>();
     let classifiedRows = 0;
