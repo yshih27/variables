@@ -2,10 +2,10 @@
  * getCardSales (B9-4) — per-token sale history for the card page's "Price
  * history" slot (F9-3), read from feeds that are ALREADY cached. Zero new
  * crawling:
- *   • collector-crypt — the 30d Dune secondary cache (fetchCCSecondarySales
- *     cachedOnly — self-heals with a fresh run only if the cache is stale).
- *   • beezie          — the warm-secondary-sales /activity snapshot (~30d).
- *   • courtyard       — the full-history Dune nft.trades cache.
+ *   • collector-crypt / beezie / courtyard — the platform-keyed secondary-sales
+ *     snapshot (Postgres), written by runCoreWarm + warm-secondary-sales. The
+ *     app NEVER reads Dune (see buildCardSales) — the old direct cache reads
+ *     billed a Dune export per cold token.
  *   • phygitals       — none: its /sales feed is 100% gacha (no P2P secondary);
  *     returns an empty history with source:null so the UI can say "no feed".
  *
@@ -16,7 +16,7 @@
  * line and an honest "N sales over the covered window" label, not interpolate.
  */
 import { unstable_cache } from "next/cache";
-import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "./warmers/core";
+
 import { readSnapshot } from "../db/snapshots";
 import type { SecondarySalesSnapshot } from "./secondarySalesCache";
 import type { NormalizedSale } from "../rarible/queries";
@@ -65,17 +65,21 @@ function filterToken(sales: NormalizedSale[], tokenId: string): CardSalePoint[] 
 /** Uncached builder — for scripts/tests outside the Next server (unstable_cache
  *  throws there). In-app callers use getCardSales below. */
 export async function buildCardSales(platform: CardPlatform, tokenId: string): Promise<CardSalesHistory> {
+  // ⚠️ NO DUNE FROM THE APP. All three feeds come from the secondary-sales
+  // store the warmers write; the old direct reads (fetchCCSecondarySales et al)
+  // were a Dune EXPORT per cold token — ~5.6 cr per card-page render at
+  // Analyst's 10 cr/MB, and a deploy made every token cold at once.
+  const snap = await readSnapshot<SecondarySalesSnapshot>("secondary-sales");
   if (platform === "collector-crypt") {
-    const feed = await fetchCCSecondarySales({ cachedOnly: true }).catch(() => [] as NormalizedSale[]);
+    const feed = snap?.platforms?.["collector-crypt"] ?? [];
     return {
       sales: filterToken(feed, tokenId),
       windowDays: 30,
-      asOf: newestTs(feed),
+      asOf: snap?.generatedAt ?? newestTs(feed),
       source: "Collector Crypt secondary sales (Dune, 30d)",
     };
   }
   if (platform === "beezie") {
-    const snap = await readSnapshot<SecondarySalesSnapshot>("secondary-sales");
     const feed = snap?.platforms?.beezie ?? [];
     return {
       sales: filterToken(feed, tokenId),
@@ -85,12 +89,12 @@ export async function buildCardSales(platform: CardPlatform, tokenId: string): P
     };
   }
   if (platform === "courtyard") {
-    const feed = await fetchCourtyardSecondarySales({ cachedOnly: true }).catch(() => [] as NormalizedSale[]);
+    const feed = snap?.platforms?.["courtyard"] ?? [];
     return {
       sales: filterToken(feed, tokenId),
-      windowDays: null, // full history
-      asOf: newestTs(feed),
-      source: "Courtyard secondary sales (Dune, full history)",
+      windowDays: 30, // the feed has been 30d-windowed since PR #65
+      asOf: snap?.generatedAt ?? newestTs(feed),
+      source: "Courtyard secondary sales (Dune, 30d)",
     };
   }
   // phygitals — no clean row-level secondary feed (see secondarySalesCache.ts).
@@ -104,7 +108,7 @@ export async function buildCardSales(platform: CardPlatform, tokenId: string): P
 export function getCardSales(platform: CardPlatform, tokenId: string): Promise<CardSalesHistory> {
   return unstable_cache(
     () => buildCardSales(platform, tokenId),
-    ["card-sales:v1", platform, tokenId],
+    ["card-sales:v2", platform, tokenId],
     { revalidate: 1800, tags: ["platform-buckets", "card-sales"] },
   )();
 }
