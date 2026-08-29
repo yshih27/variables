@@ -249,18 +249,34 @@ const DEATH_MIN_ACTIVE_DAYS = 7;
 // it is added here. buyback_payout_usd is dense for the platforms that have it
 // (~34 of the query's 35d window), so it clears the density guard and is judged.
 const DEATH_METRICS = ["volume_usd", "gacha_volume_usd", "direct_volume_usd", "buyback_payout_usd", "trades"] as const;
+/**
+ * How many trailing complete days a stream may miss before it counts as dead.
+ * Default 2 (one missing day is Dune lag; two is a stopped writer). The buyback
+ * stream is the exception BY DESIGN since the Aug '26 credit fix: its query
+ * executes every OTHER day (warm-metric-snapshots, maxAgeMs 2*DAY), and the
+ * newest bucket trails a further day behind the execution — so 2-3 silent days
+ * are the stream's normal breathing, not death. 4 keeps the alarm real (a
+ * genuinely dead buyback writer still fails, two days later) without hard-
+ * failing every second daily run. This fired for real on Aug 29 — the alarm
+ * was correct that the stream was silent, wrong that silence meant death.
+ */
+const DEATH_RECENT_DAYS: Partial<Record<(typeof DEATH_METRICS)[number], number>> = {
+  buyback_payout_usd: 4,
+};
 
 async function checkSourceDeath(): Promise<Result> {
   const DAY = 24 * 60 * 60 * 1000;
   const today = Date.parse(dayStartUtc(Date.now()));
-  // The two most recent COMPLETE days — today is still filling up.
-  const recent = [today - DAY, today - 2 * DAY].map((t) => dayStartUtc(t));
   const windowStart = today - DEATH_LOOKBACK_DAYS * DAY;
 
   const dead: string[] = [];
   let judged = 0;
   let sparse = 0;
   for (const metric of DEATH_METRICS) {
+    // The N most recent COMPLETE days (today is still filling up); N is 2 unless
+    // the metric declares a slower expected cadence (see DEATH_RECENT_DAYS).
+    const recentDays = DEATH_RECENT_DAYS[metric] ?? 2;
+    const recent = Array.from({ length: recentDays }, (_, i) => dayStartUtc(today - (i + 1) * DAY));
     const bulk = await readMetricSeriesBulk("platform", metric).catch(() => new Map<string, { ts: string }[]>());
     for (const [entity, points] of bulk) {
       const days = new Set<string>();
@@ -274,7 +290,7 @@ async function checkSourceDeath(): Promise<Result> {
       if (!recent.some((d) => days.has(d))) {
         const newest = [...days].sort().pop() ?? "—";
         dead.push(
-          `${entity}:${metric} — wrote ${days.size}/${DEATH_LOOKBACK_DAYS}d but nothing on ${recent[1].slice(0, 10)} or ${recent[0].slice(0, 10)} (last ${newest.slice(0, 10)})`,
+          `${entity}:${metric} — wrote ${days.size}/${DEATH_LOOKBACK_DAYS}d but nothing in the last ${recentDays} complete days (last ${newest.slice(0, 10)})`,
         );
       }
     }
@@ -282,7 +298,7 @@ async function checkSourceDeath(): Promise<Result> {
 
   const detail = `${judged} regular stream(s) checked, ${sparse} sparse skipped (<${DEATH_MIN_ACTIVE_DAYS}/${DEATH_LOOKBACK_DAYS}d)`;
   return dead.length
-    ? bad("source-death", "hard", `${dead.length} stream(s) silent for 2 consecutive days — ${detail}`, dead)
+    ? bad("source-death", "hard", `${dead.length} stream(s) silent past their expected cadence — ${detail}`, dead)
     : ok("source-death", "hard", `no dead streams — ${detail}`);
 }
 
