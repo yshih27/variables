@@ -25,7 +25,10 @@ name: warm-backup
 on:
   schedule:
     - cron: "50 */6 * * *" # core safety net (primary: 0 */6)
-    - cron: "50 6 * * *" # daily + indices safety net (primaries: 05:30 and 06:00)
+    - cron: "20 7 * * *" # daily + indices safety net (primaries: 05:30 and 06:00).
+      # ⚠️ NOT :50 — "50 */6" also fires at 06:50, and two schedules on the same
+      # minute delivered only ONE run (the core check), so the daily check never
+      # ran (observed Aug 29). This slot must never share a minute with the 6h one.
   workflow_dispatch: {}
 
 permissions:
@@ -51,7 +54,7 @@ jobs:
           # 6h for core = exactly one slot: the previous slot's success is 6.8h
           # old at check time, so a dropped slot can't hide behind it. 4h for
           # daily/indices covers their 05:30/06:00 slots plus scheduler delay.
-          if [ "${{ github.event.schedule }}" = "50 6 * * *" ]; then
+          if [ "${{ github.event.schedule }}" = "20 7 * * *" ]; then
             batches="daily indices"; window_hours=4
           else
             batches="core"; window_hours=6
