@@ -10,13 +10,16 @@ import type { MetricKey } from "@/lib/metrics/glossary";
 
 /**
  * StackedAreaChart — the lead chart: several platforms' daily flow, stacked, with
- * a draggable brush.
+ * a draggable brush and a Stacked / 100% share / Cumulative mode switch.
  *
- * WHY AREAS AND NOT THE COLUMNS CompositionChart DRAWS. Both answer "who is
- * winning turnover", but at 30+ days of daily data columns become a picket fence:
- * the eye reads the gaps, not the trend. A filled area reads as one continuous
- * quantity, which is what a daily flow is. CompositionChart keeps the short,
- * dense windows and the 100%-share mode; this takes the long lead position.
+ * ONE CANVAS, THREE READS (the one-question-per-zone rule). Same-family depth
+ * lives in this in-chart switcher, never in a second stacked chart further down
+ * the page:
+ *   Stacked      — raw daily values stacked; the y-axis is the day's total.
+ *   100% share   — each day normalised to 100%; reads share-shift over time.
+ *   Cumulative   — per-band running sum OVER THE VISIBLE WINDOW; slope = pace.
+ * The brush is orthogonal to the mode: it selects days, the mode only changes
+ * how those days render — so brushing works identically in all three.
  *
  * ⚠️ STACK ORDER IS FIXED BY TOTAL, NOT PER DAY. Bands are ordered once, by their
  * total over the whole window, largest at the bottom. Re-sorting per day would
@@ -25,7 +28,9 @@ import type { MetricKey } from "@/lib/metrics/glossary";
  *
  * ⚠️ A GAP IS NOT A ZERO. A day a platform has no reading contributes 0 to the
  * stack (there is nothing else a stack can do with it) but the tooltip shows "—"
- * for that band, so a missing reading never reads as a measured zero.
+ * for that band — never 0% or $0 — so a missing reading never reads as a
+ * measured zero. Cumulative sums only finite readings, and never back-fills
+ * before a band's first one (that stays a gap, honestly).
  */
 const FILL_OPACITY = 0.35;
 const PLOT_H = 260;
@@ -41,6 +46,23 @@ export type AreaSeries = {
   points: SeriesPoint[];
 };
 
+type Mode = "stacked" | "share" | "cumulative";
+const MODES: { key: Mode; label: string }[] = [
+  { key: "stacked", label: "Stacked" },
+  { key: "share", label: "100% share" },
+  { key: "cumulative", label: "Cumulative" },
+];
+
+// MODE-AWARE like IPByPlatform's donut clause: a fixed "band thickness is one
+// platform's daily take" becomes a false claim the moment the mode flips —
+// in 100% a band is a share, in Cumulative it is a running total. Callers pass
+// only the framing prefix; the component appends the clause that is true NOW.
+const MODE_CLAUSE: Record<Mode, string> = {
+  stacked: "band thickness is one platform's daily take",
+  share: "band height is share of that day",
+  cumulative: "bands accumulate — slope is the daily take",
+};
+
 const fmtDate = (ms: number) =>
   new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -54,6 +76,9 @@ export function StackedAreaChart({
   className,
 }: {
   title: string;
+  /** How to read it (see <ReadMe>) — the FRAMING only ("who is winning
+   *  turnover"). The band clause is appended inside the component, because what
+   *  a band means depends on the live Stacked / 100% share / Cumulative mode. */
   readMe?: string;
   subtitle?: string;
   metric?: MetricKey;
@@ -62,6 +87,7 @@ export function StackedAreaChart({
   className?: string;
 }) {
   const fmt = (n: number) => (unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n));
+  const [mode, setMode] = useState<Mode>("stacked");
   const [hover, setHover] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const [win, setWin] = useState<[number, number] | null>(null);
@@ -106,27 +132,63 @@ export function StackedAreaChart({
     [days, window],
   );
 
-  // Columns of cumulative tops — the stack, resolved once per visible day.
+  // Columns of cumulative tops — the stack, resolved once per visible day, in
+  // MODE UNITS ($ stacked, % share, running-$ cumulative). `value` stays the raw
+  // reading (null = no reading) and `cum` the window running sum, so the tooltip
+  // can stay honest whatever geometry the mode draws.
   // Plain loops, not nested map+accumulator: a `let` reassigned inside a callback
   // trips react-hooks/immutability even where it is provably local, and the loop
   // form is what the rule is asking for anyway.
   const { cols, maxTotal } = useMemo(() => {
-    const out: { ts: number; bands: { key: string; label: string; color: string; lo: number; hi: number; value: number | null }[]; total: number }[] = [];
+    type Band = { key: string; label: string; color: string; lo: number; hi: number; value: number | null; cum: number | null };
+    const out: { ts: number; bands: Band[]; total: number; rawTotal: number }[] = [];
     let peak = 0;
+    // Cumulative state per band. Local to this memo on purpose: the running sum
+    // is over the VISIBLE window, so a brush move recomputes it from the window's
+    // first day — never from all time.
+    const cum = new Map<string, { sum: number; started: boolean }>();
+    for (const s of ordered) cum.set(s.key, { sum: 0, started: false });
     for (const d of visible) {
-      const bands: { key: string; label: string; color: string; lo: number; hi: number; value: number | null }[] = [];
-      let running = 0;
+      // The day's Σ of finite readings, resolved before the band pass — a share
+      // is value / THIS, and it must exclude the gaps it excuses.
+      let rawTotal = 0;
       for (const s of ordered) {
         const raw = s.at.get(d);
-        const v = raw != null && Number.isFinite(raw) ? raw : 0;
-        bands.push({ key: s.key, label: s.label, color: s.color, lo: running, hi: running + v, value: raw ?? null });
+        if (raw != null) rawTotal += raw;
+      }
+      const bands: Band[] = [];
+      let running = 0;
+      for (const s of ordered) {
+        const raw = s.at.get(d) ?? null; // `at` holds only finite readings
+        const c = cum.get(s.key)!;
+        if (raw != null) {
+          c.sum += raw;
+          c.started = true;
+        }
+        // Geometry per mode. A gap contributes 0 to the stack (there is nothing
+        // else a stack can do with it); the tooltip shows "—" via `value`.
+        // Cumulative carries forward AFTER a band's first reading (a running
+        // total doesn't drop on a quiet day) but never back-fills before it.
+        let v = 0;
+        if (mode === "stacked") v = raw ?? 0;
+        else if (mode === "share") v = raw != null && rawTotal > 0 ? (raw / rawTotal) * 100 : 0;
+        else v = c.started ? c.sum : 0;
+        bands.push({
+          key: s.key,
+          label: s.label,
+          color: s.color,
+          lo: running,
+          hi: running + v,
+          value: raw,
+          cum: c.started ? c.sum : null,
+        });
         running += v;
       }
       if (running > peak) peak = running;
-      out.push({ ts: d, bands, total: running });
+      out.push({ ts: d, bands, total: running, rawTotal });
     }
-    return { cols: out, maxTotal: peak || 1 };
-  }, [visible, ordered]);
+    return { cols: out, maxTotal: mode === "share" ? 100 : peak || 1 };
+  }, [visible, ordered, mode]);
 
   if (!days.length || !window) {
     return (
@@ -164,7 +226,30 @@ export function StackedAreaChart({
   const active = hover != null ? cols[hover] ?? null : null;
 
   return (
-    <Section title={titleNode} readMe={readMe} subtitle={subtitle} className={className} flush>
+    <Section
+      title={titleNode}
+      readMe={readMe ? `${readMe} — ${MODE_CLAUSE[mode]}` : MODE_CLAUSE[mode]}
+      subtitle={subtitle}
+      right={
+        <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setMode(m.key)}
+              aria-pressed={mode === m.key}
+              className={`rounded-md px-2 py-1 text-[11px] transition-colors ${
+                mode === m.key ? "bg-bg-3 font-semibold text-ink" : "text-ink-3 hover:text-ink"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      }
+      className={className}
+      flush
+    >
       <div className="px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
         <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5">
           {ordered.map((s) => (
@@ -200,7 +285,9 @@ export function StackedAreaChart({
             preserveAspectRatio="none"
             className="absolute inset-0 h-full w-full"
             role="img"
-            aria-label={`${title} — stacked daily ${unit === "usd" ? "volume" : "count"} by platform`}
+            aria-label={`${title} — ${
+              mode === "share" ? "daily share of" : mode === "cumulative" ? "cumulative" : "stacked daily"
+            } ${unit === "usd" ? "volume" : "count"} by platform`}
           >
             {/* Hairline dashed grid. non-scaling-stroke keeps it a hairline at any
                 width; without it preserveAspectRatio="none" fattens the dashes. */}
@@ -244,7 +331,8 @@ export function StackedAreaChart({
             )}
           </svg>
 
-          {/* $-unit axis, in DOM text so it never inherits the viewBox stretch. */}
+          {/* Mode-unit axis ($ or %), in DOM text so it never inherits the
+              viewBox stretch. */}
           <div className="pointer-events-none absolute inset-0">
             {[0.25, 0.5, 0.75, 1].map((f) => (
               <span
@@ -252,7 +340,7 @@ export function StackedAreaChart({
                 className="absolute right-0 -translate-y-1/2 font-mono text-[9.5px] leading-none text-ink-4"
                 style={{ top: `${(1 - f) * 100}%` }}
               >
-                {fmt(maxTotal * f)}
+                {mode === "share" ? `${Math.round(f * 100)}%` : fmt(maxTotal * f)}
               </span>
             ))}
           </div>
@@ -265,7 +353,7 @@ export function StackedAreaChart({
 
         <Brush full={fullRange!} window={window} cols={days} onChange={setWin} />
 
-        <ChartTooltip anchor={active ? anchor : null} width={214}>
+        <ChartTooltip anchor={active ? anchor : null} width={mode === "share" ? 240 : 214}>
           <div className="mb-1 text-ink-3">{active ? fmtDate(active.ts) : ""}</div>
           {[...(active?.bands ?? [])].reverse().map((b) => (
             <div key={b.key} className="flex items-center gap-1.5">
@@ -274,15 +362,28 @@ export function StackedAreaChart({
               <span className="ml-auto pl-3 font-semibold tabular text-ink">
                 {/* null = no reading that day. It contributes 0 to the stack
                     because a stack has no other option, but it must not print as
-                    a measured $0 here. */}
-                {b.value == null ? "—" : fmt(b.value)}
+                    a measured $0 — or 0% — here. Cumulative shows the running
+                    sum instead, "—" until the band's first reading. */}
+                {mode === "cumulative"
+                  ? b.cum == null
+                    ? "—"
+                    : fmt(b.cum)
+                  : b.value == null
+                    ? "—"
+                    : mode === "share" && active!.rawTotal > 0
+                      ? `${((b.value / active!.rawTotal) * 100).toFixed(1)}% · ${fmt(b.value)}`
+                      : fmt(b.value)}
               </span>
             </div>
           ))}
           {active && (
             <div className="mt-1 flex items-center gap-1.5 border-t border-line-2 pt-1">
               <span className="text-ink-3">Total</span>
-              <span className="ml-auto pl-3 font-semibold tabular text-ink">{fmt(active.total)}</span>
+              <span className="ml-auto pl-3 font-semibold tabular text-ink">
+                {/* Share re-plots the day as %, but its total stays the day's $Σ;
+                    cumulative's total is the stack's running Σ. */}
+                {fmt(mode === "cumulative" ? active.total : active.rawTotal)}
+              </span>
             </div>
           )}
         </ChartTooltip>

@@ -1,21 +1,21 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
-import { IndexStudio } from "@/components/IndexStudio";
-import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { PlatformStatBar } from "@/components/PlatformStatBar";
 import { PlatformTable } from "@/components/PlatformTable";
 import { SectionShell } from "@/components/Section";
+import { StatCard, StatCardRow } from "@/components/StatCard";
 import { VolumeBar } from "@/components/VolumeBar";
-import { CompositionChart } from "@/components/CompositionChart";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
 import { getPlatformSeries, totalDaily, platformVolumeBands } from "@/lib/data/platformSeries";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
+import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 /** HHI concentration bands — matches PlatformStatBar's cutoffs (0.25/0.4) so the
- *  rail detail and the ribbon can't disagree on whether the market is "High". */
+ *  card detail and the ribbon can't disagree on whether the market is "High". */
 function hhiLabel(hhi: number): string {
   if (hhi >= 0.4) return "High";
   if (hhi >= 0.25) return "Moderate";
@@ -24,6 +24,11 @@ function hhiLabel(hhi: number): string {
 
 /** Show at most this many cards; the rest live in the full table below. */
 const MAX_CARDS = 4;
+
+/** Same formatter OverviewMetricColumn uses — a NaN value renders "—" (not
+ *  tracked), never a fabricated 0. */
+const kpiValue = (n: number, unit: "usd" | "count") =>
+  !Number.isFinite(n) ? "—" : unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n);
 
 const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v6"], {
   revalidate: 3600,
@@ -103,10 +108,10 @@ export default async function AllPlatformsPage() {
   const hhi = concentrationHHI24(data.platforms, total24);
   const chains = new Set(data.platforms.map((p) => p.chain)).size;
 
-  // ── Zone 1: SUMMARY rail (U5) ───────────────────────────────────────────────
-  // Fixed five rows that scale O(1), not one-per-platform: the market's shape
+  // ── Zone 1: SUMMARY KPIs ────────────────────────────────────────────────────
+  // Fixed five cards that scale O(1), not one-per-platform: the market's shape
   // (total, its marketplace/gacha split, who leads, how concentrated) reads at a
-  // glance and doesn't grow a row every time a platform is added — the full
+  // glance and doesn't grow a card every time a platform is added — the full
   // per-platform leaderboard is the table below.
   //
   // ⚠️ hero.vol24Pct / gachaVol24Pct are ALREADY PERCENT (dayOverDayPct), and
@@ -116,7 +121,7 @@ export default async function AllPlatformsPage() {
   //
   // ⚠️ Top Platform's share and the Concentration HHI both come from
   // totalActivity24 / sharePct24 / concentrationHHI24 — the SAME functions
-  // PlatformStatBar (the ribbon) uses — so the rail and ribbon can't disagree.
+  // PlatformStatBar (the ribbon) uses — so the cards and ribbon can't disagree.
   const rows: OverviewMetricRow[] = [
     {
       label: "Total 24h Volume",
@@ -192,16 +197,12 @@ export default async function AllPlatformsPage() {
     };
   });
 
-  // Volume composition (tier 3b) — per-platform TOTAL volume (marketplace + gacha)
-  // over the last 30 days, in leaderboard order (biggest at the bottom of the
-  // stack). The same totalDaily the 14d cards use, so a day here reconciles with
-  // the card above it.
-  const COMP_DAYS = 30;
-  const volumeComposition = platformVolumeBands(ranked, mktSeries, gachaSeries, COMP_DAYS);
-  // The HERO runs a longer window than the composition below it on purpose: the
-  // area answers "what is the long arc, and what happened in any slice of it"
-  // (brushable), the columns answer "how did the last 30 days split, and what is
-  // each platform's share" (100% + cumulative modes). Same data, different question.
+  // The hero — per-platform TOTAL volume (marketplace + gacha), in leaderboard
+  // order (biggest at the bottom of the stack). The same totalDaily the 14d cards
+  // use, so a day here reconciles with the card below it. This is the page's ONLY
+  // volume chart (one question per zone): the share and cumulative reads live in
+  // the chart's own mode switcher, and any window in the arc is one brush away —
+  // never a second stacked chart.
   const HERO_DAYS = 120;
   const volumeHero = platformVolumeBands(ranked, mktSeries, gachaSeries, HERO_DAYS);
 
@@ -219,7 +220,7 @@ export default async function AllPlatformsPage() {
         {volumeHero.length > 0 && (
           <StackedAreaChart
             title="Volume by platform"
-            readMe="who is winning turnover — band thickness is one platform's daily take"
+            readMe="who is winning turnover"
             subtitle={`Marketplace + gacha, per platform · last ${HERO_DAYS} days · complete days only`}
             metric="total24h"
             series={volumeHero}
@@ -246,29 +247,38 @@ export default async function AllPlatformsPage() {
             />
           </SectionShell>
 
-          {/* ZONE 1 — the leaderboard + the Index Studio scoped to the platform
-              family, so CC vs Beezie vs Courtyard compare out of the box. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
-            <OverviewMetricColumn rows={rows} />
-            <IndexStudio scope={{ entity: "platform" }} />
-          </div>
-
-          {/* Volume composition — the venue race as one stacked picture (100% mode
-              reads the share-shift over time). Below the studio. */}
-          {volumeComposition.length > 0 && (
-            <CompositionChart
-              title="Volume composition"
-              readMe="the last 30 days split by venue — 100% mode shows share"
-              subtitle="Per-platform total volume (marketplace + gacha) · last 30 days"
-              metric="total24h"
-              series={volumeComposition}
-              unit="usd"
-              variant="bars"
-            />
-          )}
+          {/* ZONE 1 — the market's headline KPIs as dedicated stat cards, full
+              width (the /platform/[key] treatment): with the hero canvas holding
+              the whole chart question, the 264px rail-beside-a-studio column had
+              nothing to sit beside, and at card scale the numbers read first.
+              Every row's window, basis and delta survives — `sub`/`stat`/`detail`
+              carry them under the label. */}
+          <StatCardRow cols={5}>
+            {rows.map((r) => (
+              <StatCard
+                key={r.label}
+                label={r.label}
+                metric={r.metric}
+                value={r.valueText ?? kpiValue(r.value, r.unit)}
+                // Uniform scale across a 5-up row: a 64px value does not fit a
+                // fifth of the width, and the hero is already marked by the lime
+                // accent — two signals for one row is one too many anyway.
+                size="lg"
+                accent={r.hero}
+                href={r.valueHref}
+                deltaPct={r.deltaPct}
+                deltaLabel={r.window}
+                sub={
+                  [r.sub, r.stat, ...(r.detail ?? []).map((d) => `${d.label} ${d.value}`)]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+              />
+            ))}
+          </StatCardRow>
 
           {/* ZONE 2 — the top-4 platforms' 14d cards, in leaderboard order, so
-              the rail's summary reads straight down into the leaders. Any beyond
+              the KPI summary reads straight down into the leaders. Any beyond
               the top 4 are one click away in the table. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {cards.map((c) => (

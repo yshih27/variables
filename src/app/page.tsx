@@ -227,7 +227,7 @@ export default async function Home() {
           {volumeBands.length > 0 && (
             <StackedAreaChart
               title="Volume by platform"
-              readMe="who is carrying the market's turnover — band thickness is one venue's day"
+              readMe="who is carrying the market's turnover"
               subtitle={`Marketplace + gacha, per platform · last ${HOME_CHART_DAYS} days · complete days only`}
               metric="total24h"
               series={volumeBands}
