@@ -322,10 +322,20 @@ function Brush({
   const onDown = (e: React.PointerEvent) => {
     const role = (e.target as SVGElement).getAttribute?.("data-h");
     const ms = msAt(e.clientX);
+    // A full-width window has nothing to pan, and its body covers the whole
+    // track — so a drag that starts on it is the user doing what the hint says
+    // ("drag to zoom") and must SELECT, or the gesture silently does nothing.
+    const isFull = win[0] <= lo && win[1] >= hi;
     if (role === "l" || role === "r") drag.current = { mode: role };
-    else if (role === "body") drag.current = { mode: "pan", grab: ms, w0: [...win] as [number, number] };
+    else if (role === "body" && !isFull) drag.current = { mode: "pan", grab: ms, w0: [...win] as [number, number] };
     else drag.current = { mode: "new", anchor: ms };
-    ref.current?.setPointerCapture(e.pointerId);
+    // Capture can throw for a pointer that is already gone; losing capture only
+    // degrades the drag (moves outside the svg stop tracking) — never the page.
+    try {
+      ref.current?.setPointerCapture(e.pointerId);
+    } catch {
+      /* drag continues uncaptured */
+    }
     e.preventDefault();
   };
   const onMove = (e: React.PointerEvent) => {
@@ -348,7 +358,14 @@ function Brush({
       if (a < lo) { a = lo; b = lo + sp; }
       if (b > hi) { b = hi; a = hi - sp; }
     }
-    onChange([Math.max(lo, a), Math.min(hi, b)]);
+    a = Math.max(lo, a);
+    b = Math.min(hi, b);
+    // Clamp-churn guard (the Index Studio wheel-storm lesson, PR #53): an
+    // edge-pinned pan or a clamped resize lands on the SAME window every move,
+    // and committing a fresh array for identical values re-renders the whole
+    // stack per pointermove for nothing.
+    if (a === win[0] && b === win[1]) return;
+    onChange([a, b]);
   };
   const onUp = () => {
     drag.current = null;
