@@ -14,7 +14,7 @@
  * Wash filter: drop self-trades (buyer === seller). Prices are trade-time USD (the
  * feeds normalize already). Winsorization is applied per-cell in the estimator.
  */
-import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "./warmers/core";
+import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
 import { readCardDims, type CardPlatform } from "./cards";
 import type { NormalizedSale } from "../rarible/queries";
@@ -55,10 +55,13 @@ async function tagPlatform(platform: CardPlatform, sales: NormalizedSale[]): Pro
  * empty contribution (logged by the caller via the returned counts) rather than
  * sinking the whole panel.
  */
-export async function buildSalePanel(opts: { cachedOnly?: boolean } = {}): Promise<SaleRow[]> {
+export async function buildSalePanel(): Promise<SaleRow[]> {
+  // CC + Courtyard come from the secondary-sales store runCoreWarm writes — the
+  // same cleaned rows the old direct Dune reads returned, without re-buying the
+  // export (~5.6 cr each). Only warmers/core touches Dune for these feeds now.
   const [cc, cy, bz] = await Promise.all([
-    fetchCCSecondarySales(opts).catch(() => [] as NormalizedSale[]),
-    fetchCourtyardSecondarySales(opts).catch(() => [] as NormalizedSale[]),
+    readSecondarySales("collector-crypt").catch(() => [] as NormalizedSale[]),
+    readSecondarySales("courtyard").catch(() => [] as NormalizedSale[]),
     fetchBeezieSales(800 * 24 * 60 * 60 * 1000).catch(() => [] as NormalizedSale[]), // ~all history
   ]);
   const tagged = await Promise.all([

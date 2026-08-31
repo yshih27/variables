@@ -15,8 +15,8 @@
  *                        sum vs prior-week sum), per-platform total activity
  *                        (marketplace volume_usd + gacha_volume_usd), per-IP
  *                        market cap (stock: last reading in week vs prior week).
- *   • biggest sales    — the cached row-level feeds (CC 30d Dune, Beezie 30d
- *                        /activity, Courtyard full Dune), named via `cards`.
+ *   • biggest sales    — the secondary-sales store (CC/Courtyard rows written by
+ *                        runCoreWarm, Beezie by warm-secondary-sales), named via `cards`.
  *   • notable pulls    — gacha-dune bigHits that landed inside the week.
  *
  * Movers with no prior-week base (new entrants) are skipped — a percent rank
@@ -32,7 +32,7 @@ import { readIndexSeries } from "./indices";
 import { weekStartUtc } from "./priceIndex";
 import { IP_CATALOG, OTHER_IP } from "./ipCatalog";
 import { PLATFORM_SOURCES } from "./sources";
-import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "./warmers/core";
+
 import { readSecondarySales } from "./secondarySalesCache";
 import { readCardMeta, type CardPlatform } from "./cards";
 import { readGachaDune } from "./gachaDuneCache";
@@ -239,9 +239,11 @@ const setName = (key: string): string => {
 /** Top single sales inside the week, named via the `cards` table. */
 async function buildBiggestSales(weekStartMs: number, weekEndMs: number): Promise<ReportSale[]> {
   const [cc, bz, cy] = await Promise.all([
-    fetchCCSecondarySales({ cachedOnly: true }).catch(() => [] as NormalizedSale[]),
+    // All three from the secondary-sales store — the app/report layer never
+    // reads Dune directly (each read was a billed export; see warmers/core).
+    readSecondarySales("collector-crypt"),
     readSecondarySales("beezie"),
-    fetchCourtyardSecondarySales({ cachedOnly: true }).catch(() => [] as NormalizedSale[]),
+    readSecondarySales("courtyard"),
   ]);
   const feeds: [CardPlatform, NormalizedSale[]][] = [
     ["collector-crypt", cc],

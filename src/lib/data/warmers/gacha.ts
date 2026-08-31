@@ -18,8 +18,6 @@ import {
   GACHA_LIVE_QUERY_ID,
   CC_ODDS_QUERY_ID,
   CC_BIG_HITS_QUERY_ID,
-  BUYBACK_PLATFORMS,
-  BUYBACK_QUERY_ID,
 } from "../../dune/queryIds";
 import { GACHA_ENABLED } from "../../flags";
 import {
@@ -118,55 +116,6 @@ function buildAggregateGacha(rows: DuneRow[]): GachaDunePlatform {
   };
 }
 
-/**
- * Sum day-bucketed rows over trailing N COMPLETE UTC days, for each N requested.
- * Today's bucket is always excluded: it is still filling, so including it would
- * understate every window and make a "24h" number depend on what time the warmer
- * happened to run. `days` reports how many buckets actually landed in the window,
- * so a gap is visible rather than silently summing to a smaller number.
- */
-function sumTrailingCompleteDays(
-  rows: DuneRow[],
-  windows: number[],
-): Record<number, { usd: number; count: number; days: number }> {
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const todayUtc = Date.UTC(
-    new Date().getUTCFullYear(),
-    new Date().getUTCMonth(),
-    new Date().getUTCDate(),
-  );
-  const out: Record<number, { usd: number; count: number; days: number }> = {};
-  // Distinct days, not row count — per-recipient rows put many rows on one day.
-  const seenDays: Record<number, Set<number>> = {};
-  for (const n of windows) {
-    out[n] = { usd: 0, count: 0, days: 0 };
-    seenDays[n] = new Set();
-  }
-  for (const r of rows) {
-    // ⚠️ TWO ROW SHAPES. Since the R3 switchover the buyback query returns one
-    // row per RECIPIENT per day as `{d, w, n, u}`; before it, one row per day as
-    // `{day, payout_usd, buyback_count}`. Summing per-recipient rows across a
-    // window gives the same day totals, so the windows below are unchanged in
-    // meaning — but the field names are not, and reading the old ones off the new
-    // shape yields a silent 0 (num() coerces undefined to 0), which would publish
-    // a zero payout and a 100% house take. Hence the explicit fallback.
-    const raw = String((r.d ?? r.day) ?? "");
-    const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
-    if (!Number.isFinite(t)) continue;
-    const age = Math.round((todayUtc - t) / DAY_MS); // 0 = today (partial), 1 = yesterday
-    if (age < 1) continue;
-    for (const n of windows) {
-      if (age <= n) {
-        out[n].usd += num(r.u ?? r.payout_usd);
-        out[n].count += num(r.n ?? r.buyback_count);
-        seenDays[n].add(t);
-      }
-    }
-  }
-  for (const n of windows) out[n].days = seenDays[n].size;
-  return out;
-}
-
 /** The buyback query's one-character platform codes (see queryIds). Only that
  *  query uses them; every other combined result still carries a full slug. */
 const PLATFORM_BY_CODE: Record<string, string> = {
@@ -225,13 +174,20 @@ export async function runGachaWarm(
   const GACHA_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
   /** `reuse` opt-in returns NULL when Dune's cached result is one we already
    *  ingested — the caller must then carry its previous snapshot entry forward. */
+  // ⚠️ 180s was calibrated for a healthy execution queue. An over-plan account
+  // (Aug '26: 394% of included credits) gets deprioritized, and both daily
+  // executions sat in the starved queue past 180s two days running — which
+  // stopped CC/Phygitals gacha dailies and let the completeness gate freeze
+  // every published Σ-chart. 600s rides out the throttle; the daily job's
+  // 75-minute ceiling has room for both reads at the cap.
+  const DUNE_EXEC_WAIT_MS = 600_000;
   const fetchRows = async (id: number, reuse = false): Promise<DuneRow[] | null> => {
-    if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: 180_000 });
+    if (!opts.cachedOnly) return runQuery(id, { maxWaitMs: DUNE_EXEC_WAIT_MS });
     const r = await getResultsAutoRefresh(id, {
       maxAgeMs: GACHA_MAX_CACHE_AGE_MS,
       freshnessSource: "gacha-dune",
       reuseIfUnchanged: reuse,
-      runOpts: { maxWaitMs: 180_000 },
+      runOpts: { maxWaitMs: DUNE_EXEC_WAIT_MS },
     });
     if (r.refreshed) {
       const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
@@ -277,63 +233,18 @@ export async function runGachaWarm(
     log(`→ gacha live (query ${GACHA_LIVE_QUERY_ID}) FAILED: ${(err as Error).message}`);
   }
 
-  // Buyback — USDC paid back to players who instantly cashed out.
+  // Buyback — GONE FROM THIS WARMER, on purpose (Aug '26 credit crisis).
   //
-  // ⚠️ The 6h batch does NOT read this query. Since R3 it is a per-recipient
-  // export (~47k rows, ~1.75MB, ~17.5 cr) that changes at most once a day, and
-  // the 6h path was re-downloading it four times daily for numbers that could
-  // not have moved. Our own snapshot is ≤24h old by construction — it is written
-  // by the daily fresh run — so the 6h batch carries it forward and only the
-  // daily job pays for the export.
-  if (opts.cachedOnly) {
-    for (const key of BUYBACK_PLATFORMS) {
-      const target = platforms[key];
-      const carried = prev?.platforms?.[key]?.buyback;
-      if (!target) continue;
-      if (carried) {
-        target.buyback = carried;
-      } else {
-        log(`→ ${key} buyback — no previous snapshot to carry forward (left unset)`);
-      }
-    }
-    log(`→ buyback — carried forward from our snapshot (6h batch does not read query ${BUYBACK_QUERY_ID})`);
-  } else try {
-    const bbRows = await fetchRows(BUYBACK_QUERY_ID);
-    if (bbRows === null) throw new Error("buyback returned an unrequested reuse signal");
-    const byPlatform = splitByPlatform(bbRows);
-    for (const key of BUYBACK_PLATFORMS) {
-      const target = platforms[key];
-      if (!target) continue;
-      const rows = byPlatform.get(key) ?? [];
-      if (!rows.length) {
-        log(`→ ${key} buyback — no rows in the combined result (skipped)`);
-        continue;
-      }
-      // The query is day-bucketed now, so the rolling windows it used to return
-      // are derived here as trailing COMPLETE-day sums. Today's bucket is still
-      // filling and is excluded — a partial day would understate every window and
-      // make the 24h figure swing with the hour of the warm.
-      const w = sumTrailingCompleteDays(rows, [1, 7, 30]);
-      target.buyback = {
-        payout24h: w[1].usd,
-        payout7d: w[7].usd,
-        payout30d: w[30].usd,
-        count24h: w[1].count,
-        count7d: w[7].count,
-        count30d: w[30].count,
-      };
-      // Deliberately NOT printing a net/take here: vol7d comes from the live
-      // gacha query's ROLLING 7d window, while this payout is 7 complete calendar
-      // days. Subtracting them would be the mismatched-window error the whole
-      // shape change exists to avoid. Net revenue is computed in fetchPlatform
-      // from the spine, where both sides are daily and identically gated.
-      log(
-        `→ ${key} buyback — ${w[30].days}d of ${rows.length} buckets · 7d $${Math.round(w[7].usd).toLocaleString()} (${w[7].count.toLocaleString()} payouts)`,
-      );
-    }
-  } catch (err) {
-    log(`→ buyback (query ${BUYBACK_QUERY_ID}) FAILED: ${(err as Error).message}`);
-  }
+  // This used to read the buyback query (8252735) daily to fill the blob's
+  // `buyback` windows — but nothing ever consumed them: every visible buyback
+  // figure (economics flows, R3 rate, net) is computed in fetchPlatform from
+  // the SPINE series that warm-metric-snapshots writes. Meanwhile the query's
+  // per-recipient export grew ~47K → ~241K rows with August's volume, so the
+  // two readers were paying ~480 cr/day for one dataset — half of it for a
+  // write-only field. warm-metric-snapshots is now the query's ONLY payer; the
+  // blob's `buyback` field stays in the type for old snapshots but is never
+  // written again. If a blob-level window is ever wanted back, derive it from
+  // the spine (readMetricSeries) — do not re-add a second Dune read.
 
   // CC odds — realized rarity-tier distribution from prize deliveries. Only the
   // flag-gated /gacha page renders this, so while GACHA_ENABLED is off we carry

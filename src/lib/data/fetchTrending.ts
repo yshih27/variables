@@ -6,7 +6,7 @@
  * recording was deferred (series G) — the spine has no card rows. So we derive trending
  * from row-level SALES feeds that each reach back ≥2×window → REAL momentum (current
  * window vs the prior window) for every platform (R4-2):
- *   • Collector Crypt — 30d Dune secondary-sales feed (cached, fetchCCSecondarySales).
+ *   • Collector Crypt — 30d Dune secondary-sales feed, via the secondary-sales store.
  *   • Beezie — 30d api.beezie.com/activity, cached by warm-secondary-sales (readSecondarySales).
  *   • Phygitals is absent — its /sales feed is 100% gacha (CLAW/BUY, no P2P sales); its
  *     real secondary trades live on Tensor/ME and need a Dune query (see secondarySalesCache).
@@ -28,7 +28,7 @@
 import { unstable_cache } from "next/cache";
 import { db } from "../db/client";
 import { readListings } from "./listings";
-import { fetchCCSecondarySales } from "./warmers/core";
+
 import { readSecondarySales } from "./secondarySalesCache";
 import { readCardMeta, type CardMeta } from "./cards";
 import { buyLinks, type BuyLink } from "../links/buyLinks";
@@ -137,7 +137,8 @@ async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
 
   const [listings, ccSales, beezieSales] = await Promise.all([
     readListings().catch(() => null),
-    fetchCCSecondarySales({ cachedOnly: true }).catch(() => []),
+    // From the store runCoreWarm writes — never Dune from the app (billed export).
+    readSecondarySales("collector-crypt"),
     readSecondarySales("beezie"),
   ]);
 
@@ -145,7 +146,7 @@ async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
 
   // Row-level feeds that reach back ≥2×window, so BOTH the current and prior windows
   // are real → momentum for EVERY platform here (no longer CC-only, R4-2):
-  //   • collector-crypt — 30d Dune secondary sales (fetchCCSecondarySales).
+  //   • collector-crypt — 30d Dune secondary sales, via the secondary-sales store.
   //   • beezie — 30d api.beezie.com/activity, cached by warm-secondary-sales.
   // Phygitals is intentionally absent: its /sales feed is 100% gacha (no P2P), pending
   // a Tensor/ME Dune query (see secondarySalesCache.ts).

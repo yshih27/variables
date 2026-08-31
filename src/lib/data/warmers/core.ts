@@ -14,6 +14,7 @@
 import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
 import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../../dune/queryIds";
 import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
+import { readSecondarySalesSnapshot, writeSecondarySales } from "../secondarySalesCache";
 
 // Self-heal a cached Dune secondary result older than this. Kept below 24h so the
 // headline 24h window can never silently collapse to $0 while a scheduled fresh
@@ -188,6 +189,11 @@ export async function runCoreWarm(
     }
   };
 
+  // Row-level feeds captured for the app-side store write below; null = leg
+  // carried forward (stored rows still current) or failed (keep previous rows).
+  let ccRowsForStore: NormalizedSale[] | null = null;
+  let courtyardRowsForStore: NormalizedSale[] | null = null;
+
   // ── Collector Crypt: Dune (full chain scan, no Helius 429) ──
   try {
     const t0 = Date.now();
@@ -195,6 +201,7 @@ export async function runCoreWarm(
     if (ccSales === null) {
       carryForward("collector-crypt", "collector-crypt (Dune)");
     } else {
+      ccRowsForStore = ccSales;
       platforms["collector-crypt"] = buildPlatform("collector-crypt", "dune", ccSales, 30);
       log(
         `→ collector-crypt (Dune) ${ccSales.length} sales/30d · 24h $${Math.round(
@@ -230,6 +237,7 @@ export async function runCoreWarm(
     if (sales === null) {
       carryForward("courtyard", "courtyard (Dune)");
     } else {
+      courtyardRowsForStore = sales;
       platforms["courtyard"] = buildPlatform("courtyard", "dune", sales, 30);
       log(
         `→ courtyard (Dune) ${sales.length} sales · 24h $${Math.round(
@@ -239,6 +247,34 @@ export async function runCoreWarm(
     }
   } catch (err) {
     log(`→ courtyard (Dune) FAILED: ${(err as Error).message}`);
+  }
+
+  // ── Persist the row-level Dune feeds for APP-SIDE readers ──────────────────
+  // Card pages, trending and the report used to re-read these feeds from Dune
+  // themselves — ~5.6 cr per cold read at Analyst's 10 cr/MB, and a production
+  // deploy makes EVERY card token cold at once (measured Aug 28: +11.4 cr for
+  // two card-page renders, +5.7 for one organic view). This warm already holds
+  // the cleaned rows, so it writes them into the platform-keyed secondary-sales
+  // store (Beezie's existing pattern) and the app reads Postgres for free.
+  // Carried-forward / failed legs skip their key — the stored rows are still
+  // the newest we have.
+  if (ccRowsForStore || courtyardRowsForStore) {
+    try {
+      const cur = (await readSecondarySalesSnapshot()) ?? {
+        generatedAt: "",
+        windowDays: 30,
+        platforms: {},
+      };
+      if (ccRowsForStore) cur.platforms["collector-crypt"] = ccRowsForStore;
+      if (courtyardRowsForStore) cur.platforms["courtyard"] = courtyardRowsForStore;
+      cur.generatedAt = new Date().toISOString();
+      await writeSecondarySales(cur);
+      log(
+        `→ secondary-sales store updated · cc ${ccRowsForStore ? ccRowsForStore.length : "carried"} · courtyard ${courtyardRowsForStore ? courtyardRowsForStore.length : "carried"}`,
+      );
+    } catch (err) {
+      log(`→ secondary-sales store write FAILED (app readers keep previous rows): ${(err as Error).message}`);
+    }
   }
 
   // ── DYLI: its own public sales feed, already paged into `dyli_sales` by

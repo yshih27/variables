@@ -242,7 +242,7 @@ export function IPActivityChart({
     <Section
       title={title}
       readMe="one pane per metric, one shared timeline — read them together"
-      subtitle={model.empty ? RANGE_DESC[tf] : `${RANGE_DESC[tf]} · one pane per metric`}
+      subtitle={RANGE_DESC[tf]}
       right={
         <>
           <SegToggle

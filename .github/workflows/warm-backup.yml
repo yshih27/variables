@@ -1,0 +1,99 @@
+# Safety net for GitHub's cron scheduler, which has been silently dropping
+# warm.yml's scheduled runs (Aug 26–28: three multi-hour gaps in three days —
+# one of which let the completeness gate freeze every published Σ-chart).
+#
+# Each slot fires ~50 min after its primary's slot and re-dispatches the batch
+# ONLY when GitHub's own run history shows no successful run of that batch
+# inside the slot's window, and no warm run is currently queued or in progress
+# (a queued run may be the delayed primary — never double-dispatch beside one).
+#
+# Deliberately gh-only: no checkout, no npm ci, no freshness read — a healthy
+# day costs a handful of API calls and zero Dune datapoints. We do NOT gate on
+# check-freshness here: its stale thresholds are alarm-calibrated (~2× cadence),
+# which would let a single dropped daily slot sit un-redispatched for a day —
+# the exact failure this file exists to close.
+#
+# Known bounded costs, accepted on purpose:
+#   • A primary that FAILED (not was-dropped) gets one re-dispatch per slot —
+#     that retry is exactly what restored the site on Aug 27, but on a
+#     Dune-throttled day a daily retry can spend a few hundred credits.
+#   • If the scheduler fires a primary very late (after this check dispatched),
+#     the duplicate queues behind the concurrency group and runs anyway. The
+#     Aug gaps show dropped slots stay dropped, so this should be rare.
+name: warm-backup
+
+on:
+  schedule:
+    - cron: "50 */6 * * *" # core safety net (primary: 0 */6)
+    - cron: "20 7 * * *" # daily + indices safety net (primaries: 05:30 and 06:00).
+      # ⚠️ NOT :50 — "50 */6" also fires at 06:50, and two schedules on the same
+      # minute delivered only ONE run (the core check), so the daily check never
+      # ran (observed Aug 29). This slot must never share a minute with the 6h one.
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+
+concurrency:
+  group: warm-backup
+  cancel-in-progress: false
+
+jobs:
+  redispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Re-dispatch batches whose slot produced no successful run
+        run: |
+          set -euo pipefail
+
+          # Which batches this slot guards, and how far back a success counts.
+          # 6h for core = exactly one slot: the previous slot's success is 6.8h
+          # old at check time, so a dropped slot can't hide behind it. 4h for
+          # daily/indices covers their 05:30/06:00 slots plus scheduler delay.
+          if [ "${{ github.event.schedule }}" = "20 7 * * *" ]; then
+            batches="daily indices"; window_hours=4
+          else
+            batches="core"; window_hours=6
+          fi
+
+          active=$(gh run list -R "$REPO" --workflow=warm.yml --status in_progress --json databaseId --jq length)
+          queued=$(gh run list -R "$REPO" --workflow=warm.yml --status queued --json databaseId --jq length)
+          if [ "$((active + queued))" -gt 0 ]; then
+            echo "a warm run is already active or queued — standing down"
+            exit 0
+          fi
+
+          since=$(date -u -d "-${window_hours} hours" +%Y-%m-%dT%H:%M:%SZ)
+          runs=$(gh run list -R "$REPO" --workflow=warm.yml --status success \
+                   --created ">${since}" --limit 20 --json databaseId --jq '.[].databaseId')
+
+          for batch in $batches; do
+            ran=""
+            for id in $runs; do
+              # Batch identity lives on the JOB, not the run: a core run is a
+              # warm.yml run whose "core" job actually ran and succeeded.
+              ok=$(gh run view "$id" -R "$REPO" --json jobs \
+                     --jq ".jobs[] | select(.name==\"$batch\" and .conclusion==\"success\") | .name" || true)
+              if [ -n "$ok" ]; then ran="yes"; break; fi
+            done
+            if [ -n "$ran" ]; then
+              echo "$batch: succeeded within ${window_hours}h — nothing to do"
+            else
+              echo "$batch: no successful run in ${window_hours}h — re-dispatching"
+              gh workflow run warm -R "$REPO" --field batch="$batch"
+              # ⚠️ The `warm` concurrency group holds ONE pending run — a second
+              # dispatch while the first is still queued CANCELS it (measured
+              # Aug 28: a daily dispatch was eaten by the indices dispatch two
+              # seconds later). Before any further dispatch, wait for this one
+              # to leave the queue (start running) or time out trying.
+              for i in $(seq 1 24); do
+                sleep 5
+                q=$(gh run list -R "$REPO" --workflow=warm.yml --status queued --json databaseId --jq length || echo 1)
+                [ "$q" = "0" ] && break
+              done
+            fi
+          done

@@ -21,7 +21,7 @@ import { writeSnapshot } from "../src/lib/db/snapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 async function main() {
-  const panel = await buildSalePanel({ cachedOnly: true });
+  const panel = await buildSalePanel();
 
   // Group sales by IP (skip "other" — no publishable single-IP index).
   const byIp = new Map<string, SaleRow[]>();

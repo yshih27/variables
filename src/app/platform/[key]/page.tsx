@@ -450,7 +450,7 @@ export default async function PlatformDetailPage({
         <IPByPlatform
           rows={ipRows}
           title="By IP"
-          readMe="this platform's 24h activity by IP — the donut is volume share"
+          readMe="this platform's 24h activity by IP"
           entityHeader="IP"
           donutTitle="IP share"
           showChain={false}

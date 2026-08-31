@@ -429,10 +429,17 @@ function MonthlyChart({
           <div className="mt-1.5 font-mono text-[21px] font-bold leading-none tabular text-ink">
             {formatCompactUsd(active ? active.total : total)}
           </div>
+          {/* The total is Σ over the PLOTTED months, so the label counts those —
+              naming the window ("6m total", "all-time total") lies once the
+              capture gate withholds months inside it: CC's 6M window holds one
+              month, and "all-time total" would sit under a lifetime tier table
+              showing a much larger figure. */}
           <div className={`mt-1 text-[11px] ${active ? "text-yellow" : "text-ink-3"}`}>
             {active
               ? `${fmtMonth(active.month)} · ${formatInt(active.pulls)} pulls`
-              : `${WINDOWS[win].label === "ALL" ? "all-time" : WINDOWS[win].label.toLowerCase()} total`}
+              : stacks.length === 1
+                ? `${fmtMonth(stacks[0].month)} total`
+                : `${stacks.length}-month total`}
           </div>
         </div>
         <div className="flex gap-1">
