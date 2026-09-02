@@ -91,7 +91,14 @@ export function StatCard({
     </>
   );
 
-  const base = `flex flex-col justify-end bg-bg-1 px-5 py-5 ${className ?? ""}`;
+  // ⚠️ TOP-ALIGNED, NOT BOTTOM. Cards in a row stretch to a common height but carry
+  // different numbers of lines beneath the value — Market Cap adds a basis line
+  // ("vault appraisal"), a delta-less card has no delta row. Bottom-aligning made
+  // every one of those differences push the VALUE to a different height, so a row
+  // of headline numbers read as a ragged staircase. Anchoring the top instead puts
+  // every value on one line and lets the label / delta / sub flow down from it;
+  // the grid still stretches the cards, so the frame stays even.
+  const base = `flex flex-col justify-start bg-bg-1 px-5 py-5 ${className ?? ""}`;
   return href ? (
     <Link href={href} className={`${base} group transition-colors hover:bg-bg-2`}>
       {body}

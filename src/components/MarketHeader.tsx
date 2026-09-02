@@ -270,7 +270,7 @@ function StatCell({
   // surface, no hover affordance. Keeps the 4-up strip balanced.
   if (!href) {
     return (
-      <div className="flex flex-col justify-end bg-bg-1 px-5 py-5">
+      <div className="flex flex-col justify-start bg-bg-1 px-5 py-5">
         {inner}
       </div>
     );
@@ -278,7 +278,7 @@ function StatCell({
   return (
     <Link
       href={href}
-      className="group relative flex flex-col justify-end bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2"
+      className="group relative flex flex-col justify-start bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2"
     >
       {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
       <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
@@ -292,19 +292,23 @@ function StatCell({
 function EntityCell({ topIP }: { topIP: IPRow | null }) {
   if (!topIP) {
     return (
-      <div className="flex flex-col justify-end gap-2 bg-bg-1 px-5 py-5">
-        <Label>Most traded · 24h</Label>
+      <div className="flex flex-col justify-start gap-2 bg-bg-1 px-5 py-5">
         <span className="text-[19px] font-bold leading-none text-ink-3">—</span>
+        <Label>Most traded · 24h</Label>
       </div>
     );
   }
   return (
-    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col justify-end gap-2 bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2">
+    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col justify-start gap-2 bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2">
       {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
       <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
         ↗
       </span>
-      <Label>Most traded · 24h</Label>
+      {/* ⚠️ ENTITY ABOVE LABEL, flipped to match StatCell. This cell's "value" is
+          the IP itself, and it used to sit BELOW its label — so top-aligning the
+          row would have put this card's label on the same line as its neighbours'
+          48px numbers, and pushed the one thing a reader compares (the entity) a
+          line lower than everything else in the strip. */}
       <div className="flex items-center gap-2.5">
         <IPIcon
           name={topIP.name}
@@ -324,6 +328,7 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
           </div>
         </div>
       </div>
+      <Label>Most traded · 24h</Label>
     </Link>
   );
 }

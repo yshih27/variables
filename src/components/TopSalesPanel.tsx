@@ -24,8 +24,24 @@ type Attempt = "direct" | "proxied" | "plain";
 
 type Props = { items: TopSale[] };
 
-export function TopSalesPanel({ items }: Props) {
+export const TOP_SALES_NOTE = (n: number) => `top ${n} cards · 24h`;
+
+export function TopSalesPanel({ items, headless }: Props & { headless?: boolean }) {
   if (items.length === 0) return null;
+
+  const grid = (
+    <div className="grid grid-cols-2 gap-5 px-4 pb-4 pt-1 sm:px-5 sm:pb-5 md:grid-cols-3 lg:grid-cols-5">
+      {items.map((s, i) => (
+        <SaleCard key={`${s.platform}:${s.cardName}:${i}`} sale={s} />
+      ))}
+    </div>
+  );
+
+  // Body only — the combined "Cards" section owns the header. The salePrice ⓘ and
+  // the "top N cards · 24h" note move up with it (see CardsSection); neither is
+  // dropped, they just render in a header this component no longer owns.
+  if (headless) return grid;
+
   return (
     <Section
       // The price tags read as prices but not as REALIZED sale prices — the ⓘ

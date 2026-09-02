@@ -1,8 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { MarketHeader } from "@/components/MarketHeader";
-import { TopSalesPanel } from "@/components/TopSalesPanel";
-import { TrendingCards } from "@/components/TrendingCards";
+import { CardsSection } from "@/components/CardsSection";
 import { IPTable } from "@/components/IPTable";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
@@ -234,8 +233,15 @@ export default async function Home() {
               unit="usd"
             />
           )}
-          <TopSalesPanel items={data.topSales} />
-          <TrendingCards cards={trending.rows} windowLabel={trendingWindow} floatAgeLabel={floatAgeLabel} />
+          {/* One zone for "which cards matter today" — Top sales and Trending are
+              the same question, so the depth goes behind a switcher in the header
+              rather than into a second stacked section (terminal-ux-study §1). */}
+          <CardsSection
+            topSales={data.topSales}
+            trending={trending.rows}
+            trendingWindow={trendingWindow}
+            floatAgeLabel={floatAgeLabel}
+          />
           <IPTable rows={data.ips} maxRows={5} seeAllHref="/ips" teaser />
           <PlatformTable rows={data.platforms} maxRows={4} seeAllHref="/platforms" teaser />
         </div>

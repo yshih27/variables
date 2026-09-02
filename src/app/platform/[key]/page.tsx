@@ -361,20 +361,31 @@ export default async function PlatformDetailPage({
           </StatCardRow>
           <IndexStudio scope={{ entity: "platform", key }} />
 
-          {/* Volume mix — marketplace vs gacha for THIS platform, below the studio.
-              100% share mode is the money view. A gacha-only platform (Phygitals)
-              simply has no marketplace series — no fabricated zero. */}
-          {volumeMix.length > 0 && (
-            <CompositionChart
-              title="Volume mix"
-              readMe="where this platform's money flows — packs vs resale vs direct. 100% share mode answers: what is this platform's business?"
-              subtitle="Marketplace vs gacha · last 30 days"
-              series={volumeMix}
-              unit="usd"
-              variant="bars"
-              flow
-            />
-          )}
+          {/* "Where does the money route" — two small panels, side by side from lg.
+              Volume mix answers by CHANNEL (packs vs resale vs direct), Top partners
+              by STOREFRONT: different questions, so they may share a row (terminal-
+              ux-study §3). Partners had a full-width band to itself for a two-column
+              table. The grid only forms when BOTH render — `partners == null` is the
+              honest absence PlatformPartners returns null for, and a lone half-width
+              chart beside a gap reads as something failed to load. */}
+          {volumeMix.length > 0 || partners ? (
+            <div
+              className={`grid grid-cols-1 gap-3 ${volumeMix.length > 0 && partners ? "lg:grid-cols-2 lg:items-start" : ""}`}
+            >
+              {volumeMix.length > 0 && (
+                <CompositionChart
+                  title="Volume mix"
+                  readMe="where this platform's money flows — packs vs resale vs direct. 100% share mode answers: what is this platform's business?"
+                  subtitle="Marketplace vs gacha · last 30 days"
+                  series={volumeMix}
+                  unit="usd"
+                  variant="bars"
+                  flow
+                />
+              )}
+              <PlatformPartners partners={partners} />
+            </div>
+          ) : null}
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless
@@ -395,9 +406,6 @@ export default async function PlatformDetailPage({
             />
           )}
 
-          {/* Top partners (CC memo attribution). Renders nothing until the
-              snapshot carries the rollup — capture is forward-only (PR #73). */}
-          <PlatformPartners partners={partners} />
 
           {/* Player analytics — only for platforms the snapshot covers. */}
           <PlatformPlayers
@@ -458,8 +466,16 @@ export default async function PlatformDetailPage({
         />
       )}
       <PlatformGachaPanel detail={detail} />
-      <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-          <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
+      {/* Ranked ‖ chronological — the same trades asked two different ways, so they
+          share a row. ⚠️ PAIRED AT xl, NOT lg, DELIBERATELY: both tables carry
+          `min-w-[900px]`, and a 1024–1280 viewport gives each column ~475–600px, so
+          at lg they would each open ~300–425px into their own horizontal scroll
+          before showing a full row. The brief's stack-if-cramped escape applies;
+          each table keeps its internal scroll-x either way, so columns never crush. */}
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 xl:items-start">
+        <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
+        <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
+      </div>
         </div>
       </div>
     </>
