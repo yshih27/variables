@@ -466,16 +466,16 @@ export default async function PlatformDetailPage({
         />
       )}
       <PlatformGachaPanel detail={detail} />
-      {/* Ranked ‖ chronological — the same trades asked two different ways, so they
-          share a row. ⚠️ PAIRED AT xl, NOT lg, DELIBERATELY: both tables carry
-          `min-w-[900px]`, and a 1024–1280 viewport gives each column ~475–600px, so
-          at lg they would each open ~300–425px into their own horizontal scroll
-          before showing a full row. The brief's stack-if-cramped escape applies;
-          each table keeps its internal scroll-x either way, so columns never crush. */}
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 xl:items-start">
-        <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-        <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
-      </div>
+      {/* ⚠️ DELIBERATELY NOT PAIRED. Top Cards and Recent Sales do answer different
+          questions (ranked vs chronological), but both tables carry `min-w-[900px]`
+          and side-by-side they do not fit below roughly 1900px: measured at 1280 the
+          columns are 602px with 389px and 300px of internal horizontal scroll, while
+          stacked at 1150 both overflow zero. Tables are the density anchor
+          (terminal-ux-study §4) — crushing one to satisfy a layout pattern inverts
+          the point of the doctrine, and pairing is not a goal in itself. Volume mix ‖
+          Top partners above is this page's consolidation win. Both stay full-width. */}
+      <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
+      <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
         </div>
       </div>
     </>

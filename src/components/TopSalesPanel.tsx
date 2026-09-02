@@ -26,6 +26,13 @@ type Props = { items: TopSale[] };
 
 export const TOP_SALES_NOTE = (n: number) => `top ${n} cards · 24h`;
 
+/** How to read the Top-sales view — the house readMe line (lowercase, mono,
+ *  states the conclusion). "realized" and "cleared" are the load-bearing words:
+ *  these are settled trades, not listings, bids or appraisals — the same claim
+ *  the salePrice ⓘ beside it makes. */
+export const TOP_SALES_READ_ME =
+  "the largest realized sales today — price is what cleared";
+
 export function TopSalesPanel({ items, headless }: Props & { headless?: boolean }) {
   if (items.length === 0) return null;
 
@@ -52,6 +59,7 @@ export function TopSalesPanel({ items, headless }: Props & { headless?: boolean 
           <MetricInfo metric="salePrice" />
         </span>
       }
+      readMe={TOP_SALES_READ_ME}
       right={<span className="text-[11.5px] text-ink-3">top {items.length} cards · 24h</span>}
       className="font-sans"
       flush

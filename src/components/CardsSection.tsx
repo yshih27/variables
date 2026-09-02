@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Section } from "./Section";
 import { MetricInfo } from "./MetricInfo";
-import { TopSalesPanel, TOP_SALES_NOTE } from "./TopSalesPanel";
+import { TopSalesPanel, TOP_SALES_NOTE, TOP_SALES_READ_ME } from "./TopSalesPanel";
 import {
   TrendingCards,
   trendingSubtitle,
@@ -74,7 +74,7 @@ export function CardsSection({
   return (
     <Section
       title="Cards"
-      readMe={isSales ? undefined : TRENDING_READ_ME}
+      readMe={isSales ? TOP_SALES_READ_ME : TRENDING_READ_ME}
       subtitle={
         isSales ? (
           <span className="inline-flex items-center gap-1.5">
