@@ -32,6 +32,13 @@ export const revalidate = 1800;
 
 /** Same formatter OverviewMetricColumn uses — a NaN value renders "—" (not
  *  tracked), never a fabricated 0. */
+/** "7d $17.9M · avg $2.56M/day", or undefined when there is no 7d gacha figure to
+ *  state. Mirrors the removed PlatformGachaPanel's `g7` / `g7 / 7` exactly. */
+function gacha7dSub(gachaVol7Usd: number | null): string | undefined {
+  if (gachaVol7Usd == null || !Number.isFinite(gachaVol7Usd) || gachaVol7Usd <= 0) return undefined;
+  return `7d ${formatCompactUsd(gachaVol7Usd)} · avg ${formatCompactUsd(gachaVol7Usd / 7)}/day`;
+}
+
 const kpiValue = (n: number, unit: "usd" | "count") =>
   !Number.isFinite(n) ? "—" : unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n);
 
@@ -93,6 +100,13 @@ export default async function PlatformDetailPage({
       unit: "usd",
       deltaPct: pctChange(gachaS, 1),
       window: "24h",
+      // The 7d pull volume and its daily average, which left this page with the
+      // Gacha panel (round 3, item 9). Same derivation the panel used — the SAME
+      // `detail.gachaVol7Usd` and the same ÷7 — so the figures are identical to
+      // what it showed rather than a second, subtly different calculation.
+      // Honest absence: a platform with no gacha 7d figure gets NO line, never a
+      // "$0 · avg $0/day", which would assert we measured a week of nothing.
+      sub: gacha7dSub(detail.gachaVol7Usd),
     },
     {
       label: "Market Cap",

@@ -112,40 +112,29 @@ export function CardsSection({
       className="font-sans"
       flush
     >
-      {/* ⚠️ ONE HEIGHT ACROSS THE TOGGLE. Both views occupy the SAME grid cell and
-          the inactive one is `invisible` rather than unmounted, so the body is
-          always as tall as the taller view and switching cannot resize the section
-          under the cursor. This is the brief's min-height outcome without a magic
-          number: no hardcoded px to go stale when the tile art, the column count
-          or a breakpoint changes.
-          `visibility: hidden` (not `hidden`/display:none) is load-bearing — it
-          keeps the box in layout, which is the whole point, and it also drops the
-          hidden panel out of the tab order, which display:none would do but
-          opacity-0 would not. aria-hidden keeps it out of the a11y tree too. */}
-      <div className="grid">
-        <div
-          className={`col-start-1 row-start-1 ${isSales ? "" : "invisible"}`}
-          aria-hidden={!isSales}
-        >
-          <TopSalesPanel items={topSales} headless />
-        </div>
-        <div
-          className={`col-start-1 row-start-1 ${isSales ? "invisible" : ""}`}
-          aria-hidden={isSales}
-        >
-          <TrendingCards
-            cards={trending}
-            windowLabel={trendingWindow}
-            floatAgeLabel={floatAgeLabel}
-            seeAllHref={seeAllHref}
-            kind={kind}
-            onKindChange={setKind}
-            headless
-            layout="grid"
-            maxTiles={TRENDING_TILES}
-          />
-        </div>
-      </div>
+      {/* ⚠️ NO RESERVED HEIGHT. Both views now draw five tiles on the SAME
+          anatomy (large art frame, price + grade, name, stat lines, IP · platform
+          footer), so the section is the same height in either view because the
+          TILES match — not because a min-height was propping the shorter one up.
+          The old approach kept both panels mounted with the inactive one
+          `invisible`; that held the height but left a void under Trending, and
+          paid for it with a second full panel in the DOM. Only the active view
+          renders now. */}
+      {isSales ? (
+        <TopSalesPanel items={topSales} headless />
+      ) : (
+        <TrendingCards
+          cards={trending}
+          windowLabel={trendingWindow}
+          floatAgeLabel={floatAgeLabel}
+          seeAllHref={seeAllHref}
+          kind={kind}
+          onKindChange={setKind}
+          headless
+          layout="grid"
+          maxTiles={TRENDING_TILES}
+        />
+      )}
     </Section>
   );
 }

@@ -272,6 +272,21 @@ export function TrendingCards({
   );
 }
 
+/**
+ * A trending tile, on the Top-Sales tile anatomy: large art frame, then price +
+ * grade, then the name, then this panel's OWN signals as stat lines.
+ *
+ * ⚠️ THE SHARED FOOTPRINT IS THE POINT. Both views of the Cards section now draw
+ * five tiles of the same shape, so the section is the same height in either view
+ * as a CONSEQUENCE of the tiles rather than a reserved min-height propping up a
+ * short one — which is what left a void under Trending before.
+ *
+ * ⚠️ ART IS DECORATION; THE TILE IS THE DATA. A trending row is a card TYPE, and a
+ * type has no single photo — the frame shows its REPRESENTATIVE token (the window's
+ * top sale). Where that token has no cached art, CardThumb's neutral frame fills
+ * the slot; the tile is never dropped for missing art, because the trade counts are
+ * the reason it is on screen.
+ */
 function TrendingTile({ card: c, maxHP, fluid }: { card: TrendingCard; maxHP: number; fluid?: boolean }) {
   const ipMeta = IP_META_BY_KEY.get(c.ip);
   const ipName = ipMeta?.name ?? humanizeIp(c.ip);
@@ -279,83 +294,88 @@ function TrendingTile({ card: c, maxHP, fluid }: { card: TrendingCard; maxHP: nu
   // degrades "Ungraded"/blank to nothing, exactly like Top Sales).
   const graded = !!parseGradeLabel(c.grade);
   const ratioable = c.activeListings >= 2 && Number.isFinite(c.huntPressure);
-  // Meta line complements the hero without repeating it: the hero shows hunt
-  // pressure when ratioable (so trades belongs here) and the trade count when
-  // it isn't (so trades is already up top — show only volume).
-  const meta = [
-    ratioable ? `${formatInt(c.trades)} trades` : null,
-    c.volumeUsd > 0 ? formatCompactUsd(c.volumeUsd) : null,
-  ].filter(Boolean);
 
   return (
     <Link
       href={c.href}
-      // `h-full` in grid layout: the combined Cards section reserves the taller
-      // (Top sales) height, so without it the shorter Trending tiles left a void
-      // beneath them. The footer's existing mt-auto pins to the new bottom.
-      className={`group flex flex-col rounded-xl bg-bg-2 p-3.5 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5 ${fluid ? "h-full w-full" : "w-[186px] shrink-0"}`}
+      className={`group flex flex-col overflow-hidden rounded-xl bg-bg-2 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5 ${
+        fluid ? "w-full" : "w-[186px] shrink-0"
+      }`}
     >
-      {/* Hero row — the trending metric (yellow) + grade chip, mirroring Top
-          Sales' price + grade baseline. For 2+ listed the hero is hunt pressure;
-          when the float is too thin for a ratio it's the trade count instead. */}
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="tabular text-[17px] font-bold leading-none text-yellow">
-          {ratioable ? `${c.huntPressure.toFixed(1)}×` : formatInt(c.trades)}
-        </span>
-        {graded ? <GradeChip label={c.grade} /> : null}
-      </div>
-      <div className="mt-1 text-[10px] uppercase tracking-[0.06em] text-ink-4">
-        {ratioable
-          ? "hunt pressure"
-          : `sold · ${c.activeListings === 0 ? "none" : formatInt(c.activeListings)} listed`}
+      {/* Same frame + ground as a Top Sales tile, so the two views' art reads as
+          one system rather than two treatments. */}
+      <div
+        className="relative aspect-[3/4] overflow-hidden"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 30%, rgba(255,255,255,0.04), transparent 65%), linear-gradient(180deg, #141414 0%, #0c0c0c 100%)",
+        }}
+      >
+        <CardThumb src={c.image} fill />
       </div>
 
-      {/* Hunt-pressure bar (2+ listed only) — thin-float cards have no meaningful
-          ratio, so no bar; the reserved height keeps the strip's rows aligned. */}
-      <div className="mt-2 h-1.5">
+      <div className="flex flex-1 flex-col border-t border-line px-4 pb-3.5 pt-3">
+        {/* Price + grade on Top Sales' baseline. This is the type's TOP realized
+            sale in the window — a price, like its neighbour's, not a sum. */}
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="tabular text-[16px] font-bold leading-none text-yellow">
+            {c.topPriceUsd > 0 ? formatCompactUsd(c.topPriceUsd) : "—"}
+          </span>
+          {graded ? <GradeChip label={c.grade} /> : null}
+        </div>
+
+        <div className="mt-2 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
+          {c.name}
+        </div>
+
+        {/* The trending signals, folded down into stat lines: the sort key first
+            (hunt pressure where the float supports a ratio, the raw sold count
+            where it does not — the same honest split the hero used), then the
+            window's trades and realized volume. */}
+        <div className="mt-2 flex items-baseline justify-between gap-2 font-mono text-[11px] tabular">
+          <span className="text-ink-3">
+            {ratioable ? "hunt pressure" : "sold"}
+          </span>
+          <span className="font-semibold text-ink">
+            {ratioable ? `${c.huntPressure.toFixed(1)}×` : formatInt(c.trades)}
+          </span>
+        </div>
         {ratioable && (
-          <span className="block h-full w-full overflow-hidden rounded-none bg-bg-3" aria-hidden>
+          <span className="mt-1.5 block h-1 w-full overflow-hidden bg-bg-3" aria-hidden>
             <span
               className="block h-full bg-yellow"
               style={{ width: `${Math.max(6, (c.huntPressure / maxHP) * 100)}%` }}
             />
           </span>
         )}
-      </div>
-
-      {/* Title + art. The thumb is the type's REPRESENTATIVE token (its top sale
-          in the window), not a picture of the group — a card type has no single
-          photo. It sits beside the name rather than above it so the tile's height
-          and the strip's alignment are unchanged. */}
-      <div className="mt-2.5 flex items-start gap-2">
-        <CardThumb src={c.image} size={32} />
-        <div className="line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
-          {c.name}
+        <div className="mt-1.5 font-mono text-[10.5px] tabular text-ink-4">
+          {[
+            `${formatInt(c.trades)} sold`,
+            `${c.activeListings === 0 ? "none" : formatInt(c.activeListings)} listed`,
+            c.volumeUsd > 0 ? formatCompactUsd(c.volumeUsd) : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </div>
-      </div>
 
-      {/* Secondary stats — omitted entirely when there's nothing to add. */}
-      {meta.length > 0 && (
-        <div className="mt-1.5 tabular text-[11px] text-ink-3">{meta.join(" · ")}</div>
-      )}
-
-      {/* Footer — IP + platform, mirroring the Top Sales tile footer. mt-auto
-          pins it to the bottom so stretched cards line their footers up. */}
-      <div className="mt-auto flex items-center gap-1.5 border-t border-line/60 pt-2.5 text-[11px] leading-none text-ink-3">
-        {ipMeta ? (
-          <IPIcon
-            name={ipMeta.name}
-            short={ipMeta.short}
-            color={ipMeta.color}
-            logo={ipMeta.logo}
-            iconBlendMode={ipMeta.iconBlendMode}
-            emoji={ipMeta.emoji}
-            size={14}
-          />
-        ) : null}
-        <span className="truncate text-ink-2">{ipName}</span>
-        <span className="text-ink-4">·</span>
-        <span className="truncate">{PLATFORM_LABEL[c.platform] ?? c.platform}</span>
+        {/* mt-auto pins the footer to the bottom so a short name can't raise it
+            out of line with the tile beside it. */}
+        <div className="mt-auto flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11px] leading-none text-ink-3">
+          {ipMeta ? (
+            <IPIcon
+              name={ipMeta.name}
+              short={ipMeta.short}
+              color={ipMeta.color}
+              logo={ipMeta.logo}
+              iconBlendMode={ipMeta.iconBlendMode}
+              emoji={ipMeta.emoji}
+              size={14}
+            />
+          ) : null}
+          <span className="truncate text-ink-2">{ipName}</span>
+          <span className="text-ink-4">·</span>
+          <span className="truncate">{PLATFORM_LABEL[c.platform] ?? c.platform}</span>
+        </div>
       </div>
     </Link>
   );
