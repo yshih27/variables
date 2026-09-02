@@ -15,9 +15,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SectionShell, ReadMe } from "./Section";
 import { monotonePath } from "@/lib/chart/path";
-import { indexRegistry } from "@/lib/indices/naming";
-import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
-import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import {
+  buildStudioCatalog,
+  inScope,
+  scopedDefaultActive,
+  norm,
+  DEFAULT_ACTIVE,
+  type CatalogItem,
+  type ChartLoader,
+  type SeriesPoint,
+  type StudioScope,
+  type Unit,
+} from "@/lib/studio/catalog";
+import type { StudioSeed } from "@/lib/studio/seed";
 import {
   BRAND_LIME,
   BRAND_LOCKUP_ASPECT,
@@ -28,26 +38,6 @@ import {
 import { SITE_ORIGIN } from "@/lib/site";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
-type Unit = "index" | "usd" | "count" | "percent";
-type SeriesPoint = { ts: string; value: number };
-type CatalogItem = {
-  id: string;
-  ticker: string;
-  name: string;
-  group: string;
-  unit: Unit;
-  color: string;
-  dash?: boolean;
-  /** Sampled weekly, not daily (the price indices). Drives the "weekly" tag and
-   *  the dated-endpoint honesty: a weekly line's last point is usually days
-   *  behind the window edge, and its value must not read as "as of today". */
-  weekly?: boolean;
-  /** A per-day FLOW (volume / trades / gacha rips) rather than a level or an
-   *  index. Flows render as grouped bars in ABSOLUTE mode (a $/day quantity is a
-   *  bar, not a trend line); indices, benchmarks, and levels (market cap,
-   *  holders) stay lines. Rebased mode is lines-only for everything. */
-  flow?: boolean;
-};
 type Mode = "rebase" | "abs";
 
 const DAY = 86_400_000;
@@ -70,366 +60,59 @@ const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "180", days: 180, label: "6M" },
   { key: "all", days: null, label: "ALL" },
 ];
-// /ips (unscoped market studio) opens on V-MKT against the four majors it's most
-// often read against — rebased so the mixed units overlay, over the default 90D
-// window. V-MKT leads (primary → area + glow); a benchmark the /benchmarks
-// endpoint doesn't return (e.g. SOL past CoinGecko's 365d free-tier cap) is simply
-// dropped by activeValid, honestly, rather than erroring.
-const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:ETH", "bench:SOL", "bench:SP500"];
-
-/**
- * Scoping the studio to one entity (today: a platform detail page). Unscoped =
- * the /ips market-wide studio, unchanged.
- *
- * When scoped, the catalog narrows to THIS entity's own spine metrics plus the
- * two things worth comparing it against — the benchmarks and V-MKT — so the
- * picker on /platform/beezie isn't a list of every other platform's series.
- */
-export type StudioScope = {
-  entity: "platform";
-  /** One entity (/platform/[key]) — omit for the whole FAMILY (/platforms), where
-   *  the question is "how do the platforms compare", not "how is this one doing". */
-  key?: string;
-};
-
-/** Ids the scoped catalog keeps besides the entity's own series. */
-const SCOPE_KEEP = new Set(["idx:market:total"]);
-
-function inScope(id: string, scope: StudioScope): boolean {
-  if (SCOPE_KEEP.has(id) || id.startsWith("bench:")) return true;
-  return scope.key
-    ? id.startsWith(`sp:${scope.entity}:${scope.key}:`)
-    : id.startsWith(`sp:${scope.entity}:`);
-}
-
-/**
- * The chips a scoped studio opens with — always volume, because that's the
- * comparable. Deterministic, so it can seed useState before the catalog loads;
- * `activeValid` then drops any id whose series doesn't exist.
- *
- * That drop IS the honest-absence rule, not a bug: nothing writes
- * platform/phygitals/volume_usd (no secondary-sales source), so Phygitals simply
- * isn't a default line here. Its gacha series is still addable from the picker.
- */
-function scopedDefaultActive(scope: StudioScope): string[] {
-  if (scope.key) return [`sp:${scope.entity}:${scope.key}:volume_usd`];
-  // /platforms compares the venues on ONE comparable measure: each platform's
-  // TOTAL 24h volume (marketplace + gacha), a synthetic series built in
-  // buildCatalog. Using total (not marketplace-only volume_usd) is what lets
-  // Phygitals — gacha-only, no volume_usd — appear at all, at its real gacha
-  // volume. activeValid still drops any total that never got 2 points.
-  return PLATFORM_SOURCES.map((p) => `sp:platform:${p.key}:total_volume`);
-}
-
-// Line colors. V-MKT is the brand yellow; benchmarks keep recognizable brand hues;
-// everything else draws from a distinct palette assigned by catalog order.
-// Benchmark presentation, keyed by the symbol the /benchmarks endpoint returns.
-// The picker iterates whatever keys come back (so a backend-added symbol like SOL
-// shows up with zero FE edits) and looks each up here; an unknown symbol falls
-// back to itself for ticker/name and a palette colour. SOL is pre-seeded because
-// it's the known incoming one — a courtesy, not a requirement for it to appear.
-const BENCH_COLOR: Record<string, string> = {
-  BTC: "#e8993a",
-  ETH: "#8b93c9",
-  SP500: "#9aa0ab",
-  NASDAQ: "#6fb0c9",
-  GOLD: "#c8a951",
-  SOL: "#14f195", // Solana green
-};
-const BENCH_TICKER: Record<string, string> = { SP500: "S&P 500", NASDAQ: "NASDAQ" };
-const BENCH_NAME: Record<string, string> = {
-  BTC: "Bitcoin",
-  ETH: "Ethereum",
-  SP500: "S&P 500",
-  NASDAQ: "Nasdaq Composite",
-  GOLD: "Gold",
-  SOL: "Solana",
-};
-const PALETTE = [
-  "#5fa3ff", "#2bd6a0", "#ff6b9d", "#a18cff", "#4ade80", "#22d3ee",
-  "#fb7185", "#c084fc", "#38bdf8", "#fbbf24", "#f97316", "#a3e635", "#e879f9", "#7dd3fc",
-];
-
-const IP_NAME: Record<string, string> = Object.fromEntries(
-  [...IP_CATALOG, OTHER_IP].map((ip) => [ip.key, ip.name]),
-);
-const PLATFORM_NAME: Record<string, string> = Object.fromEntries(
-  PLATFORM_SOURCES.map((p) => [p.key, p.name]),
-);
-
-/** IP short code (PKM, OP…) derived from the naming SSOT ticker (strip the V- prefix). */
-function ipShort(key: string): string {
-  const reg = indexRegistry().find((r) => r.entity === "ip" && r.key === key);
-  return (reg?.ticker ?? key).replace(/^V-/, "");
-}
-function platShort(key: string): string {
-  return key.split("-").map((w) => w[0]?.toUpperCase() ?? "").join("").slice(0, 3) || key.slice(0, 3).toUpperCase();
-}
-function titleize(key: string): string {
-  return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-/** Lowercase + strip diacritics so a search for "pokemon" matches "Pokémon". */
-const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
 // ── fetch ─────────────────────────────────────────────────────────────────────
+/**
+ * The browser's ChartLoader. Kept for the LAZY path only: the initial catalog now
+ * arrives precomputed as a prop, and everything beyond it comes from the single
+ * /api/internal/chart/bundle call below. These per-endpoint reads remain because a
+ * page rendered without a seed (a cold snapshot, a preview before the warmer has
+ * run) must still be able to build itself the old way.
+ */
 async function fetchChart(
-  endpoint: "index" | "benchmarks" | "series",
+  endpoint: "index" | "benchmarks" | "series" | "bundle",
   params: Record<string, string>,
 ): Promise<Record<string, unknown>> {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`/api/internal/chart/${endpoint}?${qs}`);
+  const res = await fetch(`/api/internal/chart/${endpoint}${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`chart ${endpoint} ${res.status}`);
   const j = (await res.json()) as { ok: boolean; data?: Record<string, unknown>; error?: string };
   if (!j.ok || !j.data) throw new Error(j.error ?? "chart fetch failed");
   return j.data;
 }
 
+const httpChartLoader: ChartLoader = {
+  index: (p) => fetchChart("index", p as unknown as Record<string, string>),
+  benchmarks: (p) => fetchChart("benchmarks", p as unknown as Record<string, string>),
+  series: (p) => fetchChart("series", p as unknown as Record<string, string>),
+};
+
 /**
- * Map with bounded concurrency, preserving input order in the result.
+ * The full catalog, in ONE request.
  *
- * The index probes went from 3 to one-per-registry-entry (~27). All internal
- * chart endpoints share ONE 240-req/60s per-IP bucket, so ~27 in one build is far
- * under it — but this caps the in-flight burst anyway: it keeps the rate-limiter's
- * (non-atomic) bookkeeping honest under concurrency, and behaves the same whether
- * or not the browser's own ~6-per-origin cap is in play.
+ * ⚠️ THIS REPLACED A ~30-REQUEST FAN-OUT, and the fan-out was the outage. Mount
+ * used to fire one index probe per registry entry (~27) plus the benchmark call
+ * plus eleven spine-family bulk reads, eight in flight, each paying per-request
+ * rate-limit bookkeeping and a cold resample before any chart work — ~30s to first
+ * paint on a cold deploy. The server already assembles this catalog for the seed
+ * bundle, so the browser asks for it once and gets it CDN-cached.
+ *
+ * Falls back to building client-side from the per-endpoint routes if the batch
+ * endpoint is unavailable, so an old deploy or a failed bundle degrades to slow
+ * rather than broken.
  */
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
-}
-
-// The spine families the picker offers — each bulk read returns ONLY populated
-// keys (the "don't offer empty series" filter) AND prefetches their data.
-const SPINE_FAMILIES: { entity: string; metric: string; group: string; unit: Unit; short: string; label: string }[] = [
-  { entity: "market", metric: "mcap_usd", group: "Market cap", unit: "usd", short: "MCAP", label: "Total Market Cap" },
-  { entity: "ip", metric: "mcap_usd", group: "Market cap", unit: "usd", short: "MC", label: "Market Cap" },
-  { entity: "platform", metric: "mcap_usd", group: "Market cap", unit: "usd", short: "MC", label: "Market Cap" },
-  { entity: "platform", metric: "volume_usd", group: "Volume", unit: "usd", short: "VOL", label: "Marketplace Vol" },
-  { entity: "platform", metric: "gacha_volume_usd", group: "Volume", unit: "usd", short: "GAC", label: "Gacha Vol" },
-  { entity: "ip", metric: "cards_traded", group: "Activity", unit: "count", short: "CRD", label: "Cards Traded" },
-  { entity: "ip", metric: "trades", group: "Activity", unit: "count", short: "TRD", label: "Trades" },
-  { entity: "ip", metric: "holders", group: "Activity", unit: "count", short: "HLD", label: "Holders" },
-  // Platform-entity activity the spine already records (populated-only culling
-  // keeps this honest — active_wallets is CC-only today, so only CC's line appears).
-  { entity: "platform", metric: "trades", group: "Activity", unit: "count", short: "TRD", label: "Trades" },
-  { entity: "platform", metric: "holders", group: "Activity", unit: "count", short: "HLD", label: "Holders" },
-  { entity: "platform", metric: "active_wallets", group: "Activity", unit: "count", short: "ACT", label: "Active Wallets" },
-];
-
-/** Spine metrics that are per-day FLOWS (→ bars in absolute mode). mcap_usd and
- *  holders are LEVELS / stocks (→ lines); active_wallets is a per-day activity
- *  count, a flow like trades. The synthetic total_volume is a flow and is tagged
- *  where it's built; the derived share%/avg-trade are LEVELS, tagged there. */
-const FLOW_METRICS = new Set(["volume_usd", "gacha_volume_usd", "cards_traded", "trades", "active_wallets"]);
-
-/** Build the picker catalog from real availability + prefetch every series' data. */
-async function buildCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]> }> {
-  const data = new Map<string, SeriesPoint[]>();
-  const items: CatalogItem[] = [];
-  let paletteI = 0;
-  const nextColor = () => PALETTE[paletteI++ % PALETTE.length];
-
-  // 1. Indices (constant-quality price index) — the FULL registry: the market,
-  //    the categories, and every named IP. The naming SSOT is the source of
-  //    truth, so a new catalog IP appears here with no edit; empty ones (an IP
-  //    without enough index history) are culled by the <2-point check. Batched so
-  //    the burst is modest (see mapLimit).
-  const idxProbes = await mapLimit(indexRegistry(), 8, async (reg) => {
-    try {
-      const d = await fetchChart("index", {
-        entity: reg.entity,
-        key: reg.key,
-        kind: "price",
-        from: "2000-01-01",
-        freq: "weekly",
-      });
-      return { reg, d };
-    } catch {
-      return null;
-    }
-  });
-  for (const p of idxProbes) {
-    if (!p) continue;
-    const points = (p.d.points as SeriesPoint[]) ?? [];
-    if (points.length < 2) continue;
-    const id = `idx:${p.reg.entity}:${p.reg.key}`;
-    data.set(id, points);
-    items.push({
-      id,
-      // Prefer the endpoint's own ticker/name; the registry values are the same
-      // SSOT and stand in if a field is ever missing.
-      ticker: (p.d.ticker as string) ?? p.reg.ticker,
-      name: (p.d.indexName as string) ?? p.reg.name,
-      group: "Indices",
-      unit: "index",
-      color: p.reg.entity === "market" ? "#bfef01" : nextColor(),
-      weekly: true, // fetched freq:"weekly" above
-    });
-  }
-
-  // 2. Benchmarks — one call; iterate WHATEVER symbols come back so a
-  //    backend-added one (SOL) shows up without an FE edit. Ticker/name/colour
-  //    come from the maps above, each with a fallback to the raw symbol.
+async function loadFullCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]> }> {
   try {
-    const bd = await fetchChart("benchmarks", { from: "2000-01-01", freq: "daily" });
-    const series = (bd.series as Record<string, SeriesPoint[]>) ?? {};
-    for (const sym of Object.keys(series)) {
-      const points = series[sym] ?? [];
-      if (points.length < 2) continue;
-      const id = `bench:${sym}`;
-      data.set(id, points);
-      items.push({
-        id,
-        ticker: BENCH_TICKER[sym] ?? sym,
-        name: BENCH_NAME[sym] ?? sym,
-        group: "Benchmarks",
-        unit: "index",
-        color: BENCH_COLOR[sym] ?? nextColor(),
-        dash: true,
-      });
-    }
+    const d = await fetchChart("bundle", {});
+    const items = (d.items as CatalogItem[]) ?? [];
+    const raw = (d.data as Record<string, SeriesPoint[]>) ?? {};
+    if (items.length) return { items, data: new Map(Object.entries(raw)) };
   } catch {
-    /* benchmarks unavailable → skip the group */
+    /* fall through to the per-endpoint build */
   }
-
-  // 3. Raw spine families — bulk reads return only keys with data in-window.
-  const fam = await Promise.all(
-    SPINE_FAMILIES.map(async (f) => {
-      try {
-        const d = await fetchChart("series", { entity: f.entity, metric: f.metric, from: "2000-01-01" });
-        return { f, series: (d.series as Record<string, SeriesPoint[]>) ?? {} };
-      } catch {
-        return { f, series: {} as Record<string, SeriesPoint[]> };
-      }
-    }),
-  );
-  for (const { f, series } of fam) {
-    const keys = Object.keys(series).sort((a, b) => {
-      const la = series[a]?.at(-1)?.value ?? 0;
-      const lb = series[b]?.at(-1)?.value ?? 0;
-      return lb - la; // biggest latest value first
-    });
-    for (const key of keys) {
-      const points = series[key] ?? [];
-      if (points.length < 2) continue;
-      const isMarket = f.entity === "market";
-      const shortEntity =
-        f.entity === "ip" ? ipShort(key) : f.entity === "platform" ? platShort(key) : "";
-      const entityName =
-        f.entity === "ip" ? IP_NAME[key] ?? titleize(key) : f.entity === "platform" ? PLATFORM_NAME[key] ?? titleize(key) : "";
-      const id = `sp:${f.entity}:${key}:${f.metric}`;
-      data.set(id, points);
-      items.push({
-        id,
-        ticker: isMarket ? f.short : `${shortEntity}·${f.short}`,
-        name: isMarket ? f.label : `${entityName} ${f.label}`,
-        group: f.group,
-        unit: f.unit,
-        color: nextColor(),
-        flow: FLOW_METRICS.has(f.metric),
-      });
-    }
-  }
-
-  // 4. Combined per-platform TOTAL volume — marketplace volume_usd + gacha
-  //    volume_usd, union-summed BY DAY (client-side). A day with only one lane
-  //    contributes that lane alone, so gacha-only platforms (Phygitals: no
-  //    volume_usd) surface honestly at their gacha value rather than dropping out.
-  //    Its own `total_volume` series so /platforms can compare venues on one
-  //    comparable total; the separate volume_usd / gacha_volume_usd metrics above
-  //    stay in the picker untouched.
-  const platVol = fam.find((x) => x.f.entity === "platform" && x.f.metric === "volume_usd")?.series ?? {};
-  const platGac = fam.find((x) => x.f.entity === "platform" && x.f.metric === "gacha_volume_usd")?.series ?? {};
-  const totals: { key: string; points: SeriesPoint[] }[] = [];
-  for (const key of new Set([...Object.keys(platVol), ...Object.keys(platGac)])) {
-    const byDay = new Map<string, number>();
-    for (const p of platVol[key] ?? []) if (Number.isFinite(p.value)) byDay.set(p.ts, (byDay.get(p.ts) ?? 0) + p.value);
-    for (const p of platGac[key] ?? []) if (Number.isFinite(p.value)) byDay.set(p.ts, (byDay.get(p.ts) ?? 0) + p.value);
-    const points = [...byDay.entries()]
-      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-      .map(([ts, value]) => ({ ts, value }));
-    if (points.length >= 2) totals.push({ key, points });
-  }
-  // Biggest latest value first, so the reconcile picks the largest platform as the
-  // primary (area + glow) — same rule the raw spine families use above.
-  totals.sort((a, b) => (b.points.at(-1)?.value ?? 0) - (a.points.at(-1)?.value ?? 0));
-  for (const { key, points } of totals) {
-    const id = `sp:platform:${key}:total_volume`;
-    data.set(id, points);
-    items.push({
-      id,
-      ticker: `${platShort(key)}·TOT`,
-      name: `${PLATFORM_NAME[key] ?? titleize(key)} Total Vol`,
-      group: "Volume",
-      unit: "usd",
-      color: nextColor(),
-      flow: true,
-    });
-  }
-
-  // 5. Derived ratios — built the same client-side way, from the series above.
-  //    Both are LEVELS (lines): a share and an average don't accumulate, so
-  //    absolute mode draws them as lines, not bars.
-  const platTrades = fam.find((x) => x.f.entity === "platform" && x.f.metric === "trades")?.series ?? {};
-
-  // Share of Market % — each platform's TOTAL volume as a share of the whole
-  // market that day (Σ all platform totals). Days with no market total carry no
-  // share — an honest gap, not a fabricated 0%.
-  const marketByDay = new Map<string, number>();
-  for (const t of totals) for (const p of t.points) if (Number.isFinite(p.value)) marketByDay.set(p.ts, (marketByDay.get(p.ts) ?? 0) + p.value);
-  for (const { key, points } of totals) {
-    const share = points
-      .map((p) => {
-        const mkt = marketByDay.get(p.ts) ?? 0;
-        return mkt > 0 ? { ts: p.ts, value: (p.value / mkt) * 100 } : null;
-      })
-      .filter((p): p is SeriesPoint => p != null);
-    if (share.length < 2) continue;
-    const id = `sp:platform:${key}:share_pct`;
-    data.set(id, share);
-    items.push({
-      id,
-      ticker: `${platShort(key)}·SHR`,
-      name: `${PLATFORM_NAME[key] ?? titleize(key)} Share of Market`,
-      group: "Ratios",
-      unit: "percent",
-      color: nextColor(),
-    });
-  }
-
-  // Avg Trade — marketplace volume_usd ÷ trades per day. A day with 0 (or missing)
-  // trades has NO average (NaN) and is dropped, never fabricated as $0.
-  for (const key of new Set([...Object.keys(platVol), ...Object.keys(platTrades)])) {
-    const trd = new Map((platTrades[key] ?? []).map((p) => [p.ts, p.value] as const));
-    const avg = (platVol[key] ?? [])
-      .map((p) => {
-        const t = trd.get(p.ts);
-        return t != null && t > 0 && Number.isFinite(p.value) ? { ts: p.ts, value: p.value / t } : null;
-      })
-      .filter((p): p is SeriesPoint => p != null);
-    if (avg.length < 2) continue;
-    const id = `sp:platform:${key}:avg_trade`;
-    data.set(id, avg);
-    items.push({
-      id,
-      ticker: `${platShort(key)}·AVG`,
-      name: `${PLATFORM_NAME[key] ?? titleize(key)} Avg Trade`,
-      group: "Ratios",
-      unit: "usd",
-      color: nextColor(),
-    });
-  }
-
-  return { items, data };
+  return buildStudioCatalog(httpChartLoader);
 }
+
 
 // ── formatting ──────────────────────────────────────────────────────────────
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -565,11 +248,29 @@ function sliceInWindow(
   return arr.slice(lo, j);
 }
 
-export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
-  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [seriesData, setSeriesData] = useState<Map<string, SeriesPoint[]>>(() => new Map());
-  const [loaded, setLoaded] = useState(false);
+export type { StudioScope } from "@/lib/studio/catalog";
+
+/**
+ * `seed` is the precomputed default view, embedded by the page's server render
+ * (src/lib/studio/seed.ts). When it is present the studio paints on its FIRST
+ * render with zero network calls; the rest of the catalog is fetched afterwards,
+ * off the critical path. When it is absent — a cold snapshot, a preview deployed
+ * before the warmer ran — the component falls back to building itself from the
+ * API exactly as it always did, just slowly.
+ */
+export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?: StudioScope } = {}) {
+  // ⚠️ SEEDED STATE IS THE WHOLE FIX. These four used to start empty and the
+  // component held "Loading market data…" behind ~30 same-origin requests. Now
+  // the first render already has the default view's catalog and points, so
+  // `loaded` starts true and there is nothing to wait for.
+  const [catalog, setCatalog] = useState<CatalogItem[]>(() => seed?.items ?? []);
+  const [seriesData, setSeriesData] = useState<Map<string, SeriesPoint[]>>(
+    () => new Map(Object.entries(seed?.data ?? {})),
+  );
+  const [loaded, setLoaded] = useState(!!seed?.items?.length);
   const [loadError, setLoadError] = useState(false);
+  /** True until the FULL catalog has replaced the seed — the picker says so. */
+  const [catalogPartial, setCatalogPartial] = useState(!!seed?.items?.length);
 
   // Only honor a hash written for THIS page. One left in the URL by a client-side
   // nav from another studio carries a different `sc` and is discarded, so the page
@@ -580,8 +281,12 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
     const h = parseHash();
     return h.sc === pageTag ? h : {};
   }, [pageTag]);
+  // A hash wins (it is the reader's own link), then the seed's server-reconciled
+  // order, then the static default. The seed's `active` has ALREADY been dropped
+  // and re-ordered against what exists, so a seeded mount does not flash a line
+  // that is about to disappear.
   const [active, setActive] = useState<string[]>(
-    initial.active ?? (scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE),
+    initial.active ?? seed?.active ?? (scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE),
   );
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   // Scoped studios open in ABSOLUTE: one platform's own volume in dollars is the
@@ -599,15 +304,18 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
   const plotRef = useRef<SVGSVGElement>(null);
   const [w, setW] = useState(920);
 
-  // Fetch catalog + all series once. The fetch itself is scope-independent (the
-  // /series reads are bulk + cached per metric family either way); scoping only
-  // narrows what the picker OFFERS, so /platform/beezie isn't a menu of every
-  // other platform's series.
+  // Load the FULL catalog — one request, and never on the critical path.
+  //
+  // Seeded, this is an UPGRADE that runs after paint: the chart is already drawn
+  // from the embedded default view, and this fills in every other series so the
+  // picker can offer them and a chip added later needs no round-trip of its own.
+  // Unseeded, it is the original load, now one batched call instead of ~30.
   useEffect(() => {
     let alive = true;
-    buildCatalog()
+    loadFullCatalog()
       .then(({ items, data }) => {
         if (!alive) return;
+        setCatalogPartial(false);
         const scoped = scope ? items.filter((it) => inScope(it.id, scope)) : items;
         setSeriesData(data);
         setCatalog(scoped);
@@ -623,7 +331,11 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         //     rather than opening on an empty plot.
         // Skipped entirely when the hash chose the set: a shared link's own
         // order is the author's, and re-sorting it would move their primary.
-        if (scope && !initial.active) {
+        // ⚠️ ALSO skipped when a seed supplied the set — the warmer ran this exact
+        // reconcile against this exact catalog, so re-running it here can only
+        // reproduce the same answer or, if the two disagree, visibly reorder the
+        // lines a moment after they were drawn.
+        if (scope && !initial.active && !seed?.active?.length) {
           setActive((cur) => {
             const keep = new Set(cur);
             const ordered = scoped.filter((c) => keep.has(c.id)).map((c) => c.id);
@@ -637,7 +349,14 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
         }
         setLoaded(true);
       })
-      .catch(() => alive && setLoadError(true));
+      // A failed upgrade is not a failed chart: the seeded default view is already
+      // on screen and stays there. Only an UNSEEDED load has nothing to fall back
+      // on, and only that raises the error state.
+      .catch(() => {
+        if (!alive) return;
+        setCatalogPartial(false);
+        if (!seed?.items?.length) setLoadError(true);
+      });
     return () => {
       alive = false;
     };
@@ -1648,6 +1367,11 @@ export function IndexStudio({ scope }: { scope?: StudioScope } = {}) {
             onSearch={setSearch}
             onPick={addMetric}
             onClose={() => setPickerOpen(false)}
+            // A seeded mount opens the picker against the SCOPED item list, which
+            // is complete — but the points behind the non-default entries are
+            // still in flight. Saying so beats a chip that adds itself and draws
+            // nothing for a moment.
+            partial={catalogPartial}
           />
         )}
       </div>
@@ -1798,13 +1522,15 @@ function PlotContextMenu({ x, y, items, onClose }: {
   );
 }
 
-function MetricPicker({ catalog, active, search, onSearch, onPick, onClose }: {
+function MetricPicker({ catalog, active, search, onSearch, onPick, onClose, partial }: {
   catalog: CatalogItem[];
   active: Set<string>;
   search: string;
   onSearch: (s: string) => void;
   onPick: (id: string) => void;
   onClose: () => void;
+  /** The full catalog is still arriving behind the seeded default view. */
+  partial?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1830,6 +1556,13 @@ function MetricPicker({ catalog, active, search, onSearch, onPick, onClose }: {
           placeholder="Add a metric — index, benchmark, volume, holders…"
           className="w-full rounded-lg border border-line bg-bg px-2.5 py-2 text-[13px] text-ink outline-none placeholder:text-ink-4 focus:border-yellow"
         />
+        {/* The seeded chart paints before the rest of the series arrive. In that
+            window the list is real but the data behind an unpicked row is not
+            here yet, so say so rather than let a chip add itself and draw nothing
+            for a beat. */}
+        {partial && (
+          <div className="px-0.5 pt-1.5 font-mono text-[10.5px] text-ink-4">loading the rest of the series…</div>
+        )}
       </div>
       <div className="max-h-[320px] overflow-y-auto px-1.5 pb-2">
         {groups.map((g) => {

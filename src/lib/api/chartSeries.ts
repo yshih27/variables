@@ -5,6 +5,7 @@
  * that logic (metric allowlist + units + window/freq/rebase shaping).
  */
 import { unstable_cache } from "next/cache";
+import { isSameOrigin, rateLimitByIp, rateLimitInMemory, type RateLimitResult } from "./auth";
 import { rebaseSeries, resampleWeekly } from "@/lib/data/indices";
 import type { MetricEntityType, SeriesPoint } from "@/lib/data/metricSnapshots";
 
@@ -77,9 +78,56 @@ export function shapeSeries(
  *  fires several reads per interaction; the cache absorbs the rest). */
 export const CHART_RATE = { bucket: "chart", limit: 240, windowSec: 60 } as const;
 
+/**
+ * The one guard every internal chart route runs.
+ *
+ * ⚠️ SAME-ORIGIN CALLS NO LONGER TOUCH POSTGRES. `rateLimitByIp` does a
+ * read-modify-write of a `snapshots` KV row before any chart work — two PostgREST
+ * round trips, on the same table, under the studio's own concurrency. Our page
+ * fetching its own chart data was paying a public-API abuse control on every
+ * call, and it was a measurable slice of the ~30s first paint. Same-origin traffic
+ * now gets an in-memory per-instance bucket instead (no I/O); cross-origin and
+ * unknown callers keep the durable DB limiter exactly as before.
+ *
+ * Side effect worth naming: this stops writing the `ratelimit:chart:*` rows that
+ * have been accumulating in `snapshots` (they show up in check-freshness output).
+ * Existing rows are untouched — they are keyed by window id and simply stop being
+ * read or added to.
+ */
+export async function guardChartRequest(req: Request): Promise<RateLimitResult> {
+  return isSameOrigin(req) ? rateLimitInMemory(req, CHART_RATE) : rateLimitByIp(req, CHART_RATE);
+}
+
+/**
+ * CDN cache headers for chart JSON.
+ *
+ * Safe because the query params fully key the response and the underlying data
+ * moves on the warmers' ~6h cadence — so a shared 30-minute edge cache serves a
+ * figure no staler than the page around it, and `stale-while-revalidate` means the
+ * first visitor after expiry gets the cached copy instantly while it refreshes
+ * behind them. `private`/no-store would be wrong here: this is public market data,
+ * identical for every visitor.
+ *
+ * `Vary: Accept-Encoding` only — deliberately NOT the same-origin headers. Varying
+ * on `Sec-Fetch-Site` would shard the edge cache per navigation type for a body
+ * that does not depend on it; the header changes who pays for rate limiting, not
+ * what is returned.
+ */
+export const CHART_CDN_HEADERS: Record<string, string> = {
+  "cache-control": "public, s-maxage=1800, stale-while-revalidate=3600",
+  vary: "Accept-Encoding",
+};
+
 /** Cache a reader call (public market data, changes ~daily). The rate limiter runs
  *  UNCACHED per request; only the DB reads are memoised. Keep `keyParts` param-complete. */
 const CHART_CACHE_S = 900; // 15 min
 export function cachedChart<T>(keyParts: string[], fn: () => Promise<T>): Promise<T> {
-  return unstable_cache(fn, ["chart", ...keyParts], { revalidate: CHART_CACHE_S, tags: ["chart-data"] })();
+  // Two tags: its own, and `platform-buckets` — the tag the warmers already sweep
+  // when fresh platform data lands. Without the second one a warm could publish new
+  // figures while the chart kept serving the previous 15 minutes' cache, and the
+  // page and its chart would disagree in the same viewport.
+  return unstable_cache(fn, ["chart", ...keyParts], {
+    revalidate: CHART_CACHE_S,
+    tags: ["chart-data", "platform-buckets"],
+  })();
 }

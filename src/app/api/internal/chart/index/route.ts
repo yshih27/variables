@@ -6,15 +6,14 @@
  * can't be used cross-origin to dodge the keyed public tier.
  */
 import { readIndexSeries, indexStats } from "@/lib/data/indices";
-import { rateLimitByIp } from "@/lib/api/auth";
 import { v1OkInternal, v1Error, pickParam } from "@/lib/api/v1";
-import { cachedChart, CHART_RATE } from "@/lib/api/chartSeries";
+import { cachedChart, guardChartRequest, CHART_CDN_HEADERS } from "@/lib/api/chartSeries";
 import { tickerOf, indexDisplayName } from "@/lib/indices/naming";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const rl = await rateLimitByIp(req, CHART_RATE);
+  const rl = await guardChartRequest(req);
   if (!rl.ok) return v1Error(429, rl.error);
 
   const url = new URL(req.url);
@@ -36,16 +35,19 @@ export async function GET(req: Request) {
       ? await cachedChart(["index-stats", entity, key, from], () => indexStats(entity, key, { from }))
       : null;
 
-  return v1OkInternal({
-    entity,
-    key,
-    ticker: tickerOf(entity, key),
-    indexName: indexDisplayName(entity, key),
-    kind,
-    from,
-    freq,
-    rebasedTo: 100,
-    points,
-    stats,
-  });
+  return v1OkInternal(
+    {
+      entity,
+      key,
+      ticker: tickerOf(entity, key),
+      indexName: indexDisplayName(entity, key),
+      kind,
+      from,
+      freq,
+      rebasedTo: 100,
+      points,
+      stats,
+    },
+    CHART_CDN_HEADERS,
+  );
 }

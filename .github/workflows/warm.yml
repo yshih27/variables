@@ -100,6 +100,13 @@ jobs:
         # LAST — it reads what every step above wrote.
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
+      - name: Index Studio seed bundles
+        # Pure derivation, same as the homepage blob above and for the same reason:
+        # the studio's default view was costing ~30s of client fan-out to assemble
+        # per visitor, out of data the steps above already wrote. Precomputing it
+        # here makes first paint a snapshot read. Zero external API calls.
+        continue-on-error: true
+        run: npx tsx scripts/warm-studio-seed.ts
       # Health gate — the steps above are continue-on-error (one flaky source can't
       # block the rest), which also hid dead warmers behind a green run. This final
       # step (NOT continue-on-error) fails the job if any of this batch's warmers
@@ -111,7 +118,7 @@ jobs:
       # to run and fail. Combined with the stale/untracked fix in check-freshness,
       # this is what closes the "6 days dead behind green runs" hole.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,homepage,metric-snapshots,weekly-report
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,homepage,studio-seed,metric-snapshots,weekly-report
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:

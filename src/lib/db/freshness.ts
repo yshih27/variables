@@ -88,6 +88,10 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "dyli-boxes": DAY_MS,
   // derived homepage blob (B9-1) — recomputed at the end of the core batch
   homepage: 6 * HOUR_MS,
+  // Index Studio seed bundles — the precomputed default view each studio page
+  // embeds so its chart paints without a client fetch. Pure derivation, same
+  // cadence and same batch as the homepage blob it sits beside.
+  "studio-seed": 6 * HOUR_MS,
   // always-on listener (scripts/listen-gacha.ts) — heartbeats every ~5min
   "gacha-live": 15 * 60 * 1000,
   // daily batch — every 24h
