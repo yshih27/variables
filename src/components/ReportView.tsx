@@ -168,8 +168,12 @@ export function ReportView({ report }: { report: WeeklyReport }) {
 function MoverBoardCard({ title, board, hrefOf }: { title: string; board: MoverBoard; hrefOf: (k: string) => string }) {
   if (board.gainers.length === 0 && board.losers.length === 0) return null;
   return (
-    <Section title={title} readMe="biggest week-over-week movers — gainers first, then losers" flush>
-      <div className="flex flex-col">
+    // §7: the two boards sit side by side and can hold different row counts, so
+    // the shorter one fills its frame rather than ending above its neighbour. The
+    // rows take the slack (`flex-1` each) instead of a blank band under the last
+    // one — the same treatment the partner board uses.
+    <Section title={title} readMe="biggest week-over-week movers — gainers first, then losers" flush fill>
+      <div className="flex min-h-0 flex-1 flex-col [&>*]:flex-1">
         {board.gainers.map((m) => (
           <MoverRow key={`g:${m.key}`} m={m} href={hrefOf(m.key)} arrow="▲" />
         ))}
