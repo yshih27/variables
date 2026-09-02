@@ -1,8 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { MarketHeader } from "@/components/MarketHeader";
-import { TopSalesPanel } from "@/components/TopSalesPanel";
-import { TrendingCards } from "@/components/TrendingCards";
+import { CardsSection } from "@/components/CardsSection";
 import { IPTable } from "@/components/IPTable";
 import { PlatformTable } from "@/components/PlatformTable";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
@@ -11,6 +10,8 @@ import { getTrendingCards } from "@/lib/data/fetchTrending";
 import { formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { readMetricSeries, pctChange } from "@/lib/data/metricSnapshots";
 import { rebaseSeries, readIndexSeries, weeklyChangePct, completeWeeksOnly } from "@/lib/data/indices";
+import { getPlatformSeries, platformVolumeBands } from "@/lib/data/platformSeries";
+import { StackedAreaChart } from "@/components/StackedAreaChart";
 
 const getHomepageData = unstable_cache(
   async () => fetchHomepage(),
@@ -65,13 +66,16 @@ function floatAgeLabelOf(iso: string | null): string | null {
 export const revalidate = 1800;
 
 export default async function Home() {
-  const [data, gacha, marketIdx, benchCloses, trending24] = await Promise.all([
-    getHomepageData(),
-    getGachaData(),
-    getMarketIndexSeries(),
-    getBenchmarkCloses(),
-    getTrendingCards({ limit: 8 }),
-  ]);
+  const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries] =
+    await Promise.all([
+      getHomepageData(),
+      getGachaData(),
+      getMarketIndexSeries(),
+      getBenchmarkCloses(),
+      getTrendingCards({ limit: 8 }),
+      getPlatformSeries("volume_usd"),
+      getPlatformSeries("gacha_volume_usd"),
+    ]);
 
   // X6 — a thin 24h window on 1-of-1 slabs ties whole tables at "2 trades", so
   // the ranking reads arbitrary. When ties dominate, rank on the 7d window
@@ -176,6 +180,19 @@ export default async function Home() {
   // floatAgeLabelOf above; the page is ISR-cached).
   const mcapAsOfLabel = staleAsOfLabel(data.hero.mcapAsOf);
 
+  // Lead chart bands, ranked by the same total the PlatformTable below ranks by,
+  // so the stack order and the leaderboard order can't disagree on one screen.
+  const HOME_CHART_DAYS = 90;
+  const rankedForChart = [...data.platforms]
+    .sort((a, b) => (b.total24Usd > 0 ? b.total24Usd : 0) - (a.total24Usd > 0 ? a.total24Usd : 0))
+    .map((p) => ({ key: p.key, name: p.name }));
+  const volumeBands = platformVolumeBands(
+    rankedForChart,
+    mktSeries,
+    gachaSeries,
+    HOME_CHART_DAYS,
+  );
+
   return (
     <>
       <NavBar />
@@ -202,8 +219,29 @@ export default async function Home() {
         />
 
         <div className="space-y-6">
-          <TopSalesPanel items={data.topSales} />
-          <TrendingCards cards={trending.rows} windowLabel={trendingWindow} floatAgeLabel={floatAgeLabel} />
+          {/* Lead chart — the hero states TODAY; this states how it got here, and
+              which venue carried it. Directly under the hero because the 24h volume
+              bar above splits the same money by SOURCE, and this splits it by VENUE
+              over time; read together they answer "how big, from where, since when". */}
+          {volumeBands.length > 0 && (
+            <StackedAreaChart
+              title="Volume by platform"
+              readMe="who is carrying the market's turnover"
+              subtitle={`Marketplace + gacha, per platform · last ${HOME_CHART_DAYS} days · complete days only`}
+              metric="total24h"
+              series={volumeBands}
+              unit="usd"
+            />
+          )}
+          {/* One zone for "which cards matter today" — Top sales and Trending are
+              the same question, so the depth goes behind a switcher in the header
+              rather than into a second stacked section (terminal-ux-study §1). */}
+          <CardsSection
+            topSales={data.topSales}
+            trending={trending.rows}
+            trendingWindow={trendingWindow}
+            floatAgeLabel={floatAgeLabel}
+          />
           <IPTable rows={data.ips} maxRows={5} seeAllHref="/ips" teaser />
           <PlatformTable rows={data.platforms} maxRows={4} seeAllHref="/platforms" teaser />
         </div>

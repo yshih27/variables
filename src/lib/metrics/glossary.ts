@@ -139,7 +139,7 @@ export const METRICS = {
   },
   partnerAttribution: {
     term: "Top partners",
-    text: "The partner surface a pull was purchased through (Collector Crypt memo attribution). Top 3 shown.",
+    text: "The partner surface a pull was purchased through (Collector Crypt memo attribution) — including the platform's own storefront, which is a surface like any other. Top 5 by trailing-30d attributed volume; no minimum. Capture is forward-only, so the attributed share is still filling and an unattributed pull belongs to no partner rather than to a default one.",
   },
   // ── Player analytics ──────────────────────────────────────────────────────
   spendTier: {

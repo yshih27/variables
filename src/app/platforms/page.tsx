@@ -1,19 +1,21 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
-import { IndexStudio } from "@/components/IndexStudio";
-import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { PlatformStatBar } from "@/components/PlatformStatBar";
 import { PlatformTable } from "@/components/PlatformTable";
 import { SectionShell } from "@/components/Section";
+import { StatCard, StatCardRow } from "@/components/StatCard";
 import { VolumeBar } from "@/components/VolumeBar";
-import { CompositionChart } from "@/components/CompositionChart";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, readMetricSeriesBulk, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
+import { getPlatformSeries, totalDaily, platformVolumeBands } from "@/lib/data/platformSeries";
+import { StackedAreaChart } from "@/components/StackedAreaChart";
+import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 /** HHI concentration bands — matches PlatformStatBar's cutoffs (0.25/0.4) so the
- *  rail detail and the ribbon can't disagree on whether the market is "High". */
+ *  card detail and the ribbon can't disagree on whether the market is "High". */
 function hhiLabel(hhi: number): string {
   if (hhi >= 0.4) return "High";
   if (hhi >= 0.25) return "Moderate";
@@ -23,6 +25,11 @@ function hhiLabel(hhi: number): string {
 /** Show at most this many cards; the rest live in the full table below. */
 const MAX_CARDS = 4;
 
+/** Same formatter OverviewMetricColumn uses — a NaN value renders "—" (not
+ *  tracked), never a fabricated 0. */
+const kpiValue = (n: number, unit: "usd" | "count") =>
+  !Number.isFinite(n) ? "—" : unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n);
+
 const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist:v6"], {
   revalidate: 3600,
   tags: ["homepage"],
@@ -31,30 +38,6 @@ const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist
 /** Per-entity daily spine series (keyed by metric) for the whole platform family.
  *  v2 (R5-1): v1 cached an empty `mcap_usd` map from before the spine carried
  *  per-platform market cap. */
-const getPlatformSeries = unstable_cache(
-  async (metric: string) => Object.fromEntries(await readMetricSeriesBulk("platform", metric)),
-  ["platforms-series:v2"],
-  { revalidate: 3600, tags: ["homepage"] },
-);
-
-/** One platform's daily TOTAL — its marketplace and gacha series added per day.
- *  Mirrors the total24Usd the rail and table rank by, so the card under a
- *  platform's name measures the same thing its row does. Non-finite points are
- *  skipped rather than zeroed: a day with no reading isn't a day worth $0, and
- *  MetricBarCard now lays points into true day slots, so an absent day stays
- *  absent instead of drawing a false floor. */
-function totalDaily(...sources: (SeriesPoint[] | undefined)[]): SeriesPoint[] {
-  const byTs = new Map<string, number>();
-  for (const series of sources) {
-    for (const p of series ?? []) {
-      if (!Number.isFinite(p.value)) continue;
-      byTs.set(p.ts, (byTs.get(p.ts) ?? 0) + p.value);
-    }
-  }
-  return [...byTs.entries()]
-    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-    .map(([ts, value]) => ({ ts, value }));
-}
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
 // All reads are unstable_cache-backed; no cookies/headers/searchParams here.
@@ -125,10 +108,10 @@ export default async function AllPlatformsPage() {
   const hhi = concentrationHHI24(data.platforms, total24);
   const chains = new Set(data.platforms.map((p) => p.chain)).size;
 
-  // ── Zone 1: SUMMARY rail (U5) ───────────────────────────────────────────────
-  // Fixed five rows that scale O(1), not one-per-platform: the market's shape
+  // ── Zone 1: SUMMARY KPIs ────────────────────────────────────────────────────
+  // Fixed five cards that scale O(1), not one-per-platform: the market's shape
   // (total, its marketplace/gacha split, who leads, how concentrated) reads at a
-  // glance and doesn't grow a row every time a platform is added — the full
+  // glance and doesn't grow a card every time a platform is added — the full
   // per-platform leaderboard is the table below.
   //
   // ⚠️ hero.vol24Pct / gachaVol24Pct are ALREADY PERCENT (dayOverDayPct), and
@@ -138,7 +121,7 @@ export default async function AllPlatformsPage() {
   //
   // ⚠️ Top Platform's share and the Concentration HHI both come from
   // totalActivity24 / sharePct24 / concentrationHHI24 — the SAME functions
-  // PlatformStatBar (the ribbon) uses — so the rail and ribbon can't disagree.
+  // PlatformStatBar (the ribbon) uses — so the cards and ribbon can't disagree.
   const rows: OverviewMetricRow[] = [
     {
       label: "Total 24h Volume",
@@ -214,27 +197,14 @@ export default async function AllPlatformsPage() {
     };
   });
 
-  // Volume composition (tier 3b) — per-platform TOTAL volume (marketplace + gacha)
-  // over the last 30 days, in leaderboard order (biggest at the bottom of the
-  // stack). The same totalDaily the 14d cards use, so a day here reconciles with
-  // the card above it.
-  const COMP_DAYS = 30;
-  const COMP_COLORS = ["#2bd6a0", "#5fa3ff", "#ff6b9d", "#a18cff", "#22d3ee", "#fbbf24"];
-  const volumeComposition = ranked
-    .map((p, i) => {
-      // Same completeness gate as the 14d cards above: drop a Dune-lagged partial
-      // trailing day so the newest stacked bar can't dip on incomplete streams.
-      const mkt = mktSeries[p.key];
-      const gacha = gachaSeries[p.key];
-      const streams = new Map<string, SeriesPoint[]>([["mkt", mkt ?? []], ["gacha", gacha ?? []]]);
-      return {
-        key: p.key,
-        label: p.name,
-        color: COMP_COLORS[i % COMP_COLORS.length],
-        points: lastNDays(dropIncompleteTail(totalDaily(mkt, gacha), streams), COMP_DAYS),
-      };
-    })
-    .filter((s) => s.points.some((pt) => Number.isFinite(pt.value)));
+  // The hero — per-platform TOTAL volume (marketplace + gacha), in leaderboard
+  // order (biggest at the bottom of the stack). The same totalDaily the 14d cards
+  // use, so a day here reconciles with the card below it. This is the page's ONLY
+  // volume chart (one question per zone): the share and cumulative reads live in
+  // the chart's own mode switcher, and any window in the arc is one brush away —
+  // never a second stacked chart.
+  const HERO_DAYS = 120;
+  const volumeHero = platformVolumeBands(ranked, mktSeries, gachaSeries, HERO_DAYS);
 
   return (
     <>
@@ -244,10 +214,37 @@ export default async function AllPlatformsPage() {
           Platforms Overview
         </h1>
 
-        {/* Breadth + concentration, the questions a sorted list doesn't answer. */}
-        <PlatformStatBar rows={data.platforms} />
-
         <div className="space-y-3">
+          {/* ZONE 1 — the market's headline KPIs as dedicated stat cards, full
+              width (the /platform/[key] treatment): with the hero canvas holding
+              the whole chart question, the 264px rail-beside-a-studio column had
+              nothing to sit beside, and at card scale the numbers read first.
+              Every row's window, basis and delta survives — `sub`/`stat`/`detail`
+              carry them under the label. */}
+          <StatCardRow cols={5}>
+            {rows.map((r) => (
+              <StatCard
+                key={r.label}
+                label={r.label}
+                metric={r.metric}
+                value={r.valueText ?? kpiValue(r.value, r.unit)}
+                // Uniform scale across a 5-up row: a 64px value does not fit a
+                // fifth of the width, and the hero is already marked by the lime
+                // accent — two signals for one row is one too many anyway.
+                size="lg"
+                accent={r.hero}
+                href={r.valueHref}
+                deltaPct={r.deltaPct}
+                deltaLabel={r.window}
+                sub={
+                  [r.sub, r.stat, ...(r.detail ?? []).map((d) => `${d.label} ${d.value}`)]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+              />
+            ))}
+          </StatCardRow>
+
           {/* 24h volume split (homepage VolumeBar pattern) — the marketplace /
               gacha / direct-sales decomposition of the fold's headline total,
               read as one segmented bar with per-segment 24h deltas before the
@@ -262,29 +259,28 @@ export default async function AllPlatformsPage() {
             />
           </SectionShell>
 
-          {/* ZONE 1 — the leaderboard + the Index Studio scoped to the platform
-              family, so CC vs Beezie vs Courtyard compare out of the box. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
-            <OverviewMetricColumn rows={rows} />
-            <IndexStudio scope={{ entity: "platform" }} />
-          </div>
-
-          {/* Volume composition — the venue race as one stacked picture (100% mode
-              reads the share-shift over time). Below the studio. */}
-          {volumeComposition.length > 0 && (
-            <CompositionChart
-              title="Volume composition"
-              readMe="who is winning turnover — band height is one platform's daily take"
-              subtitle="Per-platform total volume (marketplace + gacha) · last 30 days"
+            {/* THE ONE VOLUME CANVAS, third. Numbers first, chart second — the
+              terminal skeleton the study found unanimous (rwa.xyz, Blockworks,
+              DefiLlama all open on a KPI strip and put the canvas under it). The
+              KPI row states WHERE THINGS STAND, the volume bar splits today's
+              total by source, and this answers HOW IT GOT HERE, per venue. */}
+          {volumeHero.length > 0 && (
+            <StackedAreaChart
+              title="Volume by platform"
+              readMe="who is winning turnover"
+              subtitle={`Marketplace + gacha, per platform · last ${HERO_DAYS} days · complete days only`}
               metric="total24h"
-              series={volumeComposition}
+              series={volumeHero}
               unit="usd"
-              variant="bars"
-            />
+              />
           )}
+          {/* Breadth + concentration — the questions a sorted list doesn't answer.
+              Below the canvas now: it qualifies the shape above rather than
+              introducing it. */}
+          <PlatformStatBar rows={data.platforms} />
 
           {/* ZONE 2 — the top-4 platforms' 14d cards, in leaderboard order, so
-              the rail's summary reads straight down into the leaders. Any beyond
+              the KPI summary reads straight down into the leaders. Any beyond
               the top 4 are one click away in the table. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {cards.map((c) => (

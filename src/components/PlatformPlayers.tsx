@@ -407,6 +407,24 @@ function MonthlyChart({
    */
   const narrow = stacks.length < 4;
   const colCls = narrow ? "w-[104px] flex-none" : "min-w-0 flex-1";
+  /**
+   * ⚠️ SIZE THE PLOT TO ITS CONTENT WHEN THERE IS BARELY ANY. The capture gate can
+   * leave a single plotted month (Collector Crypt today), and a 150px plot reserved
+   * for a dozen columns then renders one narrow bar in a large empty field — the
+   * blank reads as missing data rather than as a withheld one. The columns already
+   * pack left; this takes the vertical reserve down to match, so the block is small
+   * and dense instead of mostly void. The boundary note and the window toggle are
+   * untouched — the honesty copy is what explains the sparseness, and it stays.
+   */
+  const plotH = narrow ? 96 : 150;
+  /** …and the same for width. With one 104px column the plot still spanned the whole
+   *  card, leaving a wide empty field to the RIGHT of the only bar. Capping the plot
+   *  to the columns' own width makes the block content-sized in both axes. */
+  const NARROW_COL = 104;
+  const NARROW_GAP = 6;
+  const plotW = narrow
+    ? stacks.length * NARROW_COL + Math.max(0, stacks.length - 1) * NARROW_GAP
+    : undefined;
 
   return (
     <div className="mt-7">
@@ -460,7 +478,7 @@ function MonthlyChart({
         </div>
       </div>
 
-      <div className="relative mt-3 h-[150px]">
+      <div className="relative mt-3" style={{ height: plotH, width: plotW }}>
         {/* ⚠️ items-stretch + h-full on the column, not items-end: the stack's
             height is a PERCENTAGE, and a percentage resolves to zero against an
             auto-height parent. items-end shrank each column to its content and
@@ -529,7 +547,7 @@ function MonthlyChart({
 
       {/* Month labels. Every bar is labelled at ALL-time width too — six to a dozen
           months fit without collision, unlike a daily axis. */}
-      <div className="mt-2 flex gap-[6px] font-mono text-[10px] text-ink-4">
+      <div className="mt-2 flex gap-[6px] font-mono text-[10px] text-ink-4" style={{ width: plotW }}>
         {stacks.map((s) => (
           <div key={s.month} className={`truncate text-center ${colCls}`}>
             {fmtMonth(s.month)}

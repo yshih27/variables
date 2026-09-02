@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { TrendingCard } from "@/lib/data/fetchTrending";
 import { Section } from "./Section";
 import { IPIcon } from "./IPIcon";
+import { CardThumb } from "./CardThumb";
 import { GradeChip } from "./GradeChip";
 import { IP_CATALOG } from "@/lib/data/ipCatalog";
 import { parseGradeLabel } from "@/lib/card/grade";
@@ -44,7 +45,7 @@ const PLATFORM_LABEL: Record<string, string> = {
  *  the same catalog the backend classifies against. */
 const IP_META_BY_KEY = new Map(IP_CATALOG.map((m) => [m.key, m]));
 
-type KindTab = "all" | "slab" | "sealed";
+export type KindTab = "all" | "slab" | "sealed";
 
 /** Hunt pressure is only a meaningful ratio with 2+ listings (R5-2) — at 0 or 1
  *  listed, `trades ÷ 1` is noise, so those cards show raw counts and rank last. */
@@ -60,11 +61,88 @@ function humanizeIp(key: string): string {
     .join(" ");
 }
 
+/**
+ * The X6/R4-2 honesty notes, as one string. Exported because the combined "Cards"
+ * section renders this component's subtitle in a header it does not own — and two
+ * hand-copied versions of a coverage note is exactly how one of them goes stale.
+ *
+ * Depends on the ACTIVE KIND, which is why the combined section lifts that state:
+ * the momentum-coverage and sealed-float clauses are only true of the rows on
+ * screen, not of the whole set.
+ */
+export function trendingSubtitle(
+  cards: TrendingCard[],
+  activeKind: KindTab,
+  windowLabel: string,
+  floatAgeLabel?: string | null,
+): string {
+  const shown = activeKind === "all" ? cards : cards.filter((c) => c.kind === activeKind);
+  const hasMomentum = shown.some((c) => c.momentum != null && Number.isFinite(c.momentum));
+  const anyThinFloat = shown.some((c) => c.activeListings < 2);
+  const notes = [
+    `hunt pressure = ${windowLabel} trades ÷ listings (shown with 2+ listed)`,
+    hasMomentum ? "Δ mom: Collector Crypt + Beezie" : null,
+    floatAgeLabel ? `float ${floatAgeLabel}` : null,
+    activeKind !== "slab" && anyThinFloat ? "sealed products rarely have marketplace float" : null,
+  ].filter(Boolean);
+  return `Selling faster than they're listed · ${notes.join(" · ")}`;
+}
+
+/**
+ * The kind tabs and whether to offer them. Exported because the combined Cards
+ * section draws the control band for BOTH views (see CardsSection) — the tabs are
+ * rendered by whoever owns that band, but which tabs exist is a fact about the
+ * data and stays here with the rest of it.
+ */
+export function trendingKindTabs(cards: TrendingCard[]): {
+  tabs: { key: KindTab; label: string; n: number }[];
+  show: boolean;
+} {
+  const slab = cards.filter((c) => c.kind === "slab").length;
+  const sealed = cards.filter((c) => c.kind === "sealed").length;
+  return {
+    // Only offer a split once BOTH kinds are present — otherwise the tabs are noise.
+    show: slab > 0 && sealed > 0,
+    tabs: [
+      { key: "all", label: "All", n: cards.length },
+      { key: "slab", label: "Slabs", n: slab },
+      { key: "sealed", label: "Sealed", n: sealed },
+    ],
+  };
+}
+
+/**
+ * The shared metrics of the tile's stat row. TopSalesPanel draws a row with these
+ * exact classes and no content, so both tiles measure the same and the Cards
+ * section does not resize across the toggle. Change it in one place or not at all.
+ */
+export const TILE_STAT_ROW = "text-[10.5px] leading-[15px]";
+
+/**
+ * The price row's metrics, shared for the same reason.
+ *
+ * ⚠️ THE MIN-HEIGHT IS THE POINT. A GradeChip is taller than the 16px price text,
+ * so a row WITH a chip measures ~27px and one without measures 16 — which made the
+ * two views' tiles differ by 8px purely on whether today's cards happen to carry
+ * parseable grades. That is a data-dependent layout, and it would flip sign as the
+ * lists turn over. Pinning the row to the chip's height makes it structural: the
+ * row is the same in both tiles whether a chip is there or not.
+ */
+export const TILE_PRICE_ROW = "min-h-[27px] items-center";
+
+export const TRENDING_READ_ME =
+  "demand outrunning supply — sales per listing, highest first";
+
 export function TrendingCards({
   cards,
   windowLabel = "24h",
   floatAgeLabel,
   seeAllHref,
+  headless,
+  kind: kindProp,
+  onKindChange,
+  layout = "strip",
+  maxTiles,
 }: {
   cards: TrendingCard[];
   /** Which trade window ranked this list — "24h", or "7d" when 24h was tie-heavy (X6). */
@@ -72,8 +150,24 @@ export function TrendingCards({
   /** Age of the listings snapshot behind Float, precomputed server-side ("3h old"). */
   floatAgeLabel?: string | null;
   seeAllHref?: string;
+  /** Render the body only — the caller owns the <Section> and its header. Used by
+   *  the combined "Cards" section on the homepage. */
+  headless?: boolean;
+  /** Controlled kind tab. Supplied by a headless caller that needs the active tab
+   *  to build the subtitle it renders in its own header. */
+  kind?: KindTab;
+  onKindChange?: (k: KindTab) => void;
+  /** "strip" = the standalone horizontal scroller. "grid" = the same 5-column grid
+   *  Top Sales uses, so the two views of the combined Cards section occupy the
+   *  same columns at the same widths instead of reading as unrelated surfaces. */
+  layout?: "strip" | "grid";
+  /** Cap the tiles DRAWN. The kind tabs and their counts still describe the whole
+   *  set — this trims the strip, it does not filter the data. */
+  maxTiles?: number;
 }) {
-  const [kind, setKind] = useState<KindTab>("all");
+  const [kindState, setKindState] = useState<KindTab>("all");
+  const kind = kindProp ?? kindState;
+  const setKind = onKindChange ?? setKindState;
 
   if (cards.length === 0) return null;
 
@@ -83,15 +177,6 @@ export function TrendingCards({
   const showKindTabs = slabCount > 0 && sealedCount > 0;
   const activeKind = showKindTabs ? kind : "all";
   const shown = activeKind === "all" ? cards : cards.filter((c) => c.kind === activeKind);
-
-  const hasMomentum = shown.some((c) => c.momentum != null && Number.isFinite(c.momentum));
-  const anyThinFloat = shown.some((c) => c.activeListings < 2);
-  // Bar scale off the ratio'd cards only (2+ listed), so thin-float cards don't
-  // inflate the axis.
-  const maxHP = Math.max(
-    1,
-    ...shown.map((c) => (c.activeListings >= 2 && Number.isFinite(c.huntPressure) ? c.huntPressure : 0)),
-  );
 
   // Fixed order (the strip isn't user-sortable): hunt pressure desc with
   // thin-float cards sinking (hpValue → NaN), then trades, then volume — the same
@@ -107,25 +192,39 @@ export function TrendingCards({
     return bv - av || b.trades - a.trades || b.volumeUsd - a.volumeUsd;
   });
 
-  // X6/R4-2 honesty notes: window, momentum coverage, float age, sealed-float caveat.
-  const notes = [
-    `hunt pressure = ${windowLabel} trades ÷ listings (shown with 2+ listed)`,
-    hasMomentum ? "Δ mom: Collector Crypt + Beezie" : null,
-    floatAgeLabel ? `float ${floatAgeLabel}` : null,
-    activeKind !== "slab" && anyThinFloat ? "sealed products rarely have marketplace float" : null,
-  ].filter(Boolean);
-
   const kindTabs: { key: KindTab; label: string; n: number }[] = [
     { key: "all", label: "All", n: cards.length },
     { key: "slab", label: "Slabs", n: slabCount },
     { key: "sealed", label: "Sealed", n: sealedCount },
   ];
 
+  const drawn = maxTiles != null ? sorted.slice(0, maxTiles) : sorted;
+  const strip =
+    layout === "grid" ? (
+      <div className="grid grid-cols-2 gap-5 px-4 pb-4 pt-1 sm:px-5 sm:pb-5 md:grid-cols-3 lg:grid-cols-5">
+        {drawn.map((c) => (
+          <TrendingTile key={c.cardId} card={c} fluid />
+        ))}
+      </div>
+    ) : (
+      <div className="scroll-x flex items-stretch gap-3 px-4 pb-4 pt-2 sm:px-5 sm:pb-5">
+        {drawn.map((c) => (
+          <TrendingTile key={c.cardId} card={c} />
+        ))}
+      </div>
+    );
+
+  // ⚠️ HEADLESS RENDERS THE STRIP ONLY. The control band (window badge, kind tabs,
+  // "See all") is drawn by CardsSection for BOTH views — that is what makes the
+  // section the same height whichever view is showing. Rendering it here too would
+  // put the row back on one side of the toggle and re-open the jump.
+  if (headless) return strip;
+
   return (
     <Section
       title="Trending cards"
-      readMe="demand outrunning supply — sales per listing, highest first"
-      subtitle={`Selling faster than they're listed · ${notes.join(" · ")}`}
+      readMe={TRENDING_READ_ME}
+      subtitle={trendingSubtitle(cards, activeKind, windowLabel, floatAgeLabel)}
       right={
         <>
           <span className="rounded-md border border-line bg-bg-2 px-2 py-1 text-[11px] font-semibold tracking-[0.05em] text-ink-2">
@@ -163,88 +262,115 @@ export function TrendingCards({
           rest; two-ish per view on mobile. Cards stretch to a uniform height. */}
       <div className="scroll-x flex items-stretch gap-3 px-4 pb-4 pt-2 sm:px-5 sm:pb-5">
         {sorted.map((c) => (
-          <TrendingTile key={c.cardId} card={c} maxHP={maxHP} />
+          <TrendingTile key={c.cardId} card={c} />
         ))}
       </div>
     </Section>
   );
 }
 
-function TrendingTile({ card: c, maxHP }: { card: TrendingCard; maxHP: number }) {
+/**
+ * A trending tile, on the Top-Sales tile anatomy: large art frame, then price +
+ * grade, then the name, then this panel's OWN signals as stat lines.
+ *
+ * ⚠️ THE SHARED FOOTPRINT IS THE POINT. Both views of the Cards section now draw
+ * five tiles of the same shape, so the section is the same height in either view
+ * as a CONSEQUENCE of the tiles rather than a reserved min-height propping up a
+ * short one — which is what left a void under Trending before.
+ *
+ * ⚠️ ART IS DECORATION; THE TILE IS THE DATA. A trending row is a card TYPE, and a
+ * type has no single photo — the frame shows its REPRESENTATIVE token (the window's
+ * top sale). Where that token has no cached art, CardThumb's neutral frame fills
+ * the slot; the tile is never dropped for missing art, because the trade counts are
+ * the reason it is on screen.
+ */
+function TrendingTile({ card: c, fluid }: { card: TrendingCard; fluid?: boolean }) {
   const ipMeta = IP_META_BY_KEY.get(c.ip);
   const ipName = ipMeta?.name ?? humanizeIp(c.ip);
   // Grade lives inline in the type identity; only chip it when it parses (the SSOT
   // degrades "Ungraded"/blank to nothing, exactly like Top Sales).
   const graded = !!parseGradeLabel(c.grade);
   const ratioable = c.activeListings >= 2 && Number.isFinite(c.huntPressure);
-  // Meta line complements the hero without repeating it: the hero shows hunt
-  // pressure when ratioable (so trades belongs here) and the trade count when
-  // it isn't (so trades is already up top — show only volume).
-  const meta = [
-    ratioable ? `${formatInt(c.trades)} trades` : null,
-    c.volumeUsd > 0 ? formatCompactUsd(c.volumeUsd) : null,
-  ].filter(Boolean);
 
   return (
     <Link
       href={c.href}
-      className="group flex w-[186px] shrink-0 flex-col rounded-xl bg-bg-2 p-3.5 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5"
+      className={`group flex flex-col overflow-hidden rounded-xl bg-bg-2 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5 ${
+        fluid ? "w-full" : "w-[186px] shrink-0"
+      }`}
     >
-      {/* Hero row — the trending metric (yellow) + grade chip, mirroring Top
-          Sales' price + grade baseline. For 2+ listed the hero is hunt pressure;
-          when the float is too thin for a ratio it's the trade count instead. */}
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="tabular text-[17px] font-bold leading-none text-yellow">
-          {ratioable ? `${c.huntPressure.toFixed(1)}×` : formatInt(c.trades)}
-        </span>
-        {graded ? <GradeChip label={c.grade} /> : null}
-      </div>
-      <div className="mt-1 text-[10px] uppercase tracking-[0.06em] text-ink-4">
-        {ratioable
-          ? "hunt pressure"
-          : `sold · ${c.activeListings === 0 ? "none" : formatInt(c.activeListings)} listed`}
+      {/* Same frame + ground as a Top Sales tile, so the two views' art reads as
+          one system rather than two treatments. */}
+      <div
+        className="relative aspect-[3/4] overflow-hidden"
+        style={{
+          background:
+            "radial-gradient(circle at 50% 30%, rgba(255,255,255,0.04), transparent 65%), linear-gradient(180deg, #141414 0%, #0c0c0c 100%)",
+        }}
+      >
+        <CardThumb src={c.image} fill />
       </div>
 
-      {/* Hunt-pressure bar (2+ listed only) — thin-float cards have no meaningful
-          ratio, so no bar; the reserved height keeps the strip's rows aligned. */}
-      <div className="mt-2 h-1.5">
-        {ratioable && (
-          <span className="block h-full w-full overflow-hidden rounded-none bg-bg-3" aria-hidden>
-            <span
-              className="block h-full bg-yellow"
-              style={{ width: `${Math.max(6, (c.huntPressure / maxHP) * 100)}%` }}
-            />
+      <div className="flex flex-col border-t border-line px-4 pb-3.5 pt-3">
+        {/* Price + grade on Top Sales' baseline. This is the type's TOP realized
+            sale in the window — a price, like its neighbour's, not a sum. */}
+        <div className={`flex justify-between gap-2 ${TILE_PRICE_ROW}`}>
+          <span className="tabular text-[16px] font-bold leading-none text-yellow">
+            {c.topPriceUsd > 0 ? formatCompactUsd(c.topPriceUsd) : "—"}
           </span>
-        )}
-      </div>
+          {graded ? <GradeChip label={c.grade} /> : null}
+        </div>
 
-      {/* Title — two-line clamp, same as Top Sales. */}
-      <div className="mt-2.5 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
-        {c.name}
-      </div>
+        <div className="mt-2 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35] group-hover:text-yellow">
+          {c.name}
+        </div>
 
-      {/* Secondary stats — omitted entirely when there's nothing to add. */}
-      {meta.length > 0 && (
-        <div className="mt-1.5 tabular text-[11px] text-ink-3">{meta.join(" · ")}</div>
-      )}
+        {/* ⚠️ ONE STAT ROW, and Top Sales draws the same one empty — that is what
+            makes the two tiles the same height, and the section the same height
+            across the toggle. It used to be three rows here (a labelled figure, the
+            hunt-pressure bar, then a counts line), which is where the residual
+            toggle jump came from once the control band was equalised.
+            Every signal the panel owes survives: the sort key on the left (hunt
+            pressure where the float supports a ratio, the raw sold count where it
+            does not — the same honest split), the float and realized volume on the
+            right. The bar is the one thing dropped; it drew the same number the
+            figure states, and a decorative rank bar is not worth a row of height. */}
+        <div className={`mt-2 flex items-baseline justify-between gap-2 font-mono ${TILE_STAT_ROW}`}>
+          <span className="truncate font-semibold text-ink">
+            {ratioable ? `${c.huntPressure.toFixed(1)}× hunt` : `${formatInt(c.trades)} sold`}
+          </span>
+          <span className="shrink-0 tabular text-ink-4">
+            {[
+              `${c.activeListings === 0 ? "none" : formatInt(c.activeListings)} listed`,
+              c.volumeUsd > 0 ? formatCompactUsd(c.volumeUsd) : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
 
-      {/* Footer — IP + platform, mirroring the Top Sales tile footer. mt-auto
-          pins it to the bottom so stretched cards line their footers up. */}
-      <div className="mt-auto flex items-center gap-1.5 border-t border-line/60 pt-2.5 text-[11px] leading-none text-ink-3">
-        {ipMeta ? (
-          <IPIcon
-            name={ipMeta.name}
-            short={ipMeta.short}
-            color={ipMeta.color}
-            logo={ipMeta.logo}
-            iconBlendMode={ipMeta.iconBlendMode}
-            emoji={ipMeta.emoji}
-            size={14}
-          />
-        ) : null}
-        <span className="truncate text-ink-2">{ipName}</span>
-        <span className="text-ink-4">·</span>
-        <span className="truncate">{PLATFORM_LABEL[c.platform] ?? c.platform}</span>
+        {/* ⚠️ mt-2, NOT mt-auto — and no flex-1 on the meta above. This block must be
+            byte-for-byte the same box model as SaleCard's, or the two tiles differ:
+            `mt-auto` collapses to 0 when the column has no slack, so it silently
+            withheld the 8px top margin SaleCard's `mt-2` always contributes, and the
+            Cards section came out 8px shorter on Trending. Every row now matches on
+            both sides; the grid equalises the tiles, so nothing needs pinning. */}
+        <div className="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11px] leading-none text-ink-3">
+          {ipMeta ? (
+            <IPIcon
+              name={ipMeta.name}
+              short={ipMeta.short}
+              color={ipMeta.color}
+              logo={ipMeta.logo}
+              iconBlendMode={ipMeta.iconBlendMode}
+              emoji={ipMeta.emoji}
+              size={14}
+            />
+          ) : null}
+          <span className="truncate text-ink-2">{ipName}</span>
+          <span className="text-ink-4">·</span>
+          <span className="truncate">{PLATFORM_LABEL[c.platform] ?? c.platform}</span>
+        </div>
       </div>
     </Link>
   );

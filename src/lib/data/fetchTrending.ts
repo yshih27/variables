@@ -55,6 +55,11 @@ export type TrendingCard = {
    *  counts tie (X6: thin 24h windows produce whole tables of "2 trades"). */
   volumeUsd: number;
   topPriceUsd: number;
+  /** Art for the type's REPRESENTATIVE token — the highest-priced sale in the
+   *  window (same token `repToken`/`href` point at). A card TYPE has no single
+   *  photo, so this is one instance standing in for the group, not the group's
+   *  own image; null where that token has no cached art. */
+  image: string | null;
   buyLinks: BuyLink[];
 };
 
@@ -120,6 +125,8 @@ type Group = {
   volumeUsd: number;
   topPriceUsd: number;
   repToken: string;
+  /** Art for repToken, moved in lockstep with it. */
+  repImage: string | null;
 };
 
 async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
@@ -178,13 +185,13 @@ async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
       const key = typeKey(platform, ip, m?.set ?? null, grade, name);
       let g = groups.get(key);
       if (!g) {
-        g = { platform, key, name, ip, set: m?.set ?? null, grade, kind: classifyKind(name, grade), trades: 0, tradesPrev: 0, volumeUsd: 0, topPriceUsd: 0, repToken: s.tokenId };
+        g = { platform, key, name, ip, set: m?.set ?? null, grade, kind: classifyKind(name, grade), trades: 0, tradesPrev: 0, volumeUsd: 0, topPriceUsd: 0, repToken: s.tokenId, repImage: m?.image ?? null };
         groups.set(key, g);
       }
       if (t >= curFrom) {
         g.trades += 1;
         g.volumeUsd += s.priceUsd;
-        if (s.priceUsd > g.topPriceUsd) { g.topPriceUsd = s.priceUsd; g.repToken = s.tokenId; }
+        if (s.priceUsd > g.topPriceUsd) { g.topPriceUsd = s.priceUsd; g.repToken = s.tokenId; g.repImage = m?.image ?? null; }
       } else {
         g.tradesPrev = (g.tradesPrev ?? 0) + 1;
       }
@@ -240,6 +247,7 @@ async function buildTrending(opts: TrendingOpts): Promise<TrendingResult> {
       huntPressure: g.trades / Math.max(activeListings, 1),
       volumeUsd: g.volumeUsd,
       topPriceUsd: g.topPriceUsd,
+      image: g.repImage,
       buyLinks: buyLinks({ platform: g.platform, chain, tokenId: g.repToken }),
     };
   });

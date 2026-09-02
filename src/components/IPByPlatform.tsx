@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { IPIcon } from "./IPIcon";
+import { TableFoot } from "./TableFoot";
 import { Dropdown } from "./Dropdown";
 import { Section } from "./Section";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
@@ -13,6 +15,13 @@ export type PlatformRow = {
   chain: string;
   chainColor: string;
   color: string; // donut/segment color
+  /** Real icon metadata where the caller has it (IP rows do). Absent → the
+   *  2-letter colour chip below, which is the honest fallback for a synthetic
+   *  row like the "Other" bucket rather than a fabricated logo. */
+  short?: string;
+  logo?: string;
+  emoji?: string;
+  iconBlendMode?: "normal" | "screen" | "lighten";
   cards: number | null;
   vol24Usd: number;
   mcapUsd: number | null;
@@ -63,10 +72,37 @@ export function IPByPlatform({
 }) {
   const [metric, setMetric] = useState<DonutMetric>("volume");
   const [hover, setHover] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("vol");
+  const [dir, setDir] = useState<1 | -1>(-1);
   const router = useRouter();
 
+  // ⚠️ Shares are computed off the UNSORTED rows and keyed by row key, so the
+  // donut and the segment colours stay put while the table re-sorts. Deriving
+  // them from the sorted array would recolour the donut on every header click.
   const total = rows.reduce((a, r) => a + metricValue(r, metric), 0) || 1;
   const shares = rows.map((r) => ({ ...r, share: metricValue(r, metric) / total }));
+
+  const sortedRows = [...rows].sort((a, b) => {
+    const av = sortValue(a, sortKey);
+    const bv = sortValue(b, sortKey);
+    if (typeof av === "string" || typeof bv === "string") {
+      return String(av).localeCompare(String(bv)) * dir;
+    }
+    // Non-finite (unmeasured) always sinks, whichever way the column is pointed —
+    // "—" is an absence, not a small number, and must never top the table.
+    const an = Number.isFinite(av) ? (av as number) : -Infinity;
+    const bn = Number.isFinite(bv) ? (bv as number) : -Infinity;
+    return (an - bn) * dir;
+  });
+  const onSort = (k: SortKey) => {
+    if (k === sortKey) setDir((d) => (d === -1 ? 1 : -1));
+    else {
+      setSortKey(k);
+      setDir(-1);
+    }
+  };
+  const sp = (k: SortKey) => ({ active: sortKey === k, dir, onClick: () => onSort(k) });
+
 
   // MODE-AWARE like IndexStudio's line: a fixed "the donut is volume share"
   // becomes a false claim the moment the Volume/Trades dropdown flips.
@@ -82,27 +118,39 @@ export function IPByPlatform({
               <thead>
                 <tr className="border-b border-line font-mono text-[11px] uppercase tracking-[0.06em] text-ink-3">
                   <Th>#</Th>
-                  <Th left>{entityHeader}</Th>
+                  <SortTh left {...sp("name")}>{entityHeader}</SortTh>
                   {showChain && <Th left>Chain</Th>}
-                  <Th>Cards</Th>
-                  <Th>24h Vol</Th>
-                  <Th>Market Cap</Th>
-                  <Th>24h Trades</Th>
-                  <Th>Avg Trade · 24h</Th>
-                  <Th>Holders</Th>
+                  <SortTh {...sp("cards")}>Cards</SortTh>
+                  <SortTh {...sp("vol")}>24h Vol</SortTh>
+                  <SortTh {...sp("mcap")}>Market Cap</SortTh>
+                  <SortTh {...sp("trades")}>24h Trades</SortTh>
+                  <SortTh {...sp("avgTrade")}>Avg Trade · 24h</SortTh>
+                  <SortTh {...sp("holders")}>Holders</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => {
+                {sortedRows.map((r, i) => {
                   const href = hrefBase && r.key !== "other" ? `${hrefBase}${r.key}` : null;
                   const chip = (
                     <span className="flex items-center gap-2.5 font-semibold">
-                      <span
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-xl text-[10px] font-bold text-black"
-                        style={{ background: r.color }}
-                      >
-                        {r.name.slice(0, 2).toUpperCase()}
-                      </span>
+                      {r.short || r.logo || r.emoji ? (
+                        <IPIcon
+                          name={r.name}
+                          short={r.short ?? r.name.slice(0, 2).toUpperCase()}
+                          color={r.color}
+                          logo={r.logo}
+                          iconBlendMode={r.iconBlendMode}
+                          emoji={r.emoji}
+                          size={24}
+                        />
+                      ) : (
+                        <span
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-xl text-[10px] font-bold text-black"
+                          style={{ background: r.color }}
+                        >
+                          {r.name.slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
                       {r.name}
                     </span>
                   );
@@ -148,6 +196,7 @@ export function IPByPlatform({
               </tbody>
             </table>
           </div>
+          <TableFoot shown={sortedRows.length} total={sortedRows.length} noun="row" />
         </div>
 
         {/* Right — donut */}
@@ -180,13 +229,14 @@ function Donut({
   const r = 54;
   const C = 2 * Math.PI * r;
   const GAP = 2.5;
+  // Loop, not map+accumulator: reassigning a captured `let` inside a callback
+  // trips react-hooks/immutability. Same running-offset maths, no shared mutable.
+  const segs: ({ len: number; offset: number } & (typeof shares)[number])[] = [];
   let acc = 0;
-  const segs = shares.map((s) => {
-    const len = Math.max(0, s.share * C - GAP);
-    const seg = { ...s, len, offset: -acc * C };
+  for (const s of shares) {
+    segs.push({ ...s, len: Math.max(0, s.share * C - GAP), offset: -acc * C });
     acc += s.share;
-    return seg;
-  });
+  }
   const active = hover ? shares.find((s) => s.key === hover) : null;
 
   return (
@@ -239,6 +289,52 @@ function Donut({
         ))}
       </div>
     </div>
+  );
+}
+
+type SortKey = "name" | "cards" | "vol" | "mcap" | "trades" | "avgTrade" | "holders";
+
+function sortValue(r: PlatformRow, k: SortKey): number | string {
+  switch (k) {
+    case "name": return r.name;
+    case "cards": return r.cards ?? NaN;
+    case "mcap": return r.mcapUsd ?? NaN;
+    case "trades": return r.trades24h;
+    case "avgTrade": return r.avgTradeUsd;
+    case "holders": return r.holders ?? NaN;
+    default: return r.vol24Usd;
+  }
+}
+
+function SortTh({
+  children,
+  left,
+  active,
+  dir,
+  onClick,
+}: {
+  children: React.ReactNode;
+  left?: boolean;
+  active: boolean;
+  dir: 1 | -1;
+  onClick: () => void;
+}) {
+  return (
+    <th
+      className={`px-3 py-3 font-medium ${left ? "text-left" : "text-right"}`}
+      aria-sort={active ? (dir === -1 ? "descending" : "ascending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-center gap-1 uppercase tracking-[0.06em] transition-colors hover:text-ink ${active ? "text-ink" : ""}`}
+      >
+        {children}
+        <span className={`text-[8px] leading-none ${active ? "text-yellow" : "text-ink-4/0"}`}>
+          {dir === -1 ? "▼" : "▲"}
+        </span>
+      </button>
+    </th>
   );
 }
 

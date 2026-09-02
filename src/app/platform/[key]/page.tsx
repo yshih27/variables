@@ -2,13 +2,12 @@ import { notFound } from "next/navigation";
 import { MCAP_BASIS, MCAP_BASIS_LABEL } from "@/lib/data/marketcap";
 import { NavBar } from "@/components/NavBar";
 import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
-import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
+import { StatCard, StatCardRow } from "@/components/StatCard";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
 import { CompositionChart, type CompositionSeries } from "@/components/CompositionChart";
-import { DominancePanel, type DomEntity } from "@/components/IPDominance";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
-import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
 import { PlatformEconomics, type EconomicsKpis } from "@/components/PlatformEconomics";
 import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
@@ -25,11 +24,23 @@ import {
   type SeriesPoint,
 } from "@/lib/data/metricSnapshots";
 import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
-import { formatCompactUsd } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
 // Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
 export const revalidate = 1800;
+
+/** Same formatter OverviewMetricColumn uses — a NaN value renders "—" (not
+ *  tracked), never a fabricated 0. */
+/** "7d $17.9M · avg $2.56M/day", or undefined when there is no 7d gacha figure to
+ *  state. Mirrors the removed PlatformGachaPanel's `g7` / `g7 / 7` exactly. */
+function gacha7dSub(gachaVol7Usd: number | null): string | undefined {
+  if (gachaVol7Usd == null || !Number.isFinite(gachaVol7Usd) || gachaVol7Usd <= 0) return undefined;
+  return `7d ${formatCompactUsd(gachaVol7Usd)} · avg ${formatCompactUsd(gachaVol7Usd / 7)}/day`;
+}
+
+const kpiValue = (n: number, unit: "usd" | "count") =>
+  !Number.isFinite(n) ? "—" : unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n);
 
 export default async function PlatformDetailPage({
   params,
@@ -89,6 +100,13 @@ export default async function PlatformDetailPage({
       unit: "usd",
       deltaPct: pctChange(gachaS, 1),
       window: "24h",
+      // The 7d pull volume and its daily average, which left this page with the
+      // Gacha panel (round 3, item 9). Same derivation the panel used — the SAME
+      // `detail.gachaVol7Usd` and the same ÷7 — so the figures are identical to
+      // what it showed rather than a second, subtly different calculation.
+      // Honest absence: a platform with no gacha 7d figure gets NO line, never a
+      // "$0 · avg $0/day", which would assert we measured a week of nothing.
+      sub: gacha7dSub(detail.gachaVol7Usd),
     },
     {
       label: "Market Cap",
@@ -148,6 +166,12 @@ export default async function PlatformDetailPage({
       chain: "",
       chainColor: "",
       color: ip.color,
+      // Real IP identity — the table renders the catalogue icon (logo/emoji)
+      // rather than a 2-letter colour chip wherever we actually have one.
+      short: ip.short,
+      logo: ip.logo,
+      emoji: ip.emoji,
+      iconBlendMode: ip.iconBlendMode,
       cards: ip.cards,
       vol24Usd: ip.vol24Usd,
       mcapUsd: ip.mcapUsd,
@@ -176,31 +200,6 @@ export default async function PlatformDetailPage({
                 ? sumBy(restIps, (r) => r.vol24Usd) / sumBy(restIps, (r) => r.trades24h)
                 : NaN,
             holders: null,
-          },
-        ]
-      : []),
-  ];
-
-  const DOM = 6;
-  const domTop = namedIps.slice(0, DOM);
-  const domRest = [...namedIps.slice(DOM), ...catchAllIps];
-  const ipEntities: DomEntity[] = [
-    ...domTop.map((ip) => ({
-      name: ip.name,
-      color: ip.color,
-      values: { volume: ip.vol24Usd, cards: ip.cards, trades: ip.trades24h, avgTrade: ip.avgTradeUsd },
-    })),
-    ...(domRest.length
-      ? [
-          {
-            name: "Other",
-            color: "#52525b",
-            values: {
-              volume: sumBy(domRest, (r) => r.vol24Usd),
-              cards: sumBy(domRest, (r) => r.cards),
-              trades: sumBy(domRest, (r) => r.trades24h),
-              avgTrade: 0,
-            },
           },
         ]
       : []),
@@ -323,25 +322,88 @@ export default async function PlatformDetailPage({
 
         <div className="space-y-3">
           {/* ZONE 1 — platform levels + the Index Studio scoped to this platform. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
-            <OverviewMetricColumn rows={railRows} />
+          {/* KPIs as dedicated stat cards, full width, with the studio beneath at
+              full width too. The 264px rail put five headline figures in a column
+              narrower than the numbers deserve; at card scale they read first and
+              the chart gets the whole span. Every row's window, basis and delta
+              survives — `sub`/`stat` carry them under the label. */}
+          <StatCardRow cols={5}>
+            {railRows.map((r) => (
+              <StatCard
+                key={r.label}
+                label={r.label}
+                metric={r.metric}
+                value={r.valueText ?? kpiValue(r.value, r.unit)}
+                // Uniform scale across a 5-up row: a 64px value does not fit a
+                // fifth of the width, and the hero is already marked by the lime
+                // accent — two signals for one row is one too many anyway.
+                size="lg"
+                accent={r.hero}
+                href={r.valueHref}
+                deltaPct={r.deltaPct}
+                deltaLabel={r.window}
+                sub={[r.sub, r.stat].filter(Boolean).join(" · ") || undefined}
+              />
+            ))}
+          </StatCardRow>
+          {/* Studio ‖ the three 14d cards. Different questions, so they may share a
+              row (terminal-ux-study §3): the studio is an INTERACTIVE series you
+              compose and brush, the cards are an AT-A-GLANCE 14-day read of three
+              fixed metrics. Each card keeps its own header, window badge and empty
+              -state reason. Stacks below lg, where a 300px column would crush both. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
             <IndexStudio scope={{ entity: "platform", key }} />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <MetricBarCard
+                label="Volume"
+                metric="marketplace"
+                data={last14(volS)}
+                unit="usd"
+                emptyDetail="no secondary-sales source yet"
+              />
+              <MetricBarCard
+                label="Trades"
+                metric="trades"
+                data={last14(tradesS)}
+                unit="count"
+                emptyDetail="no secondary-sales source yet"
+              />
+              <MetricBarCard
+                label="Holders"
+                metric="holders"
+                data={last14(holdersS)}
+                unit="count"
+                variant="line"
+                emptyDetail="forward-only series — no backfill"
+              />
+            </div>
           </div>
 
-          {/* Volume mix — marketplace vs gacha for THIS platform, below the studio.
-              100% share mode is the money view. A gacha-only platform (Phygitals)
-              simply has no marketplace series — no fabricated zero. */}
-          {volumeMix.length > 0 && (
-            <CompositionChart
-              title="Volume mix"
-              readMe="where this platform's money flows — packs vs resale vs direct. 100% share mode answers: what is this platform's business?"
-              subtitle="Marketplace vs gacha · last 30 days"
-              series={volumeMix}
-              unit="usd"
-              variant="bars"
-              flow
-            />
-          )}
+          {/* "Where does the money route" — two small panels, side by side from lg.
+              Volume mix answers by CHANNEL (packs vs resale vs direct), Top partners
+              by STOREFRONT: different questions, so they may share a row (terminal-
+              ux-study §3). Partners had a full-width band to itself for a two-column
+              table. The grid only forms when BOTH render — `partners == null` is the
+              honest absence PlatformPartners returns null for, and a lone half-width
+              chart beside a gap reads as something failed to load. */}
+          {volumeMix.length > 0 || partners ? (
+            <div
+              className={`grid grid-cols-1 gap-3 ${volumeMix.length > 0 && partners ? "lg:grid-cols-2 lg:items-start" : ""}`}
+            >
+              {volumeMix.length > 0 && (
+                <CompositionChart
+                  title="Volume mix"
+                  readMe="where this platform's money flows — packs vs resale vs direct. 100% share mode answers: what is this platform's business?"
+                  subtitle="Marketplace vs gacha · last 30 days"
+                  series={volumeMix}
+                  unit="usd"
+                  variant="bars"
+                  flow
+                />
+              )}
+              <PlatformPartners partners={partners} />
+            </div>
+          ) : null}
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless
@@ -362,9 +424,6 @@ export default async function PlatformDetailPage({
             />
           )}
 
-          {/* Top partners (CC memo attribution). Renders nothing until the
-              snapshot carries the rollup — capture is forward-only (PR #73). */}
-          <PlatformPartners partners={partners} />
 
           {/* Player analytics — only for platforms the snapshot covers. */}
           <PlatformPlayers
@@ -373,46 +432,10 @@ export default async function PlatformDetailPage({
             overallCoverage={overallCoverage}
           />
 
-          {/* ZONE 2 — 14d dailies for THIS platform. Volume and trades are flows
-              (bars off zero); holders is a stock → line, headline = latest level.
-              Coverage is uneven by design and says so: volume/trades are absent
-              for Phygitals (no secondary source), holders is forward-only, and
-              Courtyard has no mcap at all. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <MetricBarCard
-              label="Volume"
-              metric="marketplace"
-              data={last14(volS)}
-              unit="usd"
-              emptyDetail="no secondary-sales source yet"
-            />
-            <MetricBarCard
-              label="Trades"
-              metric="trades"
-              data={last14(tradesS)}
-              unit="count"
-              emptyDetail="no secondary-sales source yet"
-            />
-            <MetricBarCard
-              label="Holders"
-              metric="holders"
-              data={last14(holdersS)}
-              unit="count"
-              variant="line"
-              emptyDetail="forward-only series — no backfill"
-            />
-          </div>
-
-          {/* ZONE 3 — composition + activity, unchanged. */}
-      {ipEntities.length > 0 && (
-        <DominancePanel
-          title="IP dominance"
-          source={{ entities: ipEntities }}
-          defaultMetric="volume"
-          seeAllHref={`/platform/${key}/ips`}
-          className="mb-12 font-sans"
-        />
-      )}
+          {/* ⚠️ "IP dominance" REMOVED from this page (one question per zone,
+              terminal-ux-study §1): it asked "what share does each IP hold here",
+              which is exactly what the By IP donut + table below answer, with the
+              per-IP numbers attached. The component stays — other pages use it. */}
       {ipRows.length > 0 && (
         <IPByPlatform
           rows={ipRows}
@@ -424,9 +447,22 @@ export default async function PlatformDetailPage({
           hrefBase="/ip/"
         />
       )}
-      <PlatformGachaPanel detail={detail} />
+      {/* ⚠️ "Gacha sales" REMOVED from this page (one question per zone): its 24h
+          pull volume duplicates the KPI row's "24h Gacha Vol" and its revenue-mix
+          split duplicates Volume mix above. Dropping it also takes the 7d pull
+          volume and the 7d daily average off this page — they exist nowhere else
+          here, and are called out in the commit rather than silently lost. The
+          component stays for other surfaces. */}
+      {/* ⚠️ DELIBERATELY NOT PAIRED. Top Cards and Recent Sales do answer different
+          questions (ranked vs chronological), but both tables carry `min-w-[900px]`
+          and side-by-side they do not fit below roughly 1900px: measured at 1280 the
+          columns are 602px with 389px and 300px of internal horizontal scroll, while
+          stacked at 1150 both overflow zero. Tables are the density anchor
+          (terminal-ux-study §4) — crushing one to satisfy a layout pattern inverts
+          the point of the doctrine, and pairing is not a goal in itself. Volume mix ‖
+          Top partners above is this page's consolidation win. Both stay full-width. */}
       <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-          <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
+      <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
         </div>
       </div>
     </>

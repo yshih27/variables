@@ -6,6 +6,7 @@ import type { IPRow } from "@/lib/types";
 import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
+import { TableFoot } from "./TableFoot";
 import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import { hasRealMcap } from "@/lib/ip/mcap";
@@ -61,6 +62,34 @@ function valueFor(ip: IPRow, key: SortKey, vw: VolWindow): number {
 }
 
 /** Numeric compare; non-finite values always sink to the bottom. */
+/**
+ * The readMe, derived from the ACTIVE ranking.
+ *
+ * ⚠️ A readMe that names a ranking must name the ranking in force. This table is
+ * sortable on every column and carries a 24H/7D volume toggle, so a fixed string
+ * ("rank is market cap") goes false the moment a reader clicks a header — and a
+ * false readMe is a bug, not a stale nicety. Kept to ≤12 words in every branch.
+ */
+function rankReadMe(key: SortKey, vw: VolWindow): string {
+  const by =
+    key === "vol"
+      ? `${vw} volume`
+      : key === "mcap" || key === "dom"
+        ? "market cap"
+        : key === "d7"
+          ? "7d cap move"
+          : key === "d30"
+            ? "30d cap move"
+            : key === "cards"
+              ? "cards traded"
+              : key === "holders"
+                ? "holders"
+                : key === "avgTrade"
+                  ? "average trade"
+                  : "24h buyers";
+  return `the whole tracked market by IP — ranked by ${by}`;
+}
+
 function cmp(a: number, b: number, dir: 1 | -1): number {
   const an = !Number.isFinite(a);
   const bn = !Number.isFinite(b);
@@ -81,7 +110,11 @@ function categoryGroup(key: string): string {
 }
 
 export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>("mcap");
+  // ⚠️ DEFAULT IS VOLUME, NOT MARKET CAP. Ranking by cap pinned dormant IPs to the
+  // top — Moonbirds sat at #3 on a cap it never trades against — so the table's
+  // first screen described stored value while every other surface on the page
+  // describes activity. Cap is still one click away; every header stays sortable.
+  const [sortKey, setSortKey] = useState<SortKey>("vol");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [vw, setVw] = useState<VolWindow>("24h");
   const [facet, setFacet] = useState<string>("All");
@@ -104,7 +137,18 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
   const activeFacet = facets.includes(facet) ? facet : "All";
   const facetRows = activeFacet === "All" ? rows : rows.filter((r) => categoryGroup(r.key) === activeFacet);
 
-  const sorted = [...facetRows].sort((a, b) => cmp(valueFor(a, sortKey, vw), valueFor(b, sortKey, vw), dir));
+  // ⚠️ SECONDARY SORT BY MARKET CAP. Volume-ranked, the tail is a long run of
+  // $0.00 rows whose order would otherwise be whatever the input array happened to
+  // be — reshuffling between renders as upstream data moves. Cap breaks the tie
+  // deterministically (and meaningfully: among equally inactive IPs, the bigger one
+  // first). Always DESC regardless of `dir`: the tie-break ranks the tail, it does
+  // not invert with the column being sorted.
+  const sorted = [...facetRows].sort((a, b) => {
+    const primary = cmp(valueFor(a, sortKey, vw), valueFor(b, sortKey, vw), dir);
+    if (primary !== 0) return primary;
+    if (sortKey === "mcap" || sortKey === "dom") return 0;
+    return cmp(mcapValue(a), mcapValue(b), -1);
+  });
   const visible = maxRows ? sorted.slice(0, maxRows) : sorted;
   const overflow = facetRows.length - visible.length;
 
@@ -125,7 +169,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
   return (
     <Section
       title={title ?? `Top ${visible.length} IPs`}
-      readMe="the whole tracked market by IP — rank is market cap"
+      readMe={rankReadMe(sortKey, vw)}
       right={
         <>
           {!teaser && <WindowToggle value={vw} onChange={setVw} />}
@@ -246,6 +290,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
           </tbody>
         </table>
       </div>
+      <TableFoot shown={visible.length} total={facetRows.length} noun="IP" filtered={facetRows.length !== rows.length ? rows.length : null} />
     </Section>
   );
 }

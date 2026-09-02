@@ -77,6 +77,10 @@ export type ReportSale = {
   platformName: string;
   priceUsd: number;
   date: string;
+  /** Card art for the row thumbnail. OPTIONAL: report snapshots written before
+   *  this field existed simply have none, and the row renders its placeholder —
+   *  a stored report must never fail to render because it predates a column. */
+  image?: string | null;
 };
 
 export type ReportPull = {
@@ -291,6 +295,7 @@ async function buildBiggestSales(weekStartMs: number, weekEndMs: number): Promis
       platformName: platformName(c.platform),
       priceUsd: c.priceUsd,
       date: c.date,
+      image: m?.image ?? null,
     };
   });
 }

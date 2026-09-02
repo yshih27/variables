@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { PlatformRow, Chain } from "@/lib/types";
 import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
+import { TableFoot } from "./TableFoot";
 import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
@@ -247,6 +248,9 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
           </tbody>
         </table>
       </div>
+      {/* Row count. States what is ON SCREEN against what the filter holds, so a
+          chain facet or a maxRows teaser can't read as the whole market. */}
+      <TableFoot shown={visible.length} total={scoped.length} noun="platform" filtered={scoped.length !== rows.length ? rows.length : null} />
     </Section>
   );
 }

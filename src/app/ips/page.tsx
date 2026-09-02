@@ -294,6 +294,10 @@ export default async function AllIPsPage() {
                 // Market cap is a LEVEL — no Cumulative mode (summing a level across
                 // days is meaningless; it once rendered $62.7M as a $1.55B staircase).
                 flow={false}
+                // The treemap beside it is taller, so this card is stretched by the
+                // grid row; `fill` hands that height to the PLOT instead of leaving
+                // a blank band under it.
+                fill
               />
             )}
           </div>
