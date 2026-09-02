@@ -85,6 +85,10 @@ export const METRICS = {
     term: "Total 24h",
     text: "All 24h activity: marketplace resale + gacha + direct sales. The honest 'how big is this platform' figure.",
   },
+  compPrice: {
+    term: "Comp",
+    text: "A third-party estimate of what this printing is worth elsewhere, from CardOS (rip.fun's card-data service) — their blend of a price feed with sold comps we cannot see. It is CONTEXT, not one of our numbers: it never enters the index, a market cap, a price-history chart or any total on this site, because those are built from sales that settled on a chain we watch. It can differ from our realized prices for real reasons — a different venue, a different moment, or an estimate with no recent sales behind it, which is labelled. A graded card shows the comp for that exact grade or none at all; a loose copy and a PSA 10 are not interchangeable.",
+  },
   salePrice: {
     term: "Sale price",
     text: "What this card actually SOLD for in the last 24h — a realized on-chain sale, not a listing, bid or appraisal. Taken from the platform's own sale feed and converted to USD at the time of the trade.",
