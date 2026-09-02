@@ -29,6 +29,7 @@
     "warm-weekly-report": "tsx scripts/warm-weekly-report.ts",
     "check-freshness": "tsx scripts/check-freshness.ts",
     "check-invariants": "tsx scripts/check-invariants.ts",
+    "check-ripfun": "tsx scripts/check-ripfun.ts",
     "heal-spine": "tsx scripts/heal-spine.ts",
     "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts",
     "warm-dyli-sales": "tsx scripts/warm-dyli-sales.ts",
