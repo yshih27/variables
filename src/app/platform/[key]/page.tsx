@@ -401,7 +401,7 @@ export default async function PlatformDetailPage({
                   flow
                 />
               )}
-              <PlatformPartners partners={partners} />
+              <PlatformPartners partners={partners} platformKey={key} />
             </div>
           ) : null}
 
