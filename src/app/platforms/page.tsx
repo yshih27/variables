@@ -214,39 +214,7 @@ export default async function AllPlatformsPage() {
           Platforms Overview
         </h1>
 
-        {/* HERO — the venue race as one continuous picture, brushable. Lead
-            position because "who is winning, and since when" is the question this
-            page exists to answer; the rail and table below quantify it. */}
-        {volumeHero.length > 0 && (
-          <StackedAreaChart
-            title="Volume by platform"
-            readMe="who is winning turnover"
-            subtitle={`Marketplace + gacha, per platform · last ${HERO_DAYS} days · complete days only`}
-            metric="total24h"
-            series={volumeHero}
-            unit="usd"
-            className="mb-3"
-          />
-        )}
-
-        {/* Breadth + concentration, the questions a sorted list doesn't answer. */}
-        <PlatformStatBar rows={data.platforms} />
-
         <div className="space-y-3">
-          {/* 24h volume split (homepage VolumeBar pattern) — the marketplace /
-              gacha / direct-sales decomposition of the fold's headline total,
-              read as one segmented bar with per-segment 24h deltas before the
-              leaderboard breaks it down platform-by-platform. */}
-          <SectionShell>
-            <VolumeBar
-              vol={volBreakdown}
-              marketplacePct={data.hero.vol24Pct}
-              gachaPct={data.hero.gachaVol24Pct}
-              topBorder={false}
-              href={null}
-            />
-          </SectionShell>
-
           {/* ZONE 1 — the market's headline KPIs as dedicated stat cards, full
               width (the /platform/[key] treatment): with the hero canvas holding
               the whole chart question, the 264px rail-beside-a-studio column had
@@ -276,6 +244,40 @@ export default async function AllPlatformsPage() {
               />
             ))}
           </StatCardRow>
+
+          {/* 24h volume split (homepage VolumeBar pattern) — the marketplace /
+              gacha / direct-sales decomposition of the fold's headline total,
+              read as one segmented bar with per-segment 24h deltas before the
+              leaderboard breaks it down platform-by-platform. */}
+          <SectionShell>
+            <VolumeBar
+              vol={volBreakdown}
+              marketplacePct={data.hero.vol24Pct}
+              gachaPct={data.hero.gachaVol24Pct}
+              topBorder={false}
+              href={null}
+            />
+          </SectionShell>
+
+            {/* THE ONE VOLUME CANVAS, third. Numbers first, chart second — the
+              terminal skeleton the study found unanimous (rwa.xyz, Blockworks,
+              DefiLlama all open on a KPI strip and put the canvas under it). The
+              KPI row states WHERE THINGS STAND, the volume bar splits today's
+              total by source, and this answers HOW IT GOT HERE, per venue. */}
+          {volumeHero.length > 0 && (
+            <StackedAreaChart
+              title="Volume by platform"
+              readMe="who is winning turnover"
+              subtitle={`Marketplace + gacha, per platform · last ${HERO_DAYS} days · complete days only`}
+              metric="total24h"
+              series={volumeHero}
+              unit="usd"
+              />
+          )}
+          {/* Breadth + concentration — the questions a sorted list doesn't answer.
+              Below the canvas now: it qualifies the shape above rather than
+              introducing it. */}
+          <PlatformStatBar rows={data.platforms} />
 
           {/* ZONE 2 — the top-4 platforms' 14d cards, in leaderboard order, so
               the KPI summary reads straight down into the leaders. Any beyond

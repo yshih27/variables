@@ -116,6 +116,7 @@ export function CompositionChart({
   variant = "area",
   flow = true,
   foot,
+  fill,
 }: {
   title: string;
   /** How to read it (see <ReadMe>) — sits above `subtitle`, never replaces it. */
@@ -131,6 +132,9 @@ export function CompositionChart({
   flow?: boolean;
   /** A muted qualifier under the plot — e.g. how the "Other" bucket is composed. */
   foot?: string;
+  /** Grow the plot to fill a stretched card (see Section's `fill`). PLOT_H becomes
+   *  a MINIMUM rather than a fixed height. */
+  fill?: boolean;
 }) {
   const MODES = flow ? ALL_MODES : LEVEL_MODES;
   const [mode, setMode] = useState<Mode>("stacked");
@@ -168,8 +172,9 @@ export function CompositionChart({
       }
       className="font-sans"
       flush
+      fill={fill}
     >
-      <div className="px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
+      <div className={`px-4 pb-4 pt-1 sm:px-5 sm:pb-5 ${fill ? "flex min-h-0 flex-1 flex-col" : ""}`}>
         {/* legend */}
         <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5">
           {series.map((s) => (
@@ -186,7 +191,12 @@ export function CompositionChart({
           </div>
         ) : (
           <>
-            <div className="relative" style={{ height: PLOT_H }}>
+            {/* Fixed height normally; in `fill` mode PLOT_H is the FLOOR and the
+                plot takes whatever the stretched card gives it. */}
+            <div
+              className={`relative ${fill ? "min-h-0 flex-1" : ""}`}
+              style={fill ? { minHeight: PLOT_H } : { height: PLOT_H }}
+            >
               {/* gridlines + y labels (right) */}
               {[0, 0.5, 1].map((f) => (
                 <div key={f} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${f * 100}%` }}>

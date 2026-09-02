@@ -52,6 +52,7 @@ export function Section({
   right,
   badge,
   flush,
+  fill,
   className,
   children,
 }: {
@@ -66,11 +67,17 @@ export function Section({
   badge?: ReactNode;
   /** true → body has no padding (edge-to-edge tables); default padded. */
   flush?: boolean;
+  /** true → the card becomes a flex column and the BODY grows to fill it. For a
+   *  card that is stretched by a grid row (a side-by-side pair whose other half is
+   *  taller): without this the body keeps its natural height and the extra space
+   *  becomes a blank band under the content. Opt-in, because a table or a tile grid
+   *  should NOT stretch — only a plot that can honestly use the height. */
+  fill?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <SectionShell className={className}>
+    <SectionShell className={`${fill ? "flex h-full flex-col" : ""} ${className ?? ""}`}>
       <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 py-4 sm:px-5">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
@@ -88,7 +95,13 @@ export function Section({
         </div>
         {right && <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">{right}</div>}
       </header>
-      <div className={flush ? "pb-1" : "px-4 pb-4 sm:px-5 sm:pb-5"}>{children}</div>
+      <div
+        className={`${flush ? "pb-1" : "px-4 pb-4 sm:px-5 sm:pb-5"} ${
+          fill ? "flex min-h-0 flex-1 flex-col" : ""
+        }`}
+      >
+        {children}
+      </div>
     </SectionShell>
   );
 }

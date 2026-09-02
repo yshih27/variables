@@ -35,6 +35,11 @@ import type { TrendingCard } from "@/lib/data/fetchTrending";
  * SCREEN. The header lives here, so the state it reads has to live here too; the
  * tabs themselves still render inside Trending's own body.
  */
+/** Trending draws the same number of tiles as Top sales, so the two views fill the
+ *  same 5-up grid. The kind tabs keep counting the WHOLE set — this caps what is
+ *  drawn, not what is measured. */
+const TRENDING_TILES = 5;
+
 export function CardsSection({
   topSales,
   trending,
@@ -107,19 +112,40 @@ export function CardsSection({
       className="font-sans"
       flush
     >
-      {isSales ? (
-        <TopSalesPanel items={topSales} headless />
-      ) : (
-        <TrendingCards
-          cards={trending}
-          windowLabel={trendingWindow}
-          floatAgeLabel={floatAgeLabel}
-          seeAllHref={seeAllHref}
-          kind={kind}
-          onKindChange={setKind}
-          headless
-        />
-      )}
+      {/* ⚠️ ONE HEIGHT ACROSS THE TOGGLE. Both views occupy the SAME grid cell and
+          the inactive one is `invisible` rather than unmounted, so the body is
+          always as tall as the taller view and switching cannot resize the section
+          under the cursor. This is the brief's min-height outcome without a magic
+          number: no hardcoded px to go stale when the tile art, the column count
+          or a breakpoint changes.
+          `visibility: hidden` (not `hidden`/display:none) is load-bearing — it
+          keeps the box in layout, which is the whole point, and it also drops the
+          hidden panel out of the tab order, which display:none would do but
+          opacity-0 would not. aria-hidden keeps it out of the a11y tree too. */}
+      <div className="grid">
+        <div
+          className={`col-start-1 row-start-1 ${isSales ? "" : "invisible"}`}
+          aria-hidden={!isSales}
+        >
+          <TopSalesPanel items={topSales} headless />
+        </div>
+        <div
+          className={`col-start-1 row-start-1 ${isSales ? "invisible" : ""}`}
+          aria-hidden={isSales}
+        >
+          <TrendingCards
+            cards={trending}
+            windowLabel={trendingWindow}
+            floatAgeLabel={floatAgeLabel}
+            seeAllHref={seeAllHref}
+            kind={kind}
+            onKindChange={setKind}
+            headless
+            layout="grid"
+            maxTiles={TRENDING_TILES}
+          />
+        </div>
+      </div>
     </Section>
   );
 }

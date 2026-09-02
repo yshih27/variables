@@ -7,9 +7,7 @@ import { StatCard, StatCardRow } from "@/components/StatCard";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
 import { CompositionChart, type CompositionSeries } from "@/components/CompositionChart";
-import { DominancePanel, type DomEntity } from "@/components/IPDominance";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
-import { PlatformGachaPanel } from "@/components/PlatformGachaPanel";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
 import { PlatformEconomics, type EconomicsKpis } from "@/components/PlatformEconomics";
 import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
@@ -193,31 +191,6 @@ export default async function PlatformDetailPage({
       : []),
   ];
 
-  const DOM = 6;
-  const domTop = namedIps.slice(0, DOM);
-  const domRest = [...namedIps.slice(DOM), ...catchAllIps];
-  const ipEntities: DomEntity[] = [
-    ...domTop.map((ip) => ({
-      name: ip.name,
-      color: ip.color,
-      values: { volume: ip.vol24Usd, cards: ip.cards, trades: ip.trades24h, avgTrade: ip.avgTradeUsd },
-    })),
-    ...(domRest.length
-      ? [
-          {
-            name: "Other",
-            color: "#52525b",
-            values: {
-              volume: sumBy(domRest, (r) => r.vol24Usd),
-              cards: sumBy(domRest, (r) => r.cards),
-              trades: sumBy(domRest, (r) => r.trades24h),
-              avgTrade: 0,
-            },
-          },
-        ]
-      : []),
-  ];
-
   // Volume mix — THIS platform's marketplace vs gacha over the last 30 days. A
   // FLOW composition (all three modes legit; 100% share mode is the money view:
   // "97% gacha / 3% marketplace" and how it shifts). Honest absence, house rules:
@@ -359,7 +332,38 @@ export default async function PlatformDetailPage({
               />
             ))}
           </StatCardRow>
-          <IndexStudio scope={{ entity: "platform", key }} />
+          {/* Studio ‖ the three 14d cards. Different questions, so they may share a
+              row (terminal-ux-study §3): the studio is an INTERACTIVE series you
+              compose and brush, the cards are an AT-A-GLANCE 14-day read of three
+              fixed metrics. Each card keeps its own header, window badge and empty
+              -state reason. Stacks below lg, where a 300px column would crush both. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+            <IndexStudio scope={{ entity: "platform", key }} />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+              <MetricBarCard
+                label="Volume"
+                metric="marketplace"
+                data={last14(volS)}
+                unit="usd"
+                emptyDetail="no secondary-sales source yet"
+              />
+              <MetricBarCard
+                label="Trades"
+                metric="trades"
+                data={last14(tradesS)}
+                unit="count"
+                emptyDetail="no secondary-sales source yet"
+              />
+              <MetricBarCard
+                label="Holders"
+                metric="holders"
+                data={last14(holdersS)}
+                unit="count"
+                variant="line"
+                emptyDetail="forward-only series — no backfill"
+              />
+            </div>
+          </div>
 
           {/* "Where does the money route" — two small panels, side by side from lg.
               Volume mix answers by CHANNEL (packs vs resale vs direct), Top partners
@@ -414,46 +418,10 @@ export default async function PlatformDetailPage({
             overallCoverage={overallCoverage}
           />
 
-          {/* ZONE 2 — 14d dailies for THIS platform. Volume and trades are flows
-              (bars off zero); holders is a stock → line, headline = latest level.
-              Coverage is uneven by design and says so: volume/trades are absent
-              for Phygitals (no secondary source), holders is forward-only, and
-              Courtyard has no mcap at all. */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <MetricBarCard
-              label="Volume"
-              metric="marketplace"
-              data={last14(volS)}
-              unit="usd"
-              emptyDetail="no secondary-sales source yet"
-            />
-            <MetricBarCard
-              label="Trades"
-              metric="trades"
-              data={last14(tradesS)}
-              unit="count"
-              emptyDetail="no secondary-sales source yet"
-            />
-            <MetricBarCard
-              label="Holders"
-              metric="holders"
-              data={last14(holdersS)}
-              unit="count"
-              variant="line"
-              emptyDetail="forward-only series — no backfill"
-            />
-          </div>
-
-          {/* ZONE 3 — composition + activity, unchanged. */}
-      {ipEntities.length > 0 && (
-        <DominancePanel
-          title="IP dominance"
-          source={{ entities: ipEntities }}
-          defaultMetric="volume"
-          seeAllHref={`/platform/${key}/ips`}
-          className="mb-12 font-sans"
-        />
-      )}
+          {/* ⚠️ "IP dominance" REMOVED from this page (one question per zone,
+              terminal-ux-study §1): it asked "what share does each IP hold here",
+              which is exactly what the By IP donut + table below answer, with the
+              per-IP numbers attached. The component stays — other pages use it. */}
       {ipRows.length > 0 && (
         <IPByPlatform
           rows={ipRows}
@@ -465,7 +433,12 @@ export default async function PlatformDetailPage({
           hrefBase="/ip/"
         />
       )}
-      <PlatformGachaPanel detail={detail} />
+      {/* ⚠️ "Gacha sales" REMOVED from this page (one question per zone): its 24h
+          pull volume duplicates the KPI row's "24h Gacha Vol" and its revenue-mix
+          split duplicates Volume mix above. Dropping it also takes the 7d pull
+          volume and the 7d daily average off this page — they exist nowhere else
+          here, and are called out in the commit rather than silently lost. The
+          component stays for other surfaces. */}
       {/* ⚠️ DELIBERATELY NOT PAIRED. Top Cards and Recent Sales do answer different
           questions (ranked vs chronological), but both tables carry `min-w-[900px]`
           and side-by-side they do not fit below roughly 1900px: measured at 1280 the

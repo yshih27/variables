@@ -99,6 +99,8 @@ export function TrendingCards({
   headless,
   kind: kindProp,
   onKindChange,
+  layout = "strip",
+  maxTiles,
 }: {
   cards: TrendingCard[];
   /** Which trade window ranked this list — "24h", or "7d" when 24h was tie-heavy (X6). */
@@ -113,6 +115,13 @@ export function TrendingCards({
    *  to build the subtitle it renders in its own header. */
   kind?: KindTab;
   onKindChange?: (k: KindTab) => void;
+  /** "strip" = the standalone horizontal scroller. "grid" = the same 5-column grid
+   *  Top Sales uses, so the two views of the combined Cards section occupy the
+   *  same columns at the same widths instead of reading as unrelated surfaces. */
+  layout?: "strip" | "grid";
+  /** Cap the tiles DRAWN. The kind tabs and their counts still describe the whole
+   *  set — this trims the strip, it does not filter the data. */
+  maxTiles?: number;
 }) {
   const [kindState, setKindState] = useState<KindTab>("all");
   const kind = kindProp ?? kindState;
@@ -189,13 +198,21 @@ export function TrendingCards({
     </div>
   );
 
-  const strip = (
-    <div className="scroll-x flex items-stretch gap-3 px-4 pb-4 pt-2 sm:px-5 sm:pb-5">
-      {sorted.map((c) => (
-        <TrendingTile key={c.cardId} card={c} maxHP={maxHP} />
-      ))}
-    </div>
-  );
+  const drawn = maxTiles != null ? sorted.slice(0, maxTiles) : sorted;
+  const strip =
+    layout === "grid" ? (
+      <div className="grid grid-cols-2 gap-5 px-4 pb-4 pt-1 sm:px-5 sm:pb-5 md:grid-cols-3 lg:grid-cols-5">
+        {drawn.map((c) => (
+          <TrendingTile key={c.cardId} card={c} maxHP={maxHP} fluid />
+        ))}
+      </div>
+    ) : (
+      <div className="scroll-x flex items-stretch gap-3 px-4 pb-4 pt-2 sm:px-5 sm:pb-5">
+        {drawn.map((c) => (
+          <TrendingTile key={c.cardId} card={c} maxHP={maxHP} />
+        ))}
+      </div>
+    );
 
   if (headless) {
     return (
@@ -255,7 +272,7 @@ export function TrendingCards({
   );
 }
 
-function TrendingTile({ card: c, maxHP }: { card: TrendingCard; maxHP: number }) {
+function TrendingTile({ card: c, maxHP, fluid }: { card: TrendingCard; maxHP: number; fluid?: boolean }) {
   const ipMeta = IP_META_BY_KEY.get(c.ip);
   const ipName = ipMeta?.name ?? humanizeIp(c.ip);
   // Grade lives inline in the type identity; only chip it when it parses (the SSOT
@@ -273,7 +290,10 @@ function TrendingTile({ card: c, maxHP }: { card: TrendingCard; maxHP: number })
   return (
     <Link
       href={c.href}
-      className="group flex w-[186px] shrink-0 flex-col rounded-xl bg-bg-2 p-3.5 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5"
+      // `h-full` in grid layout: the combined Cards section reserves the taller
+      // (Top sales) height, so without it the shorter Trending tiles left a void
+      // beneath them. The footer's existing mt-auto pins to the new bottom.
+      className={`group flex flex-col rounded-xl bg-bg-2 p-3.5 transition duration-200 ease-out hover:bg-bg-3 motion-safe:hover:-translate-y-0.5 ${fluid ? "h-full w-full" : "w-[186px] shrink-0"}`}
     >
       {/* Hero row — the trending metric (yellow) + grade chip, mirroring Top
           Sales' price + grade baseline. For 2+ listed the hero is hunt pressure;

@@ -53,7 +53,18 @@ export type PartnerAttribution = {
   attributedPct: number;
 };
 
-const TOP_N = 3;
+const TOP_N = 5;
+
+/** Rows the board always draws. Real partners fill from the top; the remainder are
+ *  dimmed placeholders so the card sits full-height beside Volume mix instead of
+ *  looking vacant.
+ *
+ *  ⚠️ PLACEHOLDERS MUST BE UNMISTAKABLY NOT-DATA. They carry an em dash for the
+ *  name and a stated threshold — never a number, never a slug, never a zero. A
+ *  greyed row that looked like a partner with no volume would assert we measured a
+ *  partner and found nothing, which is the opposite of what is true: the slot is
+ *  empty because attribution has not accrued that far yet. */
+const PLACEHOLDER_TEXT = "awaiting $250K/30d";
 
 /**
  * When memo_slug capture went live (PR #73). Attribution is forward-only, so this
@@ -134,6 +145,14 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
               <tr key={r.slug} className="border-b border-line/50 last:border-b-0">
                 <td className="py-2 text-ink-2">{r.label || r.slug}</td>
                 <td className="py-2 text-right font-mono tabular text-ink">{formatCompactUsd(r.volumeUsd30d)}</td>
+              </tr>
+            ))}
+            {Array.from({ length: Math.max(0, TOP_N - top.length) }).map((_, i) => (
+              <tr key={`awaiting-${i}`} className="border-b border-line/50 last:border-b-0">
+                <td className="py-2 text-ink-4">—</td>
+                <td className="py-2 text-right font-mono text-[11px] text-ink-4">
+                  {floor > 0 ? `awaiting ${formatCompactUsd(floor)}/30d` : PLACEHOLDER_TEXT}
+                </td>
               </tr>
             ))}
           </tbody>

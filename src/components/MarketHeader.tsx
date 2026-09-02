@@ -7,7 +7,7 @@ import { MarketIndexChart } from "./MarketIndexChart";
 import { MetricInfo } from "./MetricInfo";
 import { tickerOf } from "@/lib/indices/naming";
 import type { MetricKey } from "@/lib/metrics/glossary";
-import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta, formatMonthDayUtc } from "@/lib/format";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { VolumeBar, type VolBreakdown } from "./VolumeBar";
 
@@ -78,6 +78,15 @@ export function MarketHeader({
   const relDeltas = index.relStrength.filter((d) => d.pct != null && Number.isFinite(d.pct));
   const hasRel = relDeltas.length > 0;
   const hasChart = !!index.series && index.series.length >= 2;
+  /**
+   * The V-MKT series is WEEKLY and stamped at the week's END (Sunday, PR #44), and
+   * the in-progress week is gated out by the builder's completeness rule (INV-7).
+   * Without saying so the chart just stops a few days short of today and reads as
+   * stale data. Derived from the newest point — never hardcoded, so it cannot rot.
+   */
+  const latestWeekEnd = hasChart
+    ? formatMonthDayUtc(index.series![index.series!.length - 1].ts)
+    : null;
   // Change / benchmark clusters hug the right as tight, content-width columns; on
   // wide (lg) screens the market-index chart (QA-5) fills the middle so the hero
   // shrinks to content. Below lg the chart hides and the hero fills the row.
@@ -154,6 +163,11 @@ export function MarketHeader({
               constant-quality index — same cards, same grades, week to week. moves are
               price, not mix.
             </ReadMe>
+            {latestWeekEnd && (
+              <div className="mt-1 font-mono text-[10.5px] leading-snug text-ink-4">
+                weekly · latest week ended {latestWeekEnd}
+              </div>
+            )}
           </div>
         )}
 
@@ -293,13 +307,13 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
   if (!topIP) {
     return (
       <div className="flex flex-col justify-start gap-2 bg-bg-1 px-5 py-5">
-        <span className="text-[19px] font-bold leading-none text-ink-3">—</span>
+        <span className="text-[26px] font-bold leading-[0.95] text-ink-3 sm:text-[30px]">—</span>
         <Label>Most traded · 24h</Label>
       </div>
     );
   }
   return (
-    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col justify-start gap-2 bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2">
+    <Link href={`/ip/${topIP.key}`} className="group relative flex flex-col justify-start bg-bg-1 px-5 py-5 transition-colors hover:bg-bg-2">
       {/* Corner ↗ so the card reads as "navigates," not a chart toggle (Q7). */}
       <span aria-hidden className="absolute right-3 top-3 text-[11px] leading-none text-ink-4 transition-colors group-hover:text-yellow">
         ↗
@@ -309,6 +323,13 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
           row would have put this card's label on the same line as its neighbours'
           48px numbers, and pushed the one thing a reader compares (the entity) a
           line lower than everything else in the strip. */}
+      {/* ⚠️ HEADLINE SCALE, so the strip reads as ONE band. This cell's primary line
+          is a NAME, not a figure, and at 14px it read as a caption beside 48px
+          numbers — the band visibly broke at the fourth cell. It steps down from
+          the numbers' 48px because a name is longer and set in sans, not tabular
+          mono: 30px matches their optical weight without forcing a truncate on
+          "Pokémon"/"One Piece". The $value keeps mono/tabular and drops to the
+          supporting line, where the neighbours' deltas sit. */}
       <div className="flex items-center gap-2.5">
         <IPIcon
           name={topIP.name}
@@ -317,18 +338,20 @@ function EntityCell({ topIP }: { topIP: IPRow | null }) {
           logo={topIP.logo}
           iconBlendMode={topIP.iconBlendMode}
           emoji={topIP.emoji}
-          size={24}
+          size={30}
         />
         <div className="min-w-0">
-          <div className="truncate text-[14px] font-bold leading-tight transition-colors group-hover:text-yellow">
+          <div className="truncate text-[26px] font-bold leading-[0.95] tracking-[-0.02em] transition-colors group-hover:text-yellow sm:text-[30px]">
             {topIP.name}
-          </div>
-          <div className="mt-0.5 font-mono text-[11.5px] tabular text-ink-2">
-            {topIP.vol24Usd > 0 ? formatCompactUsd(topIP.vol24Usd) : "—"}
           </div>
         </div>
       </div>
-      <Label>Most traded · 24h</Label>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Label>Most traded · 24h</Label>
+        <span className="font-mono text-[11.5px] tabular text-ink-2">
+          {topIP.vol24Usd > 0 ? formatCompactUsd(topIP.vol24Usd) : "—"}
+        </span>
+      </div>
     </Link>
   );
 }
