@@ -39,6 +39,7 @@ env:
   DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
   HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
   DYLI_API_KEY: ${{ secrets.DYLI_API_KEY }}
+  RIP_API_KEY: ${{ secrets.RIP_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -275,6 +276,22 @@ jobs:
       - name: Weekly report (movers + composer)
         continue-on-error: true
         run: npx tsx scripts/warm-weekly-report.ts
+      # CardOS price oracle — third-party COMPS for cards our platforms tokenize.
+      # Refreshes a QUARTER of the mapped expansions (oldest-refreshed first) plus
+      # up to 30 graded ladders: ~30 credits/week + ~30/month ≈ 160/month against a
+      # 500/month allowance, which re-prices every mapped expansion monthly.
+      # Weekly here rather than in the 6h core batch because the whole point is
+      # that comps are context, not a live figure — four times the cadence would
+      # be four times the spend for the same number.
+      #
+      # ⚠️ DELIBERATELY ABSENT FROM THE HEALTH GATE BELOW. This warmer is BUILT to
+      # stop early when the month's credits run low, and that stop is correct
+      # behaviour — not an outage. Requiring it would page someone every time a
+      # budget guard did its job, which is how a gate ends up muted. It records
+      # freshness like every other source, so check-freshness still shows it.
+      - name: CardOS price oracle (half the mapped expansions + due ladders)
+        continue-on-error: true
+        run: npx tsx scripts/warm-ripfun-oracle.ts
       - name: Health gate # fails the job (→ Actions notifies) if the composer errored
         run: npx tsx scripts/check-freshness.ts --require=weekly-report
 

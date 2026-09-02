@@ -40,10 +40,28 @@ const MIN_GAP_MS = 250;
  * that forgets its cursor THROWS here instead of on the invoice. Override with
  * RIP_CREDIT_BUDGET (a backfill states its own number; a small value stress-tests).
  */
-const CREDIT_BUDGET = (() => {
+let CREDIT_BUDGET = (() => {
   const raw = Number(process.env.RIP_CREDIT_BUDGET);
   return Number.isFinite(raw) && raw > 0 ? raw : 50;
 })();
+
+/**
+ * Raise this run's ceiling to a plan that has ALREADY cleared the monthly gate.
+ *
+ * ⚠️ THIS EXISTS BECAUSE TWO GUARDS THAT DISAGREE ARE WORSE THAN ONE. The default
+ * 50 protects an unplanned caller, but a mapping pass legitimately declares ~77 —
+ * and the first real run died nine expansions in, at credit 51, having already
+ * SPENT them. The fix is not a bigger constant: it is that the pass's declared
+ * number, the one the monthly meter reserved against, becomes the run ceiling too.
+ *
+ * Only ever raises. A caller cannot use this to shrink the ceiling below what is
+ * already spent, and an explicit RIP_CREDIT_BUDGET set higher still wins — the
+ * environment override stays the operator's last word.
+ */
+export function setRunCreditBudget(planned: number): number {
+  if (Number.isFinite(planned) && planned > CREDIT_BUDGET) CREDIT_BUDGET = planned;
+  return CREDIT_BUDGET;
+}
 
 /** Every metered catalog endpoint costs 1 credit per call, whatever the page size. */
 const CREDIT_PER_CALL = 1;

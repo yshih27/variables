@@ -30,6 +30,8 @@
     "check-freshness": "tsx scripts/check-freshness.ts",
     "check-invariants": "tsx scripts/check-invariants.ts",
     "check-ripfun": "tsx scripts/check-ripfun.ts",
+    "map-ripfun-oracle": "tsx scripts/map-ripfun-oracle.ts",
+    "warm-ripfun-oracle": "tsx scripts/warm-ripfun-oracle.ts",
     "heal-spine": "tsx scripts/heal-spine.ts",
     "migrate-taxonomy-spine": "tsx scripts/migrate-taxonomy-spine.ts",
     "warm-dyli-sales": "tsx scripts/warm-dyli-sales.ts",

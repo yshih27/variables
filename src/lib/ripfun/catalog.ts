@@ -147,16 +147,28 @@ export type RipFunSealed = {
 
 // ── Reads ─────────────────────────────────────────────────────────────────
 
-/** One page of a game's expansion index. 1 credit. */
+/**
+ * One page of a game's expansion index. 1 credit.
+ *
+ * ⚠️ PASS `language: "all"` OR HALF OUR INVENTORY IS INVISIBLE. Lists return ONE
+ * language and default to English, and CardOS models each language printing as
+ * its own expansion with its own ids. Measured 2026-09-02: the default English
+ * list is 203 Pokémon expansions and contains NONE of Terastal Festival ex,
+ * Battle Partners, Mega Brave or VSTAR Universe — all Japanese-only sets, and all
+ * of them in our own top-30 most-traded. Defaulting here would silently drop
+ * roughly a third of the traded types from the mapping and look like a matching
+ * failure rather than a missing half of the catalog.
+ */
 export function fetchExpansionsPage(
   game: RipFunGame,
-  opts: { page?: number; pageSize?: number; q?: string; orderBy?: string } = {},
+  opts: { page?: number; pageSize?: number; q?: string; orderBy?: string; language?: string } = {},
 ): Promise<RipFunPage<RipFunExpansion>> {
   return ripFunGet<RipFunPage<RipFunExpansion>>(`/${game}/expansions`, {
     page: opts.page ?? 1,
     page_size: opts.pageSize ?? RIPFUN_PAGE_SIZE,
     q: opts.q,
     orderBy: opts.orderBy,
+    language: opts.language,
   });
 }
 
@@ -184,6 +196,30 @@ export function fetchCardsPage(
     include: opts.includePrices ? "prices" : undefined,
     language: opts.language,
   });
+}
+
+/**
+ * One page of the cards in ONE expansion. 1 credit, whatever the page size.
+ *
+ * This is the route the entire credit plan rests on: it is what makes a mapping
+ * pass ~65 credits instead of the 474 a full catalog walk costs, and it is the
+ * only walk that does not hit the server's flat `page × page_size ≤ 10,000` wall,
+ * because no single expansion is that large.
+ */
+export function fetchExpansionCardsPage(
+  game: RipFunGame,
+  expansionId: string,
+  opts: { page?: number; pageSize?: number; includePrices?: boolean; language?: string } = {},
+): Promise<RipFunPage<RipFunCard>> {
+  return ripFunGet<RipFunPage<RipFunCard>>(
+    `/${game}/expansions/${encodeURIComponent(expansionId)}/cards`,
+    {
+      page: opts.page ?? 1,
+      page_size: opts.pageSize ?? RIPFUN_PAGE_SIZE,
+      include: opts.includePrices ? "prices" : undefined,
+      language: opts.language,
+    },
+  );
 }
 
 /** One page of a game's sealed products. 1 credit. */
