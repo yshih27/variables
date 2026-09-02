@@ -12,22 +12,26 @@ import { formatCompactUsd } from "@/lib/format";
  *     emits no memo_slug or the warmer has not reached it; we cannot tell which,
  *     and an empty board would assert we measured the split and found none.
  *   • A rollup exists but nothing clears the volume floor → render the ACCRUAL
- *     NOTE. Here we CAN say something true and useful: capture is running, this
- *     much is attributed so far, and here is the bar a partner must clear. That
- *     is a state, not a blank.
- * The note also rides along beneath a populated board, because a three-row
- * podium drawn from a low attributed share is exactly where a reader most needs
- * to know the denominator is still filling.
+ *     NOTE. Here we CAN say something true and useful: capture is running and
+ *     this much is attributed so far. That is a state, not a blank.
+ * The note also rides along beneath a populated board, because a podium drawn
+ * from a low attributed share is exactly where a reader most needs to know the
+ * denominator is still filling.
  *
  * DISPLAY RULES (fixed — do not special-case any individual partner):
- *   • Top 3 by trailing-30d attributed volume, cut at DISPLAY time from the FULL
+ *   • Top 5 by trailing-30d attributed volume, cut at DISPLAY time from the FULL
  *     rollup the backend sends. The component never filters by slug, never
  *     promotes or demotes a named partner, and never reorders by anything but
- *     volume — so a partner entering or leaving the top 3 is purely data.
- *   • A minimum-volume floor from the snapshot's OWN config (never hardcoded
- *     here), applied before the cut, so a $12 partner can't take a podium slot.
- *   • No "Other" row and no total row: the three rows do not sum to the whole,
- *     and a total would invite reading them as if they did.
+ *     volume — so a partner entering or leaving the top 5 is purely data.
+ *   • ⚠️ NO VOLUME FLOOR AND NO SLUG FILTER (product decision, round 5). Every
+ *     attributed slug is eligible, including the platform's own storefront
+ *     ('cc'): a board that hid the house channel was answering "which THIRD
+ *     PARTIES route pulls" while the label said partners, and the floor was
+ *     doing double duty as a sufficiency gate it was never sized for. The
+ *     snapshot still SENDS `config.minVolumeUsd` — that is the backend contract
+ *     and is left alone — the display simply no longer uses it as a gate.
+ *   • No "Other" row and no total row: the rows do not sum to the whole, and a
+ *     total would invite reading them as if they did.
  *   • Pulls with a NULL memo_slug are unknown origin — they belong to no partner
  *     and are never folded into one. The subtitle's attributed % is what makes
  *     that visible, so it is required, not decorative.
@@ -60,11 +64,11 @@ const TOP_N = 5;
  *  looking vacant.
  *
  *  ⚠️ PLACEHOLDERS MUST BE UNMISTAKABLY NOT-DATA. They carry an em dash for the
- *  name and a stated threshold — never a number, never a slug, never a zero. A
- *  greyed row that looked like a partner with no volume would assert we measured a
- *  partner and found nothing, which is the opposite of what is true: the slot is
- *  empty because attribution has not accrued that far yet. */
-const PLACEHOLDER_TEXT = "awaiting $250K/30d";
+ *  name and a stated reason — never a number, never a slug, never a zero. A greyed
+ *  row that looked like a partner with no volume would assert we measured a partner
+ *  and found nothing, which is the opposite of what is true: the slot is empty
+ *  because attribution has not reached it yet. */
+const PLACEHOLDER_TEXT = "no attribution yet";
 
 /**
  * When memo_slug capture went live (PR #73). Attribution is forward-only, so this
@@ -81,22 +85,17 @@ const CAPTURE_START_LABEL = "Aug 18";
 export function PlatformPartners({ partners }: { partners: PartnerAttribution | null | undefined }) {
   if (!partners) return null;
 
-  const floor = Number.isFinite(partners.config?.minVolumeUsd) ? partners.config.minVolumeUsd : 0;
-  // The house storefront is not a partner; boards render partner surfaces only.
-  // Which slug is the house is the snapshot's call (CC sends "cc"), not a
-  // hardcoded name here — that keeps this free of per-partner special-casing.
-  const house = (partners.config?.houseSlug ?? "").trim().toLowerCase();
-  // House out, then floor, then rank, then cut — all on the full rollup, by volume only.
+  // Rank, then cut. That is the whole rule now — no floor, no slug filter. A row
+  // needs a real volume to be ranked at all, which is the only thing filtered.
   const top = partners.rows
-    .filter((r) => !house || r.slug.trim().toLowerCase() !== house)
-    .filter((r) => Number.isFinite(r.volumeUsd30d) && r.volumeUsd30d >= floor)
+    .filter((r) => Number.isFinite(r.volumeUsd30d) && r.volumeUsd30d > 0)
     .sort((a, b) => b.volumeUsd30d - a.volumeUsd30d)
     .slice(0, TOP_N);
 
   const pct = Number.isFinite(partners.attributedPct) ? partners.attributedPct : 0;
-  const accrual = `attribution accruing since ${CAPTURE_START_LABEL} · ${fmtAttributedPct(pct)} attributed · partners appear at ${formatCompactUsd(floor)}/30d`;
+  const accrual = `attribution accruing since ${CAPTURE_START_LABEL} · ${fmtAttributedPct(pct)} attributed`;
 
-  // Nothing clears the floor yet → the accrual state IS the content. Capture is
+  // Nothing attributed yet → the accrual state IS the content. Capture is
   // demonstrably running (a rollup exists), so this says where it has got to
   // rather than leaving a gap the reader has to interpret.
   if (!top.length) {
@@ -112,7 +111,7 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
         className="font-sans"
       >
         <div className="flex min-h-[68px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line px-4 py-4 text-center">
-          <span className="text-[12px] text-ink-3">No partner clears the floor yet</span>
+          <span className="text-[12px] text-ink-3">No attributed partners yet</span>
           <span className="font-mono text-[10.5px] leading-snug text-ink-4">{accrual}</span>
         </div>
       </Section>
@@ -151,7 +150,7 @@ export function PlatformPartners({ partners }: { partners: PartnerAttribution | 
               <tr key={`awaiting-${i}`} className="border-b border-line/50 last:border-b-0">
                 <td className="py-2 text-ink-4">—</td>
                 <td className="py-2 text-right font-mono text-[11px] text-ink-4">
-                  {floor > 0 ? `awaiting ${formatCompactUsd(floor)}/30d` : PLACEHOLDER_TEXT}
+                  {PLACEHOLDER_TEXT}
                 </td>
               </tr>
             ))}

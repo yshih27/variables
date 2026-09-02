@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TopSale } from "@/lib/types";
+import { TILE_PRICE_ROW, TILE_STAT_ROW } from "./TrendingCards";
 import { Section } from "./Section";
 import { MetricInfo } from "./MetricInfo";
 import { CardSlabGlyph } from "./CardImage";
@@ -222,7 +223,7 @@ function SaleCard({ sale }: { sale: TopSale }) {
           (min-h, not h, so a long name grows instead of clipping) and the grid
           row equalises the rest. */}
       <div className="flex flex-col border-t border-line px-4 pb-3.5 pt-3">
-        <div className="flex items-baseline justify-between gap-2">
+        <div className={`flex justify-between gap-2 ${TILE_PRICE_ROW}`}>
           <span className="tabular text-[16px] font-bold leading-none text-yellow">
             {formatCompactUsd(sale.priceUsd)}
           </span>
@@ -233,6 +234,19 @@ function SaleCard({ sale }: { sale: TopSale }) {
 
         <div className="mt-2 line-clamp-2 min-h-[34px] text-[12.5px] font-semibold leading-[1.35]">
           {sale.cardName}
+        </div>
+
+        {/* ⚠️ PARITY ROW — deliberately empty. The Trending tile carries its signals
+            (hunt pressure / sold, float, volume) on a row in this position; drawing
+            the same row here, with the same metrics and no content, is what keeps
+            the two tiles — and therefore the Cards section across its toggle — the
+            same height. It is a real row, not a reserved min-height, and it holds
+            nothing because a top sale has no equivalent signal to state: every row
+            in this list cleared within the same 24h window, so a date line would be
+            the same string five times. Fill it the moment there is something true
+            to put here. */}
+        <div className={`mt-2 font-mono ${TILE_STAT_ROW}`} aria-hidden>
+          &nbsp;
         </div>
 
         <div className="mt-2 flex items-center gap-1.5 border-t border-line/60 pt-2 text-[11px] leading-none text-ink-3">

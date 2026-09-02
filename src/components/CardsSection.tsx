@@ -6,10 +6,12 @@ import { MetricInfo } from "./MetricInfo";
 import { TopSalesPanel, TOP_SALES_NOTE, TOP_SALES_READ_ME } from "./TopSalesPanel";
 import {
   TrendingCards,
+  trendingKindTabs,
   trendingSubtitle,
   TRENDING_READ_ME,
   type KindTab,
 } from "./TrendingCards";
+import Link from "next/link";
 import type { TopSale } from "@/lib/types";
 import type { TrendingCard } from "@/lib/data/fetchTrending";
 
@@ -39,6 +41,18 @@ import type { TrendingCard } from "@/lib/data/fetchTrending";
  *  same 5-up grid. The kind tabs keep counting the WHOLE set — this caps what is
  *  drawn, not what is measured. */
 const TRENDING_TILES = 5;
+
+/**
+ * ⚠️ ONE SET OF VERTICAL METRICS FOR EVERY CONTROL IN THE BAND. The band's height
+ * must not depend on WHICH controls are in it, or the section grows a row on one
+ * side of the toggle — which is exactly the 77px jump this replaced (Trending drew
+ * a kind-tabs row; Top sales drew nothing). Same padding, same text size, same line
+ * box for the window badge and the tabs, so any combination measures the same.
+ */
+const CTRL = "px-2.5 py-1 text-[12px] leading-[16px]";
+
+/** Top Sales is a 24h list — its badge states the same window its note does. */
+const TOP_SALES_WINDOW = "24h";
 
 export function CardsSection({
   topSales,
@@ -70,9 +84,8 @@ export function CardsSection({
 
   // Trending's tabs only appear when both kinds are present; mirror that here so
   // the subtitle describes the set the body is actually showing.
-  const slabs = trending.filter((c) => c.kind === "slab").length;
-  const sealed = trending.filter((c) => c.kind === "sealed").length;
-  const activeKind: KindTab = slabs > 0 && sealed > 0 ? kind : "all";
+  const kinds = trendingKindTabs(trending);
+  const activeKind: KindTab = kinds.show ? kind : "all";
 
   const isSales = active === "sales";
 
@@ -120,6 +133,44 @@ export function CardsSection({
           `invisible`; that held the height but left a void under Trending, and
           paid for it with a second full panel in the DOM. Only the active view
           renders now. */}
+      {/* ⚠️ THE CONTROL BAND IS DRAWN BY BOTH VIEWS. It is a real row with real
+          content either way — the window badge always (Top Sales is a 24h list;
+          Trending's badge names its ranking window), plus Trending's kind tabs and
+          "See all". No reserved height and no magic number: the band is the same
+          element with the same metrics in both views, so the section measures the
+          same whichever is showing. */}
+      <div className="flex flex-wrap items-center gap-1 px-4 pb-1 pt-2 sm:px-5">
+        <span
+          className={`rounded-md border border-line bg-bg-2 font-semibold tracking-[0.05em] text-ink-2 ${CTRL}`}
+        >
+          {isSales ? TOP_SALES_WINDOW : trendingWindow}
+        </span>
+        {!isSales && kinds.show
+          ? kinds.tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setKind(t.key)}
+                aria-pressed={activeKind === t.key}
+                className={`flex items-center gap-1.5 rounded-lg transition-colors ${CTRL} ${
+                  activeKind === t.key ? "bg-bg-3 font-semibold text-ink" : "text-ink-3 hover:text-ink"
+                }`}
+              >
+                {t.label}
+                <span className="tabular text-[11px] text-ink-4">{t.n}</span>
+              </button>
+            ))
+          : null}
+        {!isSales && seeAllHref && (
+          <Link
+            href={seeAllHref}
+            className="ml-auto text-[12px] leading-[16px] text-ink-3 transition-colors hover:text-yellow"
+          >
+            See all →
+          </Link>
+        )}
+      </div>
+
       {isSales ? (
         <TopSalesPanel items={topSales} headless />
       ) : (
