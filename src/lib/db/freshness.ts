@@ -104,6 +104,10 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "price-index": DAY_MS,
   // weekly batch — every 7d
   "cc-traits": 7 * DAY_MS,
+  // CardOS price oracle — refreshes HALF the mapped expansions each Monday, so
+  // every expansion is re-priced fortnightly. Weekly is the cadence of the
+  // WRITER; the comps themselves are third-party context, never a spine input.
+  "ripfun-oracle": 7 * DAY_MS,
   "weekly-report": 7 * DAY_MS, // Mondays 08:00 — movers + composer (B9-2)
 };
 
