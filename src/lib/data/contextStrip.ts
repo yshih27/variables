@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import type { TickerItem } from "@/components/NavBar";
+import type { IPRow } from "@/lib/types";
 import { formatCompactNumber, formatCompactUsd } from "@/lib/format";
 import { tickerOf } from "@/lib/indices/naming";
 import { fetchHomepage } from "./fetchHomepage";
@@ -72,7 +73,14 @@ async function buildItems(): Promise<TickerItem[]> {
 
   // 4 — Leading IP by market cap, and its share of the total. Only when BOTH the
   // IP's cap and the market total are real: a share of an unknown total is noise.
-  const topIp = data.ips.find((r) => Number.isFinite(r.mcapUsd) && r.mcapUsd > 0) ?? null;
+  // ⚠️ `data.ips` is sorted by 24h VOLUME (fetchHomepage), not by market cap. This
+  // item is a market-cap SHARE, so the top IP must be picked by cap explicitly —
+  // the first row with a cap would be the busiest IP, labelled as the biggest.
+  const topIp = data.ips.reduce<IPRow | null>(
+    (best, r) =>
+      Number.isFinite(r.mcapUsd) && r.mcapUsd > 0 && (best == null || r.mcapUsd > best.mcapUsd) ? r : best,
+    null,
+  );
   if (topIp && Number.isFinite(hero.totalMcapUsd) && hero.totalMcapUsd > 0) {
     const dom = (topIp.mcapUsd / hero.totalMcapUsd) * 100;
     items.push({
