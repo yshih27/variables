@@ -107,6 +107,7 @@ export function MetricBarCard({
   emptyNote = "Building history",
   emptyDetail,
   note,
+  fill,
 }: {
   label: string;
   /** Daily points, oldest → newest (already sliced to the window). */
@@ -130,6 +131,11 @@ export function MetricBarCard({
    *  `emptyDetail` it shows alongside real data: the series is honest, but its
    *  scope needs saying. */
   note?: string;
+  /** Grow to the frame the grid gives this card, with the 64px plot as a MINIMUM
+   *  rather than a fixed height. For a rail of cards beside a taller canvas
+   *  (terminal-ux-study §7): without it the rail's frames end above the canvas
+   *  and the pair reads as two unrelated blocks. */
+  fill?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
 
@@ -156,7 +162,7 @@ export function MetricBarCard({
   const caption = active ? fmtDay(active.ts) : totalCaption;
 
   return (
-    <div className="flex flex-col rounded-2xl border border-line bg-bg-1 px-4 py-3.5">
+    <div className={`flex flex-col rounded-2xl border border-line bg-bg-1 px-4 py-3.5 ${fill ? "h-full" : ""}`}>
       <div className="flex items-start justify-between gap-2">
         <span className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
           {metric ? <MetricInfo metric={metric}>{label}</MetricInfo> : label}
@@ -175,7 +181,9 @@ export function MetricBarCard({
       </div>
 
       {!hasData ? (
-        <div className="mt-3 flex h-16 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-center">
+        <div
+          className={`mt-3 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-center ${fill ? "min-h-16 flex-1" : "h-16"}`}
+        >
           <span className="text-[12px] text-ink-3">{emptyNote}</span>
           {emptyDetail ? <span className="text-[10.5px] text-ink-4">{emptyDetail}</span> : null}
         </div>
@@ -187,6 +195,7 @@ export function MetricBarCard({
           variant={variant}
           hover={hover}
           onHover={setHover}
+          fill={fill}
         />
       )}
 
@@ -224,6 +233,7 @@ function Plot({
   variant,
   hover,
   onHover,
+  fill,
 }: {
   slots: Slot[];
   dataLength: number;
@@ -231,6 +241,7 @@ function Plot({
   variant: "bars" | "line";
   hover: number | null;
   onHover: (i: number | null) => void;
+  fill?: boolean;
 }) {
   const n = slots.length;
   const active = hover != null ? slots[hover] : null;
@@ -238,7 +249,7 @@ function Plot({
   const leftPct = hover != null ? Math.min(Math.max(((hover + 0.5) / n) * 100, 14), 86) : 0;
 
   return (
-    <div className="relative mt-3 h-16">
+    <div className={`relative mt-3 ${fill ? "min-h-16 flex-1" : "h-16"}`}>
       {/* Days the series doesn't reach, drawn as a faint tick on the baseline —
           one per empty day, so the flex gaps between them make the run read as a
           dotted rule. Without it a young series is a mark floating beside a void

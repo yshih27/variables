@@ -260,7 +260,8 @@ export default async function AllIPsPage() {
 
         <div className="space-y-3">
           {/* ZONE 1 — left metric column + interactive Index Studio chart. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)] lg:items-start">
+          {/* §7: items-stretch (default). The rail is sized by the studio beside it. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)]">
             <OverviewMetricColumn rows={overviewRows} />
             <IndexStudio seed={studioSeed} />
           </div>

@@ -355,9 +355,15 @@ export default async function PlatformDetailPage({
               compose and brush, the cards are an AT-A-GLANCE 14-day read of three
               fixed metrics. Each card keeps its own header, window badge and empty
               -state reason. Stacks below lg, where a 300px column would crush both. */}
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+          {/* ⚠️ items-STRETCH (the default — do not add items-start). §7: the pair
+              shares a top AND a bottom edge, so the rail is sized by the studio
+              beside it and its three cards divide that height between them. */}
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
             <IndexStudio seed={studioSeed} scope={{ entity: "platform", key }} />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-1">
+            {/* grid-rows-3 of 1fr from lg up: the rail fills the studio's height
+                and each card gets an equal share, rather than three natural-height
+                cards stacking to whatever they happen to total. */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:h-full lg:grid-cols-1 lg:grid-rows-3">
               <MetricBarCard
                 label="Volume"
                 metric="marketplace"
@@ -392,7 +398,7 @@ export default async function PlatformDetailPage({
               chart beside a gap reads as something failed to load. */}
           {volumeMix.length > 0 || partners ? (
             <div
-              className={`grid grid-cols-1 gap-3 ${volumeMix.length > 0 && partners ? "lg:grid-cols-2 lg:items-start" : ""}`}
+              className={`grid grid-cols-1 gap-3 ${volumeMix.length > 0 && partners ? "lg:grid-cols-2" : ""}`}
             >
               {volumeMix.length > 0 && (
                 <CompositionChart
@@ -403,6 +409,8 @@ export default async function PlatformDetailPage({
                   unit="usd"
                   variant="bars"
                   flow
+                  // §7: whichever of the pair is shorter fills to the other.
+                  fill
                 />
               )}
               <PlatformPartners partners={partners} platformKey={key} />
