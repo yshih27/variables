@@ -135,17 +135,23 @@ async function pullItems(nowMs: number, limit: number): Promise<TapeItem[]> {
   // mapBigHits owns the 24h-vs-recent decision and the display shaping; reusing
   // it keeps the tape's pull lines identical to the hits ticker's.
   const { hits } = mapBigHits(raw, nowMs, limit);
+  // Pulls get the INDEX-CLOSE treatment, not the sale treatment (user ruling,
+  // Sep 3): the big-hits snapshot refreshes weekly, so a pull is days old by
+  // construction. Older points are allowed and the label states the age, so a
+  // 4-day-old rip can never sit beside a 3-minute-old sale looking equally fresh.
   return hits
     .filter((h) => {
       const t = Date.parse(h.at);
-      return Number.isFinite(t) && nowMs - t <= EVENT_WINDOW_MS && t <= nowMs;
+      return Number.isFinite(t) && t <= nowMs;
     })
     .map((h) => {
       const usd = Number.isFinite(h.hitValueUsd) && h.hitValueUsd > 0 ? h.hitValueUsd : null;
+      const ageDays = Math.floor((nowMs - Date.parse(h.at)) / DAY);
+      const age = ageDays >= 1 ? ` · ${ageDays}d ago` : "";
       return {
         ts: h.at,
         kind: "pull" as const,
-        label: [h.name, h.grade].filter(Boolean).join(" · "),
+        label: [h.name, h.grade].filter(Boolean).join(" · ") + age,
         valueUsd: usd,
         valueText: valueText(usd),
         platform: h.platformKey,
