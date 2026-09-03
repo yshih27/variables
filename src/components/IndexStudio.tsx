@@ -37,6 +37,8 @@ import {
 } from "@/lib/brand";
 import { SITE_ORIGIN } from "@/lib/site";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
+import { resampleToPeriod, type Period } from "@/lib/chart/period";
+import { useWindowPref } from "@/lib/windowPref";
 
 type Mode = "rebase" | "abs";
 
@@ -54,6 +56,15 @@ const STEP_LOG = Math.log(1.3); // per-event ceiling — one event ≤ ~30%
 const ZOOM_BUCKET_MAX = 0.55; // ~2 steps of burst headroom
 const ZOOM_REFILL_PER_MS = 0.0037; // ≈15 steps/sec sustained
 const GROUP_ORDER = ["Indices", "Benchmarks", "Market cap", "Volume", "Activity", "Ratios"];
+/** Aggregation grains offered beside the range control. */
+const PERIODS: Period[] = ["D", "W", "M"];
+const PERIOD_LABEL: Record<Period, string> = { D: "D", W: "W", M: "M" };
+/** How the ReadMe describes the active grain (D says nothing — daily is the base). */
+const PERIOD_NOTE: Record<Period, string> = {
+  D: "",
+  W: " · weekly, complete weeks only",
+  M: " · monthly, complete months only",
+};
 const RANGES: { key: string; days: number | null; label: string }[] = [
   { key: "30", days: 30, label: "30D" },
   { key: "90", days: 90, label: "90D" },
@@ -138,7 +149,7 @@ function fmtVal(unit: Unit, v: number): string {
 // sees sc=market ≠ its own sc=platform and ignores the whole hash, mounting its
 // default. A genuine deep-link still works — it carries the tag of the page it
 // points at, so on arrival the tags match.
-type UrlState = { active: string[]; mode: Mode; win: [number, number] | null; sc: string };
+type UrlState = { active: string[]; mode: Mode; win: [number, number] | null; sc: string; period: Period };
 /** Stable per-page tag: "market" (/ips), "platform" (/platforms), or
  *  "platform:<key>" (/platform/[key]). */
 function scopeTag(scope?: StudioScope): string {
@@ -161,6 +172,8 @@ function parseHash(): Partial<UrlState> {
     }
     const sc = h.get("sc");
     if (sc) out.sc = sc;
+    const pd = h.get("p");
+    if (pd === "D" || pd === "W" || pd === "M") out.period = pd;
     return out;
   } catch {
     return {};
@@ -293,6 +306,16 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   // question being asked. Rebasing a single series to 100 answers nothing until
   // you add something to compare it against (which the picker still offers).
   const [mode, setMode] = useState<Mode>(initial.mode ?? (scope ? "abs" : "rebase"));
+  // D | W | M. A deep-linked hash wins outright (it is the reader's own link);
+  // otherwise the stored per-surface preference, read after mount so it can't
+  // disagree with the server's "D" during hydration (see useWindowPref).
+  const [storedPeriod, setStoredPeriod] = useWindowPref<Period>(`studio:${pageTag}`, PERIODS, "D");
+  const [periodOverride, setPeriodOverride] = useState<Period | null>(initial.period ?? null);
+  const period = periodOverride ?? storedPeriod;
+  const setPeriod = (p: Period) => {
+    setPeriodOverride(p);
+    setStoredPeriod(p);
+  };
   const [win, setWin] = useState<[number, number] | null>(initial.win ?? null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -397,20 +420,60 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
     p.set("m", activeValid.join(","));
     p.set("s", mode);
     if (win) p.set("w", `${new Date(win[0]).toISOString().slice(0, 10)}_${new Date(win[1]).toISOString().slice(0, 10)}`);
+    if (period !== "D") p.set("p", period);
     // Tag the hash with this page's identity so it can't be adopted by another
     // studio after a client-side nav (see parseHash / scopeTag). Also self-heals a
     // leftover foreign hash: once this page loads its default, this write replaces
     // the stale fragment with sc=<thisPage>.
     p.set("sc", pageTag);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${p.toString()}`);
-  }, [activeValid, mode, win, loaded, pageTag]);
+  }, [activeValid, mode, win, period, loaded, pageTag]);
+
+  /**
+   * ⚠️ THE ONLY THING THE D|W|M TOGGLE TOUCHES. Everything downstream — fullRange,
+   * visible, parsed, the model, the brush, the wheel, the clamp, the export — reads
+   * `shaped` instead of `seriesData` and is otherwise untouched. Aggregation is a
+   * pure derivation applied BEFORE the plot, so the interaction handlers (PR #53
+   * and #88) needed no diff at all.
+   *
+   * Flow vs level comes straight off the catalog's own `flow` flag, not a second
+   * taxonomy: a FLOW (volume, gacha volume, trades, cards traded, buyback) SUMS
+   * over the period; a LEVEL (market cap, holders, floor, an index, a benchmark
+   * close) takes the period's CLOSE. Summing seven daily holder counts, or seven
+   * daily index levels, would be meaningless.
+   *
+   * `weekly` marks the price indices (V-MKT and the IP indices), which are
+   * natively weekly and cannot be shown daily: under D they stay exactly as they
+   * are and keep the "weekly" tag their chip already carries; under M they close
+   * on each month's last COMPLETE week.
+   *
+   * Rebase happens downstream in `model`, so it rebases the AGGREGATED series to
+   * 100 at its first in-window point — the order the brief asks for.
+   */
+  const shaped = useMemo(() => {
+    if (period === "D") return seriesData;
+    const out = new Map<string, SeriesPoint[]>();
+    for (const [id, pts] of seriesData) {
+      const item = byId.get(id);
+      out.set(
+        id,
+        resampleToPeriod(pts, period, item?.flow ? "sum" : "last", {
+          weekly: item?.weekly,
+          // A leading Mon–Wed stub must not be summed and drawn as a whole week.
+          // Levels are exempt: one reading IS the period's close.
+          dropPartialLead: !!item?.flow,
+        }),
+      );
+    }
+    return out;
+  }, [seriesData, period, byId]);
 
   // Full data range across active series → the brush extent + default window.
   const fullRange = useMemo<[number, number] | null>(() => {
     let lo = Infinity;
     let hi = -Infinity;
     for (const id of activeValid) {
-      const pts = seriesData.get(id);
+      const pts = shaped.get(id);
       if (!pts?.length) continue;
       const a = Date.parse(pts[0].ts);
       const b = Date.parse(pts[pts.length - 1].ts);
@@ -418,7 +481,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
       if (Number.isFinite(b)) hi = Math.max(hi, b);
     }
     return Number.isFinite(lo) && Number.isFinite(hi) && lo < hi ? [lo, hi] : null;
-  }, [activeValid, seriesData]);
+  }, [activeValid, shaped]);
 
   // Effective window: explicit `win`, else the default range (last 90d), clamped.
   const window0 = useMemo<[number, number] | null>(() => {
@@ -432,8 +495,8 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   }, [fullRange, win]);
 
   const visible = useMemo(
-    () => activeValid.filter((id) => !hidden.has(id) && (seriesData.get(id)?.length ?? 0) >= 2),
-    [activeValid, hidden, seriesData],
+    () => activeValid.filter((id) => !hidden.has(id) && (shaped.get(id)?.length ?? 0) >= 2),
+    [activeValid, hidden, shaped],
   );
 
   /**
@@ -448,20 +511,20 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
    */
   const parsed = useMemo(() => {
     const m = new Map<string, { ms: number; value: number }[]>();
-    for (const [id, pts] of seriesData) {
+    for (const [id, pts] of shaped) {
       m.set(
         id,
         pts
           .map((p) => ({ ms: Date.parse(p.ts), value: p.value }))
           // Finite + ascending ONCE here, not per-window: the model's boundary
           // interpolation (interpAt) needs sorted input, and doing it in this
-          // seriesData-keyed memo keeps it off the wheel's per-frame path.
+          // shaped-keyed memo keeps it off the wheel's per-frame path.
           .filter((p) => Number.isFinite(p.ms) && Number.isFinite(p.value))
           .sort((a, b) => a.ms - b.ms),
       );
     }
     return m;
-  }, [seriesData]);
+  }, [shaped]);
 
   // Project every visible series onto the current window.
   //
@@ -1039,6 +1102,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   const resetChart = () => {
     setActive(scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE);
     setMode(scope ? "abs" : "rebase");
+    setPeriod("D");
     setHidden(new Set());
     setWin(null);
     if (typeof window !== "undefined")
@@ -1064,6 +1128,12 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 pt-4 sm:px-5">
         <div className="flex min-w-0 items-baseline gap-2.5">
           <h2 className="truncate text-[16px] font-semibold leading-tight tracking-[-0.01em]">{title}</h2>
+          {/* ⚠️ The GRAIN is deliberately NOT appended here. It was, and the extra
+              " · weekly" tipped this flex row into wrapping on the scoped studio
+              (/platform/[key], whose title is longer) — a 44px band-height delta
+              between D and W, which the per-chart toggle must not have. The
+              ReadMe below is the designated "how to read it" slot and already
+              says it; saying it twice cost a layout jump. */}
           <span className="hidden font-mono text-[11px] text-ink-3 sm:inline">
             {mode === "rebase" ? "rebased · 100 at window start" : "absolute values"}
           </span>
@@ -1074,6 +1144,15 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
             options={[{ key: "rebase", label: "Rebased" }, { key: "abs", label: "Absolute" }]}
             value={mode}
             onChange={(k) => setMode(k as Mode)}
+          />
+          {/* Grain. Same <Seg> as the two beside it, so adding it cannot change
+              the control band's height — the band is sized by its tallest child
+              and all three are the identical control. */}
+          <Seg
+            variant="mode"
+            options={PERIODS.map((p) => ({ key: p, label: PERIOD_LABEL[p] }))}
+            value={period}
+            onChange={(k) => setPeriod(k as Period)}
           />
           <Seg
             variant="range"
@@ -1096,6 +1175,11 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
         {mode === "rebase"
           ? "every series rebased to 100 at window start — slope is relative performance"
           : "raw values per series — scales differ, so read shape, not height"}
+        {/* GRAIN-AWARE for the same reason the line above is mode-aware: under W or
+            M the points are aggregated periods, and a running week or month is not
+            drawn at all. A reader who doesn't know that reads the missing tail as
+            missing data. */}
+        {PERIOD_NOTE[period]}
       </ReadMe>
 
       {/* Chips */}
@@ -1381,7 +1465,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
         <Brush
           full={fullRange}
           window={window0}
-          primary={model?.primary ? { pts: seriesData.get(model.primary.id) ?? [], color: model.primary.item.color } : null}
+          primary={model?.primary ? { pts: shaped.get(model.primary.id) ?? [], color: model.primary.item.color } : null}
           width={w}
           onChange={setWin}
         />

@@ -12,6 +12,7 @@ import { TableRowLink } from "./TableRowLink";
 import { hasRealMcap } from "@/lib/ip/mcap";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
+import { useWindowPref } from "@/lib/windowPref";
 
 type Props = {
   rows: IPRow[];
@@ -24,10 +25,20 @@ type Props = {
   teaser?: boolean;
   /** Override the section title (default "Top N IPs"). Watchlist passes "IPs". */
   title?: string;
+  /** localStorage surface for the volume-window choice. Omit to opt out. */
+  surface?: string | null;
 };
 
 type SortKey = "mcap" | "dom" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers";
-type VolWindow = "24h" | "7d";
+/**
+ * ⚠️ NO 30d OPTION, DELIBERATELY. `IPRow` carries vol24Usd and vol7Usd and nothing
+ * else; the only 30d figure on the row is `pct30d`, which is a MARKET-CAP delta,
+ * not volume. Deriving a "30d Vol" column from it would put a cap move under a
+ * volume header — a different quantity wearing the label. The option comes back
+ * when the payload carries a real vol30Usd.
+ */
+const VOL_WINDOWS = ["24h", "7d"] as const;
+type VolWindow = (typeof VOL_WINDOWS)[number];
 
 function mcapValue(ip: IPRow): number {
   // Mirror the display rule so the sort matches what's shown ("—" sinks).
@@ -109,14 +120,16 @@ function categoryGroup(key: string): string {
   return "Other";
 }
 
-export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
+export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface }: Props) {
   // ⚠️ DEFAULT IS VOLUME, NOT MARKET CAP. Ranking by cap pinned dormant IPs to the
   // top — Moonbirds sat at #3 on a cap it never trades against — so the table's
   // first screen described stored value while every other surface on the page
   // describes activity. Cap is still one click away; every header stays sortable.
   const [sortKey, setSortKey] = useState<SortKey>("vol");
   const [dir, setDir] = useState<1 | -1>(-1);
-  const [vw, setVw] = useState<VolWindow>("24h");
+  // Persisted per surface; read after mount so a stored "7d" can't disagree with
+  // the server's "24h" during hydration (see useWindowPref).
+  const [vw, setVw] = useWindowPref<VolWindow>(teaser ? null : surface ?? null, VOL_WINDOWS, "24h");
   const [facet, setFacet] = useState<string>("All");
   const full = !teaser;
   // Kept-in-teaser columns show earlier (sm) than the deep full-table columns (md).
@@ -298,7 +311,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title }: Props) {
 function WindowToggle({ value, onChange }: { value: VolWindow; onChange: (v: VolWindow) => void }) {
   return (
     <div className="hidden items-center gap-0.5 rounded-lg border border-line bg-bg-1 p-[3px] text-[11px] md:inline-flex">
-      {(["24h", "7d"] as VolWindow[]).map((w) => (
+      {VOL_WINDOWS.map((w) => (
         <button
           key={w}
           type="button"

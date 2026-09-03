@@ -18,28 +18,18 @@ import type { SaleRow } from "./salePanel";
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Monday-anchored UTC week start (ISO week) as an ISO string. The canonical week
- *  IDENTITY — used to BUCKET sales into weeks. (The emitted point LABEL is the
- *  week END, see weekEndUtc: a Mon–Sun week's value is reported "as of" its Sunday.) */
-export function weekStartUtc(ms: number): string {
-  const d = new Date(ms);
-  const dow = (d.getUTCDay() + 6) % 7; // 0 = Monday
-  return new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - dow),
-  ).toISOString();
-}
-
-/** Sunday-anchored UTC week END (the ISO week's last day = week start + 6d) as an
- *  ISO string. This is the STAMP for a weekly point: a value computed from a week's
- *  sales (Mon–Sun) IS the value as of that Sunday, so a Jul 13–19 median is labelled
- *  Jul 19 — not Jul 13, which reads 6 days stale. Pure label; the value is unchanged.
- *  Bucketing still uses weekStartUtc; only the emitted `ts` uses this. */
-export function weekEndUtc(ms: number): string {
-  const d = new Date(Date.parse(weekStartUtc(ms)));
-  return new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 6),
-  ).toISOString();
-}
+/**
+ * The week helpers moved to `@/lib/chart/period` — the D|W|M toggles (P1-B) need
+ * the same calendar math in the BROWSER, and this module's own importers pull in
+ * the snapshot readers. Re-exported here so every existing `from "./priceIndex"`
+ * import keeps working and there is still one implementation.
+ *
+ *   weekStartUtc — Monday-anchored week IDENTITY, used to bucket sales into weeks.
+ *   weekEndUtc   — Sunday-anchored week STAMP: a Mon–Sun week's value IS the value
+ *                  as of that Sunday, so a Jul 13–19 median is labelled Jul 19.
+ */
+import { weekStartUtc, weekEndUtc } from "@/lib/chart/period";
+export { weekStartUtc, weekEndUtc };
 
 function median(xs: number[]): number {
   if (xs.length === 0) return NaN;

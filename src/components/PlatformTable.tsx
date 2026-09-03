@@ -10,6 +10,7 @@ import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
+import { useWindowPref } from "@/lib/windowPref";
 
 const CHAIN_DOT: Record<Chain, string> = {
   Polygon: "var(--color-purple)",
@@ -33,9 +34,27 @@ type Props = {
   teaser?: boolean;
   /** Override the section title (default "Top Platforms"). Watchlist passes "Platforms". */
   title?: string;
+  /** localStorage surface for the volume-window choice. Omit to opt out. */
+  surface?: string | null;
 };
 
-type SortKey = "total" | "dom" | "vol24" | "gacha" | "primary" | "vol7" | "active" | "cards" | "holders" | "avgTrade" | "pct7";
+type SortKey = "total" | "dom" | "vol" | "gacha" | "primary" | "active" | "cards" | "holders" | "avgTrade" | "pct7";
+
+/**
+ * The window the MARKETPLACE volume column is read at.
+ *
+ * ⚠️ IT WINDOWS `Marketplace`, NOT `Total 24h`. `total24Usd` is marketplace +
+ * primary (gacha/tokenization) while `vol7Usd` is marketplace ONLY — swapping the
+ * primary column between them would change the QUANTITY, not the window, and
+ * print a resale figure under a header the reader just set to "7d" expecting the
+ * same measure. So the toggle pairs vol24Usd ↔ vol7Usd, which are one measure at
+ * two windows — exactly what IPTable's toggle does. `Total 24h` keeps its own
+ * hardcoded window because the payload carries no 7d sibling for it.
+ *
+ * No 30d option: PlatformRow has no 30-day volume field of any kind.
+ */
+const VOL_WINDOWS = ["24h", "7d"] as const;
+type VolWindow = (typeof VOL_WINDOWS)[number];
 
 /** Non-gacha primary revenue (tokenization mints, e.g. Courtyard). Marketplace +
  *  Gacha + Primary = Total; folds into Gacha once Courtyard is reclassified. */
@@ -44,19 +63,17 @@ function otherPrimary(p: PlatformRow): number {
   return Math.max(0, p.primaryUsd - (p.gachaVol24Usd ?? 0));
 }
 
-function valueFor(p: PlatformRow, key: SortKey): number {
+function valueFor(p: PlatformRow, key: SortKey, vw: VolWindow): number {
   switch (key) {
     case "total":
     case "dom":
       return p.total24Usd; // share ranks identically to total activity
-    case "vol24":
-      return p.vol24Usd;
+    case "vol":
+      return vw === "24h" ? p.vol24Usd : p.vol7Usd;
     case "gacha":
       return p.gachaVol24Usd ?? NaN;
     case "primary":
       return otherPrimary(p);
-    case "vol7":
-      return p.vol7Usd;
     case "active":
       return p.active24h;
     case "cards":
@@ -79,10 +96,13 @@ function cmp(a: number, b: number, dir: 1 | -1): number {
   return (a - b) * dir;
 }
 
-export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, title }: Props) {
+export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, title, surface }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("total");
   const [dir, setDir] = useState<1 | -1>(-1);
   const [chain, setChain] = useState<Chain | "all">("all");
+  // Persisted per surface; read after mount so a stored "7d" can't disagree with
+  // the server's "24h" during hydration (see useWindowPref).
+  const [vw, setVw] = useWindowPref<VolWindow>(teaser ? null : surface ?? null, VOL_WINDOWS, "24h");
   const full = !teaser;
 
   // Chain facets (F4) — one tab per chain present, in activity order, + All.
@@ -99,7 +119,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
   const showPrimary = scoped.some((p) => Number.isFinite(otherPrimary(p)) && otherPrimary(p) > 0);
 
   const totalActivity = scoped.reduce((s, p) => s + (p.total24Usd > 0 ? p.total24Usd : 0), 0) || 1;
-  const sorted = [...scoped].sort((a, b) => cmp(valueFor(a, sortKey), valueFor(b, sortKey), dir));
+  const sorted = [...scoped].sort((a, b) => cmp(valueFor(a, sortKey, vw), valueFor(b, sortKey, vw), dir));
   const visible = maxRows ? sorted.slice(0, maxRows) : sorted;
   const overflow = scoped.length - visible.length;
 
@@ -117,11 +137,14 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
       title={title ?? "Top Platforms"}
       readMe="every tracked venue, ranked — share is of total 24h activity"
       right={
-        seeAllHref && overflow > 0 ? (
-          <Link href={seeAllHref} className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
-            See all {rows.length} platforms →
-          </Link>
-        ) : undefined
+        <>
+          {!teaser && <WindowToggle value={vw} onChange={setVw} />}
+          {seeAllHref && overflow > 0 && (
+            <Link href={seeAllHref} className="text-[12px] text-ink-3 transition-colors hover:text-yellow">
+              See all {rows.length} platforms →
+            </Link>
+          )}
+        </>
       }
       flush
     >
@@ -160,12 +183,20 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
               <SortTh align="right" info="total24h" {...sp("total")}>Total 24h</SortTh>
               <SortTh align="right" className={full ? "hidden md:table-cell" : "hidden sm:table-cell"} info="share" {...sp("dom")}>Share</SortTh>
               <SortTh align="right" className={full ? "hidden md:table-cell" : "hidden sm:table-cell"} info="momentum7d" {...sp("pct7")}>Δ 7d</SortTh>
-              {full && <SortTh align="right" className="hidden md:table-cell" info="marketplace" {...sp("vol24")}>Marketplace</SortTh>}
+              {full && (
+                <SortTh
+                  align="right"
+                  className="hidden md:table-cell"
+                  info={vw === "24h" ? "marketplace" : "volume7d"}
+                  {...sp("vol")}
+                >
+                  {`${vw} Vol`}
+                </SortTh>
+              )}
               {full && <SortTh align="right" className="hidden md:table-cell" info="gacha" {...sp("gacha")}>Gacha</SortTh>}
               {full && showPrimary && (
                 <SortTh align="right" className="hidden md:table-cell" info="directSales" {...sp("primary")}>Direct sales</SortTh>
               )}
-              {full && <SortTh align="right" className="hidden md:table-cell" info="volume7d" {...sp("vol7")}>7d Vol</SortTh>}
               {full && <SortTh align="right" className="hidden md:table-cell" info="avgTrade" {...sp("avgTrade")}>Avg Trade</SortTh>}
               {full && (
               <SortTh align="right" className="hidden md:table-cell" info="activeWallets" {...sp("active")}>
@@ -221,17 +252,19 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                 <Td align="right" strong>{p.total24Usd > 0 ? formatCompactUsd(p.total24Usd) : "—"}</Td>
                 <Td align="right" muted className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}>{shareCell(p, totalActivity)}</Td>
                 <Td align="right" className={full ? "hidden md:table-cell" : "hidden sm:table-cell"}><DeltaCell pct={p.pct7d} /></Td>
-                {full && <Td align="right" className="hidden md:table-cell">{p.vol24Usd > 0 ? formatCompactUsd(p.vol24Usd) : "—"}</Td>}
+                {full && (
+                  <Td align="right" className="hidden md:table-cell">
+                    {(() => {
+                      const v = vw === "24h" ? p.vol24Usd : p.vol7Usd;
+                      return Number.isFinite(v) && v > 0 ? formatCompactUsd(v) : "—";
+                    })()}
+                  </Td>
+                )}
                 {full && <Td align="right" className="hidden md:table-cell">{p.gachaVol24Usd != null && p.gachaVol24Usd > 0 ? formatCompactUsd(p.gachaVol24Usd) : "—"}</Td>}
                 {full && showPrimary && (
                   <Td align="right" className="hidden md:table-cell">
                     {Number.isFinite(otherPrimary(p)) && otherPrimary(p) > 0 ? formatCompactUsd(otherPrimary(p)) : "—"}
                   </Td>
-                )}
-                {full && (
-                <Td align="right" muted className="hidden md:table-cell">
-                  {Number.isFinite(p.vol7Usd) ? formatCompactUsd(p.vol7Usd) : "—"}
-                </Td>
                 )}
                 {full && <Td align="right" muted className="hidden md:table-cell">{p.avgTradeUsd > 0 ? formatCompactUsd(p.avgTradeUsd) : "—"}</Td>}
                 {full && <Td align="right" className="hidden md:table-cell">{formatInt(p.active24h)}</Td>}
@@ -252,6 +285,29 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
           chain facet or a maxRows teaser can't read as the whole market. */}
       <TableFoot shown={visible.length} total={scoped.length} noun="platform" filtered={scoped.length !== rows.length ? rows.length : null} />
     </Section>
+  );
+}
+
+/** 24H VOL / 7D VOL — the marketplace column's window. Same control, same
+ *  breakpoint and same copy shape as IPTable's, so the two leaderboards read as
+ *  one idiom rather than two. */
+function WindowToggle({ value, onChange }: { value: VolWindow; onChange: (v: VolWindow) => void }) {
+  return (
+    <div className="hidden items-center gap-0.5 rounded-lg border border-line bg-bg-1 p-[3px] text-[11px] md:inline-flex">
+      {VOL_WINDOWS.map((w) => (
+        <button
+          key={w}
+          type="button"
+          onClick={() => onChange(w)}
+          aria-pressed={value === w}
+          className={`rounded-md px-2.5 py-1 font-medium uppercase tracking-[0.04em] transition-colors ${
+            value === w ? "bg-bg-3 text-yellow" : "text-ink-3 hover:text-ink"
+          }`}
+        >
+          {w} vol
+        </button>
+      ))}
+    </div>
   );
 }
 

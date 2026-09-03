@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 import { MetricInfo } from "./MetricInfo";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { monotonePath } from "@/lib/chart/path";
+import { lastNPeriods, periodIndex, resampleToPeriod, type Period } from "@/lib/chart/period";
+import { useWindowPref } from "@/lib/windowPref";
 import type { MetricKey } from "@/lib/metrics/glossary";
 
 /**
@@ -38,18 +40,40 @@ import type { MetricKey } from "@/lib/metrics/glossary";
  */
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function fmtDay(ts: string): string {
+const PERIODS: Period[] = ["D", "W", "M"];
+
+/**
+ * How much history each grain shows, and how it is spoken about.
+ *
+ * These are the window — a D card is 14 daily bars (its long-standing shape), W
+ * is the last 12 COMPLETE weeks, M the last 6 COMPLETE months. `count` replaces
+ * the old `windowDays` prop and `short` builds the headline caption, so the badge
+ * that used to read a hardcoded "14D" is now the toggle's own active state and
+ * cannot fall out of step with what is drawn.
+ */
+const GRAIN: Record<Period, { count: number; one: string; many: string; short: string }> = {
+  D: { count: 14, one: "day", many: "days", short: "d" },
+  W: { count: 12, one: "week", many: "weeks", short: "w" },
+  M: { count: 6, one: "month", many: "months", short: "m" },
+};
+
+function fmtPoint(ts: string, period: Period): string {
   const d = new Date(ts);
-  return Number.isNaN(d.getTime()) ? ts : `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  if (Number.isNaN(d.getTime())) return ts;
+  // A monthly point is stamped at the month END, so printing "Aug 31" for August
+  // would read as a single day. The month IS the reading.
+  if (period === "M") return MON[d.getUTCMonth()];
+  return `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
-/** Whole days since epoch (UTC) — the spine's buckets are calendar days. */
-function dayIndex(ts: string): number {
-  return Math.floor(Date.parse(ts) / 86_400_000);
+/** Hover readout label. A weekly point is stamped at its Sunday, so it says so —
+ *  otherwise "Aug 30" beside a week's total reads as one day's worth. */
+function fmtHover(ts: string, period: Period): string {
+  return period === "W" ? `w/e ${fmtPoint(ts, "W")}` : fmtPoint(ts, period);
 }
 
-/** One day of the window: the reading that fell on it, or null for a day this
- *  series doesn't cover. `dataIndex` is the point's position within the real
+/** One PERIOD of the window: the reading that fell in it, or null for a period
+ *  this series doesn't cover. `dataIndex` is the point's position within the real
  *  series, which is what the age ramp and the newest-bar emphasis key off. */
 type Slot = { ts: string; value: number; dataIndex: number } | null;
 
@@ -69,12 +93,12 @@ type Slot = { ts: string; value: number; dataIndex: number } | null;
  * bars off the right edge by that lag and — worse — push the oldest points of a
  * FULL 14-point series off the left end of its own axis.
  */
-function toSlots(data: SeriesPoint[], windowDays: number): Slot[] {
-  const slots: Slot[] = new Array(Math.max(1, windowDays)).fill(null);
+function toSlots(data: SeriesPoint[], windowCount: number, period: Period): Slot[] {
+  const slots: Slot[] = new Array(Math.max(1, windowCount)).fill(null);
   if (!data.length) return slots;
-  const end = dayIndex(data[data.length - 1].ts);
+  const end = periodIndex(data[data.length - 1].ts, period);
   data.forEach((p, dataIndex) => {
-    const k = slots.length - 1 - (end - dayIndex(p.ts));
+    const k = slots.length - 1 - (end - periodIndex(p.ts, period));
     if (k >= 0 && k < slots.length) {
       slots[k] = { ts: p.ts, value: Number.isFinite(p.value) ? p.value : 0, dataIndex };
     }
@@ -102,25 +126,24 @@ export function MetricBarCard({
   unit,
   variant = "bars",
   metric,
-  windowLabel = "14D",
-  windowDays = 14,
+  surface,
   emptyNote = "Building history",
   emptyDetail,
   note,
   fill,
 }: {
   label: string;
-  /** Daily points, oldest → newest (already sliced to the window). */
+  /** The FULL daily series, oldest → newest. The card slices it itself, because
+   *  W and M need history the old pre-sliced 14-point window didn't carry. */
   data: SeriesPoint[];
   unit: "usd" | "count";
   /** flow → "bars" (default); stock → "line". See the note above. */
   variant?: "bars" | "line";
   /** Glossary key behind the label's tooltip. */
   metric?: MetricKey;
-  windowLabel?: string;
-  /** How many days the window WANTS. A shorter series says so rather than
-   *  silently presenting itself as a full window. */
-  windowDays?: number;
+  /** localStorage surface for the D|W|M choice ("cards:ips", "cards:platform:beezie").
+   *  Omit to opt out of persistence. */
+  surface?: string | null;
   /** Shown in place of the series when `data` is empty. */
   emptyNote?: string;
   /** Optional second line under `emptyNote` — say WHY this one is empty. Was
@@ -138,28 +161,62 @@ export function MetricBarCard({
   fill?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  const [period, setPeriod] = useWindowPref<Period>(surface ?? null, PERIODS, "D");
+  const grain = GRAIN[period];
+  const windowCount = grain.count;
+
+  /**
+   * The series actually drawn: aggregate the daily points to the chosen grain,
+   * then keep the last `count` PERIODS.
+   *
+   * The flow/level rule is the card's existing variant split, not a second
+   * taxonomy: `bars` IS a flow (volume, trades, cards traded) and sums; `line` IS
+   * a level (holders) and takes the period's close — summing seven daily holder
+   * counts would be meaningless, which is exactly why the two variants exist.
+   *
+   * `dropPartialLead` for flows: the first period is dropped when history only
+   * starts part-way through it, so a 5-day stub is never summed and drawn as a
+   * whole week. The TAIL is the calendar gate's job, not this one — see the note
+   * in lib/chart/period.
+   */
+  const series = useMemo(
+    () =>
+      lastNPeriods(
+        resampleToPeriod(data, period, variant === "line" ? "last" : "sum", {
+          dropPartialLead: variant !== "line",
+        }),
+        windowCount,
+        period,
+      ),
+    [data, period, variant, windowCount],
+  );
 
   const fmt = (n: number) => (unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n));
-  const values = data.map((p) => (Number.isFinite(p.value) ? p.value : 0));
-  const hasData = data.length > 0;
-  const rangeLabel = hasData ? `${fmtDay(data[0].ts)} – ${fmtDay(data[data.length - 1].ts)}` : null;
-  const partial = hasData && data.length < windowDays;
+  const values = series.map((p) => (Number.isFinite(p.value) ? p.value : 0));
+  const hasData = series.length > 0;
+  const rangeLabel = hasData
+    ? `${fmtPoint(series[0].ts, period)} – ${fmtPoint(series[series.length - 1].ts, period)}`
+    : null;
+  const partial = hasData && series.length < windowCount;
+  // The daily series had points but no COMPLETE period survived the gate — that is
+  // a different absence from "nothing recorded yet", and it says so.
+  const noCompletePeriod = !hasData && data.length > 0 && period !== "D";
 
   const total = !hasData
     ? null
     : variant === "line"
       ? values[values.length - 1]
       : values.reduce((a, v) => a + v, 0);
-  // Derived from windowLabel — this line used to hardcode "14-day total", so a
-  // card passed windowLabel="7D" quietly lied about its own window.
-  const totalCaption = variant === "line" ? "latest" : `${windowLabel.toLowerCase()} total`;
+  // Derived from the ACTIVE grain. This line used to hardcode "14-day total", so a
+  // card on any other window quietly lied about its own.
+  const totalCaption = variant === "line" ? "latest" : `${windowCount}${grain.short} total`;
 
-  // Day slots across the whole window — the plot's real geometry. `hover` indexes
-  // SLOTS, so an empty day can't resolve to a reading.
-  const slots = toSlots(data, windowDays);
+  // Period slots across the whole window — the plot's real geometry. `hover`
+  // indexes SLOTS, so an empty period can't resolve to a reading.
+  const slots = toSlots(series, windowCount, period);
   const active = hover != null ? slots[hover] : null;
   const headline = active ? active.value : total;
-  const caption = active ? fmtDay(active.ts) : totalCaption;
+  const caption = active ? fmtHover(active.ts, period) : totalCaption;
 
   return (
     <div className={`flex flex-col rounded-2xl border border-line bg-bg-1 px-4 py-3.5 ${fill ? "h-full" : ""}`}>
@@ -167,9 +224,7 @@ export function MetricBarCard({
         <span className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
           {metric ? <MetricInfo metric={metric}>{label}</MetricInfo> : label}
         </span>
-        <span className="rounded-md border border-line px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.04em] text-ink-4">
-          {windowLabel}
-        </span>
+        <PeriodToggle value={period} onChange={setPeriod} />
       </div>
 
       <div className="mt-2 text-[23px] font-bold leading-none tracking-[-0.01em] tabular">
@@ -184,14 +239,24 @@ export function MetricBarCard({
         <div
           className={`mt-3 flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line text-center ${fill ? "min-h-16 flex-1" : "h-16"}`}
         >
-          <span className="text-[12px] text-ink-3">{emptyNote}</span>
-          {emptyDetail ? <span className="text-[10.5px] text-ink-4">{emptyDetail}</span> : null}
+          <span className="text-[12px] text-ink-3">
+            {noCompletePeriod ? `No complete ${grain.one} yet` : emptyNote}
+          </span>
+          {noCompletePeriod ? (
+            <span className="text-[10.5px] text-ink-4">
+              {data.length} day{data.length === 1 ? "" : "s"} recorded · a part-{grain.one} is not
+              drawn as a whole one
+            </span>
+          ) : emptyDetail ? (
+            <span className="text-[10.5px] text-ink-4">{emptyDetail}</span>
+          ) : null}
         </div>
       ) : (
         <Plot
           slots={slots}
-          dataLength={data.length}
+          dataLength={series.length}
           fmt={fmt}
+          period={period}
           variant={variant}
           hover={hover}
           onHover={setHover}
@@ -202,17 +267,53 @@ export function MetricBarCard({
       {hasData ? (
         <div className="mt-2 font-mono text-[10.5px] text-ink-4">
           {rangeLabel}
+          {/* W/M state what they EXCLUDE. Without this the range line reads as a
+              plain span and the running week/month looks like missing data rather
+              than a period that hasn't closed. */}
+          {period !== "D" ? (
+            <span className="text-ink-3">{` · complete ${grain.many} only`}</span>
+          ) : null}
           {note ? <span className="text-ink-3">{` · ${note}`}</span> : null}
           {/* A young series states its own youth instead of looking like a full
               window that happens to be short. */}
           {partial ? (
             <span className="text-ink-3">
               {" · "}
-              {data.length} of {windowDays} days · building
+              {series.length} of {windowCount} {grain.many} · building
             </span>
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * D | W | M, in the slot the hardcoded "14D" badge used to occupy.
+ *
+ * ⚠️ It is deliberately built to the badge's EXACT box — same border, same
+ * `px-1.5 py-0.5`, same 10px mono — so swapping a static chip for a live control
+ * cannot change the header's height. The cards sit in a `grid-rows-3 h-full` rail
+ * beside the studio (terminal-ux-study §7); a taller header there would push the
+ * rail's bottom edge off the studio's and break the pair.
+ */
+function PeriodToggle({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  return (
+    <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-line font-mono text-[10px] uppercase tracking-[0.04em]">
+      {PERIODS.map((p) => (
+        <button
+          key={p}
+          type="button"
+          aria-pressed={value === p}
+          aria-label={GRAIN[p].many}
+          onClick={() => onChange(p)}
+          className={`px-1.5 py-0.5 transition-colors ${
+            value === p ? "bg-bg-3 text-yellow" : "text-ink-4 hover:text-ink-2"
+          }`}
+        >
+          {p}
+        </button>
+      ))}
     </div>
   );
 }
@@ -230,6 +331,7 @@ function Plot({
   slots,
   dataLength,
   fmt,
+  period,
   variant,
   hover,
   onHover,
@@ -238,6 +340,7 @@ function Plot({
   slots: Slot[];
   dataLength: number;
   fmt: (n: number) => string;
+  period: Period;
   variant: "bars" | "line";
   hover: number | null;
   onHover: (i: number | null) => void;
@@ -269,7 +372,7 @@ function Plot({
       </div>
 
       {variant === "line" ? (
-        <LineSeries slots={slots} dataLength={dataLength} hover={hover} />
+        <LineSeries slots={slots} dataLength={dataLength} period={period} hover={hover} />
       ) : (
         <Bars slots={slots} hover={hover} />
       )}
@@ -297,7 +400,7 @@ function Plot({
           className="pointer-events-none absolute top-full z-20 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-line-2 bg-bg-2/95 px-2 py-1 font-mono text-[10.5px] shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur"
           style={{ left: `${leftPct}%` }}
         >
-          <span className="text-ink-3">{fmtDay(active.ts)}</span>
+          <span className="text-ink-3">{fmtHover(active.ts, period)}</span>
           <span className="mx-1.5 text-ink-4">·</span>
           <span className="font-bold text-ink">{fmt(active.value)}</span>
         </div>
@@ -385,10 +488,12 @@ function Bars({
 function LineSeries({
   slots,
   dataLength,
+  period,
   hover,
 }: {
   slots: Slot[];
   dataLength: number;
+  period: Period;
   hover: number | null;
 }) {
   const W = 200;
@@ -447,7 +552,7 @@ function LineSeries({
       preserveAspectRatio="none"
       className="absolute inset-0 h-full w-full"
       role="img"
-      aria-label={`Latest ${formatPoint(present)}`}
+      aria-label={`Latest ${formatPoint(present, period)}`}
     >
       <defs>
         <linearGradient id="mbc-area" x1="0" y1="0" x2="0" y2="1">
@@ -540,8 +645,8 @@ function LineSeries({
 }
 
 /** aria-label helper — the raw latest reading, unformatted by unit. */
-function formatPoint(present: NonNullable<Slot>[]): string {
+function formatPoint(present: NonNullable<Slot>[], period: Period): string {
   if (!present.length) return "no data";
   const last = present[present.length - 1];
-  return `${last.value} on ${fmtDay(last.ts)}`;
+  return `${last.value} on ${fmtHover(last.ts, period)}`;
 }
