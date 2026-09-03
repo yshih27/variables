@@ -9,7 +9,10 @@ import { RailNav } from "./RailNav";
 import { ShellSearch } from "./ShellSearch";
 import { Tape } from "./Tape";
 import { TickerStat } from "./TickerStat";
+import { ChartFocusProvider } from "./ChartFocus";
+import { KeyboardLayer } from "./KeyboardLayer";
 import { RAIL_PREF_SCRIPT } from "./railPref";
+import { DENSITY_SCRIPT } from "@/lib/shellPrefs";
 
 /**
  * SHELL_V2 — the terminal frame (north-star Moves 1–4, S1: frame + rail).
@@ -41,10 +44,14 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   ]);
 
   return (
+    <ChartFocusProvider>
     <div className={`shell-root font-sans${TAPE_AVAILABLE ? " shell-has-tape" : ""}`}>
       {/* Stamps data-rail on <html> BEFORE paint, so a stored "icons" doesn't
           render a 240px rail and snap it to 56px. */}
       <script dangerouslySetInnerHTML={{ __html: RAIL_PREF_SCRIPT }} />
+      {/* Same pre-paint reason: compact changes every table row's height, so
+          applying it in an effect would paint comfortable and jump the page. */}
+      <script dangerouslySetInnerHTML={{ __html: DENSITY_SCRIPT }} />
 
       <a
         href="#content"
@@ -106,6 +113,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <BottomTabs />
+      <KeyboardLayer />
     </div>
+    </ChartFocusProvider>
   );
 }

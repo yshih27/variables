@@ -444,3 +444,23 @@ a.ght-chip:hover {
 /* The band is chrome above the content column, so the rail's sticky offset has
    to clear it too. One knob, same as --shell-rail-w. */
 .shell-has-tape { --shell-chrome-h: calc(var(--shell-topbar-h) + var(--shell-tape-h)); }
+
+/* ── SHELL_V2 density ─────────────────────────────────────────────────────────
+   `data-density` is stamped on <html> before paint (see lib/shellPrefs.ts).
+   COMPACT tightens the two things that actually buy density — table rows and
+   card padding — and DELIBERATELY leaves chart heights alone: a plot that
+   changed height with the toggle would change what its shape says, and the
+   §7 paired-container measurements would move with a preference. */
+html[data-density="compact"] td {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  line-height: 1rem;
+}
+html[data-density="compact"] th {
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+html[data-density="compact"] .mbc {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}

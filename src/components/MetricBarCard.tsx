@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 import { MetricInfo } from "./MetricInfo";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { monotonePath } from "@/lib/chart/path";
 import { lastNPeriods, periodIndex, resampleToPeriod, type Period } from "@/lib/chart/period";
 import { useWindowPref } from "@/lib/windowPref";
+import { chartFocusProps, useChartFocus } from "./shell/ChartFocus";
 import type { MetricKey } from "@/lib/metrics/glossary";
 
 /**
@@ -163,6 +164,25 @@ export function MetricBarCard({
   const [hover, setHover] = useState<number | null>(null);
   const [period, setPeriod] = useWindowPref<Period>(surface ?? null, PERIODS, "D");
   const grain = GRAIN[period];
+
+  /* SHELL_V2: `[` / `]` cycle THIS card's grain when the cursor or focus is on
+     it. The context defaults to a no-op, so with the shell flag off — or on a
+     page that never mounts the provider — nothing here changes. The id is the
+     persistence surface plus the label, because /ips has three cards sharing one
+     surface and they must remain independently targetable. */
+  const charts = useChartFocus();
+  const chartId = `${surface ?? "card"}:${label}`;
+  const cycleRef = useRef<(dir: 1 | -1) => void>(() => {});
+  // Assigned in an effect (no dep array = after every render) rather than during
+  // it, so the registered callback is always current without a render-time ref
+  // write, and registration itself stays a one-time Map entry.
+  useEffect(() => {
+    cycleRef.current = (dir) => {
+      const i = PERIODS.indexOf(period);
+      setPeriod(PERIODS[(i + dir + PERIODS.length) % PERIODS.length]);
+    };
+  });
+  useEffect(() => charts.register(chartId, (dir) => cycleRef.current(dir)), [charts, chartId]);
   const windowCount = grain.count;
 
   /**
@@ -219,7 +239,10 @@ export function MetricBarCard({
   const caption = active ? fmtHover(active.ts, period) : totalCaption;
 
   return (
-    <div className={`flex flex-col rounded-2xl border border-line bg-bg-1 px-4 py-3.5 ${fill ? "h-full" : ""}`}>
+    <div
+      {...chartFocusProps(charts, chartId)}
+      className={`mbc flex flex-col rounded-2xl border border-line bg-bg-1 px-4 py-3.5 ${fill ? "h-full" : ""}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
           {metric ? <MetricInfo metric={metric}>{label}</MetricInfo> : label}

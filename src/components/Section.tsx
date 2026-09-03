@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 /**
  * Section (QA-4) — the ONE content-module frame for the whole app: a bordered
@@ -14,9 +14,19 @@ import type { ReactNode } from "react";
 
 /** The bare card frame — for the rare headerless module (the homepage
  *  MarketHeader hero) so even those share one source of frame truth (D1). */
-export function SectionShell({ className, children }: { className?: string; children: ReactNode }) {
+export function SectionShell({
+  className,
+  children,
+  ...rest
+}: { className?: string; children: ReactNode } & Omit<
+  ComponentPropsWithoutRef<"section">,
+  "className" | "children"
+>) {
   return (
-    <section className={`overflow-hidden rounded-2xl border border-line bg-bg-1 ${className ?? ""}`}>
+    <section
+      {...rest}
+      className={`overflow-hidden rounded-2xl border border-line bg-bg-1 ${className ?? ""}`}
+    >
       {children}
     </section>
   );

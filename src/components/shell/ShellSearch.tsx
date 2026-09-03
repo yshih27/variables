@@ -1,21 +1,36 @@
 "use client";
 
+import { SHELL_V2 } from "@/lib/flags";
+import { PALETTE_OPEN_EVENT } from "./KeyboardLayer";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 /**
  * The top bar's search field.
  *
- * S1 behaviour is the NavBar's, unchanged: type, Enter, land on `/search?q=`.
- * S3 turns this same field into the ⌘K command palette's trigger — the brief is
- * explicit that it must be the SAME field, not a second search, so the markup
- * already carries `aria-keyshortcuts` and the hint slot the palette will use.
+ * ⚠️ IT IS THE PALETTE, NOT A SECOND SEARCH. Focusing or clicking it opens the
+ * ⌘K command palette, which owns the query, the ranking and the results; this is
+ * a button wearing a text field's clothes. One query surface, one ranking — the
+ * brief is explicit about that.
+ *
+ * With the shell flag off this file isn't rendered at all (NavBar keeps its own
+ * field), so the fallback below only exists for safety: if the palette layer were
+ * ever absent, typing here still lands on the existing /search page.
  */
 export function ShellSearch() {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  /** Hand off to the palette. Kept as a function so every affordance on this
+   *  control — click, focus, the mobile button — opens the same one thing. */
+  function openPalette() {
+    if (!SHELL_V2) return false;
+    window.dispatchEvent(new CustomEvent(PALETTE_OPEN_EVENT));
+    inputRef.current?.blur();
+    return true;
+  }
 
   function run() {
     const trimmed = q.trim();
@@ -54,20 +69,28 @@ export function ShellSearch() {
           type="search"
           name="q"
           value={q}
+          readOnly={SHELL_V2}
+          onFocus={() => openPalette()}
+          onClick={() => openPalette()}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Search cards, sets, IPs…"
           aria-keyshortcuts="Meta+K Control+K"
-          className="h-full min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-ink-3"
+          className="h-full min-w-0 flex-1 cursor-pointer bg-transparent text-ink outline-none placeholder:text-ink-3"
         />
+        <kbd className="hidden rounded border border-line px-1 py-px font-mono text-[9.5px] text-ink-4 lg:block">⌘K</kbd>
       </form>
 
       {/* Mobile: a toggle that drops a full-width field below the bar, so the
           brand · strip · star row keeps its space. */}
       <button
         type="button"
-        onClick={() => setMobileOpen((o) => !o)}
+        onClick={() => {
+          if (openPalette()) return;
+          setMobileOpen((o) => !o);
+        }}
         aria-label="Search"
+        aria-keyshortcuts="Meta+K Control+K"
         aria-expanded={mobileOpen}
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line/70 bg-bg-1 text-ink-3 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 md:hidden"
       >

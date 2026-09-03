@@ -39,6 +39,7 @@ import { SITE_ORIGIN } from "@/lib/site";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { resampleToPeriod, type Period } from "@/lib/chart/period";
 import { useWindowPref } from "@/lib/windowPref";
+import { chartFocusProps, useChartFocus } from "./shell/ChartFocus";
 
 type Mode = "rebase" | "abs";
 
@@ -316,6 +317,22 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
     setPeriodOverride(p);
     setStoredPeriod(p);
   };
+
+  /* SHELL_V2: `[` / `]` cycle the grain while the cursor or focus is on the
+     studio. No-op context by default, so the flag-off build is unchanged. */
+  const charts = useChartFocus();
+  const chartId = `studio:${pageTag}`;
+  const cycleRef = useRef<(dir: 1 | -1) => void>(() => {});
+  // Assigned in an effect (no dep array = after every render) rather than during
+  // it, so the registered callback is always current without a render-time ref
+  // write, and registration itself stays a one-time Map entry.
+  useEffect(() => {
+    cycleRef.current = (dir) => {
+      const i = PERIODS.indexOf(period);
+      setPeriod(PERIODS[(i + dir + PERIODS.length) % PERIODS.length]);
+    };
+  });
+  useEffect(() => charts.register(chartId, (dir) => cycleRef.current(dir)), [charts, chartId]);
   const [win, setWin] = useState<[number, number] | null>(initial.win ?? null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -1123,7 +1140,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   ];
 
   return (
-    <SectionShell className="font-sans">
+    <SectionShell className="font-sans" {...chartFocusProps(charts, chartId)}>
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-3 pt-4 sm:px-5">
         <div className="flex min-w-0 items-baseline gap-2.5">
