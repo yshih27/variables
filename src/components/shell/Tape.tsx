@@ -81,7 +81,13 @@ export function Tape({ initial }: { initial: TapeItem[] }) {
   // Age out items as the page sits open: a sale that was 23h old on load must
   // leave the band an hour later rather than quietly becoming a 25h-old "live" event.
   const live = useMemo(
-    () => (nowMs == null ? items : items.filter((it) => relativeAge(Date.parse(it.ts), nowMs) != null)),
+    // Sales and pulls age out at 24h. Index closes are EXEMPT: a weekly close is
+    // days old by construction and its label already states that age ("· 4d ago"),
+    // which is the house treatment for an older-but-honest point.
+    () =>
+      nowMs == null
+        ? items
+        : items.filter((it) => it.kind === "index" || relativeAge(Date.parse(it.ts), nowMs) != null),
     [items, nowMs],
   );
 
@@ -143,7 +149,9 @@ const KIND_LABEL: Record<TapeItem["kind"], string> = {
 };
 
 function TapeEntry({ item, nowMs }: { item: TapeItem; nowMs: number | null }) {
-  const age = nowMs == null ? null : relativeAge(Date.parse(item.ts), nowMs);
+  // Index closes carry their age inside the label; rendering a second one here
+  // would print "· 4d ago 4d ago".
+  const age = nowMs == null || item.kind === "index" ? null : relativeAge(Date.parse(item.ts), nowMs);
   const dir = deltaDir(item.deltaPct);
   const deltaCls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
   return (

@@ -22,6 +22,7 @@ import { readIndexSeries } from "./indices";
 import { readCardMeta, type CardPlatform } from "./cards";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 import { tickerOf } from "@/lib/indices/naming";
+import { parseGrade } from "@/lib/card/grade";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { formatCompactUsd } from "@/lib/format";
 import { IP_CATALOG, OTHER_IP } from "./ipCatalog";
@@ -92,7 +93,11 @@ async function saleItems(rows: UntaggedSale[], nowMs: number, limit: number): Pr
     const ipName = IP_NAME.get(ipKey) ?? ipKey;
     // `grade` off the cards table is already the canonical label ("PSA 10");
     // "Ungraded" is a real state worth omitting rather than printing.
-    const graded = m?.grade && m.grade !== "Ungraded" ? m.grade : null;
+    // Card NAMES carry the grade inline (grade SSOT: src/lib/card/grade.ts), so
+    // appending the cards-table grade again printed "… PSA 9 · PSA 9". Append it
+    // only when the name does not already parse a grade.
+    const nameHasGrade = !!(name && parseGrade(name));
+    const graded = !nameHasGrade && m?.grade && m.grade !== "Ungraded" ? m.grade : null;
     const label = name
       ? [name, graded].filter(Boolean).join(" · ")
       : [ipName, graded].filter(Boolean).join(" · ");

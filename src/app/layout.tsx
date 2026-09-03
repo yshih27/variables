@@ -39,7 +39,7 @@ export default function RootLayout({
   // GA4 only when the id is configured (keeps dev/preview clean); never hardcoded.
   const gaId = process.env.NEXT_PUBLIC_GA_ID;
   return (
-    <html lang="en" className={`${jetbrainsMono.variable} ${inter.variable}`}>
+    <html lang="en" className={`${jetbrainsMono.variable} ${inter.variable}`} suppressHydrationWarning>
       <body>
         {/* ⚠️ THE SEAM. Flag OFF = byte-for-byte the layout this file has always
             been: pages render their own <NavBar/> and the footer sits after them.
