@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { GroupedResults, SearchResult } from "@/lib/data/searchIndex";
+import type { GroupedSearchResponse, SearchGroup } from "@/lib/types";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { pushRecent, readRecents, type RecentEntry } from "@/lib/shellPrefs";
 
@@ -25,13 +25,9 @@ import { pushRecent, readRecents, type RecentEntry } from "@/lib/shellPrefs";
 type PaletteGroup = { key: string; label: string; items: PaletteItem[] };
 type PaletteItem = { label: string; sub?: string; href: string };
 
-/** The backend's shape is GroupedResults plus the groups its brief adds. Optional
- *  so today's endpoint (ips/platforms/cards) and tomorrow's both parse. */
-type RemoteResults = GroupedResults & {
-  sets?: SearchResult[];
-  pages?: SearchResult[];
-  metrics?: SearchResult[];
-};
+/** The route answers in the internal v1 envelope around the backend's grouped shape
+ *  (src/lib/types.ts GroupedSearchResponse): one entry per group that has hits. */
+type RemoteResults = GroupedSearchResponse;
 
 /** Routes — not data. Listing them client-side fabricates nothing. */
 const PAGES: PaletteItem[] = [
@@ -89,7 +85,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           setRemoteDown(true);
           return;
         }
-        setRemote({ q: needle, data: (await res.json()) as RemoteResults });
+        const body = (await res.json()) as { data?: RemoteResults } | RemoteResults;
+        const data = "groups" in body ? body : body.data;
+        if (data && Array.isArray(data.groups)) setRemote({ q: needle, data });
         setRemoteDown(false);
       } catch {
         /* aborted or offline — the local groups still answer */
@@ -112,20 +110,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       out.push({ key: "pages", label: "Pages", items: PAGES });
       return out;
     }
-    const asItems = (rs: SearchResult[] | undefined): PaletteItem[] =>
-      (rs ?? []).map((r) => ({ label: r.label, sub: r.sub, href: r.href }));
     const pages = PAGES.filter((p) => p.label.toLowerCase().includes(needle));
     if (pages.length) out.push({ key: "pages", label: "Pages", items: pages });
     if (fresh) {
-      for (const [key, label, rs] of [
-        ["ips", "IPs", fresh.ips],
-        ["sets", "Sets", fresh.sets],
-        ["platforms", "Platforms", fresh.platforms],
-        ["cards", "Cards", fresh.cards],
-        ["metrics", "Metrics", fresh.metrics],
-      ] as const) {
-        const items = asItems(rs);
-        if (items.length) out.push({ key, label, items });
+      // Backend order is the ranking; kinds map onto the palette's section keys.
+      const skip = new Set(["page"]); // routes are answered locally above
+      for (const g of fresh.groups as SearchGroup[]) {
+        if (skip.has(g.kind) || !g.items.length) continue;
+        out.push({
+          key: g.kind,
+          label: g.label,
+          items: g.items.map((r) => ({ label: r.label, sub: r.sub, href: r.href })),
+        });
       }
     }
     return out;

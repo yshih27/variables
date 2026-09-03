@@ -3,7 +3,7 @@ import { BrandLockup, BrandMark } from "@/components/Brand";
 import { SiteFooter } from "@/components/SiteFooter";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { buildRailModel } from "@/lib/data/railModel";
-import { buildTape, TAPE_AVAILABLE } from "@/lib/data/tape";
+import { getTape, TAPE_AVAILABLE } from "@/lib/data/tape";
 import { BottomTabs } from "./BottomTabs";
 import { RailNav } from "./RailNav";
 import { ShellSearch } from "./ShellSearch";
@@ -40,7 +40,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     // ⚠️ Total by construction: buildTape returns [] rather than throwing, and
     // TAPE_AVAILABLE is false until the backend feed lands — so an unwired feed
     // shows NO BAND at all, not a permanent "no cleared sales" line on every page.
-    TAPE_AVAILABLE ? buildTape().catch(() => []) : Promise.resolve([]),
+    TAPE_AVAILABLE ? getTape().catch(() => []) : Promise.resolve([]),
   ]);
 
   return (

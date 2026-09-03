@@ -44,8 +44,9 @@ export function Tape({ initial }: { initial: TapeItem[] }) {
       try {
         const res = await fetch("/api/internal/tape", { cache: "no-store" });
         if (!res.ok) return; // route not live yet (backend brief) — keep what we have
-        const next = (await res.json()) as { items?: TapeItem[] } | TapeItem[];
-        const list = Array.isArray(next) ? next : next.items;
+        // The route answers in the internal v1 envelope: { ok, meta, data: TapeItem[] }.
+        const next = (await res.json()) as { data?: TapeItem[]; items?: TapeItem[] } | TapeItem[];
+        const list = Array.isArray(next) ? next : (next.data ?? next.items);
         if (!cancelled && Array.isArray(list)) setItems(list);
       } catch {
         /* offline / aborted — the band keeps the events it already has */

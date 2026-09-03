@@ -226,3 +226,34 @@ export type TapeItem = {
   /** Percent move, where the event HAS one (an index close). Never synthesised. */
   deltaPct?: number | null;
 };
+
+
+/** Which index a grouped search hit came out of. */
+export type SearchGroupKind = "ip" | "platform" | "card" | "metric" | "page";
+
+export type SearchGroup = {
+  kind: SearchGroupKind;
+  /** Section heading, already title-cased ("IPs", "Cards", "Metrics"). */
+  label: string;
+  items: {
+    label: string;
+    sub?: string;
+    href: string;
+    /** 0-1, higher is better. Ranks within the group only — scores are not
+     *  comparable ACROSS groups (each index scores on its own scale). */
+    score: number;
+  }[];
+};
+
+/**
+ * The command palette's response.
+ *
+ * ⚠️ AN EMPTY SEARCH IS `groups: []`, NOT AN ERROR. A query that matches nothing
+ * is the single most common thing a palette does while someone is still typing,
+ * and a 4xx there turns ordinary typing into an error state.
+ */
+export type GroupedSearchResponse = {
+  query: string;
+  total: number;
+  groups: SearchGroup[];
+};
