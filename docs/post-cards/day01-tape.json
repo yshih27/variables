@@ -1,0 +1,27 @@
+{
+  "kind": "tape",
+  "eyebrow": "The tokenized card market · right now",
+  "hero": {
+    "value": "$63.2M",
+    "label": "total market cap"
+  },
+  "rows": [
+    {
+      "label": "cards indexed",
+      "value": "141,000"
+    },
+    {
+      "label": "holders",
+      "value": "45,007"
+    },
+    {
+      "label": "trades · 24h",
+      "value": "404"
+    },
+    {
+      "label": "platforms",
+      "value": "5"
+    }
+  ],
+  "asOf": "Sep 3, 2026"
+}

@@ -1,0 +1,24 @@
+{
+  "kind": "list",
+  "eyebrow": "V-MKT vs benchmarks · 30 days",
+  "title": "Index return minus each benchmark. Positive = cards outperformed.",
+  "rows": [
+    {
+      "label": "vs S&P 500",
+      "value": "+13.3%"
+    },
+    {
+      "label": "vs NASDAQ",
+      "value": "+12.3%"
+    },
+    {
+      "label": "vs BTC",
+      "value": "−5.3%"
+    },
+    {
+      "label": "vs ETH",
+      "value": "−10.3%"
+    }
+  ],
+  "asOf": "Sep 3, 2026"
+}
