@@ -157,3 +157,87 @@ export type HomepagePayload = {
   ips: IPRow[];
   platforms: PlatformRow[];
 };
+
+// ─── SHELL_V2 contracts ──────────────────────────────────────────────────────
+// Three shapes the SHELL_V2 frontend builds against. FROZEN CONTRACT: add
+// fields, never rename or repurpose one — the frontend imports these directly
+// and a rename is a silent break at the other end of a parallel work package.
+
+/**
+ * One line of the tape — a realized event, never a projection.
+ *
+ * ⚠️ `valueUsd` AND `valueText` BOTH EXIST ON PURPOSE. `valueUsd` is for sorting
+ * and thresholds; `valueText` is what renders. A sale we hold no USD figure for
+ * carries `valueUsd: null` + `valueText: "—"`, and the two together are what stop
+ * a missing price from being formatted as "$0" somewhere downstream.
+ */
+export type TapeItem = {
+  /** ISO timestamp of the EVENT, not of the build. */
+  ts: string;
+  kind: "sale" | "pull" | "index";
+  /** Pre-composed display line — the frontend renders it verbatim. */
+  label: string;
+  /** Null when there is no honest USD figure. Never 0 as a stand-in. */
+  valueUsd: number | null;
+  /** Formatted value, or "—". Always present. */
+  valueText: string;
+  /** Platform key, where the event has one (sales and pulls; index closes don't). */
+  platform?: string;
+  href: string;
+  /** Stable dedupe key. Same event from two builds must produce the same id. */
+  id: string;
+};
+
+/** One node of the navigation rail. */
+export type RailNode = {
+  key: string;
+  name: string;
+  href: string;
+  /**
+   * Recent series for a sparkline, oldest→newest.
+   * ⚠️ NULL, never `[]` or an array of zeros, when there is no series — a flat
+   * line at zero reads as "measured, and it was nothing", which is a different
+   * claim from "not measured".
+   */
+  spark: number[] | null;
+  /** Percent (e.g. -6.95), not a fraction. Null when the window has no base. */
+  deltaPct: number | null;
+  deltaWindow: "24h" | "7d";
+};
+
+export type RailModel = {
+  market: RailNode;
+  categories: (RailNode & { ips: RailNode[] })[];
+  platforms: RailNode[];
+  generatedAt: string;
+};
+
+/** Which index a grouped search hit came out of. */
+export type SearchGroupKind = "ip" | "platform" | "card" | "metric" | "page";
+
+export type SearchGroup = {
+  kind: SearchGroupKind;
+  /** Section heading, already title-cased ("IPs", "Cards", "Metrics"). */
+  label: string;
+  items: {
+    label: string;
+    sub?: string;
+    href: string;
+    /** 0-1, higher is better. Ranks within the group only — scores are not
+     *  comparable ACROSS groups (each index scores on its own scale). */
+    score: number;
+  }[];
+};
+
+/**
+ * The command palette's response.
+ *
+ * ⚠️ AN EMPTY SEARCH IS `groups: []`, NOT AN ERROR. A query that matches nothing
+ * is the single most common thing a palette does while someone is still typing,
+ * and a 4xx there turns ordinary typing into an error state.
+ */
+export type GroupedSearchResponse = {
+  query: string;
+  total: number;
+  groups: SearchGroup[];
+};
