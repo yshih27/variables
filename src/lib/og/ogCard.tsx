@@ -5,6 +5,7 @@ import {
   BRAND_LOCKUP_VIEWBOX,
   BRAND_LOCKUP_WORDMARK_PATH,
 } from "@/lib/brand";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
 /**
  * ONE shared OpenGraph template (F9-1) behind every per-entity share image:
@@ -23,6 +24,7 @@ export const OG_SIZE = { width: 1200, height: 630 };
 export const OG_CONTENT_TYPE = "image/png";
 
 const YELLOW = BRAND_LIME;
+const PLATFORM_LINE = PLATFORM_SOURCES.map((s) => s.name).join(" · ");
 const PURPLE = "#a18cff";
 const INK_DIM = "#707070";
 const BG = "radial-gradient(circle at 30% 30%, #1a1a1a 0%, #000 60%)";
@@ -170,7 +172,7 @@ export function renderOgCard(opts: OgCardOpts): ImageResponse {
             fontSize: 22,
           }}
         >
-          <div style={{ display: "flex" }}>Beezie · Courtyard · Collector Crypt · Phygitals</div>
+          <div style={{ display: "flex" }}>{PLATFORM_LINE}</div>
           <div style={{ display: "flex" }}>VARIBLE</div>
         </div>
       </div>

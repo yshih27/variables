@@ -5,6 +5,7 @@ import {
   BRAND_LOCKUP_VIEWBOX,
   BRAND_LOCKUP_WORDMARK_PATH,
 } from "@/lib/brand";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
 /**
  * Default OG image for social shares. Returns a 1200×630 card.
@@ -13,6 +14,10 @@ import {
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const alt = "VARIBLE — real cards, real prices, indexed";
+
+// Footer venue list derives from the platform catalog so a new platform can never
+// ship with a share card that still names the old roster.
+const PLATFORM_LINE = PLATFORM_SOURCES.map((s) => s.name).join(" · ");
 
 export default function OpengraphImage() {
   return new ImageResponse(
@@ -42,7 +47,7 @@ export default function OpengraphImage() {
           <div
             style={{
               fontSize: 24,
-              color: "#a18cff",
+              color: "#8c8c8c",
               textTransform: "uppercase",
               letterSpacing: 2,
               fontWeight: 500,
@@ -80,7 +85,7 @@ export default function OpengraphImage() {
             fontSize: 22,
           }}
         >
-          <span>Beezie · Courtyard · Collector Crypt · Phygitals</span>
+          <span>{PLATFORM_LINE}</span>
           <span>VARIBLE</span>
         </div>
       </div>
