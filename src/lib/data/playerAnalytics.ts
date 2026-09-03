@@ -25,6 +25,7 @@
  * backfilled from rows that never stored it.
  */
 import { db } from "../db/client";
+import { readCCGacha } from "./ccGachaCache";
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
 
 export const PLAYER_ANALYTICS_SNAPSHOT_KEY = "player-analytics";
@@ -150,6 +151,58 @@ export type PlayerAnalyticsSnapshot = {
    * not reached it yet. Only Collector Crypt emits memo_slug today.
    */
   partners?: Record<string, PartnerAttribution>;
+  /**
+   * Per-MACHINE spend and partner split for Collector Crypt. Null until the
+   * cc-gacha catalog and at least one complete day of pulls exist.
+   *
+   * ⚠️ COLLECTOR CRYPT ONLY, and the shape says so by carrying no platform key.
+   * It is the one platform whose pulls carry both a machine code (`product_id`)
+   * and an originating partner (`memo_slug`); the others have neither, and a
+   * per-platform map would advertise a split we cannot compute for them.
+   */
+  machines?: MachineBoard | null;
+};
+
+/** One partner's slice of a machine's ATTRIBUTED spend. */
+export type MachinePartnerShare = {
+  slug: string;
+  /** PARTNER_LABELS where confirmed, else the raw slug — never a guessed brand. */
+  label: string;
+  spendUsd: number;
+  /** Share of the machine's ATTRIBUTED spend (0-100), not of total spend. */
+  sharePct: number;
+};
+
+export type MachineRow = {
+  /** `product_id`, e.g. "collector-crypt:pokemon_5000". */
+  key: string;
+  /** Catalog display name; falls back to the key when the catalog lacks it. */
+  name: string;
+  /** Catalog price. Null when the machine is not in the current catalog (rotated
+   *  off the menu) — never inferred from the pulls, which would turn a mixed-price
+   *  history into a fake sticker price. */
+  priceUsd: number | null;
+  pulls: number;
+  spendUsd: number;
+  spend7dUsd: number;
+  pulls24h: number;
+  /** Σ spend on pulls carrying a memo_slug. The denominator for every share. */
+  attributedUsd: number;
+  /** Desc by spend. `cc` is a partner surface like any other and is included. */
+  partners: MachinePartnerShare[];
+  /** Null when attributedUsd = 0 — there is no top partner of nothing. */
+  topPartner: { slug: string; label: string; sharePct: number } | null;
+  unattributedUsd: number;
+};
+
+export type MachineBoard = {
+  windowDays: number;
+  /** Last COMPLETE day covered (ISO). Today is excluded — it is still filling. */
+  asOf: string;
+  /** Attributed ÷ total spend over the whole window (0-100). */
+  attributedSpendPct: number;
+  /** Every machine with ≥1 pull in the window, desc by spend. */
+  rows: MachineRow[];
 };
 
 /**
@@ -213,6 +266,21 @@ type PartnerAcc = {
 type WindowCounts = { total24h: number; total7d: number; total30d: number; totalLife: number;
                       attr24h: number; attr7d: number; attr30d: number; attrLife: number };
 
+/** The machine board covers Collector Crypt: the one platform whose pulls carry
+ *  both a machine code and an originating partner. */
+const MACHINE_PLATFORM = "collector-crypt";
+const MACHINE_WINDOW_DAYS = 30;
+
+type MachineAcc = {
+  pulls: number;
+  spend: number;
+  spend7d: number;
+  pulls24h: number;
+  attributed: number;
+  /** slug → attributed spend. */
+  partners: Map<string, number>;
+};
+
 type PlatformAcc = {
   wallets: Map<string, WalletAcc>;
   partners: Map<string, PartnerAcc>;
@@ -266,13 +334,31 @@ export async function aggregatePlayerAnalytics(opts: {
   const now = Date.now();
   const byPlatform = new Map<string, PlatformAcc>();
 
+  // ── Machine tally (Collector Crypt) ──────────────────────────────────────
+  // Rides the SAME scan every other aggregate uses — the pass over gacha_pulls
+  // is the expensive part (~1.5M rows, PostgREST caps every page at 1000), and
+  // a second pass to answer a second question would double a job that already
+  // takes minutes.
+  //
+  // ⚠️ COMPLETE DAYS, not a rolling 30×24h. Today is still filling, so a rolling
+  // window puts a part-day against full ones and every machine looks like it
+  // cooled off this morning. Same INV-8 rule the spine's own deltas follow.
+  const dayStartUtcMs = (ms: number) => Math.floor(ms / DAY_MS) * DAY_MS;
+  const todayStart = dayStartUtcMs(now);
+  const machWindowFrom = todayStart - MACHINE_WINDOW_DAYS * DAY_MS;
+  const mach7dFrom = todayStart - 7 * DAY_MS;
+  const mach24hFrom = todayStart - DAY_MS;
+  const machines = new Map<string, MachineAcc>();
+  let machSpendTotal = 0;
+  let machSpendAttributed = 0;
+
   let cursor = "";
   let scanned = 0;
   let page = 0;
   for (; page < maxPages; page++) {
     const { data, error } = await db()
       .from("gacha_pulls")
-      .select("pull_id, platform_id, buyer, price_usd, pulled_at, memo_slug")
+      .select("pull_id, platform_id, product_id, buyer, price_usd, pulled_at, memo_slug")
       .gt("pull_id", cursor)
       .order("pull_id", { ascending: true })
       .limit(PAGE);
@@ -323,6 +409,29 @@ export async function aggregatePlayerAnalytics(opts: {
           if (inW[0]) { pa.pulls24h += 1; pa.usd24h += usd; }
           if (inW[1]) { pa.pulls7d += 1; pa.usd7d += usd; }
           if (inW[2]) { pa.pulls30d += 1; pa.usd30d += usd; }
+        }
+      }
+
+      // ── Machines ─────────────────────────────────────────────────────────
+      // Complete days only, and only the platform whose pulls name a machine.
+      if (platform === MACHINE_PLATFORM) {
+        const t = Date.parse(at);
+        const productId = r.product_id ? String(r.product_id) : "";
+        if (productId && Number.isFinite(t) && t >= machWindowFrom && t < todayStart) {
+          let m = machines.get(productId);
+          if (!m) machines.set(productId, (m = { pulls: 0, spend: 0, spend7d: 0, pulls24h: 0, attributed: 0, partners: new Map() }));
+          const usd = priced ? price : 0;
+          m.pulls += 1;
+          m.spend += usd;
+          machSpendTotal += usd;
+          if (t >= mach7dFrom) m.spend7d += usd;
+          if (t >= mach24hFrom) m.pulls24h += 1;
+          const slug = r.memo_slug ? String(r.memo_slug).trim().toLowerCase() : "";
+          if (slug) {
+            m.attributed += usd;
+            machSpendAttributed += usd;
+            m.partners.set(slug, (m.partners.get(slug) ?? 0) + usd);
+          }
         }
       }
 
@@ -403,6 +512,70 @@ export async function aggregatePlayerAnalytics(opts: {
     }
   }
 
+  // ── Machine board ────────────────────────────────────────────────────────
+  // One catalog read (a snapshot row already written by warm-cc-gacha) for
+  // display names and prices. It is the ONLY external touch this block makes,
+  // and it is Postgres: no Dune, no Helius, no CardOS.
+  const catalog = await readCCGacha().catch(() => null);
+  const byCode = new Map((catalog?.packs ?? []).map((k) => [k.code, k]));
+  const machineRows: MachineRow[] = [...machines.entries()]
+    .map(([key, m]) => {
+      // product_id is "collector-crypt:pokemon_250"; the catalog keys on the
+      // bare code. Split on the FIRST colon only — a code could contain one.
+      const code = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key;
+      const pack = byCode.get(code);
+      const shares: MachinePartnerShare[] = [...m.partners.entries()]
+        .map(([slug, spendUsd]) => ({
+          slug,
+          // The confirmed label or the raw slug. A guessed brand name on a
+          // published board is a fabrication; the slug itself is honest.
+          label: PARTNER_LABELS[slug] ?? slug,
+          spendUsd,
+          // Share of ATTRIBUTED spend. Sharing against TOTAL would silently
+          // rescale every partner by the attribution rate and make a dominant
+          // partner look marginal.
+          sharePct: m.attributed > 0 ? (spendUsd / m.attributed) * 100 : 0,
+        }))
+        .sort((a, b) => b.spendUsd - a.spendUsd);
+      return {
+        key,
+        name: pack?.fullName || pack?.name || key,
+        // Null, not a price reconstructed from the pulls: a machine that has
+        // changed price would otherwise publish an average as a sticker price.
+        priceUsd: pack && Number.isFinite(pack.priceUsd) ? pack.priceUsd : null,
+        pulls: m.pulls,
+        spendUsd: m.spend,
+        spend7dUsd: m.spend7d,
+        pulls24h: m.pulls24h,
+        attributedUsd: m.attributed,
+        partners: shares,
+        // There is no top partner of nothing — null, never the first row of an
+        // empty list or a 0% winner.
+        topPartner: shares.length && m.attributed > 0
+          ? { slug: shares[0].slug, label: shares[0].label, sharePct: shares[0].sharePct }
+          : null,
+        unattributedUsd: Math.max(0, m.spend - m.attributed),
+      };
+    })
+    .sort((a, b) => b.spendUsd - a.spendUsd);
+
+  const machineBoard: MachineBoard | null = machineRows.length
+    ? {
+        windowDays: MACHINE_WINDOW_DAYS,
+        // The last COMPLETE day — the window ends at today's UTC midnight, so
+        // the newest day it covers is the one before it.
+        asOf: new Date(todayStart - DAY_MS).toISOString(),
+        attributedSpendPct: machSpendTotal > 0 ? (machSpendAttributed / machSpendTotal) * 100 : 0,
+        rows: machineRows,
+      }
+    : null;
+  log(
+    machineBoard
+      ? `· machines: ${machineBoard.rows.length} over ${MACHINE_WINDOW_DAYS} complete days · ` +
+        `$${Math.round(machSpendTotal).toLocaleString()} spend · ${machineBoard.attributedSpendPct.toFixed(1)}% attributed`
+      : `· machines: none (no complete-day CC pulls in the window)`,
+  );
+
   return {
     generatedAt: new Date().toISOString(),
     platforms,
@@ -411,6 +584,7 @@ export async function aggregatePlayerAnalytics(opts: {
     // Omit the key entirely when nothing is attributed anywhere, so the page's
     // `partners?.[key] ?? null` lookup stays a clean absence.
     ...(Object.keys(partners).length ? { partners } : {}),
+    machines: machineBoard,
   };
 }
 
