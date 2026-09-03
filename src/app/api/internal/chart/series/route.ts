@@ -16,14 +16,13 @@ import {
   type MetricEntityType,
   type SeriesPoint,
 } from "@/lib/data/metricSnapshots";
-import { rateLimitByIp } from "@/lib/api/auth";
 import { v1OkInternal, v1Error, pickParam } from "@/lib/api/v1";
-import { ENTITIES, METRIC_UNIT, METRICS, shapeSeries, cachedChart, CHART_RATE } from "@/lib/api/chartSeries";
+import { ENTITIES, METRIC_UNIT, METRICS, shapeSeries, cachedChart, guardChartRequest, CHART_CDN_HEADERS } from "@/lib/api/chartSeries";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const rl = await rateLimitByIp(req, CHART_RATE);
+  const rl = await guardChartRequest(req);
   if (!rl.ok) return v1Error(429, rl.error);
 
   const url = new URL(req.url);
@@ -47,7 +46,7 @@ export async function GET(req: Request) {
   const key = url.searchParams.get("key");
   if (key) {
     const raw = await cachedChart(["series", entity, key, metric], () => readMetricSeries(entity, key, metric));
-    return v1OkInternal({ ...common, key, points: shape(raw) });
+    return v1OkInternal({ ...common, key, points: shape(raw) }, CHART_CDN_HEADERS);
   }
 
   // No key → the whole leaderboard. Cache the raw bulk as a plain object (a Map
@@ -60,5 +59,5 @@ export async function GET(req: Request) {
     const shaped = shape(raw);
     if (shaped.length) series[k] = shaped; // populated-in-window keys only
   }
-  return v1OkInternal({ ...common, series });
+  return v1OkInternal({ ...common, series }, CHART_CDN_HEADERS);
 }

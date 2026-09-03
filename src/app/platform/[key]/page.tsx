@@ -6,6 +6,7 @@ import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioSeed } from "@/lib/studio/seed";
 import { CompositionChart, type CompositionSeries } from "@/components/CompositionChart";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTables";
@@ -50,12 +51,15 @@ export default async function PlatformDetailPage({
   const { key } = await params;
   // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
   // round-trips per request (R2-B1).
-  const [detail, series, playersSnap] = await Promise.all([
+  const [detail, series, playersSnap, studioSeed] = await Promise.all([
     getPlatformDetail(key),
     getPlatformActivitySeries(key),
     // Snapshot read; degrades to null (readSnapshot never throws), so a missing
     // warmer run costs the page nothing and the panel simply doesn't render.
     readPlayerAnalytics(),
+    // The studio's precomputed default view for THIS platform — embedded so the
+    // chart paints with no client fetch. Null degrades to the old API path.
+    readStudioSeed({ entity: "platform", key }),
   ]);
   if (!detail) notFound();
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
@@ -355,7 +359,7 @@ export default async function PlatformDetailPage({
               shares a top AND a bottom edge, so the rail is sized by the studio
               beside it and its three cards divide that height between them. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <IndexStudio scope={{ entity: "platform", key }} />
+            <IndexStudio seed={studioSeed} scope={{ entity: "platform", key }} />
             {/* grid-rows-3 of 1fr from lg up: the rail fills the studio's height
                 and each card gets an equal share, rather than three natural-height
                 cards stacking to whatever they happen to total. */}

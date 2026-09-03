@@ -4,14 +4,13 @@
  * Same params + `data` shape as /api/v1/benchmarks.
  */
 import { readBenchmarkSeries, ALL_BENCHMARK_SYMBOLS, type BenchmarkSymbol } from "@/lib/data/benchmarks";
-import { rateLimitByIp } from "@/lib/api/auth";
 import { v1OkInternal, v1Error, pickParam } from "@/lib/api/v1";
-import { cachedChart, CHART_RATE } from "@/lib/api/chartSeries";
+import { cachedChart, guardChartRequest, CHART_CDN_HEADERS } from "@/lib/api/chartSeries";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const rl = await rateLimitByIp(req, CHART_RATE);
+  const rl = await guardChartRequest(req);
   if (!rl.ok) return v1Error(429, rl.error);
 
   const url = new URL(req.url);
@@ -36,5 +35,5 @@ export async function GET(req: Request) {
     );
   }
 
-  return v1OkInternal({ from, freq, rebasedTo: 100, series });
+  return v1OkInternal({ from, freq, rebasedTo: 100, series }, CHART_CDN_HEADERS);
 }

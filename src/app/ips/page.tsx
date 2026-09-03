@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioSeed } from "@/lib/studio/seed";
 import { CategoryTreemap } from "@/components/CategoryTreemap";
 import { CompositionChart } from "@/components/CompositionChart";
 import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/OverviewMetricColumn";
@@ -86,15 +87,21 @@ export const metadata = {
 };
 
 export default async function AllIPsPage() {
-  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries] = await Promise.all([
-    getData(),
-    getIpSeries("volume_usd"),
-    getIpSeries("cards_traded"),
-    getPlatformSeries("volume_usd"),
-    getPlatformSeries("gacha_volume_usd"),
-    getMarketSeries("holders"),
-    getIpSeries("mcap_usd"),
-  ]);
+  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries, studioSeed] =
+    await Promise.all([
+      getData(),
+      getIpSeries("volume_usd"),
+      getIpSeries("cards_traded"),
+      getPlatformSeries("volume_usd"),
+      getPlatformSeries("gacha_volume_usd"),
+      getMarketSeries("holders"),
+      getIpSeries("mcap_usd"),
+      // The studio's precomputed default view — one snapshot row, embedded into
+      // the HTML so the chart paints with ZERO client fetches. Degrades to null
+      // (readStudioSeed never throws), and the component then builds itself from
+      // the API as it always did.
+      readStudioSeed(),
+    ]);
 
   const categories = rollupByCategory(data.ips, volSeries);
 
@@ -256,7 +263,7 @@ export default async function AllIPsPage() {
           {/* §7: items-stretch (default). The rail is sized by the studio beside it. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)]">
             <OverviewMetricColumn rows={overviewRows} />
-            <IndexStudio />
+            <IndexStudio seed={studioSeed} />
           </div>
 
           {/* ZONE 2 — three 14-day daily cards. Volume and cards traded are flows

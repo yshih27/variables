@@ -54,8 +54,11 @@ export function v1Error(status: number, error: string): Response {
  * off keeps external browser apps from using them to dodge the keyed /api/v1 tier.
  * Lighter meta (no attribution/terms — those are the public free-tier's contract).
  */
-export function v1OkInternal(data: unknown): Response {
-  return Response.json({ ok: true, meta: { generatedAt: new Date().toISOString() }, data });
+export function v1OkInternal(data: unknown, headers?: Record<string, string>): Response {
+  return Response.json(
+    { ok: true, meta: { generatedAt: new Date().toISOString() }, data },
+    headers ? { headers } : undefined,
+  );
 }
 
 /** Preflight response — every v1 route re-exports this as its OPTIONS handler. */
