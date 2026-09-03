@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { WatchlistView } from "@/components/WatchlistView";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 
@@ -23,7 +24,7 @@ export default async function WatchlistPage() {
   const data = await getHomepageData();
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="px-8 pt-8 pb-20 font-sans">
         <div className="mb-8">
           <h1 className="text-[20px] font-bold leading-none tracking-[-0.01em]">Watchlist</h1>

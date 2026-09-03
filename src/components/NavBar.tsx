@@ -9,6 +9,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { GACHA_ENABLED } from "@/lib/flags";
+import { deltaDir, formatDelta } from "@/lib/format";
 import { BrandLockup, BrandMark } from "./Brand";
 
 const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLabel?: string }> = [
@@ -21,15 +22,29 @@ const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLab
   { label: "Watchlist", href: "/watchlist", shortLabel: "★" },
 ];
 
-/** A single clickable stat in the top ticker. */
+/**
+ * A single clickable stat in the top ticker.
+ *
+ * Deliberately generic: the SHELL_V2 tape (design-north-star Move 2) streams
+ * EVENTS — cleared sales, big pulls — through this same slot, so nothing here is
+ * named for market stats.
+ */
 export type TickerItem = {
   label: string;
   value: string;
   href: string;
+  /** Signed percent move (already a PERCENT, not a fraction). null/absent = no delta. */
+  delta?: number | null;
+  /** Window the delta covers ("1w", "24h", "7d"). Omit when `label` already says it. */
+  deltaWindow?: string;
+  /** Hover explanation of what the number means. */
+  title?: string;
+  /** Kept below `sm`, where only the first couple of items fit. */
+  priority?: boolean;
 };
 
 /** Height of the ticker strip when expanded (px). Animated to 0 on collapse. */
-const TICKER_H = 38;
+export const TICKER_H = 38;
 
 function isActive(currentPath: string, link: { href: string; matchPrefix?: string }): boolean {
   if (currentPath === link.href) return true;
@@ -67,12 +82,24 @@ function useTickerCollapse(enabled: boolean): boolean {
   return collapsed;
 }
 
-export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
+export function NavBar({
+  ticker,
+  tickerPlaceholder,
+}: {
+  ticker?: TickerItem[];
+  /**
+   * Reserve the ticker band without any items. `loading.tsx` / `not-found.tsx`
+   * render the chrome before the strip's data exists; without this the strip's
+   * arrival on stream would push the whole page down by TICKER_H (CLS).
+   */
+  tickerPlaceholder?: boolean;
+}) {
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const [q, setQ] = useState("");
   const [mobileSearch, setMobileSearch] = useState(false);
   const hasTicker = !!ticker && ticker.length > 0;
+  const showBand = hasTicker || !!tickerPlaceholder;
   const collapsed = useTickerCollapse(hasTicker);
 
   function runSearch() {
@@ -108,7 +135,7 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
 
   return (
     <div className="sticky top-0 z-30 bg-bg/80 backdrop-blur-xl font-sans">
-      {hasTicker && (
+      {showBand && (
         <div
           className="overflow-hidden border-b border-line/40 transition-[height,opacity] duration-[280ms] ease-out"
           style={{ height: collapsed ? 0 : TICKER_H, opacity: collapsed ? 0 : 1 }}
@@ -118,16 +145,22 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
             className="scroll-x mx-auto flex max-w-[1760px] items-center gap-x-6 px-8"
             style={{ height: TICKER_H }}
           >
-            {ticker!.map((it) => (
+            {(ticker ?? []).map((it) => (
               <Link
                 key={it.label}
                 href={it.href}
-                className="group flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px]"
+                title={it.title}
+                className={`group shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] ${
+                  it.priority ? "flex" : "hidden sm:flex"
+                }`}
               >
                 <span className="text-ink-3">{it.label}</span>
                 <span className="font-semibold tabular text-ink transition-colors group-hover:text-yellow">
                   {it.value}
                 </span>
+                {it.delta != null && Number.isFinite(it.delta) && (
+                  <TickerDelta pct={it.delta} windowLabel={it.deltaWindow} />
+                )}
               </Link>
             ))}
           </div>
@@ -241,6 +274,25 @@ export function NavBar({ ticker }: { ticker?: TickerItem[] }) {
         </form>
       )}
     </div>
+  );
+}
+
+/**
+ * Colored delta inside a ticker item — the house palette + dead-band, same as
+ * every other delta on the site (formatDelta drops the sign inside the band, so a
+ * flat move can never print "−0.0%"). The window suffix is only rendered when the
+ * item's label doesn't already state it, so "24h vol −8.2%" doesn't say 24h twice.
+ */
+// `windowLabel`, not `window` — a prop named `window` would shadow the global in a
+// client component.
+function TickerDelta({ pct, windowLabel }: { pct: number | null | undefined; windowLabel?: string }) {
+  const dir = deltaDir(pct);
+  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
+  return (
+    <span className={`font-semibold tabular ${cls}`}>
+      {formatDelta(pct)}
+      {windowLabel && <span className="ml-1 font-normal text-ink-4">{windowLabel}</span>}
+    </span>
   );
 }
 

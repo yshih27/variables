@@ -1,4 +1,5 @@
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { allChips, type ChipModel } from "@/lib/data/freshnessView";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,7 @@ export default async function StatusPage() {
 
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[900px] px-8 pt-10 pb-20 font-sans">
         <h1 className="text-[20px] font-bold leading-none tracking-[-0.01em]">Data status</h1>
         <p className="mt-2 max-w-[640px] text-[13px] leading-relaxed text-ink-2">
