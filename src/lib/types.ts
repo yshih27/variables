@@ -157,3 +157,43 @@ export type HomepagePayload = {
   ips: IPRow[];
   platforms: PlatformRow[];
 };
+
+// ─── SHELL_V2 contracts ──────────────────────────────────────────────────────
+// Frozen contract, same rule as the rest of this file: ADD fields, never rename.
+// Shapes match docs/roadmap/brief-backend-shell-v2-feeds.md exactly so the
+// backend feeds drop in without a migration.
+
+/**
+ * One node of the left-rail taxonomy.
+ *
+ * `spark` is null — NEVER an array of zeros — when we have no series for this
+ * node: a flat line is a claim that nothing moved, which is a different statement
+ * from "we don't know". Same rule for `deltaPct`: null renders "—".
+ *
+ * ⚠️ `deltaPct` is a PERCENT (12.5 = +12.5%), and the MEASURE differs by node
+ * kind because the payload carries different deltas for different rows — market
+ * cap for the market and the IPs, volume momentum for the platforms. `deltaWindow`
+ * is rendered beside the number and `title` names the measure, so an unlabeled
+ * percent can never stand on its own.
+ */
+export type RailNode = {
+  key: string;
+  name: string;
+  /** 2–3 char code for the 56px icon rail. From the naming SSOT (tickerOf, minus
+   *  the "V-" prefix) for market/categories/IPs, and PlatformRow.short for
+   *  platforms — never hand-written here. */
+  short?: string;
+  href: string;
+  spark: number[] | null;
+  deltaPct: number | null;
+  deltaWindow: "24h" | "7d";
+  /** What the delta measures, for the node's tooltip ("market cap", "volume"). */
+  deltaLabel?: string;
+};
+
+export type RailModel = {
+  market: RailNode;
+  categories: (RailNode & { ips: RailNode[] })[];
+  platforms: RailNode[];
+  generatedAt: string;
+};

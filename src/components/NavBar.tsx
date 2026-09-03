@@ -8,8 +8,8 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { GACHA_ENABLED } from "@/lib/flags";
-import { deltaDir, formatDelta } from "@/lib/format";
+import { GACHA_ENABLED, SHELL_V2 } from "@/lib/flags";
+import { TickerStat, type TickerItem } from "./shell/TickerStat";
 import { BrandLockup, BrandMark } from "./Brand";
 
 const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLabel?: string }> = [
@@ -23,25 +23,12 @@ const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLab
 ];
 
 /**
- * A single clickable stat in the top ticker.
- *
- * Deliberately generic: the SHELL_V2 tape (design-north-star Move 2) streams
- * EVENTS — cleared sales, big pulls — through this same slot, so nothing here is
- * named for market stats.
+ * The ticker item contract + its rendering now live in `shell/TickerStat` — the
+ * SHELL_V2 top bar shows the SAME five market numbers, and two copies of the
+ * delta rules would drift. Re-exported so every existing
+ * `import { type TickerItem } from "@/components/NavBar"` keeps working.
  */
-export type TickerItem = {
-  label: string;
-  value: string;
-  href: string;
-  /** Signed percent move (already a PERCENT, not a fraction). null/absent = no delta. */
-  delta?: number | null;
-  /** Window the delta covers ("1w", "24h", "7d"). Omit when `label` already says it. */
-  deltaWindow?: string;
-  /** Hover explanation of what the number means. */
-  title?: string;
-  /** Kept below `sm`, where only the first couple of items fit. */
-  priority?: boolean;
-};
+export type { TickerItem } from "./shell/TickerStat";
 
 /** Height of the ticker strip when expanded (px). Animated to 0 on collapse. */
 export const TICKER_H = 38;
@@ -94,6 +81,10 @@ export function NavBar({
    */
   tickerPlaceholder?: boolean;
 }) {
+  // ⚠️ THE SHELL_V2 SEAM lives a few lines below, after the hooks. With the flag
+  // on, `AppShell` (mounted from layout.tsx) owns the chrome and every page's own
+  // <NavBar/> renders nothing — one line here instead of editing ~20 call sites,
+  // and the old shell is intact the moment the flag goes back off.
   const pathname = usePathname() ?? "/";
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -101,6 +92,10 @@ export function NavBar({
   const hasTicker = !!ticker && ticker.length > 0;
   const showBand = hasTicker || !!tickerPlaceholder;
   const collapsed = useTickerCollapse(hasTicker);
+
+  // Every hook above, so the early return can't change hook order between the
+  // flag's two states (they are separate builds, but the rule still stands).
+  if (SHELL_V2) return null;
 
   function runSearch() {
     const trimmed = q.trim();
@@ -146,22 +141,7 @@ export function NavBar({
             style={{ height: TICKER_H }}
           >
             {(ticker ?? []).map((it) => (
-              <Link
-                key={it.label}
-                href={it.href}
-                title={it.title}
-                className={`group shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] ${
-                  it.priority ? "flex" : "hidden sm:flex"
-                }`}
-              >
-                <span className="text-ink-3">{it.label}</span>
-                <span className="font-semibold tabular text-ink transition-colors group-hover:text-yellow">
-                  {it.value}
-                </span>
-                {it.delta != null && Number.isFinite(it.delta) && (
-                  <TickerDelta pct={it.delta} windowLabel={it.deltaWindow} />
-                )}
-              </Link>
+              <TickerStat key={it.label} item={it} />
             ))}
           </div>
         </div>
@@ -274,25 +254,6 @@ export function NavBar({
         </form>
       )}
     </div>
-  );
-}
-
-/**
- * Colored delta inside a ticker item — the house palette + dead-band, same as
- * every other delta on the site (formatDelta drops the sign inside the band, so a
- * flat move can never print "−0.0%"). The window suffix is only rendered when the
- * item's label doesn't already state it, so "24h vol −8.2%" doesn't say 24h twice.
- */
-// `windowLabel`, not `window` — a prop named `window` would shadow the global in a
-// client component.
-function TickerDelta({ pct, windowLabel }: { pct: number | null | undefined; windowLabel?: string }) {
-  const dir = deltaDir(pct);
-  const cls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
-  return (
-    <span className={`font-semibold tabular ${cls}`}>
-      {formatDelta(pct)}
-      {windowLabel && <span className="ml-1 font-normal text-ink-4">{windowLabel}</span>}
-    </span>
   );
 }
 

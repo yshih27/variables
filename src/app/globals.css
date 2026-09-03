@@ -357,3 +357,52 @@ a.ght-chip:hover {
   .ght-mask { overflow-x: auto; }
   .ght-row[aria-hidden] { display: none; }
 }
+
+/* ── SHELL_V2 frame ───────────────────────────────────────────────────────────
+   The rail's width is ONE knob, and the grid, the icon-rail label hiding and the
+   sticky offsets all read it. Two things set it: the viewport, and `data-rail`
+   stamped on <html> before paint by the reader's stored preference.
+
+   ⚠️ The preference only applies where there is a choice (≥1280). Between 1024
+   and 1279 the rail is iconised by the viewport, and below 1024 there is no rail
+   at all — BottomTabs takes over — so a stored "icons" must not resurrect a 56px
+   column on a phone. */
+:root {
+  --shell-topbar-h: 56px;
+  --shell-rail-w: 0px;
+}
+@media (min-width: 1024px) {
+  :root { --shell-rail-w: 56px; }
+}
+@media (min-width: 1280px) {
+  :root { --shell-rail-w: 240px; }
+  html[data-rail="icons"] { --shell-rail-w: 56px; }
+}
+
+.shell-grid {
+  display: grid;
+  grid-template-columns: var(--shell-rail-w) minmax(0, 1fr);
+}
+
+/* Below 1024 the rail element is `hidden`, so the grid must not keep a column
+   for it — one column, full width. */
+@media (max-width: 1023px) {
+  .shell-grid { grid-template-columns: minmax(0, 1fr); }
+  /* The fixed bottom tab bar would otherwise sit on top of the last rows. */
+  .shell-root { padding-bottom: 56px; }
+}
+
+/* Icon rail: names, stats and the disclosure buttons fold away; the mono short
+   code is all that is left. Driven by the SAME width variable as the grid, so
+   the label state can never disagree with the column it lives in. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .rail-label, .rail-stats { display: none; }
+}
+@media (min-width: 1280px) {
+  html[data-rail="icons"] .rail-label,
+  html[data-rail="icons"] .rail-stats { display: none; }
+}
+/* A nested IP indents only when there is room for a name to indent. */
+@media (min-width: 1280px) {
+  html:not([data-rail="icons"]) .rail-nested { padding-left: 1.25rem; }
+}
