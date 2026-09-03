@@ -8,7 +8,7 @@ import { SectionShell } from "@/components/Section";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { VolumeBar } from "@/components/VolumeBar";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
-import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, lastNDays, type SeriesPoint } from "@/lib/data/metricSnapshots";
+import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
 import { getPlatformSeries, totalDaily, platformVolumeBands } from "@/lib/data/platformSeries";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
@@ -56,11 +56,6 @@ export default async function AllPlatformsPage() {
     getPlatformSeries("gacha_volume_usd"),
   ]);
 
-  // Last 14 CALENDAR days, not last 14 POINTS: a sparse series' 14 newest points
-  // can span 16+ days, which made the "14D" card's range label read "Jul 1 – Jul
-  // 16" while the plot (calendar-day slots) only drew 14. Slice by day so the
-  // label and the plot agree.
-  const last14 = (s: SeriesPoint[]) => lastNDays(s, 14);
 
   // Rank by TOTAL 24h activity — the same order, and the same Σ, that
   // PlatformTable sorts and divides by, so the leaderboard, the ribbon's
@@ -174,7 +169,7 @@ export default async function AllPlatformsPage() {
     },
   ];
 
-  // ── Zone 2: top-N 14d cards (U5) ────────────────────────────────────────────
+  // ── Zone 2: top-N platform cards (U5) ───────────────────────────────────────
   // The top MAX_CARDS platforms by 24h vol, each showing its own marketplace +
   // gacha daily total. The rest are one click away in the table, flagged by the
   // "+N more" affordance rather than growing an unbounded card grid.
@@ -192,7 +187,8 @@ export default async function AllPlatformsPage() {
     return {
       key: p.key,
       name: p.name,
-      data: last14(dropIncompleteTail(totalDaily(mkt, gacha), streams)),
+      // The FULL gated daily series — the card's own D|W|M toggle windows it.
+      data: dropIncompleteTail(totalDaily(mkt, gacha), streams),
       note: gachaOnly ? "gacha only" : undefined,
     };
   });
@@ -279,7 +275,7 @@ export default async function AllPlatformsPage() {
               introducing it. */}
           <PlatformStatBar rows={data.platforms} />
 
-          {/* ZONE 2 — the top-4 platforms' 14d cards, in leaderboard order, so
+          {/* ZONE 2 — the top-4 platform cards, in leaderboard order, so
               the KPI summary reads straight down into the leaders. Any beyond
               the top 4 are one click away in the table. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -291,6 +287,7 @@ export default async function AllPlatformsPage() {
                 data={c.data}
                 unit="usd"
                 note={c.note}
+                surface="cards:platforms"
               />
             ))}
           </div>
@@ -306,7 +303,7 @@ export default async function AllPlatformsPage() {
           {/* ZONE 3 — the full leaderboard. scroll-mt clears the sticky nav when
               the "+N more" affordance jumps here. */}
           <div id="platforms-table" className="scroll-mt-24">
-            <PlatformTable rows={data.platforms} chainFacets />
+            <PlatformTable rows={data.platforms} chainFacets surface="table:platforms" />
           </div>
         </div>
       </div>

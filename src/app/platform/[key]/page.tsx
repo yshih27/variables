@@ -143,10 +143,6 @@ export default async function PlatformDetailPage({
     },
   ];
 
-  // Zone 2 — last 14 CALENDAR days per metric (lastNDays, not slice(-14): a sparse
-  // series' 14 newest POINTS can span 16+ days, disagreeing with the "14D" badge —
-  // the same fix /platforms uses). Empty = an honest "building history" card.
-  const last14 = (s: SeriesPoint[]) => lastNDays(s, 14);
 
   // IP composition — real per-IP volume/trades/mcap/cards/holders. Top N + an
   // "Other" bucket so the donut and dominance stay honest (sum to 100%) without
@@ -367,21 +363,24 @@ export default async function PlatformDetailPage({
               <MetricBarCard
                 label="Volume"
                 metric="marketplace"
-                data={last14(volS)}
+                data={volS}
+                surface={`cards:platform:${key}`}
                 unit="usd"
                 emptyDetail="no secondary-sales source yet"
               />
               <MetricBarCard
                 label="Trades"
                 metric="trades"
-                data={last14(tradesS)}
+                data={tradesS}
+                surface={`cards:platform:${key}`}
                 unit="count"
                 emptyDetail="no secondary-sales source yet"
               />
               <MetricBarCard
                 label="Holders"
                 metric="holders"
-                data={last14(holdersS)}
+                data={holdersS}
+                surface={`cards:platform:${key}`}
                 unit="count"
                 variant="line"
                 emptyDetail="forward-only series — no backfill"

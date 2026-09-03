@@ -53,9 +53,14 @@ const getMarketSeries = unstable_cache(
 );
 
 /** Sum daily spine series across every entity (and across the given metrics),
- *  bucketed by day, then keep the last `lastN` days oldest→newest. Powers the
- *  14-day bar cards: e.g. platform volume_usd + gacha_volume_usd = total volume. */
-function sumDaily(sources: Record<string, SeriesPoint[]>[], lastN: number): SeriesPoint[] {
+ *  bucketed by day, oldest→newest. Powers the bar cards: e.g. platform
+ *  volume_usd + gacha_volume_usd = total volume.
+ *
+ *  ⚠️ Returns the FULL gated series, not a 14-day slice. The cards carry their own
+ *  D|W|M toggle now, and W (12 complete weeks) and M (6 complete months) need
+ *  history a 14-point window can't hold — so the slicing moved into the card,
+ *  where the window and the label are decided together. */
+function sumDaily(sources: Record<string, SeriesPoint[]>[]): SeriesPoint[] {
   const byTs = new Map<string, number>();
   // Per-source bulk (keyed by record#:entity) for the completeness gate below.
   const bulk = new Map<string, SeriesPoint[]>();
@@ -73,8 +78,7 @@ function sumDaily(sources: Record<string, SeriesPoint[]>[], lastN: number): Seri
     .map(([ts, value]) => ({ ts, value }));
   // Drop a SOURCE-INCOMPLETE trailing day (a Dune-lagged partial: some platforms/IPs
   // in, others still ending yesterday) so the last bar never craters to a fake cliff.
-  // lastNDays, not slice(-N): keep the label and the calendar-day plot in step.
-  return lastNDays(dropIncompleteTail(sorted, bulk), lastN);
+  return dropIncompleteTail(sorted, bulk);
 }
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -116,22 +120,22 @@ export default async function AllIPsPage() {
     { marketplace: 0, gacha: 0 },
   );
 
-  // Zone 2 — three 14-day daily series. Volume and cards traded are Σ across
+  // Zone 2 — three daily series (each card windows itself). Volume and cards traded are Σ across
   // entities; holders is NOT summed — it is read straight off the market row,
   // which the spine writes as a deduped union (see getMarketSeries). The series
   // is young (it began accumulating mid-July), so the card renders the points
   // that exist plus its own "N of 14 days · building" note.
-  const totalVol14 = sumDaily([platVol, platGacha], 14);
-  const cardsTraded14 = sumDaily([cardsSeries], 14);
-  const holders14 = lastNDays(holdersSeries, 14);
+  const totalVolDaily = sumDaily([platVol, platGacha]);
+  const cardsTradedDaily = sumDaily([cardsSeries]);
 
   // Distinct cards traded in the 24h window. There is no hero-level field for
   // this (hero.totalCards is Σ TRACKED collection size, a different metric), so
   // it's summed off the rows — guarded the same way IPTable's Cards cell is, so
   // an mcap-only IP with no trades contributes 0 rather than its catalog size.
   const cardsTraded24h = data.ips.reduce((s, r) => s + (r.trades24h > 0 ? r.cards : 0), 0);
-  // The Cards Traded row's expanded "14d total" — same series as its bar card.
-  const cardsTraded14dTotal = cardsTraded14.reduce(
+  // The Cards Traded row's expanded "14d total" — same series as its bar card's
+  // D window (lastNDays over the same gated daily points).
+  const cardsTraded14dTotal = lastNDays(cardsTradedDaily, 14).reduce(
     (s, p) => s + (Number.isFinite(p.value) ? p.value : 0),
     0,
   );
@@ -240,8 +244,8 @@ export default async function AllIPsPage() {
       key: "__other",
       label: "Other",
       color: "#52525b",
-      points: sumDaily(
-        [Object.fromEntries(Object.entries(mcapSeries).filter(([k]) => !mcapTopKeys.has(k)))],
+      points: lastNDays(
+        sumDaily([Object.fromEntries(Object.entries(mcapSeries).filter(([k]) => !mcapTopKeys.has(k)))]),
         MCAP_COMP_DAYS,
       ),
     },
@@ -266,17 +270,18 @@ export default async function AllIPsPage() {
             <IndexStudio seed={studioSeed} />
           </div>
 
-          {/* ZONE 2 — three 14-day daily cards. Volume and cards traded are flows
+          {/* ZONE 2 — three daily cards, each with its own D|W|M grain. Volume and cards traded are flows
               (bars off zero); holders is a stock, so it draws as a line and its
               headline is the latest level, not a nonsensical 14-day sum. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <MetricBarCard label="Total Volume" metric="total24h" data={totalVol14} unit="usd" />
-            <MetricBarCard label="Cards Traded" metric="cardsTraded" data={cardsTraded14} unit="count" />
+            <MetricBarCard label="Total Volume" metric="total24h" data={totalVolDaily} unit="usd" surface="cards:ips" />
+            <MetricBarCard label="Cards Traded" metric="cardsTraded" data={cardsTradedDaily} unit="count" surface="cards:ips" />
             <MetricBarCard
               label="Holders"
               metric="holders"
-              data={holders14}
+              data={holdersSeries}
               unit="count"
+              surface="cards:ips"
               variant="line"
               emptyDetail="deduped daily union — first write pending"
             />
@@ -309,7 +314,7 @@ export default async function AllIPsPage() {
               />
             )}
           </div>
-          <IPTable rows={data.ips} />
+          <IPTable rows={data.ips} surface="table:ips" />
         </div>
       </div>
     </>

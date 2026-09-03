@@ -14,11 +14,37 @@
 import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
 import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
-import { weekStartUtc, weekEndUtc } from "./priceIndex";
+import { completeWeeksOnly, resampleWeekly } from "@/lib/chart/period";
 
 export type IndexPoint = { ts: string; value: number; n?: number; lo?: number; hi?: number };
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Period aggregation lives in `@/lib/chart/period` — pure calendar math with no
+ * I/O, so the D|W|M toggles can run it in the browser (this module can't: it
+ * imports the snapshot readers). Re-exported so every server caller keeps its
+ * `from "./indices"` import and there is exactly ONE implementation of each rule.
+ *
+ *   resampleWeekly     — daily → ISO-weekly, stamped at the week END (Sunday).
+ *   resampleMonthly    — the monthly sibling: calendar months, UTC, stamped at
+ *                        the month END, same convention.
+ *   completeWeeksOnly  — drop the running partial week.
+ *   completeMonthsOnly — drop the running calendar month.
+ *   resampleToPeriod   — the one entry point the toggles call.
+ *
+ * `agg`: "sum" for FLOWS (volume, trades), "last" for LEVELS (mcap, holders,
+ * index levels) — summing seven daily holder counts is meaningless.
+ */
+export {
+  resampleWeekly,
+  resampleMonthly,
+  completeWeeksOnly,
+  completeMonthsOnly,
+  resampleToPeriod,
+  type Period,
+  type PeriodAgg,
+} from "@/lib/chart/period";
 
 /**
  * Window to `from`, forward-fill a continuous daily axis, and rebase so the first
@@ -63,25 +89,6 @@ export function rebaseSeries(
 }
 
 /**
- * Drop the RUNNING (partial) week from a weekly series. The price index buckets by
- * ISO week, so its newest point covers only the elapsed days of the current week —
- * a partial figure. Comparing it against a complete week prints a phantom move
- * (the homepage's "7d +18.5%", which contradicted /report's +1.3% for the same
- * window, because the report excludes the partial week).
- */
-export function completeWeeksOnly<T extends { ts: string }>(series: T[], nowMs: number = Date.now()): T[] {
-  // Cutoff = 00:00 Monday of the running week. Points are stamped at their week END
-  // (Sunday): a complete week's Sunday falls BEFORE this Monday (kept), while the
-  // running week's Sunday falls AFTER it (dropped) — so the same weeks are selected
-  // regardless of start-vs-end stamping; only the labels differ.
-  const cutoff = Date.parse(weekStartUtc(nowMs));
-  return series.filter((p) => {
-    const t = Date.parse(p.ts);
-    return Number.isFinite(t) && t < cutoff;
-  });
-}
-
-/**
  * % change between the last two COMPLETE weekly points — the honest "1w" for a
  * weekly index. Same two points /report compares for its WoW, so the two surfaces
  * can't disagree. null until two complete weeks exist.
@@ -94,43 +101,6 @@ export function weeklyChangePct(series: IndexPoint[], nowMs: number = Date.now()
   const last = weeks[weeks.length - 1].value;
   const prev = weeks[weeks.length - 2].value;
   return prev > 0 ? (last / prev - 1) * 100 : null;
-}
-
-/**
- * Resample a daily series to ISO-weekly, points STAMPED at the week END (Sunday, via
- * weekEndUtc) so they align with the price index (also week-end stamped) and read as
- * of the week they cover — not 6 days stale. Bucketing still uses the Monday week key.
- * The single canonical implementation — also used by the /api/v1 + /api/internal chart
- * series routes (they used to carry a copy). `agg`:
- *   • "last" (default) — the chronologically-last value in the week (stock/index
- *     levels, benchmarks — the prior behaviour of this function).
- *   • "sum"            — adds the week's values (flow metrics: volume/trades/…).
- * Order-independent: picks the last value by `ts`, not by array position, and
- * skips non-finite values. Accepts any {ts,value} (bands are dropped — no caller
- * feeds banded points through here).
- */
-export function resampleWeekly(
-  points: { ts: string; value: number }[],
-  agg: "sum" | "last" = "last",
-): { ts: string; value: number }[] {
-  const byWeek = new Map<string, { sum: number; last: number; lastTs: string }>();
-  for (const p of points) {
-    const t = Date.parse(p.ts);
-    if (!Number.isFinite(t) || !Number.isFinite(p.value)) continue;
-    const wk = weekStartUtc(t);
-    const cur = byWeek.get(wk);
-    if (!cur) byWeek.set(wk, { sum: p.value, last: p.value, lastTs: p.ts });
-    else {
-      cur.sum += p.value;
-      if (p.ts >= cur.lastTs) {
-        cur.last = p.value;
-        cur.lastTs = p.ts;
-      }
-    }
-  }
-  return [...byWeek.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([wk, v]) => ({ ts: weekEndUtc(Date.parse(wk)), value: agg === "sum" ? v.sum : v.last }));
 }
 
 /** Window to `from` + rescale so the first in-window point = `rebaseTo`, preserving
