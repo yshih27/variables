@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { IndexStudio } from "@/components/IndexStudio";
 import { readStudioSeed } from "@/lib/studio/seed";
@@ -249,7 +250,7 @@ export default async function AllIPsPage() {
 
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       {/* Density: this is the selling-point page, so the fold is tuned to carry
           the rail + chart + all three bar cards. Gaps are one rung tighter than
           the app default (3 vs 4) and the zones share the same rhythm. */}

@@ -1,4 +1,5 @@
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
 import { X_URL } from "@/lib/site";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
@@ -13,10 +14,10 @@ export const metadata = {
     "How VARIBLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
 };
 
-export default function MethodologyPage() {
+export default async function MethodologyPage() {
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[820px] px-8 pt-10 pb-24 font-sans">
 
         <header className="mb-6">

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { MCAP_BASIS, MCAP_BASIS_LABEL } from "@/lib/data/marketcap";
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
 import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { StatCard, StatCardRow } from "@/components/StatCard";
@@ -320,7 +321,7 @@ export default async function PlatformDetailPage({
 
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="px-8 pt-6 pb-20 font-sans">
         <PlatformOverviewHeader detail={detail} />
 

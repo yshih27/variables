@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { CardDetailView } from "@/components/CardDetailView";
 import { getCardDetail } from "@/lib/card/fetchCard";
 import { getCardSales, type CardSalesHistory } from "@/lib/data/cardSales";
@@ -23,7 +24,7 @@ export default async function CardDetailPage({
 
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[1100px] px-8 pt-10 pb-20 font-sans">
         <CardDetailView card={card} salesHistory={salesHistory} />
         <div className="mt-20 text-center text-[12px] text-ink-3">

@@ -11,7 +11,7 @@ import { NavBar } from "@/components/NavBar";
 export default function RootLoading() {
   return (
     <>
-      <NavBar />
+      <NavBar tickerPlaceholder />
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20">
         {/* Hero skeleton */}
         <div className="mb-12 flex flex-col gap-4">

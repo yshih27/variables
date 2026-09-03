@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { GradesTable } from "@/components/IPTraitTables";
 import { getIPDetail } from "@/lib/data/fetchIP";
 
@@ -16,7 +17,7 @@ export default async function IPGradesPage({
 
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20 font-sans">
         <a href={`/ip/${key}`} className="mb-1.5 inline-block text-[12px] text-ink-3 transition-colors hover:text-yellow">
           ← {detail.ip.name}

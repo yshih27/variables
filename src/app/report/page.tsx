@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { Section } from "@/components/Section";
 import { ReportView } from "@/components/ReportView";
 import { SubscribeForm } from "@/components/SubscribeForm";
@@ -28,7 +29,7 @@ export default async function ReportPage() {
 
   return (
     <>
-      <NavBar />
+      <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[1760px] px-8 pb-24 pt-8">
 
         <header className="mb-8">

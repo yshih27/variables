@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { IPRail } from "@/components/IPRail";
 import { SliceView } from "@/components/SliceView";
+import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { CategoryTrendChart } from "@/components/CategoryTrendChart";
 import {
   type ActivityMetric,
@@ -173,6 +174,7 @@ export default async function IPDetailPage({
 
   return (
     <SliceView
+      ticker={await buildMarketTicker()}
       slice={{
         rail: <IPRail detail={detail} mcapUsd={mcapUsd} mcapPct={null} />,
         activity: metrics,

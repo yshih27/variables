@@ -9,7 +9,7 @@ import { GACHA_ENABLED } from "@/lib/flags";
 export default function NotFound() {
   return (
     <>
-      <NavBar />
+      <NavBar tickerPlaceholder />
       <main className="mx-auto flex min-h-[60vh] max-w-[640px] flex-col items-start justify-center px-8 pt-20 pb-16">
         <span className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-3">
           404
