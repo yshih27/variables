@@ -205,10 +205,18 @@ export function PlatformPartners({
       readMe="which storefronts route pulls here · attribution grows as capture accrues"
       subtitle={`top ${TOP_N} by 30d volume · ${fmtAttributedPct(pct)} of pulls attributed`}
       flush
+      fill
       className="font-sans"
     >
-      <div className="px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
-        <table className="w-full border-collapse text-[13px]">
+      {/* ⚠️ FILLS THE FRAME (terminal-ux-study §7). Beside the taller Volume mix
+          chart this card used to end well above it. The table takes the slack
+          rather than a blank band under it: `h-full` on the table distributes the
+          extra height across its own rows, so the five rows breathe instead of a
+          void opening between them and the accrual note. The note stays directly
+          under the table — anchoring it to the bottom instead would just move the
+          blank band rather than remove it. */}
+      <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
+        <table className="h-full w-full border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-line text-[11px] uppercase tracking-[0.06em] text-ink-3">
               <th className="py-1.5 text-left font-medium">Partner</th>
