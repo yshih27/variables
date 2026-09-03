@@ -109,7 +109,7 @@ export function RailNav({ model }: Props) {
       aria-label="Market taxonomy"
       /* Sticky under the top bar with its OWN scroll — the brief's "rail scroll is
          independent of content scroll". Hidden below lg, where BottomTabs takes over. */
-      className="scroll-y sticky top-[var(--shell-topbar-h)] hidden h-[calc(100dvh-var(--shell-topbar-h))] min-h-0 flex-col overflow-y-auto border-r border-line/70 lg:flex"
+      className="scroll-y sticky top-[var(--shell-chrome-h,var(--shell-topbar-h))] hidden h-[calc(100dvh-var(--shell-chrome-h,var(--shell-topbar-h)))] min-h-0 flex-col overflow-y-auto border-r border-line/70 lg:flex"
     >
       <div className="flex min-h-0 flex-1 flex-col gap-px py-2">
         <RailLink node={model.market} {...nodeProps(model.market.href)} />

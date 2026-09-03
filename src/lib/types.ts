@@ -197,3 +197,32 @@ export type RailModel = {
   platforms: RailNode[];
   generatedAt: string;
 };
+
+/**
+ * One realized event on the tape (SHELL_V2 S2).
+ *
+ * REALIZED, not listed — that is the whole point of the component: nobody in the
+ * space shows the market actually clearing. A sale is a settlement, a pull is a
+ * paid rip, an index mark is a computed close.
+ *
+ * `valueUsd: null` + `valueText: "—"` is the honest shape for an event whose USD
+ * leg we don't have; it is NEVER filled with a zero.
+ *
+ * Shape matches docs/roadmap/brief-backend-shell-v2-feeds.md exactly, so the
+ * backend's `buildTape()` drops into this contract without a migration.
+ */
+export type TapeItem = {
+  /** ISO timestamp of the EVENT, not of the read. Drives the honest "4m ago". */
+  ts: string;
+  kind: "sale" | "pull" | "index";
+  label: string;
+  valueUsd: number | null;
+  valueText: string;
+  platform?: string;
+  /** The receipt: /card/[id] for a sale, the platform or /gacha for a pull, /ips for a mark. */
+  href: string;
+  /** Stable dedupe key across refreshes. */
+  id: string;
+  /** Percent move, where the event HAS one (an index close). Never synthesised. */
+  deltaPct?: number | null;
+};

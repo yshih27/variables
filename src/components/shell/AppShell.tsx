@@ -3,9 +3,11 @@ import { BrandLockup, BrandMark } from "@/components/Brand";
 import { SiteFooter } from "@/components/SiteFooter";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { buildRailModel } from "@/lib/data/railModel";
+import { buildTape, TAPE_AVAILABLE } from "@/lib/data/tape";
 import { BottomTabs } from "./BottomTabs";
 import { RailNav } from "./RailNav";
 import { ShellSearch } from "./ShellSearch";
+import { Tape } from "./Tape";
 import { TickerStat } from "./TickerStat";
 import { RAIL_PREF_SCRIPT } from "./railPref";
 
@@ -29,10 +31,17 @@ import { RAIL_PREF_SCRIPT } from "./railPref";
  * keyboard and storage.
  */
 export async function AppShell({ children }: { children: React.ReactNode }) {
-  const [rail, ticker] = await Promise.all([buildRailModel(), buildMarketTicker()]);
+  const [rail, ticker, tape] = await Promise.all([
+    buildRailModel(),
+    buildMarketTicker(),
+    // ⚠️ Total by construction: buildTape returns [] rather than throwing, and
+    // TAPE_AVAILABLE is false until the backend feed lands — so an unwired feed
+    // shows NO BAND at all, not a permanent "no cleared sales" line on every page.
+    TAPE_AVAILABLE ? buildTape().catch(() => []) : Promise.resolve([]),
+  ]);
 
   return (
-    <div className="shell-root font-sans">
+    <div className={`shell-root font-sans${TAPE_AVAILABLE ? " shell-has-tape" : ""}`}>
       {/* Stamps data-rail on <html> BEFORE paint, so a stored "icons" doesn't
           render a 240px rail and snap it to 56px. */}
       <script dangerouslySetInnerHTML={{ __html: RAIL_PREF_SCRIPT }} />
@@ -72,6 +81,16 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           <span aria-hidden>★</span>
         </Link>
       </header>
+
+      {/* ── The tape ────────────────────────────────────────────────────────
+          Realized events, between the chrome and the content. Server-rendered
+          first (no empty-then-populated flash), refreshed client-side only while
+          the tab is visible. */}
+      {TAPE_AVAILABLE && (
+        <div className="sticky top-[var(--shell-topbar-h)] z-30 bg-bg/80 backdrop-blur-xl">
+          <Tape initial={tape} />
+        </div>
+      )}
 
       {/* ── Rail ‖ content ──────────────────────────────────────────────────
           One grid column driven by --shell-rail-w (globals.css): 240px at ≥1280,

@@ -406,3 +406,41 @@ a.ght-chip:hover {
 @media (min-width: 1280px) {
   html:not([data-rail="icons"]) .rail-nested { padding-left: 1.25rem; }
 }
+
+/* ── SHELL_V2 tape ────────────────────────────────────────────────────────────
+   A CSS marquee: two identical runs slide left by exactly one run's width, so
+   the loop is seamless. No JS drives the motion — it is a compositor-only
+   transform, which is why a background tab costs nothing.
+
+   It PAUSES on hover and on focus-within (the band sets data-paused for hover;
+   :focus-within covers a keyboard user tabbing into a link, who must not have the
+   link slide out from under them mid-tab). */
+:root { --shell-tape-h: 32px; }
+
+@keyframes tape-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-100%, 0, 0); }
+}
+
+.tape-run {
+  animation: tape-scroll 90s linear infinite;
+  will-change: transform;
+}
+.tape-band[data-paused] .tape-run,
+.tape-band:focus-within .tape-run {
+  animation-play-state: paused;
+}
+
+/* ⚠️ REDUCED MOTION: not "slower" — NONE. The band becomes an ordinary
+   horizontally scrollable row the reader drives themselves, and the duplicate
+   run is removed entirely (it exists only to make the loop seamless, and a
+   static row would just show the same events twice). */
+@media (prefers-reduced-motion: reduce) {
+  .tape-band { overflow-x: auto; }
+  .tape-run { animation: none; }
+  .tape-run[aria-hidden="true"] { display: none; }
+}
+
+/* The band is chrome above the content column, so the rail's sticky offset has
+   to clear it too. One knob, same as --shell-rail-w. */
+.shell-has-tape { --shell-chrome-h: calc(var(--shell-topbar-h) + var(--shell-tape-h)); }
