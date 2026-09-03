@@ -157,3 +157,103 @@ export type HomepagePayload = {
   ips: IPRow[];
   platforms: PlatformRow[];
 };
+
+// ─── SHELL_V2 contracts ──────────────────────────────────────────────────────
+// Frozen contract, same rule as the rest of this file: ADD fields, never rename.
+// Shapes match docs/roadmap/brief-backend-shell-v2-feeds.md exactly so the
+// backend feeds drop in without a migration.
+
+/**
+ * One node of the left-rail taxonomy.
+ *
+ * `spark` is null — NEVER an array of zeros — when we have no series for this
+ * node: a flat line is a claim that nothing moved, which is a different statement
+ * from "we don't know". Same rule for `deltaPct`: null renders "—".
+ *
+ * ⚠️ `deltaPct` is a PERCENT (12.5 = +12.5%), and the MEASURE differs by node
+ * kind because the payload carries different deltas for different rows — market
+ * cap for the market and the IPs, volume momentum for the platforms. `deltaWindow`
+ * is rendered beside the number and `title` names the measure, so an unlabeled
+ * percent can never stand on its own.
+ */
+export type RailNode = {
+  key: string;
+  name: string;
+  /** 2–3 char code for the 56px icon rail. From the naming SSOT (tickerOf, minus
+   *  the "V-" prefix) for market/categories/IPs, and PlatformRow.short for
+   *  platforms — never hand-written here. */
+  short?: string;
+  href: string;
+  spark: number[] | null;
+  deltaPct: number | null;
+  deltaWindow: "24h" | "7d";
+  /** What the delta measures, for the node's tooltip ("market cap", "volume"). */
+  deltaLabel?: string;
+};
+
+export type RailModel = {
+  market: RailNode;
+  categories: (RailNode & { ips: RailNode[] })[];
+  platforms: RailNode[];
+  generatedAt: string;
+};
+
+/**
+ * One realized event on the tape (SHELL_V2 S2).
+ *
+ * REALIZED, not listed — that is the whole point of the component: nobody in the
+ * space shows the market actually clearing. A sale is a settlement, a pull is a
+ * paid rip, an index mark is a computed close.
+ *
+ * `valueUsd: null` + `valueText: "—"` is the honest shape for an event whose USD
+ * leg we don't have; it is NEVER filled with a zero.
+ *
+ * Shape matches docs/roadmap/brief-backend-shell-v2-feeds.md exactly, so the
+ * backend's `buildTape()` drops into this contract without a migration.
+ */
+export type TapeItem = {
+  /** ISO timestamp of the EVENT, not of the read. Drives the honest "4m ago". */
+  ts: string;
+  kind: "sale" | "pull" | "index";
+  label: string;
+  valueUsd: number | null;
+  valueText: string;
+  platform?: string;
+  /** The receipt: /card/[id] for a sale, the platform or /gacha for a pull, /ips for a mark. */
+  href: string;
+  /** Stable dedupe key across refreshes. */
+  id: string;
+  /** Percent move, where the event HAS one (an index close). Never synthesised. */
+  deltaPct?: number | null;
+};
+
+
+/** Which index a grouped search hit came out of. */
+export type SearchGroupKind = "ip" | "platform" | "card" | "metric" | "page";
+
+export type SearchGroup = {
+  kind: SearchGroupKind;
+  /** Section heading, already title-cased ("IPs", "Cards", "Metrics"). */
+  label: string;
+  items: {
+    label: string;
+    sub?: string;
+    href: string;
+    /** 0-1, higher is better. Ranks within the group only — scores are not
+     *  comparable ACROSS groups (each index scores on its own scale). */
+    score: number;
+  }[];
+};
+
+/**
+ * The command palette's response.
+ *
+ * ⚠️ AN EMPTY SEARCH IS `groups: []`, NOT AN ERROR. A query that matches nothing
+ * is the single most common thing a palette does while someone is still typing,
+ * and a 4xx there turns ordinary typing into an error state.
+ */
+export type GroupedSearchResponse = {
+  query: string;
+  total: number;
+  groups: SearchGroup[];
+};

@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { GoogleAnalytics } from "@next/third-parties/google";
+import { AppShell } from "@/components/shell/AppShell";
 import { SiteFooter } from "@/components/SiteFooter";
+import { SHELL_V2 } from "@/lib/flags";
 import { SITE_ORIGIN } from "@/lib/site";
 import "./globals.css";
 
@@ -37,10 +39,22 @@ export default function RootLayout({
   // GA4 only when the id is configured (keeps dev/preview clean); never hardcoded.
   const gaId = process.env.NEXT_PUBLIC_GA_ID;
   return (
-    <html lang="en" className={`${jetbrainsMono.variable} ${inter.variable}`}>
+    <html lang="en" className={`${jetbrainsMono.variable} ${inter.variable}`} suppressHydrationWarning>
       <body>
-        {children}
-        <SiteFooter />
+        {/* ⚠️ THE SEAM. Flag OFF = byte-for-byte the layout this file has always
+            been: pages render their own <NavBar/> and the footer sits after them.
+            Flag ON = AppShell owns the chrome (and the footer, so it lands inside
+            the content column rather than under the rail) and NavBar returns null.
+            Nothing between these two branches is shared, so the old shell cannot
+            rot while the new one is being built. */}
+        {SHELL_V2 ? (
+          <AppShell>{children}</AppShell>
+        ) : (
+          <>
+            {children}
+            <SiteFooter />
+          </>
+        )}
         <Analytics />
         {gaId && <GoogleAnalytics gaId={gaId} />}
       </body>

@@ -51,7 +51,19 @@ export function TableRowLink({
   return (
     <tr
       onClick={onClick}
-      className={`group cursor-pointer transition-colors hover:bg-bg-2 ${className}`}
+      /* SHELL_V2 j/k row navigation. tabIndex -1 keeps rows OUT of the Tab order
+         — Tab already walks the real <Link> in the name cell, and adding a second
+         stop per row would double the tab length of every table — while still
+         making the row programmatically focusable for j/k. Enter is handled here
+         because a <tr> has no native activation. */
+      tabIndex={-1}
+      data-shell-row=""
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" || e.target !== e.currentTarget) return;
+        e.preventDefault();
+        router.push(href);
+      }}
+      className={`group cursor-pointer transition-colors hover:bg-bg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow/60 ${className}`}
     >
       {children}
     </tr>
