@@ -27,14 +27,50 @@ import { relativeAge } from "./relativeTime";
 
 const REFRESH_MS = 60_000;
 
+/**
+ * Constant scroll speed, in px/s.
+ *
+ * ⚠️ THE DURATION IS DERIVED, NOT FIXED. A fixed 90s over the run's width meant
+ * pixel speed grew with the feed: 8 items crawled and 40 items (several thousand
+ * px) flew past unreadably. Speed is the thing a reader experiences, so speed is
+ * the thing that is pinned — the duration falls out of `scrollWidth / SPEED`.
+ *
+ * 28 px/s by eye at 1440 and 1100: a 220px item takes ~8s to cross, which is
+ * long enough to read a card name and short enough that the band still feels
+ * live. The brief's tuning range was 24–32.
+ */
+const TAPE_SPEED_PX_S = 28;
+
+/** Persisted play/pause. The reader's choice outlives the page. */
+const TAPE_PREF_KEY = "varible:tape";
+type TapePref = "play" | "pause";
+
 export function Tape({ initial }: { initial: TapeItem[] }) {
   const [items, setItems] = useState<TapeItem[]>(initial);
-  const [paused, setPaused] = useState(false);
+  /** Transient pause — hover or focus. Distinct from the reader's stored choice
+   *  below, so leaving the band doesn't undo an explicit pause. */
+  const [hovered, setHovered] = useState(false);
+  const [pref, setPref] = useState<TapePref>("play");
+  const bandRef = useRef<HTMLDivElement | null>(null);
+  const runRef = useRef<HTMLDivElement | null>(null);
   // Rendered ages are derived from a clock the component OWNS, ticked on the
   // refresh cadence — reading Date.now() during render would be impure and would
   // also disagree between the server HTML and hydration.
   const [nowMs, setNowMs] = useState<number | null>(null);
   const timer = useRef<number | null>(null);
+
+  // Stored play/pause, read after mount (storage during render = hydration mismatch).
+  useEffect(() => {
+    let v: string | null = null;
+    try {
+      v = localStorage.getItem(TAPE_PREF_KEY);
+    } catch {
+      /* blocked storage — the band just won't remember */
+    }
+    if (v !== "pause") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPref("pause");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +114,52 @@ export function Tape({ initial }: { initial: TapeItem[] }) {
     };
   }, []);
 
+  /**
+   * Pin the SPEED by measuring the run and deriving the duration.
+   *
+   * ⚠️ THE MEASUREMENT HAS TO SURVIVE THE FONT SWAP. Measured once at mount the
+   * band ran ~35 px/s instead of 28: the first layout uses the fallback face, and
+   * when JetBrains Mono/Inter arrive the run grows (observed 7,984px → 9,960px)
+   * while the duration keeps the old, too-short value. So this re-measures on
+   * three triggers, not one:
+   *   • a ResizeObserver in BORDER-BOX mode — content-box misses padding/border
+   *     changes, and the default is content-box;
+   *   • `document.fonts.ready`, which does not always surface as an observed
+   *     resize;
+   *   • `items`, since the 60s refresh swaps the feed;
+   *   • `nowMs` — THE ONE THAT ACTUALLY BIT. Ages only render once the client
+   *     clock exists, so the run gains a "4m ago" on every item some time after
+   *     mount: measured 7,984px → 9,957px, +1,973px across 40 items. Measured
+   *     before that, the duration was ~25% short and the band ran at 34.9 px/s
+   *     instead of 28. The ResizeObserver did NOT fire for it (verified by
+   *     nudging the box by hand), so the state it depends on is listed instead
+   *     of trusted to an observer.
+   * A stale duration is a wrong speed, silently — the one failure this component
+   * cannot detect on its own.
+   */
+  useEffect(() => {
+    const run = runRef.current;
+    const band = bandRef.current;
+    if (!run || !band) return;
+    let done = false;
+    const apply = () => {
+      if (done) return;
+      // The marquee translates by -100% of the run's own box, so THAT width is
+      // the distance travelled — which is what the speed has to be derived from.
+      const w = run.getBoundingClientRect().width;
+      if (!(w > 0)) return;
+      band.style.setProperty("--tape-dur", `${(w / TAPE_SPEED_PX_S).toFixed(2)}s`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(run, { box: "border-box" });
+    void document.fonts?.ready.then(apply).catch(() => {});
+    return () => {
+      done = true;
+      ro.disconnect();
+    };
+  }, [items, nowMs]);
+
   // Age out items as the page sits open: a sale that was 23h old on load must
   // leave the band an hour later rather than quietly becoming a 25h-old "live" event.
   const live = useMemo(
@@ -101,18 +183,43 @@ export function Tape({ initial }: { initial: TapeItem[] }) {
 
   return (
     <div
-      className="tape-band relative flex h-[var(--shell-tape-h)] items-center overflow-hidden border-b border-line/40"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-      onFocusCapture={() => setPaused(true)}
-      onBlurCapture={() => setPaused(false)}
-      data-paused={paused ? "" : undefined}
+      ref={bandRef}
+      className="tape-band relative flex h-[var(--shell-tape-h)] items-center overflow-hidden border-b border-line/40 pr-8"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setHovered(true)}
+      onBlurCapture={() => setHovered(false)}
+      data-paused={hovered || pref === "pause" ? "" : undefined}
     >
       {/* Two identical runs so the marquee wraps seamlessly. The SECOND is
           aria-hidden and inert: a screen reader must not read the feed twice,
           and Tab must not walk a duplicate set of links. */}
-      <TapeRun items={live} nowMs={nowMs} />
+      <TapeRun items={live} nowMs={nowMs} innerRef={runRef} />
       <TapeRun items={live} nowMs={nowMs} duplicate />
+
+      {/* The reader's own control, pinned to the band's right edge above the
+          moving runs. Its own gradient so an item sliding under it doesn't
+          collide with the glyph. */}
+      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-bg via-bg to-transparent pl-4 pr-1.5">
+        <button
+          type="button"
+          onClick={() => {
+            const next: TapePref = pref === "pause" ? "play" : "pause";
+            setPref(next);
+            try {
+              localStorage.setItem(TAPE_PREF_KEY, next);
+            } catch {
+              /* blocked storage */
+            }
+          }}
+          aria-pressed={pref === "pause"}
+          aria-label={pref === "pause" ? "Play the tape" : "Pause the tape"}
+          title={pref === "pause" ? "Play the tape" : "Pause the tape"}
+          className="pointer-events-auto flex h-5 w-5 items-center justify-center rounded text-[9px] text-ink-4 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+        >
+          <span aria-hidden>{pref === "pause" ? "▶" : "❙❙"}</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -121,13 +228,16 @@ function TapeRun({
   items,
   nowMs,
   duplicate,
+  innerRef,
 }: {
   items: TapeItem[];
   nowMs: number | null;
   duplicate?: boolean;
+  innerRef?: React.Ref<HTMLDivElement>;
 }) {
   return (
     <div
+      ref={innerRef}
       className="tape-run flex shrink-0 items-center gap-x-7 px-4 sm:px-5"
       aria-hidden={duplicate || undefined}
       // `inert` keeps the duplicate run out of the tab order entirely — aria-hidden
