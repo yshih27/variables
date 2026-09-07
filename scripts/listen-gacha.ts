@@ -45,12 +45,32 @@ const CATALOG_REFRESH_MS = 60 * 60_000; // machine names/prices move slowly
 const LIVE_WINDOW = 50; // hits kept in the gacha:live snapshot
 const FRESHNESS_EVERY_MS = 5 * 60_000;
 const MAX_BACKOFF_MS = 10 * 60_000;
+/**
+ * How long a Collector Crypt pull stays eligible for re-ingestion while its
+ * `memo_slug` is still missing. CC populates the tag asynchronously, so a pull
+ * caught seconds after it happens is written untagged; first-sight dedup then
+ * froze that NULL forever. See docs/roadmap/cc-machines-findings.md — that alone
+ * cost ~92% of partner attribution.
+ *
+ * The real bound on re-ingestion is the feed, not this constant: `count=200` is
+ * only an ~8 minute window at observed volume, so a pull can be re-checked a
+ * handful of times before it falls out of view. The window's job is to stop
+ * `pendingSlug` growing without limit once a pull is gone for good.
+ */
+const SLUG_SETTLE_MS = 3 * 60 * 60_000;
 
 const log = (m: string) => console.log(`[${new Date().toISOString()}] ${m}`);
 
 // in-memory dedup so cycle logs say what's actually NEW (DB upsert is
 // idempotent regardless); capped so a week-long run doesn't grow unbounded
 const seen = new Set<string>();
+/**
+ * CC pulls ingested but NOT yet committed to `seen`, because they arrived
+ * without a `memo_slug`. key → pulled_at ms. A pull leaves here by acquiring a
+ * slug (then it is committed) or by ageing past SLUG_SETTLE_MS (committed
+ * untagged, so the sets stay bounded).
+ */
+const pendingSlug = new Map<string, number>();
 function markNew(key: string): boolean {
   if (seen.has(key)) return false;
   seen.add(key);
@@ -64,6 +84,9 @@ function markNew(key: string): boolean {
   }
   return true;
 }
+
+/** Per-poll: pulls whose stored row gained a slug on a later sighting. */
+let ccRetagged = 0;
 
 let liveHits: GachaBigHit[] = [];
 const sourceBeat: Record<string, string> = {};
@@ -110,12 +133,51 @@ async function ccCycle(): Promise<number> {
     ccCatalogAt = Date.now();
   }
   const winners = await fetchCCRecentWinners(200);
-  const fresh = winners.filter((w) => markNew(`cc:${w.mint}:${Date.parse(w.at)}`));
-  if (fresh.length) {
+
+  // A pull is only "done" once we have stored it WITH a slug. Until then it stays
+  // eligible, so a later poll rewrites the row (the upsert is idempotent and
+  // already writes the column). `toIngest` therefore carries re-checks as well as
+  // first sightings, while `brandNew` stays first-sight-only — the live window
+  // and the +N counter must not double-count a pull we are merely re-checking.
+  const toIngest: CCWinner[] = [];
+  const brandNew: CCWinner[] = [];
+  const now = Date.now();
+  ccRetagged = 0;
+  for (const w of winners) {
+    const key = `cc:${w.mint}:${Date.parse(w.at)}`;
+    if (seen.has(key)) continue;
+    const firstSight = !pendingSlug.has(key);
+    if (w.memoSlug) {
+      seen.add(key);
+      pendingSlug.delete(key);
+      toIngest.push(w);
+      if (firstSight) brandNew.push(w);
+      else ccRetagged++; // stored NULL before, now carries a slug
+    } else if (now - Date.parse(w.at) > SLUG_SETTLE_MS) {
+      // Settled untagged — stop re-checking it so the maps stay bounded.
+      seen.add(key);
+      pendingSlug.delete(key);
+      if (firstSight) {
+        toIngest.push(w);
+        brandNew.push(w);
+      }
+    } else {
+      pendingSlug.set(key, Date.parse(w.at));
+      toIngest.push(w);
+      if (firstSight) brandNew.push(w);
+    }
+  }
+  // Evict pulls that fell out of the feed window before ever getting a slug;
+  // without this the map keeps entries we can never see again.
+  for (const [k, at] of pendingSlug) {
+    if (now - at > SLUG_SETTLE_MS) pendingSlug.delete(k);
+  }
+
+  if (toIngest.length) {
     const priceByCode = new Map([...ccCatalog].map(([code, v]) => [code, v.price]));
-    await ingestCCPulls(fresh, priceByCode);
+    await ingestCCPulls(toIngest, priceByCode);
     pushLive(
-      fresh.map(
+      brandNew.map(
         (w: CCWinner): GachaBigHit => ({
           platform: "collector-crypt",
           mint: w.mint,
@@ -131,7 +193,7 @@ async function ccCycle(): Promise<number> {
     );
   }
   sourceBeat["collector-crypt"] = new Date().toISOString();
-  return fresh.length;
+  return brandNew.length;
 }
 
 // ── Phygitals ──
@@ -198,14 +260,18 @@ async function main() {
       runSource("cc", ccCycle, "collector-crypt"),
       runSource("ph", phCycle, "phygitals"),
     ]);
-    if (ccNew || phNew) {
+    if (ccNew || phNew || ccRetagged) {
       await flushLive().catch((e) => log(`gacha:live write failed: ${(e as Error).message}`));
       const top = liveHits[0];
       log(
-        `+${ccNew} cc · +${phNew} ph → spine (live window ${liveHits.length}${top ? `, latest $${Math.round(top.valueUsd).toLocaleString()} ${top.pack ?? ""}` : ""})`,
+        `+${ccNew} cc · +${phNew} ph → spine ` +
+          // The retag counter is the whole point of the slug fix: it is the number
+          // of rows that would have stayed NULL forever under first-sight dedup.
+          `(retagged ${ccRetagged}, awaiting slug ${pendingSlug.size}` +
+          `, live window ${liveHits.length}${top ? `, latest $${Math.round(top.valueUsd).toLocaleString()} ${top.pack ?? ""}` : ""})`,
       );
     } else if (++cycles % 10 === 0) {
-      log("heartbeat — no new pulls");
+      log(`heartbeat — no new pulls (awaiting slug ${pendingSlug.size})`);
     }
     // small sleep granularity so SIGINT lands quickly; per-source pacing is in nextAt
     await new Promise((r) => setTimeout(r, 5_000));

@@ -294,8 +294,11 @@ export async function ingestCCPulls(winners: CCWinner[], priceByCode: Map<string
     prize_value_usd: w.valueUsd > 0 ? w.valueUsd : null,
     tx_hash: null,
     source: "cc-gacha-api",
-    // Forward-only: rows written before the memo_slug migration keep NULL and
-    // cannot be backfilled (the feed serves only a recent stratified window).
+    // Forward-only in practice. scripts/backfill-cc-memo-slug.ts exists to
+    // recover older rows, but measured 2026-09-07 it recovers ~nothing: the
+    // winners feed ignores perTier and serves only ~636 recent pulls, all of
+    // which this warmer has already tagged. The capture that matters is the one
+    // that happens at write time — see docs/roadmap/cc-machines-findings.md.
     memo_slug: w.memoSlug,
     pulled_at: w.at,
   }));

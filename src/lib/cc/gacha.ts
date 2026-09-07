@@ -141,8 +141,17 @@ function mapWinners(rows: RawWinner[]): CCWinner[] {
 }
 
 /**
- * Fetch realized pulls, `perTier` most recent per (machine × tier). 100 per tier
- * reaches ~7–8K pulls (~22MB — trimmed to CCWinner immediately). Throws on non-200.
+ * Fetch realized pulls, nominally `perTier` most recent per (machine × tier).
+ *
+ * ⚠️ MEASURED 2026-09-07: the live endpoint IGNORES this parameter. perTier=25,
+ * 100, 1000 and 5000 all return the same ~636 pulls across ~60 machines (~10-11
+ * per machine), reaching back to 2026-03-04 only because dormant machines have
+ * old "most recent" pulls. An earlier version of this comment claimed ~7-8K pulls
+ * / ~22MB at perTier=100; that is no longer true and it is why
+ * scripts/backfill-cc-memo-slug.ts can recover almost nothing.
+ *
+ * So treat this as "a shallow stratified slice", never as deep history. Throws on
+ * non-200.
  */
 export async function fetchCCWinners(perTier = 100): Promise<CCWinner[]> {
   const res = await fetch(`${BASE}/api/getAllWinners?perTier=${perTier}`, {
