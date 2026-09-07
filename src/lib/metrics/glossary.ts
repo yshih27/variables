@@ -103,7 +103,7 @@ export const METRICS = {
   },
   priceIndex: {
     term: "Price index",
-    text: "Weekly stratified-median of actual sale prices within set×grade cells, trade-weighted — a constant-quality price, not market cap.",
+    text: "Weekly repeat-sales index: the same physical card sold in two different weeks, chained week to week — a constant-quality price, not market cap. Each pair's move is spread over the weeks it spans, so this is a trend, smoother than any single week; a week with too few pairs is withheld, never estimated.",
   },
   variableIndex: {
     term: "The Varible Index (the V)",

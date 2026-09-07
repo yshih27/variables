@@ -73,9 +73,12 @@ export default async function MethodologyPage() {
           <p>
             Every index we publish belongs to one family:{" "}
             <span className="font-semibold text-ink">{INDEX_FAMILY}</span> (nickname &quot;
-            {INDEX_FAMILY_SHORT}&quot;). Each is a constant-quality price index — the trade-weighted
-            stratified-median sale price within set×grade cells, rebased to 100 at inception — and
-            carries a <code>V-</code> ticker derived from the entity&apos;s short code, so the scheme
+            {INDEX_FAMILY_SHORT}&quot;). Each is a constant-quality price index built from repeat
+            sales — the same physical card sold in two different weeks, each pair&apos;s move spread
+            over the weeks it spans and chained week to week, rebased to 100 at inception. It is a
+            trend estimator: smoother than any single week, and a week resting on too few pairs is
+            withheld rather than estimated. It replaced a set×grade stratified median that measured
+            mix, not price. Each index carries a <code>V-</code> ticker derived from the entity&apos;s short code, so the scheme
             never drifts as the catalog grows. The whole market is <code>V-MKT</code>; each category
             and named IP has its own. The public API echoes each index&apos;s ticker, which
             makes this registry the canonical one.
