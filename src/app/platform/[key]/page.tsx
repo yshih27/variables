@@ -14,6 +14,7 @@ import { PlatformTopCardsTable, RecentSalesTable } from "@/components/PlatformTa
 import { PlatformEconomics, type EconomicsKpis } from "@/components/PlatformEconomics";
 import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
 import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
+import { PlatformMachines } from "@/components/PlatformMachines";
 import { PlatformPlayers } from "@/components/PlatformPlayers";
 import { monthlyPullCoverage, overallPullCoverage } from "@/lib/metrics/pullCoverage";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
@@ -436,6 +437,25 @@ export default async function PlatformDetailPage({
             />
           )}
 
+
+          {/* Machines — for each CC machine, how much is pulled and whose traffic
+              it is. Beneath the partners board: that answers "which storefronts
+              route pulls here" and this answers "into which machines", so they are
+              two questions and get two zones (terminal-ux-study §1).
+
+              ⚠️ NOT paired beside the partners board. §7 pairing requires both
+              frames to fill the shared height honestly, and a 48-row table beside
+              a 5-row podium cannot — the podium would have to stretch to a height
+              its content never earns. Full width, stacked. */}
+          {/* ⚠️ Gated HERE, not only inside the component. PlatformMachines is a
+              client component, so a `board` prop reaches the RSC payload even
+              when the component returns null — every other platform's HTML was
+              carrying all 48 of Collector Crypt's machines for nothing. The
+              component keeps its own key guard as well; this one keeps the
+              payload honest. */}
+          {key === "collector-crypt" && (
+            <PlatformMachines board={playersSnap?.machines} platformKey={key} />
+          )}
 
           {/* Player analytics — only for platforms the snapshot covers. */}
           <PlatformPlayers
