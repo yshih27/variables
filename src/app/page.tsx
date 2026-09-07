@@ -1,4 +1,5 @@
 import { unstable_cache } from "next/cache";
+import { PRICE_INDEX_HOLD } from "@/lib/indices/hold";
 import { NavBar } from "@/components/NavBar";
 import { MarketHeader } from "@/components/MarketHeader";
 import { CardsSection } from "@/components/CardsSection";
@@ -129,7 +130,10 @@ export default async function Home() {
 
   const marketIndex = {
     value: indexValue,
-    inceptionLabel,
+    // Under the hold the caption says so, right where the level is read.
+    inceptionLabel: PRICE_INDEX_HOLD.active
+      ? [inceptionLabel, PRICE_INDEX_HOLD.label].filter(Boolean).join(" · ")
+      : inceptionLabel,
     // Benchmark column now leads with 30d; the header labels the window + tooltips
     // the since-inception figure. Inception day is shared with the index caption.
     relWindowLabel: "30d",
@@ -143,7 +147,8 @@ export default async function Home() {
       // running partial week printed a phantom "+18.5%" that contradicted /report's
       // "+1.3% WoW" for the same window (M1). Same two points the report uses.
       { label: "1w", pct: weeklyChangePct(marketIdx) },
-      { label: "30d", pct: pctChange(completeWeeksOnly(marketIdx), 30) },
+      // Held: the 30d figure would be the broken method's too (see hold.ts).
+      { label: "30d", pct: PRICE_INDEX_HOLD.active ? null : pctChange(completeWeeksOnly(marketIdx), 30) },
     ],
     relStrength,
     // Rebased-to-100 daily series for the header's middle-band index chart (QA-5).
