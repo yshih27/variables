@@ -12,6 +12,7 @@
  * for real backtest depth.
  */
 import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
+import { PRICE_INDEX_HOLD, applyPriceIndexHold } from "@/lib/indices/hold";
 import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
 import { completeWeeksOnly, resampleWeekly } from "@/lib/chart/period";
@@ -94,6 +95,9 @@ export function rebaseSeries(
  * can't disagree. null until two complete weeks exist.
  */
 export function weeklyChangePct(series: IndexPoint[], nowMs: number = Date.now()): number | null {
+  // ⚠️ HOLD: no weekly change is published while the method is under review — the
+  // held close vs the week before it is still the broken method's number.
+  if (PRICE_INDEX_HOLD.active) return null;
   const weeks = completeWeeksOnly(series, nowMs)
     .filter((p) => p.value > 0)
     .sort((a, b) => a.ts.localeCompare(b.ts));
@@ -191,7 +195,9 @@ export async function readIndexSeries(
   opts: { kind: "price" | "mcap"; from: string; freq?: "weekly" | "daily" },
 ): Promise<IndexPoint[]> {
   if (opts.kind === "price") {
-    return rebaseWithBands(await readPriceSeries(entity, key), opts.from); // natively weekly
+    // ⚠️ HOLD (src/lib/indices/hold.ts): every price-index consumer reads through
+    // here, so the truncation makes the studio, seed, API, report and OG agree.
+    return rebaseWithBands(applyPriceIndexHold(await readPriceSeries(entity, key)), opts.from); // natively weekly
   }
   const daily = rebaseSeries(await readMcapSeries(entity, key), opts.from);
   return opts.freq === "weekly" ? rebaseWithBands(resampleWeekly(daily), opts.from) : daily;

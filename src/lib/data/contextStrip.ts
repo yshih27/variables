@@ -1,4 +1,5 @@
 import { unstable_cache } from "next/cache";
+import { PRICE_INDEX_HOLD } from "@/lib/indices/hold";
 import type { TickerItem } from "@/components/NavBar";
 import type { IPRow } from "@/lib/types";
 import { formatCompactNumber, formatCompactUsd } from "@/lib/format";
@@ -42,10 +43,12 @@ async function buildItems(): Promise<TickerItem[]> {
   items.push({
     label: tickerOf("market", "total"),
     value: level != null && Number.isFinite(level) ? level.toFixed(2) : "—",
-    delta: weeklyChangePct(marketIdx),
+    delta: weeklyChangePct(marketIdx), // null under the hold → no delta rendered
     deltaWindow: "1w",
     href: "/ips",
-    title: "The Varible Market Index — constant-quality price level, rebased to 100 at inception",
+    title: PRICE_INDEX_HOLD.active
+      ? PRICE_INDEX_HOLD.title
+      : "The Varible Market Index — constant-quality price level, rebased to 100 at inception",
     priority: true,
   });
 
