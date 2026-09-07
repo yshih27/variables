@@ -13,11 +13,17 @@
  * change is shown anywhere. `readIndexSeries` applies the truncation, so the
  * studio, the seed, the API, the report and the OG images all agree by construction.
  *
- * Lifting the hold = set `active: false` (or delete this file) in the PR that ships
- * the rebuilt index. Do not lift it for any other reason.
+ * ✅ LIFTED — the rebuilt repeat-sales index shipped in the PR that flipped this
+ * flag (src/lib/data/repeatSalesIndex.ts). Measured on the backfilled history,
+ * V-MKT week-over-week changes now have lag-1 autocorrelation +0.56 with ZERO sign
+ * flips in 31 steps (was -0.32 with 16), and INV-11 keeps a thin-week step off the
+ * blob. The file and `applyPriceIndexHold` stay in place, inert, so the same switch
+ * is one line away if a future method question ever needs it again.
+ *
+ * Do not set `active: true` without a finding of the same weight as the one above.
  */
 export const PRICE_INDEX_HOLD = {
-  active: true,
+  active: false,
   /** Last week-end close that stays visible (inclusive). */
   since: "2026-08-30",
   /** Short caption for headline surfaces. */

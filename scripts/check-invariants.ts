@@ -26,6 +26,10 @@ import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../src/lib/
 import { cleanSecondarySales } from "../src/lib/data/secondaryHygiene";
 import { readSnapshot } from "../src/lib/db/snapshots";
 import { weekStartUtc } from "../src/lib/data/priceIndex";
+import {
+  STEP_LIMIT_PCT as INDEX_STEP_LIMIT_PCT,
+  THIN_WEEK_PAIRS as INDEX_THIN_WEEK_PAIRS,
+} from "../src/lib/data/repeatSalesIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
@@ -195,6 +199,39 @@ async function checkIndexCompleteness(nowMs: number = Date.now()): Promise<Resul
 }
 
 /**
+ * INV-11 (HARD): no published weekly price-index step may exceed ±25% unless that
+ * week rests on ≥100 repeat-sale pairs. The rebuilt index is a repeat-sales
+ * estimator (src/lib/data/repeatSalesIndex.ts) whose builder withholds such points
+ * with reason `thin-week`; this invariant is the independent check that none ever
+ * reaches the blob. The week ending Sep 6 printed +40.5% on the old cell method —
+ * that is the class of number this exists to keep off the site.
+ */
+async function checkIndexStepSanity(): Promise<Result> {
+  const snap = await readSnapshot<{ series: Record<string, { ts: string; value: number; n?: number }[]> }>("price-index");
+  if (!snap?.series || !Object.keys(snap.series).length) {
+    return skip("index-step-sanity", "hard", "price-index snapshot unreadable/empty");
+  }
+  const bads: string[] = [];
+  let steps = 0;
+  for (const [key, pts] of Object.entries(snap.series)) {
+    if (!Array.isArray(pts) || pts.length < 2) continue;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      if (!(a.value > 0) || !(b.value > 0)) continue;
+      steps += 1;
+      const stepPct = (b.value / a.value - 1) * 100;
+      const n = b.n ?? 0;
+      if (Math.abs(stepPct) > INDEX_STEP_LIMIT_PCT && n < INDEX_THIN_WEEK_PAIRS) {
+        bads.push(`${key}: ${b.ts.slice(0, 10)} ${stepPct >= 0 ? "+" : ""}${stepPct.toFixed(1)}% on ${n} pairs (needs ≥${INDEX_THIN_WEEK_PAIRS})`);
+      }
+    }
+  }
+  return bads.length
+    ? bad("index-step-sanity", "hard", `${bads.length} thin-week step(s) exceed ±${INDEX_STEP_LIMIT_PCT}%`, bads.slice(0, 8))
+    : ok("index-step-sanity", "hard", `all ${steps} weekly steps within ±${INDEX_STEP_LIMIT_PCT}% or backed by ≥${INDEX_THIN_WEEK_PAIRS} pairs`);
+}
+
+/**
  * INV-8 (HARD): published Σ-based 24h deltas must be computed over SOURCE-COMPLETE days,
  * never a Dune-lagged partial newest day (the "gacha −79.8%" fake collapse). Recompute
  * the gated delta from the spine and compare to the homepage payload's hero.vol24Pct /
@@ -324,6 +361,7 @@ async function main() {
   results.push(await checkHolders());
   results.push(await checkSpineContinuity());
   results.push(await checkIndexCompleteness());
+  results.push(await checkIndexStepSanity());
   results.push(await checkDailyDeltaCompleteness(hp));
   results.push(await checkSourceDeath());
 

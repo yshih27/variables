@@ -1,21 +1,33 @@
 /**
  * Price-index warmer — builds the sale-price panel, computes the constant-quality
- * stratified-median weekly price index per IP, rolls up cap-weighted category +
- * market indices, and stores them in the `price-index` snapshot blob.
+ * REPEAT-SALES weekly price index per IP, builds category + market indices over
+ * POOLED pairs, and stores them in the `price-index` snapshot blob.
  *
  *   npx tsx scripts/warm-sale-panel.ts
  *
  * readIndexSeries(kind:"price", …) serves from this blob. Thin IPs fail the
- * liquidity floor (see priceIndex.ts) and are simply absent → "insufficient data".
+ * liquidity floor (see repeatSalesIndex.ts) and are simply absent → "insufficient
+ * data"; there is deliberately NO fallback to the old cell method for them.
  * Isolated + time-bounded in its own warm job so it can't starve the daily batch.
+ *
+ * ⚠️ AGGREGATES ARE NOT ROLL-UPS ANY MORE. V-MKT and the category indices are built
+ * from the pooled pairs of their members, not as cap-weighted means of the IP
+ * indices. A weighted mean lets a thin IP inject its noise through its weight; a
+ * pooled pair set simply has more pairs. Nothing calls `rollupIndex` or
+ * `stratifiedMedianIndex` any more; both stay exported from priceIndex.ts so the
+ * old series can be regenerated for comparison (the PR's before/after table is
+ * built that way), not because anything ships them.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { buildSalePanel, type SaleRow } from "../src/lib/data/salePanel";
-import { stratifiedMedianIndex, rollupIndex } from "../src/lib/data/priceIndex";
+import {
+  repeatSalesIndex,
+  MIN_PAIRS_BROAD,
+  MIN_PAIRS_IP,
+} from "../src/lib/data/repeatSalesIndex";
 import type { IndexPoint } from "../src/lib/data/indices";
-import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
 import { writeSnapshot } from "../src/lib/db/snapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
@@ -33,38 +45,25 @@ async function main() {
   }
 
   const series: Record<string, IndexPoint[]> = {};
-  const ipIndex = new Map<string, IndexPoint[]>();
   const gated: string[] = [];
   for (const [ip, sales] of byIp) {
-    const idx = stratifiedMedianIndex(sales);
-    if (idx.length) {
-      series[`ip:${ip}`] = idx;
-      ipIndex.set(ip, idx);
-    } else {
-      gated.push(`${ip}(${sales.length})`); // failed the liquidity floor
-    }
+    const idx = repeatSalesIndex(sales, { minPairs: MIN_PAIRS_IP });
+    if (idx.length) series[`ip:${ip}`] = idx;
+    else gated.push(`${ip}(${sales.length})`); // too few repeat pairs — publish nothing
   }
 
-  // Cap weights = latest mcap per qualifying IP (from the spine).
-  const weights = new Map<string, number>();
-  for (const ip of ipIndex.keys()) {
-    const m = await readMetricSeries("ip", ip, "mcap_usd");
-    weights.set(ip, m.length ? m[m.length - 1].value : 0);
-  }
-
-  // Category roll-ups (cap-weighted, chained divisor).
+  // Categories + market: POOLED pairs, same estimator, broader liquidity floor.
   for (const cat of ["tcg", "sports", "other"] as IPCategory[]) {
-    const members = new Map<string, IndexPoint[]>();
-    for (const ip of ipsInCategory(cat)) {
-      const s = ipIndex.get(ip);
-      if (s) members.set(ip, s);
-    }
-    const idx = rollupIndex(members, weights);
+    const members = new Set(ipsInCategory(cat));
+    const pooled = panel.filter((r) => members.has(r.ip));
+    const idx = repeatSalesIndex(pooled, { minPairs: MIN_PAIRS_BROAD });
     if (idx.length) series[`category:${cat}`] = idx;
   }
 
-  // Market roll-up = all qualifying IP indices, cap-weighted.
-  const market = rollupIndex(ipIndex, weights);
+  const market = repeatSalesIndex(
+    panel.filter((r) => r.ip !== "other"),
+    { minPairs: MIN_PAIRS_BROAD },
+  );
   if (market.length) series["market:total"] = market;
 
   const now = new Date().toISOString();
