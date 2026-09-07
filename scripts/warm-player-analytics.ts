@@ -77,6 +77,32 @@ async function run() {
   }
   if (!snap.partners) console.log(`\n· no partner attribution yet (no pull carries a memo_slug)`);
 
+  // ── Machines ──────────────────────────────────────────────────────────────
+  // The share column is of ATTRIBUTED spend, and the header states the rate, so
+  // the log reads the same way the published board does. Untagged spend is its
+  // own column — never folded into `cc`. See docs/roadmap/cc-machines-findings.md.
+  const mb = snap.machines;
+  if (mb) {
+    console.log(
+      `\nmachines — ${mb.rows.length} machine(s) over ${mb.windowDays} complete days ` +
+        `(as of ${mb.asOf.slice(0, 10)}) · ${mb.attributedSpendPct.toFixed(1)}% of spend attributed`,
+    );
+    console.log(`  machine                        price    30d spend    pulls    7d spend   attr%   top partner`);
+    for (const r of mb.rows.slice(0, 10)) {
+      const attrPct = r.spendUsd > 0 ? (r.attributedUsd / r.spendUsd) * 100 : 0;
+      console.log(
+        `  ${r.name.slice(0, 28).padEnd(28)} ${(r.priceUsd == null ? "—" : "$" + r.priceUsd).padStart(6)} ` +
+          `$${Math.round(r.spendUsd).toLocaleString().padStart(11)} ${String(r.pulls).padStart(8)} ` +
+          `$${Math.round(r.spend7dUsd).toLocaleString().padStart(10)} ${attrPct.toFixed(1).padStart(6)}%   ` +
+          (r.topPartner ? `${r.topPartner.label} ${r.topPartner.sharePct.toFixed(0)}%` : "—"),
+      );
+    }
+    const noAttr = mb.rows.filter((r) => r.attributedUsd === 0).length;
+    console.log(`  ${mb.rows.length - noAttr}/${mb.rows.length} machine(s) carry at least one attributed pull`);
+  } else {
+    console.log(`\n· no machine board (no complete-day Collector Crypt pulls in the window)`);
+  }
+
   if (dryRun) {
     console.log(`\nDRY RUN — nothing written. (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     return { rowsWritten: 0 };
