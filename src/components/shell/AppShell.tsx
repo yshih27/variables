@@ -6,6 +6,7 @@ import { buildRailModel } from "@/lib/data/railModel";
 import { getTape, TAPE_AVAILABLE } from "@/lib/data/tape";
 import { BottomTabs } from "./BottomTabs";
 import { RailNav } from "./RailNav";
+import { RailToggle } from "./RailToggle";
 import { ShellSearch } from "./ShellSearch";
 import { Tape } from "./Tape";
 import { TickerStat } from "./TickerStat";
@@ -68,6 +69,10 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           <BrandMark className="h-[20px] w-auto sm:hidden" />
           <BrandLockup className="hidden h-[20px] w-auto sm:block" />
         </Link>
+
+        {/* The rail's expand control, where a collapsed rail's reader looks
+            first. The one at the rail's foot is now the duplicate. */}
+        <RailToggle variant="top" />
 
         <ShellSearch />
 

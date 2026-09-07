@@ -21,6 +21,7 @@ export const SHORTCUTS: { keys: string[]; label: string }[] = [
   { keys: ["g", "r"], label: "Go to Report" },
   { keys: ["g", "w"], label: "Go to Watchlist" },
   { keys: ["d"], label: "Toggle density" },
+  { keys: ["⌘\\", "Ctrl \\"], label: "Expand / collapse the rail" },
   { keys: ["?"], label: "This help" },
   { keys: ["Esc"], label: "Close" },
 ];

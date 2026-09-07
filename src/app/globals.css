@@ -422,8 +422,11 @@ a.ght-chip:hover {
   to   { transform: translate3d(-100%, 0, 0); }
 }
 
+/* ⚠️ DURATION IS DERIVED FROM WIDTH, so the SPEED is what stays constant —
+   Tape.tsx measures the run and sets --tape-dur to scrollWidth / 28px-per-second.
+   The 90s fallback only applies for the frame before the first measurement. */
 .tape-run {
-  animation: tape-scroll 90s linear infinite;
+  animation: tape-scroll var(--tape-dur, 90s) linear infinite;
   will-change: transform;
 }
 .tape-band[data-paused] .tape-run,
@@ -463,4 +466,34 @@ html[data-density="compact"] th {
 html[data-density="compact"] .mbc {
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
+}
+
+/* ── SHELL_V2 rail polish r1 ──────────────────────────────────────────────────
+   Everything here keys off the SAME conditions as the icon rail's label hiding,
+   so the collapsed presentation can never half-apply. */
+
+/* ⚠️ NO overflow-x escape hatch here — there cannot be one. The rail scrolls
+   vertically, and CSS forces the other axis to `auto` the moment one axis is not
+   `visible`, so a flyout can never escape this column by positioning. It portals
+   to <body> instead (see RailFlyout).
+   One step of contrast on the codes, so a collapsed rail reads as navigation
+   rather than decoration. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .rail-shell .rail-code { color: var(--color-ink-2); }
+}
+@media (min-width: 1280px) {
+  html[data-rail="icons"] .rail-shell .rail-code { color: var(--color-ink-2); }
+}
+
+/* The hairline edge affordance: the rail's right border brightens on hover of
+   the rail itself. */
+.rail-shell:hover { border-right-color: var(--color-line-2); }
+
+/* Category disclosure. 150ms, and NONE under reduced motion — a rotation is
+   decoration; the state is already carried by aria-expanded and the chevron's
+   final angle. */
+.rail-chevron { display: inline-flex; transition: transform 150ms ease; }
+.rail-chevron[data-open] { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-chevron { transition: none; }
 }

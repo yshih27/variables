@@ -4,6 +4,12 @@ import { GACHA_ENABLED } from "@/lib/flags";
 import { tickerOf } from "@/lib/indices/naming";
 import { categoryOf, type IPCategory } from "./ipCatalog";
 import { fetchHomepage } from "./fetchHomepage";
+import {
+  bulkDayOverDayPctComplete,
+  readMetricSeriesBulk,
+  DELTA_MIN_BASE_USD,
+  type SeriesPoint,
+} from "./metricSnapshots";
 
 /**
  * The left rail's taxonomy + its live micro-sparks (SHELL_V2 S1).
@@ -17,6 +23,11 @@ import { fetchHomepage } from "./fetchHomepage";
  *
  * Ordering is the payload's, not ours: IPs by 24h volume within their category,
  * platforms by the payload's rank (total 24h activity).
+ *
+ * ONE additional read: the per-IP daily `volume_usd` spine bulk, for the IP
+ * nodes' 24h delta (see `ipVolumeDelta`). It is a single bulk query per cache
+ * fill — this whole model is cached 30 min / platform-buckets — and no new
+ * source: the same table every chart on /ips already reads.
  */
 
 /** Category display names + rail order. Keyed by IPCategory so adding a category
@@ -65,17 +76,40 @@ function pct(v: number | null | undefined): number | null {
   return v != null && Number.isFinite(v) ? v : null;
 }
 
-function ipNode(r: IPRow): RailNode {
+/**
+ * An IP's 24h VOLUME change, complete days only.
+ *
+ * ⚠️ THIS REPLACED MARKET-CAP 1d, WHICH WAS HONESTLY USELESS. `IPRow.pct1d` is a
+ * market-cap move, and market cap is near-static between valuation writes — so
+ * every IP in the rail read "0.0%", a column of true zeros that told a reader
+ * nothing. The IP table dropped its own 24h Δ for exactly this reason (F8-1).
+ *
+ * `bulkDayOverDayPctComplete` is the house rule, reused rather than re-derived:
+ * it compares the last two SOURCE-COMPLETE days, so a Dune-lagged partial newest
+ * day is skipped instead of being compared against a full one (the fake
+ * "gacha −79.8%" class of bug), and `DELTA_MIN_BASE_USD` floors the denominator
+ * so a percentage off a near-zero base can't print as a signal.
+ *
+ * Below that guard — or with fewer than two complete days — this is null, and
+ * the rail renders "—". Never 0.0%.
+ */
+function ipVolumeDelta(key: string, series: SeriesPoint[] | undefined): number | null {
+  if (!series?.length) return null;
+  // A one-entity bulk: the completeness gate then asks only whether THIS IP wrote
+  // the day, which is the right question for a per-IP delta.
+  return bulkDayOverDayPctComplete(new Map([[key, series]]), DELTA_MIN_BASE_USD);
+}
+
+function ipNode(r: IPRow, volSeries: SeriesPoint[] | undefined): RailNode {
   return {
     key: r.key,
     name: r.name,
     short: shortOf("ip", r.key),
     href: `/ip/${r.key}`,
     spark: sparkOf(r.spark),
-    // Market-cap 1d from the spine. Already a PERCENT (unlike hero.mcapPct24h).
-    deltaPct: pct(r.pct1d),
+    deltaPct: ipVolumeDelta(r.key, volSeries),
     deltaWindow: "24h",
-    deltaLabel: "market cap",
+    deltaLabel: "volume",
   };
 }
 
@@ -95,7 +129,13 @@ function platformNode(r: PlatformRow): RailNode {
 }
 
 async function build(): Promise<RailModel> {
-  const data = await fetchHomepage();
+  const [data, ipVolume] = await Promise.all([
+    fetchHomepage(),
+    // The one extra read (see the module note). Total by its own contract — the
+    // reader returns an empty map rather than throwing — so a spine hiccup costs
+    // the deltas, not the rail.
+    readMetricSeriesBulk("ip", "volume_usd").catch(() => new Map<string, SeriesPoint[]>()),
+  ]);
 
   // IPs by 24h volume desc — the payload's `ips` is mcap-ranked, so re-sort here
   // rather than inheriting an order the rail doesn't want.
@@ -126,7 +166,7 @@ async function build(): Promise<RailModel> {
       // honest cell; the members below carry their own.
       deltaPct: null,
       deltaWindow: "24h" as const,
-      ips: rows.map(ipNode),
+      ips: rows.map((r) => ipNode(r, ipVolume.get(r.key))),
     };
   });
 

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readDensity, writeDensity, type Density } from "@/lib/shellPrefs";
 import { useChartFocus } from "./ChartFocus";
+import { toggleRailPref } from "./railPref";
 import { CommandPalette } from "./CommandPalette";
 import { ShortcutsHelp } from "./ShortcutsHelp";
 
@@ -86,6 +87,13 @@ export function KeyboardLayer() {
       if (meta && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteOpen(true);
+        return;
+      }
+      // ⌘\ toggles the rail. Also allowed from inside a field: it changes the
+      // frame, not the content, so a reader mid-query can still widen the page.
+      if (meta && e.key === "\\") {
+        e.preventDefault();
+        toggleRailPref();
         return;
       }
       if (isTypingTarget(e.target)) return;
