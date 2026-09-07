@@ -87,7 +87,7 @@ export function Tape({ initial }: { initial: TapeItem[] }) {
     () =>
       nowMs == null
         ? items
-        : items.filter((it) => it.kind === "index" || relativeAge(Date.parse(it.ts), nowMs) != null),
+        : items.filter((it) => it.kind !== "sale" || relativeAge(Date.parse(it.ts), nowMs) != null),
     [items, nowMs],
   );
 
@@ -151,7 +151,7 @@ const KIND_LABEL: Record<TapeItem["kind"], string> = {
 function TapeEntry({ item, nowMs }: { item: TapeItem; nowMs: number | null }) {
   // Index closes carry their age inside the label; rendering a second one here
   // would print "· 4d ago 4d ago".
-  const age = nowMs == null || item.kind === "index" ? null : relativeAge(Date.parse(item.ts), nowMs);
+  const age = nowMs == null || item.kind !== "sale" ? null : relativeAge(Date.parse(item.ts), nowMs);
   const dir = deltaDir(item.deltaPct);
   const deltaCls = dir === "up" ? "text-green" : dir === "down" ? "text-red" : "text-ink-3";
   return (
