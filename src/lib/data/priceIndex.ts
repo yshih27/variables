@@ -1,4 +1,19 @@
 /**
+ * SUPERSEDED ESTIMATORS — kept for comparison, no longer shipped.
+ *
+ * ⚠️ The price index is now built by src/lib/data/repeatSalesIndex.ts. Nothing calls
+ * `stratifiedMedianIndex` or `rollupIndex` in the product; they remain exported so
+ * the old series can be regenerated side by side with the new one (which is how the
+ * rebuild PR's before/after table was produced). `weekStartUtc`/`weekEndUtc` are
+ * still re-exported from here and ARE used — several modules import them by this
+ * path.
+ *
+ * The defect, for the record: a cell mixing a $10 common with a $1,000 chase card
+ * was indexed against whatever sold in its first week, so thin cells carried
+ * relatives of 30-114x and supplied most of the level; weights were the current
+ * week's trade counts, so the index moved when the MIX moved with no card
+ * repricing. Week-over-week it was independent noise (lag-1 autocorrelation -0.32).
+ *
  * Constant-quality price-index estimators over the sale-price panel (B1, kind:"price").
  *
  * v1 = STRATIFIED MEDIAN: within an entity, partition sales into set×grade cells,

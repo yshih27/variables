@@ -184,8 +184,9 @@ async function readMcapSeries(
 
 /**
  * Rebased index series (= 100 at `from`).
- *   kind:"price" — constant-quality stratified-median PRICE index (weekly; the fair
- *     overlay vs BTC/S&P; carries n/lo/hi; thin entities return []).
+ *   kind:"price" — constant-quality REPEAT-SALES price index (weekly; the fair
+ *     overlay vs BTC/S&P; carries n = repeat-sale pairs + lo/hi; thin entities
+ *     return [] — there is no fallback estimator).
  *   kind:"mcap"  — MARKET-SIZE index (rebased mcap; compare vs total crypto mcap, NOT
  *     BTC price — it moves with supply). Daily, or weekly when freq:"weekly".
  */
@@ -195,8 +196,9 @@ export async function readIndexSeries(
   opts: { kind: "price" | "mcap"; from: string; freq?: "weekly" | "daily" },
 ): Promise<IndexPoint[]> {
   if (opts.kind === "price") {
-    // ⚠️ HOLD (src/lib/indices/hold.ts): every price-index consumer reads through
-    // here, so the truncation makes the studio, seed, API, report and OG agree.
+    // HOLD (src/lib/indices/hold.ts): LIFTED now the index is rebuilt on repeat
+    // sales — applyPriceIndexHold is the identity while `active: false`. The call
+    // stays so the same one-line switch is available if it is ever needed again.
     return rebaseWithBands(applyPriceIndexHold(await readPriceSeries(entity, key)), opts.from); // natively weekly
   }
   const daily = rebaseSeries(await readMcapSeries(entity, key), opts.from);
