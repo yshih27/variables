@@ -198,6 +198,51 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
           </ul>
         </Section>
 
+        <Section title="Platform economics" id="economics">
+          <p>
+            <strong className="font-semibold text-ink">What the page measures.</strong> Gacha <em>spend</em> is canonical pack-pull
+            volume from the spine. <em>Outbound</em> is USDC leaving a platform&apos;s known
+            on-chain gacha wallets. Both are summed over the same 30 complete days, so the
+            windows and the completeness basis match by construction.
+          </p>
+          <p>
+            <strong className="font-semibold text-ink">Rule R3.</strong> A payout counts only if the recipient wallet has itself spent
+            into the gacha. R3 tests <em>who</em> the counterparty is — it never tests what a
+            transfer was for, so it removes vendors and treasury movement but cannot remove a
+            partner settlement to a wallet that also plays. The R3-verified share states how
+            much of gross outflow passes that test.
+          </p>
+          <p>
+            <strong className="font-semibold text-ink">Payout ÷ spend.</strong> The ratio of those two legs. Above 100% is not
+            automatically an error: when a platform&apos;s spend is falling, payouts settle
+            earlier and larger cohorts against a smaller current spend, and the ratio exceeds
+            1.0 with nothing miscounted. Reading it as margin requires cohorting payouts to
+            the pulls they settle, which is backend work not yet done.
+          </p>
+          <p>
+            <strong className="font-semibold text-ink">Disclosure states, per platform.</strong> <em>Gross</em> — the outbound flow is
+            published under a label saying what it is (players and partners, non-player
+            counterparties included). <em>Suppressed</em> — nothing is published on the
+            outbound side, because that platform&apos;s exclusion list misses its dominant
+            non-player counterparties and the resulting rate would be an artifact of the
+            omission rather than a business fact. Spend comes from a separate query and is
+            unaffected either way.
+          </p>
+          <p>
+            <strong className="font-semibold text-ink">Why net is held.</strong> Net is spend minus R3-counted payouts — a small
+            difference of two large numbers, roughly 5% of spend, so a sub-1% error in the
+            payout leg is levered about 20× into it, and it errs in the flattering direction
+            because a missing spender drops a payout. Four reasons can hold it:{" "}
+            <em>unsourced</em> (no on-chain payout wallet exists — nothing to compute),{" "}
+            <em>reconciliation</em> (the counting is known-wrong for that platform),{" "}
+            <em>awaiting-r3-basis</em> (payout days not yet proven to be on the R3 basis), and{" "}
+            <em>spender-coverage</em> (the spender set behind R3 is not yet complete enough;
+            it needs about 99% and currently measures lower). A held net is shown as a chip
+            carrying its reason, never as a number, and never as a partial market sum that
+            silently excludes the platform we can actually count.
+          </p>
+        </Section>
+
         <Section title="Cache + freshness">
           <p>
             Warmers run on cron (target hourly). Server-rendered pages read

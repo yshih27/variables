@@ -17,6 +17,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${baseUrl}/`, lastModified: now, changeFrequency: "hourly", priority: 1 },
     { url: `${baseUrl}/ips`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
     { url: `${baseUrl}/platforms`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
+    { url: `${baseUrl}/economics`, lastModified: now, changeFrequency: "hourly", priority: 0.9 },
     // /gacha omitted while the section is gated — don't index a coming-soon page.
     ...(GACHA_ENABLED
       ? [{ url: `${baseUrl}/gacha`, lastModified: now, changeFrequency: "hourly" as const, priority: 0.9 }]

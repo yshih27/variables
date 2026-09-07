@@ -181,6 +181,15 @@ export function RailNav({ model }: Props) {
         {model.platforms.map((p) => (
           <RailLink key={p.key} node={p} {...nodeProps(p.href)} {...flyoutProps(p)} />
         ))}
+        {/* Economics sits under Platforms because it is a cross-platform read of
+            the same venues — not a sixth venue. No spark: it is a page, not a
+            series, and a spark here would imply one. */}
+        <RailLink
+          node={{ key: "economics", name: "Economics", short: "ECO", href: "/economics", spark: null, deltaPct: null, deltaWindow: "24h" }}
+          nested
+          noStats
+          {...nodeProps("/economics")}
+        />
 
         <RailSectionLabel>More</RailSectionLabel>
         {TAIL.filter((t) => !t.gated || GACHA_ENABLED).map((t) => (
