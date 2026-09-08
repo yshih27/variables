@@ -9,6 +9,7 @@ import { RailSpark } from "./RailSpark";
 import { RailFlyout, useFlyout } from "./RailFlyout";
 import { RailToggle } from "./RailToggle";
 import { RAIL_OPEN_KEY } from "./railPref";
+import { RAIL_CODES } from "@/lib/data/railCode";
 import { useRailPref } from "./useRailPref";
 
 /**
@@ -30,11 +31,11 @@ import { useRailPref } from "./useRailPref";
 type Props = { model: RailModel };
 
 /** Static tail nodes — no series behind them, so no spark, by construction. */
-const TAIL: { key: string; name: string; short: string; href: string; gated?: boolean }[] = [
-  { key: "report", name: "Report", short: "RPT", href: "/report" },
-  { key: "watchlist", name: "Watchlist", short: "★", href: "/watchlist" },
-  { key: "gacha", name: "Gacha", short: "GCH", href: "/gacha", gated: true },
-  { key: "status", name: "Status", short: "SYS", href: "/status" },
+const TAIL: { key: string; name: string; short: string; railCode: string; href: string; gated?: boolean }[] = [
+  { key: "report", name: "Report", short: "RPT", railCode: RAIL_CODES.report, href: "/report" },
+  { key: "watchlist", name: "Watchlist", short: "★", railCode: RAIL_CODES.watchlist, href: "/watchlist" },
+  { key: "gacha", name: "Gacha", short: "GCH", railCode: RAIL_CODES.gacha, href: "/gacha", gated: true },
+  { key: "status", name: "Status", short: "SYS", railCode: RAIL_CODES.status, href: "/status" },
 ];
 
 /**
@@ -154,18 +155,32 @@ export function RailNav({ model }: Props) {
          can escape the 56px column. */
       className="rail-shell scroll-y sticky top-[var(--shell-chrome-h,var(--shell-topbar-h))] hidden h-[calc(100dvh-var(--shell-chrome-h,var(--shell-topbar-h)))] min-h-0 flex-col overflow-y-auto border-r border-line/70 transition-colors lg:flex"
     >
-      <div className="flex min-h-0 flex-1 flex-col gap-px py-2">
-        <RailLink node={model.market} {...nodeProps(model.market.href)} {...flyoutProps(model.market)} />
+      <div className={`flex min-h-0 flex-1 flex-col py-2 ${collapsed ? "items-center gap-1.5" : "gap-px"}`}>
+        {/* The expand control is a TILE, at the top under the brand mark — where
+            a collapsed rail's reader looks first. Only where there is a choice. */}
+        {collapsed && (
+          /* ⚠️ `hidden xl:contents` — NOT a fragment. Between 1024 and 1279 the rail
+             is iconised BY THE VIEWPORT (railPref's RAIL_ICONS_MAX_PX), so there is
+             nothing for this control to toggle and r1's rule is that it must not
+             render there. `contents` keeps the tile and the rule as direct flex
+             children at >=1280, so gating costs no geometry. */
+          <div className="hidden xl:contents">
+            <RailToggle variant="tile" />
+            <RailRule />
+          </div>
+        )}
+        <RailLink node={model.market} collapsed={collapsed} {...nodeProps(model.market.href)} {...flyoutProps(model.market)} />
         {/* Stats sits under Market: it is the same market, stated for citation.
             No spark — it is a page, not a series. */}
         <RailLink
-          node={{ key: "stats", name: "Stats", short: "STA", href: "/stats", spark: null, deltaPct: null, deltaWindow: "24h" }}
+          node={{ key: "stats", name: "Stats", short: "STA", railCode: RAIL_CODES.stats, href: "/stats", spark: null, deltaPct: null, deltaWindow: "24h" }}
           nested
           noStats
+          collapsed={collapsed}
           {...nodeProps("/stats")}
         />
 
-        <RailSectionLabel>Categories</RailSectionLabel>
+        <RailSectionLabel collapsed={collapsed}>Categories</RailSectionLabel>
         {model.categories.map((c) => {
           const open = isOpen(c.key);
           return (
@@ -174,6 +189,7 @@ export function RailNav({ model }: Props) {
                 node={c}
                 open={open}
                 count={c.ips.length}
+                collapsed={collapsed}
                 onToggle={() => toggle(c.key)}
                 onSetOpen={(v) => setOpen(c.key, v)}
                 {...flyoutProps(c, c.ips)}
@@ -185,26 +201,28 @@ export function RailNav({ model }: Props) {
           );
         })}
 
-        {model.platforms.length > 0 && <RailSectionLabel>Platforms</RailSectionLabel>}
+        {model.platforms.length > 0 && <RailSectionLabel collapsed={collapsed}>Platforms</RailSectionLabel>}
         {model.platforms.map((p) => (
-          <RailLink key={p.key} node={p} {...nodeProps(p.href)} {...flyoutProps(p)} />
+          <RailLink key={p.key} node={p} collapsed={collapsed} {...nodeProps(p.href)} {...flyoutProps(p)} />
         ))}
         {/* Economics sits under Platforms because it is a cross-platform read of
             the same venues — not a sixth venue. No spark: it is a page, not a
             series, and a spark here would imply one. */}
         <RailLink
-          node={{ key: "economics", name: "Economics", short: "ECO", href: "/economics", spark: null, deltaPct: null, deltaWindow: "24h" }}
+          node={{ key: "economics", name: "Economics", short: "ECO", railCode: RAIL_CODES.economics, href: "/economics", spark: null, deltaPct: null, deltaWindow: "24h" }}
           nested
           noStats
+          collapsed={collapsed}
           {...nodeProps("/economics")}
         />
 
-        <RailSectionLabel>More</RailSectionLabel>
+        <RailSectionLabel collapsed={collapsed}>More</RailSectionLabel>
         {TAIL.filter((t) => !t.gated || GACHA_ENABLED).map((t) => (
           <RailLink
             key={t.key}
-            node={{ key: t.key, name: t.name, short: t.short, href: t.href, spark: null, deltaPct: null, deltaWindow: "24h" }}
+            node={{ key: t.key, name: t.name, short: t.short, railCode: t.railCode, href: t.href, spark: null, deltaPct: null, deltaWindow: "24h" }}
             noStats
+            collapsed={collapsed}
             {...nodeProps(t.href)}
           />
         ))}
@@ -213,19 +231,89 @@ export function RailNav({ model }: Props) {
       {/* Duplicate of the top control, for a long rail where the brand-bar chevron
           has scrolled out of reach. Only where there is a choice: below 1280 the
           rail is iconised by the viewport, so a toggle there would be a lie. */}
-      <div className="sticky bottom-0 hidden border-t border-line/70 bg-bg/90 p-2 backdrop-blur-xl xl:block">
-        <RailToggle variant="foot" />
+      {/* The duplicate, for a rail long enough that the top control has scrolled
+          out of reach. Collapsed it is the SAME tile as everything above it, not a
+          bare glyph. */}
+      <div
+        className={`sticky bottom-0 border-t border-line/70 bg-bg/90 backdrop-blur-xl ${
+          collapsed ? "hidden justify-center p-1.5 xl:flex" : "hidden p-2 xl:block"
+        }`}
+      >
+        <RailToggle variant={collapsed ? "tile" : "foot"} />
       </div>
     </nav>
   );
 }
 
-function RailSectionLabel({ children }: { children: React.ReactNode }) {
+/** A section break. Expanded it is a label; collapsed it is a 1px rule — a
+ *  three-letter label above a column of 36px tiles is the "debug text" read the
+ *  whole round is fixing. */
+function RailSectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed?: boolean }) {
+  if (collapsed) return <RailRule />;
   return (
     <div className="rail-label mt-3 px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-ink-4">
       {children}
     </div>
   );
+}
+
+/**
+ * ONE tile. 36×36, packed at a 42px pitch by the 6px column gap around it.
+ *
+ * ⚠️ THREE STATES, EACH VISIBLY DIFFERENT IN A STILL. Active is a FILLED tile
+ * (bg-yellow, bg-coloured monogram) — an outline was indistinguishable from hover
+ * in the review screenshot. Hover is bg-bg-3, one step up from the resting
+ * bg-bg-2. Focus-visible is the house ring, which sits outside the tile so it
+ * never reads as a fourth fill.
+ *
+ * Radius comes from the theme token (`rounded-lg` = --radius-lg), not a literal —
+ * the whole point of the one-knob radius system.
+ */
+function RailTile({
+  as,
+  href,
+  code,
+  label,
+  active,
+  onClick,
+  onFocus,
+  ...rest
+}: {
+  as: "link" | "button";
+  href?: string;
+  /** Exactly two characters, or the ★ glyph. */
+  code: string;
+  label: string;
+  active: boolean;
+  onClick?: () => void;
+  onFocus?: (e: React.FocusEvent<HTMLElement>) => void;
+  "aria-current"?: "page";
+  "aria-label"?: string;
+}) {
+  const cls = `flex h-9 w-9 shrink-0 items-center justify-center rounded-lg font-mono text-[11px] uppercase leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 ${
+    active ? "bg-yellow font-semibold text-bg" : "bg-bg-2 text-ink-2 hover:bg-bg-3 hover:text-ink"
+  }`;
+  const inner = <span aria-hidden>{code}</span>;
+  if (as === "button") {
+    return (
+      <button type="button" onClick={onClick} onFocus={onFocus} title={label} aria-label={label} className={cls} {...rest}>
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <Link href={href ?? "#"} onFocus={onFocus} title={label} aria-label={label} className={cls} {...rest}>
+      {inner}
+    </Link>
+  );
+}
+
+/** ⚠️ NO MARGIN OF ITS OWN. The column is a flex stack with a 6px gap, so the
+ *  rule's 6px-each-side breathing room is already supplied on both sides of it;
+ *  adding my-1.5 too made a section break 61px instead of 49 and the column read
+ *  as loosely grouped rather than sectioned. */
+function RailRule() {
+  return <span aria-hidden className="block h-px w-9 bg-line" />;
 }
 
 /** Shared by both row kinds: the hover/focus wiring that opens a flyout in the
@@ -250,6 +338,7 @@ function RailLink({
   nested,
   noStats,
   active,
+  collapsed,
   onMouseEnter,
   onMouseLeave,
   onFocus,
@@ -260,8 +349,28 @@ function RailLink({
   nested?: boolean;
   noStats?: boolean;
   active: boolean;
+  collapsed?: boolean;
   "aria-current"?: "page";
 } & FlyoutProps) {
+  // Collapsed: a uniform tile, nothing else. The name, spark and delta the
+  // expanded row shows are what the flyout is for.
+  if (collapsed) {
+    return (
+      <div data-rail-node className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+        <RailTile
+          as="link"
+          href={node.href}
+          code={node.railCode ?? node.short ?? "??"}
+          label={node.name}
+          active={active}
+          onFocus={onFocus}
+          {...rest}
+        />
+        {flyout}
+      </div>
+    );
+  }
+
   return (
     <div data-rail-node className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <Link
@@ -279,7 +388,7 @@ function RailLink({
             active ? "text-yellow" : "text-ink-4"
           }`}
         >
-          {node.short ?? node.name.slice(0, 3).toUpperCase()}
+          {node.railCode ?? node.short ?? node.name.slice(0, 2).toUpperCase()}
         </span>
         <span className="rail-label min-w-0 flex-1 truncate">{node.name}</span>
         {!noStats && (
@@ -313,6 +422,7 @@ function RailBranch({
   node,
   open,
   count,
+  collapsed,
   onToggle,
   onSetOpen,
   onMouseEnter,
@@ -323,9 +433,30 @@ function RailBranch({
   node: RailNode;
   open: boolean;
   count: number;
+  collapsed: boolean;
   onToggle: () => void;
   onSetOpen: (open: boolean) => void;
 } & FlyoutProps) {
+  // ⚠️ COLLAPSED, A CATEGORY IS A TILE — never a chevron. The chevron is the
+  // EXPANDED rail's disclosure; at 56px there is nothing to disclose into, and
+  // three bare "›" glyphs beside three codes is what made the column read as
+  // debug output. The flyout already lists the category's IPs on hover.
+  if (collapsed) {
+    return (
+      <div data-rail-node className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+        <RailTile
+          as="link"
+          href={node.href}
+          code={node.railCode ?? node.short ?? "??"}
+          label={`${node.name} (${count} IPs)`}
+          active={false}
+          onFocus={onFocus}
+        />
+        {flyout}
+      </div>
+    );
+  }
+
   return (
     <div data-rail-node className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       <div className="group mx-1 flex items-center rounded-lg transition-colors hover:bg-bg-1">
@@ -357,7 +488,7 @@ function RailBranch({
             aria-hidden
             className="rail-code w-7 shrink-0 text-center font-mono text-[9.5px] uppercase tracking-[0.04em] text-ink-4"
           >
-            {node.short ?? node.name.slice(0, 3).toUpperCase()}
+            {node.railCode ?? node.short ?? node.name.slice(0, 2).toUpperCase()}
           </span>
           <span className="rail-label min-w-0 flex-1 truncate">{node.name}</span>
           {/* How many IPs are behind the row — the reason to open it. */}

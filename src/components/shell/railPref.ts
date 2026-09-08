@@ -24,7 +24,23 @@ export const RAIL_OPEN_KEY = "varible:rail:open";
  * Wrapped in try/catch: a blocked localStorage must not throw before the app
  * mounts. No value stamped = the CSS default (240px at ≥1280).
  */
-export const RAIL_PREF_SCRIPT = `try{var v=localStorage.getItem(${JSON.stringify(RAIL_PREF_KEY)});if(v==="icons"||v==="open")document.documentElement.setAttribute("data-rail",v)}catch(e){}`;
+/**
+ * ⚠️ `data-rail` IS THE EFFECTIVE MODE, NOT THE STORED CHOICE.
+ *
+ * Below 1280 the rail is iconised BY THE VIEWPORT, whatever the reader picked.
+ * That used to be a CSS media query while the stored preference drove everything
+ * else — fine while the collapsed rail was the same markup at a narrower width,
+ * and wrong the moment the component started rendering DIFFERENT markup for the
+ * two modes (tiles vs rows): at 1100 with a stored "open", React would have laid
+ * expanded rows into a 56px column.
+ *
+ * So the viewport is folded in here, once, and both the width variable and the
+ * markup read the same attribute. localStorage still holds the reader's CHOICE;
+ * this is the choice combined with what the viewport allows.
+ */
+export const RAIL_ICONS_MAX_PX = 1279;
+
+export const RAIL_PREF_SCRIPT = `try{var v=localStorage.getItem(${JSON.stringify(RAIL_PREF_KEY)});var narrow=window.innerWidth<=${RAIL_ICONS_MAX_PX};document.documentElement.setAttribute("data-rail",narrow?"icons":(v==="icons"?"icons":"open"))}catch(e){}`;
 
 
 /**
@@ -37,6 +53,16 @@ export const RAIL_PREF_SCRIPT = `try{var v=localStorage.getItem(${JSON.stringify
  */
 const listeners = new Set<() => void>();
 
+/** The reader's stored CHOICE, ignoring what the viewport allows. */
+export function readRailChoice(): RailPref {
+  try {
+    return localStorage.getItem(RAIL_PREF_KEY) === "icons" ? "icons" : "open";
+  } catch {
+    return "open";
+  }
+}
+
+/** The EFFECTIVE mode — the choice, narrowed by the viewport. */
 export function readRailPref(): RailPref {
   // The DOM is the truth in the browser: the pre-hydration script already stamped
   // it, so reading the attribute can't disagree with what is painted.
@@ -44,27 +70,36 @@ export function readRailPref(): RailPref {
     const v = document.documentElement.getAttribute("data-rail");
     if (v === "icons" || v === "open") return v;
   }
-  try {
-    const v = localStorage.getItem(RAIL_PREF_KEY);
-    if (v === "icons" || v === "open") return v;
-  } catch {
-    /* blocked storage */
-  }
   return "open";
 }
 
-export function applyRailPref(next: RailPref): void {
+/** Recompute the effective mode from the stored choice + the current width. */
+export function stampEffectiveRailPref(): RailPref {
+  const next: RailPref =
+    typeof window !== "undefined" && window.innerWidth <= RAIL_ICONS_MAX_PX ? "icons" : readRailChoice();
   document.documentElement.setAttribute("data-rail", next);
+  return next;
+}
+
+/** Record a CHOICE, then re-derive the effective mode from it. */
+export function applyRailPref(next: RailPref): void {
   try {
     localStorage.setItem(RAIL_PREF_KEY, next);
   } catch {
     /* blocked storage — the rail just won't remember */
   }
+  stampEffectiveRailPref();
   for (const l of listeners) l();
 }
 
 export function toggleRailPref(): void {
-  applyRailPref(readRailPref() === "icons" ? "open" : "icons");
+  applyRailPref(readRailChoice() === "icons" ? "open" : "icons");
+}
+
+/** Re-derive on resize; the viewport is half the input. */
+export function notifyRailPref(): void {
+  stampEffectiveRailPref();
+  for (const l of listeners) l();
 }
 
 export function subscribeRailPref(cb: () => void): () => void {

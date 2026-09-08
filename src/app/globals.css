@@ -371,10 +371,10 @@ a.ght-chip:hover {
   --shell-topbar-h: 56px;
   --shell-rail-w: 0px;
 }
+/* ⚠️ ONE ATTRIBUTE, BOTH DECISIONS. `data-rail` is the EFFECTIVE mode — the
+   reader's choice already narrowed by the viewport (see railPref.ts) — so the
+   width and the markup can no longer disagree. Below 1024 there is no rail. */
 @media (min-width: 1024px) {
-  :root { --shell-rail-w: 56px; }
-}
-@media (min-width: 1280px) {
   :root { --shell-rail-w: 240px; }
   html[data-rail="icons"] { --shell-rail-w: 56px; }
 }
@@ -476,14 +476,10 @@ html[data-density="compact"] .mbc {
    vertically, and CSS forces the other axis to `auto` the moment one axis is not
    `visible`, so a flyout can never escape this column by positioning. It portals
    to <body> instead (see RailFlyout).
-   One step of contrast on the codes, so a collapsed rail reads as navigation
-   rather than decoration. */
-@media (min-width: 1024px) and (max-width: 1279px) {
-  .rail-shell .rail-code { color: var(--color-ink-2); }
-}
-@media (min-width: 1280px) {
-  html[data-rail="icons"] .rail-shell .rail-code { color: var(--color-ink-2); }
-}
+
+   The codes' contrast rule that used to live here is gone: in icons mode there
+   are no `.rail-code` spans any more — RailTile owns the tile's own colours —
+   so the selector could only ever match nothing. */
 
 /* The hairline edge affordance: the rail's right border brightens on hover of
    the rail itself. */
