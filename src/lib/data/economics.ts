@@ -152,10 +152,23 @@ async function build(): Promise<EconomicsBoard> {
     }),
   );
 
-  // ── Market-wide, over platforms WITH a payout source ───────────────────────
+  // ── Market-wide, and the ratio's own narrower basis ────────────────────────
   const sourced = platforms.filter((p) => p.outbound30d != null);
   const fin = (n: number) => (Number.isFinite(n) ? n : 0);
-  const spend30d = sourced.reduce((s, p) => s + fin(p.spend30d), 0);
+  /**
+   * ⚠️ TWO SPENDS, DELIBERATELY, AND THEY ARE NOT INTERCHANGEABLE.
+   *
+   * `spend30d` is EVERY tracked venue — it is what the hero draws and what the
+   * KPI strip labels "5 venues". It used to be the sourced subset, which meant
+   * the strip's headline spend was one venue's number wearing a market label
+   * while the chart under it drew five (polish r1, Sep 8).
+   *
+   * `spendSourced30d` is the ratio's denominator and must stay the subset: a
+   * ratio of one venue's outbound over five venues' spend is not a payout rate,
+   * it is a coverage artifact that would read as a healthy 20%.
+   */
+  const spend30d = platforms.reduce((s, p) => s + fin(p.spend30d), 0);
+  const spendSourced30d = sourced.reduce((s, p) => s + fin(p.spend30d), 0);
   const outbound30d = sourced.length ? sourced.reduce((s, p) => s + (p.outbound30d ?? 0), 0) : null;
   const priorSpend = sourced.reduce((s, p) => s + fin(p.ratioPctPrior30d != null ? p.spend30d : 0), 0);
 
@@ -182,8 +195,9 @@ async function build(): Promise<EconomicsBoard> {
     asOf,
     platforms,
     spend30d,
+    spendSourced30d,
     outbound30d,
-    ratioPct30d: outbound30d != null ? ratio(outbound30d, spend30d) : null,
+    ratioPct30d: outbound30d != null ? ratio(outbound30d, spendSourced30d) : null,
     ratioPctPrior30d:
       priorSpend > 0
         ? ratio(
@@ -205,6 +219,7 @@ const EMPTY: EconomicsBoard = {
   asOf: null,
   platforms: [],
   spend30d: NaN,
+  spendSourced30d: NaN,
   outbound30d: null,
   ratioPct30d: null,
   ratioPctPrior30d: null,

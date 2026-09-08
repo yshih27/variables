@@ -2,6 +2,7 @@ import type { EconomicsPlatform } from "@/lib/types";
 import { resampleToPeriod } from "@/lib/chart/period";
 import { Section } from "../Section";
 import { HeldChip } from "./HeldChip";
+import { VenueCountChip } from "./CoverageChip";
 
 /**
  * Payout ÷ spend, by platform, over the last 12 COMPLETE weeks.
@@ -39,7 +40,19 @@ function weeklyRatio(p: EconomicsPlatform): { ts: string; v: number }[] {
   });
 }
 
-export function RatioTrend({ platforms }: { platforms: EconomicsPlatform[] }) {
+export function RatioTrend({
+  platforms,
+  scope,
+}: {
+  platforms: EconomicsPlatform[];
+  /**
+   * "1 of 5 venues" — computed by the page from the shared coverage projection,
+   * not counted again here. The zone's title claims a scope ("where payouts CAN
+   * be counted"), so the chip that qualifies it has to be the same arithmetic the
+   * KPI label above used, or the page states two scopes for one leg.
+   */
+  scope: string;
+}) {
   const lines: Line[] = platforms
     .map((p, i) => ({ key: p.key, name: p.name, color: COLORS[i % COLORS.length], points: weeklyRatio(p).slice(-WEEKS) }))
     .filter((l) => l.points.length >= 2);
@@ -48,7 +61,12 @@ export function RatioTrend({ platforms }: { platforms: EconomicsPlatform[] }) {
 
   if (lines.length === 0) {
     return (
-      <Section title="Ratio trend" readMe="payout ÷ spend, by platform, week over week" fill>
+      <Section
+        title="Where payouts can be counted"
+        readMe="payout ÷ spend, by platform, week over week"
+        right={<VenueCountChip>{scope}</VenueCountChip>}
+        fill
+      >
         <p className="text-[12.5px] text-ink-3">
           No platform has two complete weeks with both legs published yet.
         </p>
@@ -67,9 +85,10 @@ export function RatioTrend({ platforms }: { platforms: EconomicsPlatform[] }) {
 
   return (
     <Section
-      title="Ratio trend"
+      title="Where payouts can be counted"
       readMe="payout ÷ spend, by platform, week over week"
       subtitle={`Last ${WEEKS} complete weeks · 100% marked`}
+      right={<VenueCountChip>{scope}</VenueCountChip>}
       fill
     >
       <div className="flex min-h-0 flex-1 flex-col">
