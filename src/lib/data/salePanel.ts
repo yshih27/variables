@@ -17,6 +17,7 @@
 import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
 import { readCardDims, type CardPlatform } from "./cards";
+import { identityKey } from "./traits";
 import type { NormalizedSale } from "../rarible/queries";
 
 export type SaleRow = {
@@ -27,6 +28,9 @@ export type SaleRow = {
   ip: string;
   set: string | null;
   grade: string;
+  /** v3 comparable key — `ip|set|number|name|grade|edition|language`, or null when
+   *  the row is too thin to be a comparable (see traits.ts `identityKey`). */
+  identity: string | null;
 };
 
 /**
@@ -103,6 +107,7 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[]): Promi
       ip: d?.ip ?? "other",
       set: d?.set ?? null,
       grade: d?.grade ?? "Ungraded",
+      identity: d?.identity ? identityKey(d.ip ?? "other", d.identity) : null,
     };
   });
 }

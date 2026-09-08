@@ -30,6 +30,7 @@ import {
   STEP_LIMIT_PCT as INDEX_STEP_LIMIT_PCT,
   THIN_WEEK_PAIRS as INDEX_THIN_WEEK_PAIRS,
 } from "../src/lib/data/repeatSalesIndex";
+import { INVARIANCE_TOLERANCE_PP } from "../src/lib/data/biasTests";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
@@ -232,6 +233,40 @@ async function checkIndexStepSanity(): Promise<Result> {
 }
 
 /**
+ * INV-12 (SOFT): holding-period invariance — the selection-bias detector.
+ *
+ * A real price index has the same per-week rate whatever interval it is measured
+ * over. v2's rate fell monotonically with holding period (+5.4%/wk at 1 week,
+ * +1.2%/wk at 6 months) because it could only observe cards somebody chose to
+ * resell, and it still passed every test it had: a smoothness gate cannot tell a
+ * trend from a compounding selection bias, because a perfectly biased index is
+ * perfectly smooth. This is the test that would have caught it.
+ *
+ * SOFT on purpose: a spread above the tolerance means the SAMPLE is suspect, which
+ * is a judgement call about method, not a broken pipeline. It flags for review
+ * rather than failing the batch. The warmer computes it on every rebuild and stores
+ * it with the series (see warm-sale-panel.ts).
+ */
+async function checkHoldingPeriodInvariance(): Promise<Result> {
+  const snap = await readSnapshot<{
+    biasTests?: { invariance?: { buckets: { label: string; n: number; perWeekPct: number }[]; spreadPP: number; pass: boolean } };
+  }>("price-index");
+  const inv = snap?.biasTests?.invariance;
+  if (!inv || !Number.isFinite(inv.spreadPP)) {
+    return skip("holding-period-invariance", "soft", "price-index snapshot carries no bias-test block (pre-INV-12 rebuild)");
+  }
+  const detail = inv.buckets.map((b) => `${b.label} ${b.perWeekPct >= 0 ? "+" : ""}${b.perWeekPct.toFixed(2)}%/wk (n=${b.n})`).join(" · ");
+  return inv.spreadPP <= INVARIANCE_TOLERANCE_PP
+    ? ok("holding-period-invariance", "soft", `spread ${inv.spreadPP.toFixed(2)}pp ≤ ${INVARIANCE_TOLERANCE_PP}pp — ${detail}`)
+    : bad(
+        "holding-period-invariance",
+        "soft",
+        `spread ${inv.spreadPP.toFixed(2)}pp > ${INVARIANCE_TOLERANCE_PP}pp — per-week rate depends on holding period, i.e. the sample is selected`,
+        [detail],
+      );
+}
+
+/**
  * INV-8 (HARD): published Σ-based 24h deltas must be computed over SOURCE-COMPLETE days,
  * never a Dune-lagged partial newest day (the "gacha −79.8%" fake collapse). Recompute
  * the gated delta from the spine and compare to the homepage payload's hero.vol24Pct /
@@ -362,6 +397,7 @@ async function main() {
   results.push(await checkSpineContinuity());
   results.push(await checkIndexCompleteness());
   results.push(await checkIndexStepSanity());
+  results.push(await checkHoldingPeriodInvariance());
   results.push(await checkDailyDeltaCompleteness(hp));
   results.push(await checkSourceDeath());
 
