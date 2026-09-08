@@ -34,6 +34,23 @@
  * docs/roadmap/brief-backend-price-index-v3.md and the PR that added
  * src/lib/data/biasTests.ts.
  *
+ * v4 (MONTHLY) ATTEMPTED AND NOT SHIPPED (Sep 8). Moving the identity index to a
+ * calendar-MONTH grid fixes the density problem v3 died of — adjacent months share
+ * 22-78 priced identities against a weekly median of 2 — and V-MKT, V-TCG and
+ * Pokemon all publish a 7-point series (Feb 100 -> Aug ~159, +58.6% to +59.7%, one
+ * down month). Two of the three gates pass: sign balance (1 down month of 6) and
+ * level sanity (+58.6% vs the Pokemon tracked-mcap anchor of +41.7%, a 16.9pp gap
+ * inside the 25pp tolerance).
+ *
+ * The holding-period invariance gate STILL FAILS at monthly grain: identities
+ * observed 1 month apart move +9.32%/mo while the same identities observed 2-3
+ * months apart move +7.37%/mo (V-MKT spread 1.96pp, Pokemon 2.03pp, tolerance 1pp).
+ * The gradient is the same sign and shape as v2's, so the shorter the interval the
+ * higher the measured rate — the selection is in the panel, not only in the
+ * estimator, and monthly comparables do not remove it. Per the brief's gate the
+ * hold therefore STAYS, v4 is not wired into the warmer, and no user-facing copy
+ * was changed to say "monthly".
+ *
  * (Earlier note kept for the record.) The rebuilt repeat-sales index shipped in the PR that flipped this
  * flag (src/lib/data/repeatSalesIndex.ts). Measured on the backfilled history,
  * V-MKT week-over-week changes now have lag-1 autocorrelation +0.56 with ZERO sign

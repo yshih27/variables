@@ -31,6 +31,7 @@ import {
   THIN_WEEK_PAIRS as INDEX_THIN_WEEK_PAIRS,
 } from "../src/lib/data/repeatSalesIndex";
 import { INVARIANCE_TOLERANCE_PP } from "../src/lib/data/biasTests";
+import { THIN_MONTH_IDENTITIES as INDEX_THIN_MONTH_IDENTITIES } from "../src/lib/data/identityIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
@@ -200,8 +201,15 @@ async function checkIndexCompleteness(nowMs: number = Date.now()): Promise<Resul
 }
 
 /**
- * INV-11 (HARD): no published weekly price-index step may exceed ±25% unless that
- * week rests on ≥100 repeat-sale pairs. The rebuilt index is a repeat-sales
+ * INV-11 (HARD): no published price-index step may exceed ±25% unless the period
+ * rests on enough observations.
+ *
+ * GRAIN-AWARE (v4). The threshold depends on what a point IS: a WEEKLY point needs
+ * ≥100 repeat-sale pairs, a MONTHLY identity-comparables point needs ≥50 identities
+ * (fewer, because an identity priced from >=2 sales in both months is a far stronger
+ * observation than one token resold once). The grain is read off the stamps rather
+ * than configured, so the invariant cannot drift out of sync with the blob: a point
+ * stamped on the last day of its month is monthly, anything else weekly. The rebuilt index is a repeat-sales
  * estimator (src/lib/data/repeatSalesIndex.ts) whose builder withholds such points
  * with reason `thin-week`; this invariant is the independent check that none ever
  * reaches the blob. The week ending Sep 6 printed +40.5% on the old cell method —
@@ -212,24 +220,39 @@ async function checkIndexStepSanity(): Promise<Result> {
   if (!snap?.series || !Object.keys(snap.series).length) {
     return skip("index-step-sanity", "hard", "price-index snapshot unreadable/empty");
   }
+  // A month-end stamp is the last day of its own month; a week-end stamp is not.
+  const isMonthEnd = (ts: string): boolean => {
+    const t = Date.parse(ts);
+    if (!Number.isFinite(t)) return false;
+    const d = new Date(t);
+    return d.getUTCDate() === new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  };
   const bads: string[] = [];
-  let steps = 0;
+  let steps = 0, monthly = 0;
   for (const [key, pts] of Object.entries(snap.series)) {
     if (!Array.isArray(pts) || pts.length < 2) continue;
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
       if (!(a.value > 0) || !(b.value > 0)) continue;
       steps += 1;
+      const month = isMonthEnd(b.ts) && isMonthEnd(a.ts);
+      if (month) monthly += 1;
+      const need = month ? INDEX_THIN_MONTH_IDENTITIES : INDEX_THIN_WEEK_PAIRS;
+      const unit = month ? "identities" : "pairs";
       const stepPct = (b.value / a.value - 1) * 100;
       const n = b.n ?? 0;
-      if (Math.abs(stepPct) > INDEX_STEP_LIMIT_PCT && n < INDEX_THIN_WEEK_PAIRS) {
-        bads.push(`${key}: ${b.ts.slice(0, 10)} ${stepPct >= 0 ? "+" : ""}${stepPct.toFixed(1)}% on ${n} pairs (needs ≥${INDEX_THIN_WEEK_PAIRS})`);
+      if (Math.abs(stepPct) > INDEX_STEP_LIMIT_PCT && n < need) {
+        bads.push(`${key}: ${b.ts.slice(0, 10)} ${stepPct >= 0 ? "+" : ""}${stepPct.toFixed(1)}% on ${n} ${unit} (needs ≥${need})`);
       }
     }
   }
   return bads.length
-    ? bad("index-step-sanity", "hard", `${bads.length} thin-week step(s) exceed ±${INDEX_STEP_LIMIT_PCT}%`, bads.slice(0, 8))
-    : ok("index-step-sanity", "hard", `all ${steps} weekly steps within ±${INDEX_STEP_LIMIT_PCT}% or backed by ≥${INDEX_THIN_WEEK_PAIRS} pairs`);
+    ? bad("index-step-sanity", "hard", `${bads.length} thin-period step(s) exceed ±${INDEX_STEP_LIMIT_PCT}%`, bads.slice(0, 8))
+    : ok(
+        "index-step-sanity",
+        "hard",
+        `all ${steps} steps (${monthly} monthly, ${steps - monthly} weekly) within ±${INDEX_STEP_LIMIT_PCT}% or backed by ≥${INDEX_THIN_WEEK_PAIRS} pairs / ≥${INDEX_THIN_MONTH_IDENTITIES} identities`,
+      );
 }
 
 /**
