@@ -13,7 +13,15 @@
  * change is shown anywhere. `readIndexSeries` applies the truncation, so the
  * studio, the seed, the API, the report and the OG images all agree by construction.
  *
- * ✅ LIFTED — the rebuilt repeat-sales index shipped in the PR that flipped this
+ * ⚠️ RE-HELD (Sep 8, 2026), THIS TIME THE WHOLE SERIES. The repeat-sales rebuild passed a
+ * test that rewarded smoothness: it rose in 31 of 31 weeks (+83% since Feb) while market
+ * cap sat flat. Diagnosis on the pairs: resales close above the prior sale ~2:1 at every
+ * holding period and the per-week return FALLS with holding period (1-week flips +5.4%/wk,
+ * 6-month holds +1.2%/wk) — selection of what gets resold, compounded by an estimator
+ * that smears a positive drift across each pair's span. See
+ * docs/roadmap/brief-backend-price-index-v3.md. `since: null` withholds every point.
+ *
+ * (Earlier note kept for the record.) The rebuilt repeat-sales index shipped in the PR that flipped this
  * flag (src/lib/data/repeatSalesIndex.ts). Measured on the backfilled history,
  * V-MKT week-over-week changes now have lag-1 autocorrelation +0.56 with ZERO sign
  * flips in 31 steps (was -0.32 with 16), and INV-11 keeps a thin-week step off the
@@ -23,21 +31,23 @@
  * Do not set `active: true` without a finding of the same weight as the one above.
  */
 export const PRICE_INDEX_HOLD = {
-  active: false,
+  active: true,
   /** Last week-end close that stays visible (inclusive). */
-  since: "2026-08-30",
+  /** Last close that stays visible (inclusive); NULL withholds the whole series. */
+  since: null as string | null,
   /** Short caption for headline surfaces. */
-  label: "held at Aug 30 close · method under review",
+  label: "index withheld · method under review",
   /** Tooltip / long form. */
   title:
-    "Price index held at its Aug 30 close while the method is rebuilt on repeat sales — no weekly change is published until then",
+    "Price index withheld while the method is rebuilt — the repeat-sales series rose every week on a resale-selection bias and could not print a down week; nothing is published until a method passes a bias test",
 } as const;
 
-const HOLD_CUTOFF_MS = Date.parse(`${PRICE_INDEX_HOLD.since}T23:59:59.999Z`);
+const HOLD_CUTOFF_MS = PRICE_INDEX_HOLD.since ? Date.parse(`${PRICE_INDEX_HOLD.since}T23:59:59.999Z`) : null;
 
 /** Truncate a price-index series to the held close. Identity when the hold is off. */
 export function applyPriceIndexHold<T extends { ts: string }>(points: T[]): T[] {
   if (!PRICE_INDEX_HOLD.active) return points;
+  if (HOLD_CUTOFF_MS == null) return []; // whole series withheld
   return points.filter((p) => {
     const t = Date.parse(p.ts);
     return Number.isFinite(t) && t <= HOLD_CUTOFF_MS;
