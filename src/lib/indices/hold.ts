@@ -21,6 +21,19 @@
  * that smears a positive drift across each pair's span. See
  * docs/roadmap/brief-backend-price-index-v3.md. `since: null` withholds every point.
  *
+ * v3 ATTEMPTED AND NOT SHIPPED (Sep 8). Identity-level comparables were built
+ * (src/lib/data/identityIndex.ts) to remove v2's resale selection. The panel is too
+ * thin to carry them: only 13.3% of sales land in an identity with n>=2 in their
+ * week, and the overlap of such identities between ADJACENT weeks is median 2,
+ * max 10 — so 0 of 22 steps clear the market floor of 20 and v3 publishes no series
+ * at all. The bias tests also still fail on the identity sample (per-week rate
+ * 1w +4.58% vs 5-12w +2.38% for Pokemon, spread 2.20pp against a 1pp tolerance),
+ * and not one of the ten most-traded PSA 10 identities traded in both Feb and Sep,
+ * so the level anchor cannot be computed either. Per the brief's gate, the hold
+ * therefore STAYS and v3 is not wired into the warmer. See
+ * docs/roadmap/brief-backend-price-index-v3.md and the PR that added
+ * src/lib/data/biasTests.ts.
+ *
  * (Earlier note kept for the record.) The rebuilt repeat-sales index shipped in the PR that flipped this
  * flag (src/lib/data/repeatSalesIndex.ts). Measured on the backfilled history,
  * V-MKT week-over-week changes now have lag-1 autocorrelation +0.56 with ZERO sign
