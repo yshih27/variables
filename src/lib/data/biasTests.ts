@@ -21,7 +21,7 @@
  * script, not here.
  */
 import type { SaleRow } from "./salePanel";
-import { weeklyIdentityPrices } from "./identityIndex";
+import { identityPrices, GRAINS, type Grain } from "./identityIndex";
 import { weekStartUtc } from "@/lib/chart/period";
 
 const WEEK_MS = 7 * 24 * 3600 * 1000;
@@ -31,6 +31,11 @@ export const HOLDING_BUCKETS: [string, number, number][] = [
   ["1w", 1, 1],
   ["2-4w", 2, 4],
   ["5-12w", 5, 12],
+];
+/** v4 runs the same test on the monthly grid the index now uses. */
+export const HOLDING_BUCKETS_MONTHLY: [string, number, number][] = [
+  ["1m", 1, 1],
+  ["2-3m", 2, 3],
 ];
 /** Buckets must agree within this many percentage points per week. */
 export const INVARIANCE_TOLERANCE_PP = 1;
@@ -57,33 +62,40 @@ export type InvarianceResult = {
  * identity, every pair of its weekly prices contributes ln(ratio)/gap to the bucket
  * for that gap. Uses identities, so it measures the sample v3 actually indexes.
  */
-export function holdingPeriodInvariance(sales: SaleRow[]): InvarianceResult {
-  const prices = weeklyIdentityPrices(sales);
+export function holdingPeriodInvariance(
+  sales: SaleRow[],
+  opts: { grain?: Grain } = {},
+): InvarianceResult {
+  const grain = opts.grain ?? "month";
+  const G = GRAINS[grain];
+  const BUCKETS = grain === "month" ? HOLDING_BUCKETS_MONTHLY : HOLDING_BUCKETS;
+  const maxGap = BUCKETS[BUCKETS.length - 1][2];
+  const prices = identityPrices(sales, grain);
   const byIdentity = new Map<string, { wk: number; price: number }[]>();
   for (const [wk, byId] of prices) {
-    const t = Date.parse(wk) / WEEK_MS;
+    const t = G.index(wk);
     for (const [id, v] of byId) {
       const a = byIdentity.get(id);
       if (a) a.push({ wk: t, price: v.price });
       else byIdentity.set(id, [{ wk: t, price: v.price }]);
     }
   }
-  const buckets = new Map<string, number[]>(HOLDING_BUCKETS.map(([l]) => [l, []]));
+  const buckets = new Map<string, number[]>(BUCKETS.map(([l]) => [l, []]));
   for (const obs of byIdentity.values()) {
     if (obs.length < 2) continue;
     obs.sort((a, b) => a.wk - b.wk);
     for (let i = 0; i < obs.length; i++) {
       for (let j = i + 1; j < obs.length; j++) {
         const gap = Math.round(obs[j].wk - obs[i].wk);
-        if (gap < 1 || gap > 12) continue;
+        if (gap < 1 || gap > maxGap) continue;
         if (!(obs[i].price > 0) || !(obs[j].price > 0)) continue;
-        const b = HOLDING_BUCKETS.find(([, lo, hi]) => gap >= lo && gap <= hi);
+        const b = BUCKETS.find(([, lo, hi]) => gap >= lo && gap <= hi);
         if (!b) continue;
         buckets.get(b[0])!.push(Math.log(obs[j].price / obs[i].price) / gap);
       }
     }
   }
-  const out: HoldingBucket[] = HOLDING_BUCKETS.map(([label]) => {
+  const out: HoldingBucket[] = BUCKETS.map(([label]) => {
     const xs = buckets.get(label)!;
     return { label, n: xs.length, perWeekPct: (Math.exp(median(xs)) - 1) * 100 };
   });
