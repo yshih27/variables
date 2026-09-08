@@ -206,6 +206,27 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
             windows and the completeness basis match by construction.
           </p>
           <p>
+            <strong className="font-semibold text-ink">Coverage: what a venue must expose.</strong>{" "}
+            Each leg of the page is counted per venue, and the four are independent.{" "}
+            <em>Spend</em>{" "}
+            needs pack pulls recorded against the venue in the spine, which every tracked
+            venue has.{" "}
+            <em>Outbound</em>{" "}
+            needs a known on-chain wallet the venue pays out of, and that wallet&apos;s
+            counterparties to be separable well enough that the flow is not dominated by
+            non-players — a venue with no such wallet has no outbound figure at all, and one
+            whose split is known-wrong has the leg withheld rather than estimated.{" "}
+            <em>Players</em>{" "}
+            needs row-level pulls carrying a wallet, which is what makes concentration and
+            spend tiers computable.{" "}
+            <em>Partner attribution</em>{" "}
+            needs a partner identifier on the pull itself, which today only one venue&apos;s
+            pull memo carries. The coverage matrix on{" "}
+            <a href="/economics" className="text-ink-2 underline-offset-2 hover:text-yellow hover:underline">/economics</a>{" "}
+            states which venue meets which, and a leg is never inferred from another: a venue
+            that publishes spend tells you nothing about whether its payouts can be counted.
+          </p>
+          <p>
             <strong className="font-semibold text-ink">Rule R3.</strong> A payout counts only if the recipient wallet has itself spent
             into the gacha. R3 tests <em>who</em> the counterparty is — it never tests what a
             transfer was for, so it removes vendors and treasury movement but cannot remove a

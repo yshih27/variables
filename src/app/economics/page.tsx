@@ -1,15 +1,19 @@
 import { NavBar } from "@/components/NavBar";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { StackedAreaChart, type AreaSeries } from "@/components/StackedAreaChart";
-import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
-import { PlatformMachines } from "@/components/PlatformMachines";
 import { EconomicsLeaderboard } from "@/components/economics/EconomicsLeaderboard";
+import { CoverageMatrix } from "@/components/economics/CoverageMatrix";
 import { RatioTrend } from "@/components/economics/RatioTrend";
 import { PlayerConcentration } from "@/components/economics/PlayerConcentration";
 import { HeldChip, heldSentence } from "@/components/economics/HeldChip";
 import { buildEconomicsBoard } from "@/lib/data/economics";
+import {
+  economicsCoverage,
+  legScope,
+  legVenueScope,
+  legCountChip,
+} from "@/lib/data/economicsCoverage";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
-import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
 import { formatCompactUsd } from "@/lib/format";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 
@@ -55,11 +59,14 @@ function marketRatioDaily(
 }
 
 export default async function EconomicsPage() {
-  const [board, ticker, playersSnap] = await Promise.all([
-    buildEconomicsBoard(),
-    buildMarketTicker(),
-    readPlayerAnalytics(),
-  ]);
+  const [board, ticker] = await Promise.all([buildEconomicsBoard(), buildMarketTicker()]);
+
+  /**
+   * Coverage, derived once and shared by the strip's labels, the ratio zone's
+   * chip and the matrix at the foot — so the page cannot state three different
+   * scopes for the same leg. No new data: it is a projection of `board`.
+   */
+  const coverage = economicsCoverage(board);
 
   const money = (n: number) => (Number.isFinite(n) ? formatCompactUsd(n) : "—");
   const pct = (n: number | null) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(1)}%`);
@@ -86,11 +93,6 @@ export default async function EconomicsPage() {
     board.platforms.map((p) => p.outboundDaily),
   );
 
-  const partners =
-    (playersSnap as { partners?: Record<string, PartnerAttribution> } | null)?.partners?.[
-      "collector-crypt"
-    ] ?? null;
-
   const asOf = board.asOf ? board.asOf.slice(0, 10) : null;
   const held = board.heldReasons;
 
@@ -116,21 +118,30 @@ export default async function EconomicsPage() {
               page's thesis: it is a held receipt, not a number, and it says which
               hold and why. */}
           <StatCardRow cols={4}>
+            {/* ⚠️ EVERY LABEL SAYS WHOSE NUMBER IT IS, and says it from the board.
+                Spend is market-wide; outbound and the ratio are one venue's today.
+                The scopes are computed, so the day a second payout wallet becomes
+                countable these labels move on their own — including the ratio's,
+                which names a venue only while there is exactly one to name. */}
             <StatCard
-              label="Gacha spend"
+              label={`Gacha spend · ${legScope(coverage, "spend")}`}
               metric="gacha"
               value={money(board.spend30d)}
               sub={`${board.windowDays} complete days`}
               accent
             />
             <StatCard
-              label="R3-counted outbound"
+              label={`Outbound · ${legScope(coverage, "outbound")}`}
               metric="grossOutbound"
               value={board.outbound30d == null ? "—" : money(board.outbound30d)}
-              sub={board.outbound30d == null ? "no publishable payout source" : "players and partners"}
+              sub={
+                board.outbound30d == null
+                  ? "no publishable payout source"
+                  : "R3-counted · players and partners"
+              }
             />
             <StatCard
-              label="Payout ÷ spend"
+              label={`Payout ÷ spend · ${legVenueScope(coverage, "outbound")}`}
               metric="ratio"
               value={pct(board.ratioPct30d)}
               deltaPct={ratioDeltaPp}
@@ -182,19 +193,20 @@ export default async function EconomicsPage() {
               "Is the payout leg outrunning spend" and "how few people is the
               spend coming from" are two questions, so they may share a row. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <RatioTrend platforms={board.platforms} />
+            <RatioTrend platforms={board.platforms} scope={legCountChip(coverage, "outbound")} />
             <PlayerConcentration platforms={board.platforms} />
           </div>
 
           {/* ── ZONE 4 — the leaderboard ────────────────────────────────────── */}
           <EconomicsLeaderboard platforms={board.platforms} />
 
-          {/* ── ZONE 5 — tiles ──────────────────────────────────────────────
-              Both are Collector Crypt's: it is the one platform whose pulls carry
-              an originating partner and a machine code. Each renders nothing of
-              its own accord when its data is absent. */}
-          <PlatformPartners partners={partners} platformKey="collector-crypt" />
-          <PlatformMachines board={playersSnap?.machines} platformKey="collector-crypt" />
+          {/* ── ZONE 5 — coverage ────────────────────────────────────────────
+              Was two Collector Crypt tiles (partners, machines). Both are that
+              venue's own features and both already live on
+              /platform/collector-crypt; closing a market page with them is what
+              made the whole surface read as one venue's breakdown. What belongs
+              here instead is the page's own scope, stated. */}
+          <CoverageMatrix coverage={coverage} />
         </div>
       </div>
     </>

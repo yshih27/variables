@@ -312,8 +312,16 @@ export type EconomicsBoard = {
   /** Last complete day covered across the board (ISO), or null when empty. */
   asOf: string | null;
   platforms: EconomicsPlatform[];
-  /** Σ spend across platforms WITH a payout source — the KPI strip's denominator. */
+  /** Σ gacha spend across EVERY tracked venue — the strip's market-wide headline. */
   spend30d: number;
+  /**
+   * Σ spend across venues whose outbound leg is published — the ratio's
+   * denominator ONLY.
+   *
+   * ⚠️ NOT the headline spend. `outbound30d ÷ spend30d` would divide one venue's
+   * payouts by five venues' spend and print a coverage artifact as a payout rate.
+   */
+  spendSourced30d: number;
   outbound30d: number | null;
   ratioPct30d: number | null;
   ratioPctPrior30d: number | null;
