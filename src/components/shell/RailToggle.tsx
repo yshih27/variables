@@ -14,10 +14,31 @@ import { useRailPref } from "./useRailPref";
  * iconised BY THE VIEWPORT and there is nothing to choose, so a control there
  * would promise something it can't do.
  */
-export function RailToggle({ variant }: { variant: "top" | "foot" }) {
+export function RailToggle({ variant }: { variant: "top" | "foot" | "tile" }) {
   const [pref, setPref] = useRailPref();
   const collapsed = pref === "icons";
   const label = collapsed ? "Expand rail (⌘\\)" : "Collapse rail (⌘\\)";
+
+  /**
+   * ⚠️ THE COLLAPSED RAIL'S CONTROL IS A TILE, not a bare glyph. It sat at the
+   * very bottom of the column as a lone "›" and read as a stray character; as a
+   * 36×36 tile it is the same object as everything above it, which is what makes
+   * a column of tiles legible as navigation.
+   */
+  if (variant === "tile") {
+    return (
+      <button
+        type="button"
+        onClick={() => setPref(collapsed ? "open" : "icons")}
+        aria-label={label}
+        aria-keyshortcuts="Meta+\\ Control+\\"
+        title={label}
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-bg-2 text-ink-3 transition-colors hover:bg-bg-3 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+      >
+        <Chevron open={!collapsed} />
+      </button>
+    );
+  }
 
   if (variant === "top") {
     return (

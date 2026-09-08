@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import type { IPRow, PlatformRow, RailModel, RailNode } from "@/lib/types";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { tickerOf } from "@/lib/indices/naming";
+import { railCodeOf } from "./railCode";
 import { categoryOf, type IPCategory } from "./ipCatalog";
 import { fetchHomepage } from "./fetchHomepage";
 import {
@@ -105,6 +106,7 @@ function ipNode(r: IPRow, volSeries: SeriesPoint[] | undefined): RailNode {
     key: r.key,
     name: r.name,
     short: shortOf("ip", r.key),
+    railCode: railCodeOf("ip", r.key, r.name),
     href: `/ip/${r.key}`,
     spark: sparkOf(r.spark),
     deltaPct: ipVolumeDelta(r.key, volSeries),
@@ -118,6 +120,7 @@ function platformNode(r: PlatformRow): RailNode {
     key: r.key,
     name: r.name,
     short: r.short,
+    railCode: railCodeOf("platform", r.key, r.name),
     href: `/platform/${r.key}`,
     spark: sparkOf(r.spark),
     // ⚠️ 7d, not 24h — PlatformRow carries no 24h volume delta, and `deltaWindow`
@@ -159,6 +162,7 @@ async function build(): Promise<RailModel> {
       key: c,
       name: CATEGORY_NAME[c],
       short: shortOf("category", c),
+      railCode: railCodeOf("category", c, CATEGORY_NAME[c]),
       href: "/ips",
       spark: sumSparks(rows.map((r) => r.spark ?? [])),
       // No per-category 24h delta exists in the payload, and a cap-weighted mean
@@ -175,6 +179,7 @@ async function build(): Promise<RailModel> {
       key: "market",
       name: "Market",
       short: shortOf("market", "total"),
+      railCode: railCodeOf("fixed", "market"),
       href: "/",
       spark: sparkOf(data.hero.volSpark),
       // ⚠️ hero.mcapPct24h is a FRACTION (0.012 = +1.2%) while every other delta

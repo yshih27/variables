@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { readRailPref, subscribeRailPref, applyRailPref, type RailPref } from "./railPref";
+import { readRailPref, subscribeRailPref, applyRailPref, notifyRailPref, type RailPref } from "./railPref";
 
 /**
  * The rail's open/icons state, shared by every control that can change it.
@@ -17,7 +17,16 @@ export function useRailPref(): [RailPref, (next: RailPref) => void] {
   useEffect(() => {
     const sync = () => setPref(readRailPref());
     sync();
-    return subscribeRailPref(sync);
+    // The viewport is half the input (see stampEffectiveRailPref), so a resize
+    // across 1280 has to re-derive the mode — otherwise a rail dragged narrow
+    // keeps rendering expanded rows in a 56px column.
+    const onResize = () => notifyRailPref();
+    window.addEventListener("resize", onResize);
+    const off = subscribeRailPref(sync);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      off();
+    };
   }, []);
 
   return [pref, applyRailPref];

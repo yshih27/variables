@@ -182,10 +182,13 @@ export type HomepagePayload = {
 export type RailNode = {
   key: string;
   name: string;
-  /** 2–3 char code for the 56px icon rail. From the naming SSOT (tickerOf, minus
-   *  the "V-" prefix) for market/categories/IPs, and PlatformRow.short for
-   *  platforms — never hand-written here. */
+  /** 2–3 char code. From the naming SSOT (tickerOf, minus the "V-" prefix) for
+   *  market/categories/IPs, and PlatformRow.short for platforms. Kept for the
+   *  EXPANDED rail's leading column. */
   short?: string;
+  /** EXACTLY two characters (or the ★ glyph) for the collapsed rail's tiles —
+   *  see lib/data/railCode.ts for why this is separate from `short`. */
+  railCode?: string;
   href: string;
   spark: number[] | null;
   deltaPct: number | null;

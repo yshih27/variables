@@ -51,6 +51,16 @@ export type PlatformSource = {
   key: "courtyard" | "beezie" | "collector-crypt" | "phygitals" | "dyli";
   name: string;
   short: string;
+  /**
+   * Two-character monogram for the collapsed rail's tiles.
+   *
+   * ⚠️ SEPARATE FROM `short`, DELIBERATELY. `short` is the venue badge every
+   * table already prints (Courtyard is "C", Beezie is "B"), and a one-letter tile
+   * in a uniform 36px column reads as a typo rather than an abbreviation. Changing
+   * `short` would move those tables; this is additive and the rail is its only
+   * reader. Exactly two characters, always.
+   */
+  railCode: string;
   chain: Chain;
   vault: string | null;
   /** Native secondary-marketplace contract (EVM) or program (Solana). Optional. */
@@ -197,6 +207,7 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     key: "courtyard",
     name: "Courtyard",
     short: "C",
+    railCode: "CY",
     chain: "Polygon",
     vault: "Brink's",
     kind: "rarible",
@@ -213,6 +224,7 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     key: "beezie",
     name: "Beezie",
     short: "B",
+    railCode: "BZ",
     chain: "Base",
     vault: "Brink's",
     kind: "rarible",
@@ -236,6 +248,7 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     key: "collector-crypt",
     name: "Collector Crypt",
     short: "CC",
+    railCode: "CC",
     chain: "Solana",
     vault: "PWCC",
     kind: "helius",
@@ -253,6 +266,7 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     key: "phygitals",
     name: "Phygitals",
     short: "PH",
+    railCode: "PH",
     chain: "Solana",
     vault: null, // unverified vault provider; surface as "—" until confirmed
     kind: "helius",
@@ -277,6 +291,7 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     key: "dyli",
     name: "DYLI",
     short: "DY",
+    railCode: "DY",
     chain: "Abstract",
     // Custody provider not stated for DYLI's own inventory (the PSA vault shown
     // on /ebay/listings belongs to eBay's external stock, not DYLI). Surface "—"
