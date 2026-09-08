@@ -156,32 +156,6 @@ export function StackedAreaChart({
     [overlay, period],
   );
 
-  /**
-   * The grain, applied BEFORE everything else — so the stack, the brush, the
-   * tooltip and the cumulative mode all operate on the aggregated series and
-   * needed no changes at all.
-   *
-   * Bands are FLOWS, so they sum; the overlay is a RATIO and cannot be summed,
-   * so it is re-derived per period by the caller if it needs to be. Here it
-   * takes the period's close, which is the honest reading of a rate.
-   */
-  const shaped = useMemo(
-    () =>
-      period === "D"
-        ? series
-        : series.map((b) => ({ ...b, points: resampleToPeriod(b.points, period, "sum", {}) })),
-    [series, period],
-  );
-  const shapedOverlay = useMemo(
-    () =>
-      !overlay
-        ? null
-        : period === "D"
-          ? overlay
-          : { ...overlay, points: resampleToPeriod(overlay.points, period, "last", {}) },
-    [overlay, period],
-  );
-
   // Union of every day any band reports, plus per-band lookup. Bands are ordered
   // ONCE here (see the note above) and that order is used for the stack, the
   // legend and the tooltip, so all three agree.
