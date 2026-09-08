@@ -19,6 +19,7 @@ const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLab
   // rail carries it and this whole bar renders nothing.
   { label: "Economics", href: "/economics", shortLabel: "ECO" },
   { label: "Gacha", href: "/gacha" },
+  { label: "Stats", href: "/stats" },
   { label: "Report", href: "/report" },
   // shortLabel keeps the row compact on small phones; the row also scrolls
   // horizontally on mobile (5 links + search) so nothing gets clipped.

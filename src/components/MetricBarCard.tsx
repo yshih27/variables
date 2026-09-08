@@ -7,6 +7,7 @@ import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { monotonePath } from "@/lib/chart/path";
 import { lastNPeriods, periodIndex, resampleToPeriod, type Period } from "@/lib/chart/period";
 import { useWindowPref } from "@/lib/windowPref";
+import { ChartActions } from "./ChartActions";
 import { chartFocusProps, useChartFocus } from "./shell/ChartFocus";
 import type { MetricKey } from "@/lib/metrics/glossary";
 
@@ -132,6 +133,7 @@ export function MetricBarCard({
   emptyDetail,
   note,
   fill,
+  embedId,
 }: {
   label: string;
   /** The FULL daily series, oldest → newest. The card slices it itself, because
@@ -155,6 +157,9 @@ export function MetricBarCard({
    *  `emptyDetail` it shows alongside real data: the series is honest, but its
    *  scope needs saying. */
   note?: string;
+  /** `/embed/[chart]` id. Named `embedId`, not `chartId` — the latter is already
+   *  this component's ChartFocus registration key. */
+  embedId?: string;
   /** Grow to the frame the grid gives this card, with the 64px plot as a MINIMUM
    *  rather than a fixed height. For a rail of cards beside a taller canvas
    *  (terminal-ux-study §7): without it the rail's frames end above the canvas
@@ -247,7 +252,24 @@ export function MetricBarCard({
         <span className="text-[10.5px] font-medium uppercase tracking-[0.07em] text-ink-3">
           {metric ? <MetricInfo metric={metric}>{label}</MetricInfo> : label}
         </span>
-        <PeriodToggle value={period} onChange={setPeriod} />
+        <span className="flex shrink-0 items-center gap-1.5">
+          {/* CSV/share only: this card's plot is HTML bars + a stretched
+              non-uniform SVG, so a PNG of it would rasterise to ellipses and a
+              wrong aspect. An export that lies about the picture is worse than no
+              export — the CSV carries the same numbers, honestly. */}
+          <ChartActions
+            meta={{
+              title: typeof label === "string" ? label : "Metric",
+              metricKey: metric,
+              unit: unit === "usd" ? "USD" : "count",
+              window: `${windowCount}${grain.short}, complete ${grain.many}`,
+              asOf: hasData ? series[series.length - 1].ts.slice(0, 10) : null,
+            }}
+            series={[{ key: "v", label: typeof label === "string" ? label : "value", points: series }]}
+            chartId={embedId}
+          />
+          <PeriodToggle value={period} onChange={setPeriod} />
+        </span>
       </div>
 
       <div className="mt-2 text-[23px] font-bold leading-none tracking-[-0.01em] tabular">

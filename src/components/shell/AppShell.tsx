@@ -6,6 +6,7 @@ import { buildRailModel } from "@/lib/data/railModel";
 import { getTape, TAPE_AVAILABLE } from "@/lib/data/tape";
 import { BottomTabs } from "./BottomTabs";
 import { RailNav } from "./RailNav";
+import { ShellChrome } from "./ShellChrome";
 import { RailToggle } from "./RailToggle";
 import { ShellSearch } from "./ShellSearch";
 import { Tape } from "./Tape";
@@ -45,6 +46,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   ]);
 
   return (
+    <ShellChrome chrome={
     <ChartFocusProvider>
     <div className={`shell-root font-sans${TAPE_AVAILABLE ? " shell-has-tape" : ""}`}>
       {/* Stamps data-rail on <html> BEFORE paint, so a stored "icons" doesn't
@@ -121,5 +123,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <KeyboardLayer />
     </div>
     </ChartFocusProvider>
+    }>
+      {children}
+    </ShellChrome>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Section } from "./Section";
+import { ChartActions } from "./ChartActions";
 import { MetricInfo } from "./MetricInfo";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartTooltip";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
@@ -93,6 +94,7 @@ export function StackedAreaChart({
   series,
   unit = "usd",
   className,
+  chartId,
   grainSurface,
   overlay,
 }: {
@@ -106,6 +108,8 @@ export function StackedAreaChart({
   series: AreaSeries[];
   unit?: "usd" | "count";
   className?: string;
+  /** `/embed/[chart]` id. Omit and the card offers no embed. */
+  chartId?: string;
   /**
    * localStorage surface for a D | W | M grain control (P1-B). Omit and no
    * control renders and the series are untouched — which is what every existing
@@ -122,6 +126,9 @@ export function StackedAreaChart({
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const [win, setWin] = useState<[number, number] | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
+  // The plot <svg> itself, for the PNG export. Separate from plotRef, which is
+  // the positioned wrapper the pointer maths measures against.
+  const svgRef = useRef<SVGSVGElement>(null);
 
   /**
    * The grain, applied BEFORE everything else — so the stack, the brush, the
@@ -341,6 +348,24 @@ export function StackedAreaChart({
               ))}
             </div>
           )}
+
+        {/* Export lives in the same band as the mode switch — same control height,
+            so a card that gains it keeps its frame (and its §7 pairing). */}
+        <ChartActions
+          meta={{
+            title,
+            readMe: readMe ? `${readMe} — ${MODE_CLAUSE[mode]}` : MODE_CLAUSE[mode],
+            metricKey: metric,
+            unit: unit === "usd" ? "USD" : "count",
+            window: subtitle,
+            asOf: days.length ? new Date(days[days.length - 1]).toISOString().slice(0, 10) : null,
+          }}
+          series={series.map((b) => ({ key: b.key, label: b.label, color: b.color, points: b.points }))}
+          svgRef={svgRef}
+          plotHeight={PLOT_H}
+          legend={ordered.map((o) => ({ color: o.color, text: o.label }))}
+          chartId={chartId}
+        />
         <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
           {MODES.map((m) => (
             <button
@@ -392,6 +417,7 @@ export function StackedAreaChart({
           }}
         >
           <svg
+            ref={svgRef}
             viewBox={`0 0 ${VB_W} ${PLOT_H}`}
             preserveAspectRatio="none"
             className="absolute inset-0 h-full w-full"
