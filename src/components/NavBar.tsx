@@ -16,6 +16,7 @@ const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLab
   { label: "Categories", href: "/ips", matchPrefix: "/ip" },
   { label: "Platforms", href: "/platforms", matchPrefix: "/platform" },
   { label: "Gacha", href: "/gacha" },
+  { label: "Stats", href: "/stats" },
   { label: "Report", href: "/report" },
   // shortLabel keeps the row compact on small phones; the row also scrolls
   // horizontally on mobile (5 links + search) so nothing gets clipped.

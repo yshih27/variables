@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Section, ReadMe } from "./Section";
+import { ChartActions } from "./ChartActions";
 import { MetricInfo } from "./MetricInfo";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartTooltip";
 import { formatCompactUsd } from "@/lib/format";
@@ -175,6 +176,26 @@ export function PlatformEconomics({
         held
           ? "Gacha pull spend · last 30 complete days"
           : "Gacha spend vs gross outbound · flows, not profit · last 30 complete days"
+      }
+      right={
+        <ChartActions
+          meta={{
+            title: "Platform economics",
+            readMe: "gross flows through the gacha wallets — spend in, buybacks out",
+            metricKey: "gacha",
+            unit: "USD",
+            window: "last 30 complete days",
+            asOf: days.length ? days[days.length - 1].ts.slice(0, 10) : null,
+          }}
+          series={[
+            { key: "spend", label: "Gacha spend", color: SPEND_COLOR, points: spendDaily },
+            // ⚠️ The outbound leg is omitted entirely when suppressed — an export
+            // must not carry a series the page itself refuses to publish.
+            ...(outboundDisclosure === "gross"
+              ? [{ key: "outbound", label: "Gross outbound", color: BUYBACK_COLOR, points: buybackDaily }]
+              : []),
+          ]}
+        />
       }
       flush
       className="font-sans"

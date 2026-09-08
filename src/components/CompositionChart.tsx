@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 import { Section } from "./Section";
+import { ChartActions } from "./ChartActions";
 import { MetricInfo } from "./MetricInfo";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
@@ -117,6 +118,7 @@ export function CompositionChart({
   flow = true,
   foot,
   fill,
+  chartId,
 }: {
   title: string;
   /** How to read it (see <ReadMe>) — sits above `subtitle`, never replaces it. */
@@ -132,6 +134,8 @@ export function CompositionChart({
   flow?: boolean;
   /** A muted qualifier under the plot — e.g. how the "Other" bucket is composed. */
   foot?: string;
+  /** `/embed/[chart]` id. Omit and the card offers no embed. */
+  chartId?: string;
   /** Grow the plot to fill a stretched card (see Section's `fill`). PLOT_H becomes
    *  a MINIMUM rather than a fixed height. */
   fill?: boolean;
@@ -154,6 +158,19 @@ export function CompositionChart({
       readMe={readMe}
       subtitle={subtitle}
       right={
+        <div className="flex flex-wrap items-center gap-1.5">
+        <ChartActions
+          meta={{
+            title,
+            readMe,
+            metricKey: metric,
+            unit: unit === "usd" ? "USD" : "count",
+            window: subtitle,
+            asOf: dates.length ? dates[dates.length - 1].slice(0, 10) : null,
+          }}
+          series={series.map((x) => ({ key: x.key, label: x.label, color: x.color, points: x.points }))}
+          chartId={chartId}
+        />
         <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
           {MODES.map((m) => (
             <button
@@ -168,6 +185,7 @@ export function CompositionChart({
               {m.label}
             </button>
           ))}
+        </div>
         </div>
       }
       className="font-sans"

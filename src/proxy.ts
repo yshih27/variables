@@ -4,6 +4,7 @@ import {
   isValidPlatformKey,
   isValidCardId,
 } from "@/lib/data/validKeys";
+import { isEmbedChartId } from "@/lib/chart/embeds";
 
 /**
  * Why this file exists — fixing soft 404s.
@@ -38,6 +39,8 @@ function isInvalidDetailPath(pathname: string): boolean {
       return !isValidIpKey(key);
     case "platform":
       return !isValidPlatformKey(key);
+    case "embed":
+      return !isEmbedChartId(key);
     default:
       return false;
   }
@@ -53,5 +56,5 @@ export function proxy(request: NextRequest): NextResponse {
 export const config = {
   // Only the dynamic detail routes (and their sub-pages). Note `/ip/:path+`
   // does NOT match the list pages `/ips` or `/platforms`.
-  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+"],
+  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+"],
 };

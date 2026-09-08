@@ -156,6 +156,14 @@ export function RailNav({ model }: Props) {
     >
       <div className="flex min-h-0 flex-1 flex-col gap-px py-2">
         <RailLink node={model.market} {...nodeProps(model.market.href)} {...flyoutProps(model.market)} />
+        {/* Stats sits under Market: it is the same market, stated for citation.
+            No spark — it is a page, not a series. */}
+        <RailLink
+          node={{ key: "stats", name: "Stats", short: "STA", href: "/stats", spark: null, deltaPct: null, deltaWindow: "24h" }}
+          nested
+          noStats
+          {...nodeProps("/stats")}
+        />
 
         <RailSectionLabel>Categories</RailSectionLabel>
         {model.categories.map((c) => {
