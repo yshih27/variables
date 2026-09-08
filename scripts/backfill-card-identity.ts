@@ -2,7 +2,7 @@
  * One-off backfill — populate the `cards` identity columns (`year`,
  * `card_number`, `grader`, `grade_num`) from the extractors in traits.ts.
  *
- *   npx tsx --env-file=.env.local scripts/backfill-card-identity.ts [--dry-run] [--platform=beezie]
+ *   npx tsx --env-file=.env.local scripts/backfill-card-identity.ts [--apply (omit for a dry run)] [--platform=beezie]
  *
  * These four columns exist and are NULL on every row (measured 2026-09-08:
  * beezie 0/9,942, collector-crypt 0/131,435). The parts are already present in
@@ -22,7 +22,9 @@ import { db } from "../src/lib/db/client";
 import { extractCardIdentity } from "../src/lib/data/traits";
 import { parseGradeLabel } from "../src/lib/card/grade";
 
-const DRY = process.argv.includes("--dry-run");
+// Safe by default: this script writes ~128K rows. It only writes with an explicit
+// --apply; anything else is a dry run that prints what it would do.
+const DRY = !process.argv.includes("--apply");
 const ONLY = process.argv.find((a) => a.startsWith("--platform="))?.split("=")[1] ?? null;
 
 const READ_PAGE = 1000;
