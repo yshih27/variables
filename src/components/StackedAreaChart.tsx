@@ -7,6 +7,8 @@ import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartToolti
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 import type { MetricKey } from "@/lib/metrics/glossary";
+import { resampleToPeriod, type Period } from "@/lib/chart/period";
+import { useWindowPref } from "@/lib/windowPref";
 
 /**
  * StackedAreaChart — the lead chart: several platforms' daily flow, stacked, with
@@ -46,6 +48,23 @@ export type AreaSeries = {
   points: SeriesPoint[];
 };
 
+/**
+ * A single line drawn over the stack on its OWN right axis — a percentage that
+ * lives in a different unit from the bands beneath it (the payout ÷ spend ratio
+ * on /economics).
+ *
+ * ⚠️ OPTIONAL, AND OFF EVERYWHERE ELSE. /platforms and /ips pass neither this nor
+ * `grainSurface`, so their chart is byte-identical to before.
+ */
+export type AreaOverlay = {
+  label: string;
+  color: string;
+  /** Percent points (0–100+), same day keys as the bands. */
+  points: SeriesPoint[];
+};
+
+const PERIODS: Period[] = ["D", "W", "M"];
+
 type Mode = "stacked" | "share" | "cumulative";
 const MODES: { key: Mode; label: string }[] = [
   { key: "stacked", label: "Stacked" },
@@ -74,6 +93,8 @@ export function StackedAreaChart({
   series,
   unit = "usd",
   className,
+  grainSurface,
+  overlay,
 }: {
   title: string;
   /** How to read it (see <ReadMe>) — the FRAMING only ("who is winning
@@ -85,20 +106,55 @@ export function StackedAreaChart({
   series: AreaSeries[];
   unit?: "usd" | "count";
   className?: string;
+  /**
+   * localStorage surface for a D | W | M grain control (P1-B). Omit and no
+   * control renders and the series are untouched — which is what every existing
+   * caller does.
+   */
+  grainSurface?: string;
+  /** A right-axis line over the stack. Omit for no overlay. */
+  overlay?: AreaOverlay;
 }) {
   const fmt = (n: number) => (unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n));
   const [mode, setMode] = useState<Mode>("stacked");
+  const [period, setPeriod] = useWindowPref<Period>(grainSurface ?? null, PERIODS, "D");
   const [hover, setHover] = useState<number | null>(null);
   const [anchor, setAnchor] = useState<TooltipAnchor | null>(null);
   const [win, setWin] = useState<[number, number] | null>(null);
   const plotRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * The grain, applied BEFORE everything else — so the stack, the brush, the
+   * tooltip and the cumulative mode all operate on the aggregated series and
+   * needed no changes at all.
+   *
+   * Bands are FLOWS, so they sum; the overlay is a RATIO and cannot be summed,
+   * so it is re-derived per period by the caller if it needs to be. Here it
+   * takes the period's close, which is the honest reading of a rate.
+   */
+  const shaped = useMemo(
+    () =>
+      period === "D"
+        ? series
+        : series.map((b) => ({ ...b, points: resampleToPeriod(b.points, period, "sum", {}) })),
+    [series, period],
+  );
+  const shapedOverlay = useMemo(
+    () =>
+      !overlay
+        ? null
+        : period === "D"
+          ? overlay
+          : { ...overlay, points: resampleToPeriod(overlay.points, period, "last", {}) },
+    [overlay, period],
+  );
 
   // Union of every day any band reports, plus per-band lookup. Bands are ordered
   // ONCE here (see the note above) and that order is used for the stack, the
   // legend and the tooltip, so all three agree.
   const { days, ordered, fullRange } = useMemo(() => {
     const set = new Set<number>();
-    for (const s of series) {
+    for (const s of shaped) {
       for (const p of s.points) {
         const t = Date.parse(p.ts);
         if (Number.isFinite(t) && Number.isFinite(p.value)) set.add(t);
@@ -106,10 +162,10 @@ export function StackedAreaChart({
     }
     const days = [...set].sort((a, b) => a - b);
     const totals = new Map<string, number>();
-    for (const s of series) {
+    for (const s of shaped) {
       totals.set(s.key, s.points.reduce((a, p) => a + (Number.isFinite(p.value) ? p.value : 0), 0));
     }
-    const ordered = [...series]
+    const ordered = [...shaped]
       .sort((a, b) => (totals.get(b.key) ?? 0) - (totals.get(a.key) ?? 0))
       .map((s) => ({
         ...s,
@@ -124,7 +180,7 @@ export function StackedAreaChart({
       ordered,
       fullRange: days.length ? ([days[0], days[days.length - 1]] as [number, number]) : null,
     };
-  }, [series]);
+  }, [shaped]);
 
   const window: [number, number] | null = win ?? fullRange;
   const visible = useMemo(
@@ -223,6 +279,39 @@ export function StackedAreaChart({
     return { key: s.key, d: `${top} ${back} Z`, top, color: s.color };
   });
 
+  /**
+   * Overlay geometry. Its domain ALWAYS includes 100 — the baseline is the
+   * reading ("paid out what came in"), so a chart that cropped it would hide the
+   * one number the line exists to be compared against.
+   */
+  const overlayAt = shapedOverlay
+    ? new Map(
+        shapedOverlay.points
+          .filter((p) => Number.isFinite(Date.parse(p.ts)) && Number.isFinite(p.value))
+          .map((p) => [Date.parse(p.ts), p.value] as const),
+      )
+    : null;
+  const overlayVals = overlayAt ? cols.map((c) => overlayAt.get(c.ts)).filter((v): v is number => v != null) : [];
+  const oLo = overlayVals.length ? Math.min(100, ...overlayVals) * 0.95 : 0;
+  const oHi = overlayVals.length ? Math.max(100, ...overlayVals) * 1.05 : 1;
+  const oSpan = oHi - oLo || 1;
+  const oY = (v: number) => PLOT_H - ((v - oLo) / oSpan) * PLOT_H;
+  const overlayBase = overlayVals.length ? oY(100) : null;
+  // Broken into runs so a day the ratio has no reading is a GAP, not a segment
+  // drawn straight through it.
+  const overlayPath =
+    overlayAt && overlayVals.length >= 2
+      ? cols
+          .map((c, i) => {
+            const v = overlayAt.get(c.ts);
+            if (v == null) return null;
+            const prev = i > 0 ? overlayAt.get(cols[i - 1].ts) : undefined;
+            return `${prev == null ? "M" : "L"}${X(i).toFixed(1)} ${oY(v).toFixed(1)}`;
+          })
+          .filter(Boolean)
+          .join(" ")
+      : null;
+
   const active = hover != null ? cols[hover] ?? null : null;
 
   return (
@@ -231,6 +320,27 @@ export function StackedAreaChart({
       readMe={readMe ? `${readMe} — ${MODE_CLAUSE[mode]}` : MODE_CLAUSE[mode]}
       subtitle={subtitle}
       right={
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* Grain, only where a caller asked for one. Same control shape as the
+              mode switch beside it, so adding it cannot change the band's height. */}
+          {grainSurface && (
+            <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
+              {PERIODS.map((pd) => (
+                <button
+                  key={pd}
+                  type="button"
+                  onClick={() => setPeriod(pd)}
+                  aria-pressed={period === pd}
+                  aria-label={pd === "D" ? "Daily" : pd === "W" ? "Weekly" : "Monthly"}
+                  className={`rounded-md px-2 py-1 font-mono text-[11px] transition-colors ${
+                    period === pd ? "bg-bg-3 font-semibold text-ink" : "text-ink-3 hover:text-ink"
+                  }`}
+                >
+                  {pd}
+                </button>
+              ))}
+            </div>
+          )}
         <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
           {MODES.map((m) => (
             <button
@@ -245,6 +355,7 @@ export function StackedAreaChart({
               {m.label}
             </button>
           ))}
+        </div>
         </div>
       }
       className={className}
@@ -331,6 +442,61 @@ export function StackedAreaChart({
             )}
           </svg>
 
+          {/* The overlay, on its OWN scale. Drawn in share/cumulative modes too —
+              the ratio is a property of the days on screen, not of how the bands
+              beneath it happen to be normalised.
+              ⚠️ ITS TICKS GO ON THE LEFT. The brief asked for a right axis, but
+              the stack's own $ axis already occupies the right gutter (PAD_R) and
+              two scales stacked there would be unreadable — worse, a reader would
+              not know which number belonged to which mark. The left gutter is
+              empty, so the ratio takes it, in the line's own colour. */}
+          {overlayPath && (
+            <svg
+              viewBox={`0 0 ${VB_W} ${PLOT_H}`}
+              preserveAspectRatio="none"
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              aria-hidden
+            >
+              <path
+                d={overlayPath}
+                fill="none"
+                stroke={shapedOverlay!.color}
+                strokeWidth="1.75"
+                strokeDasharray="4 3"
+                vectorEffect="non-scaling-stroke"
+              />
+              {overlayBase != null && (
+                <line
+                  x1={0}
+                  y1={overlayBase}
+                  x2={innerW}
+                  y2={overlayBase}
+                  stroke={shapedOverlay!.color}
+                  strokeOpacity="0.35"
+                  strokeWidth="1"
+                  strokeDasharray="2 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
+            </svg>
+          )}
+
+          {/* The overlay's own scale, left gutter, in its colour so the pairing
+              is unambiguous. */}
+          {shapedOverlay && overlayVals.length > 0 && (
+            <div className="pointer-events-none absolute inset-0">
+              {[0, 0.5, 1].map((f) => (
+                <span
+                  key={f}
+                  className="absolute left-0 -translate-y-1/2 font-mono text-[9.5px] leading-none"
+                  style={{ top: `${(1 - f) * 100}%`, color: shapedOverlay.color, opacity: 0.75 }}
+                >
+                  {(oLo + f * oSpan).toFixed(0)}%
+                </span>
+              ))}
+            </div>
+          )}
+
           {/* Mode-unit axis ($ or %), in DOM text so it never inherits the
               viewBox stretch. */}
           <div className="pointer-events-none absolute inset-0">
@@ -345,6 +511,15 @@ export function StackedAreaChart({
             ))}
           </div>
         </div>
+
+        {shapedOverlay && overlayVals.length > 0 && (
+          <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[10px] text-ink-4">
+            <span aria-hidden className="inline-block h-0 w-4 border-t-2 border-dashed" style={{ borderColor: shapedOverlay.color }} />
+            <span>
+              {shapedOverlay.label} · left-hand scale {oLo.toFixed(0)}–{oHi.toFixed(0)}% · 100% marked
+            </span>
+          </div>
+        )}
 
         <div className="mt-1.5 flex justify-between font-mono text-[10px] text-ink-4" style={{ paddingRight: `${(PAD_R / VB_W) * 100}%` }}>
           <span>{fmtDate(window[0])}</span>

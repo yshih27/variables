@@ -125,6 +125,21 @@ export const METRICS = {
   // ratio above 100%, and the residual is temporal, not a counterparty problem.
   // The decision of WHO may show a net lives in fetchPlatform + outboundDisclosure,
   // never here; this entry only defines the term for the platforms that do.
+  ratio: {
+    term: "Payout ÷ spend",
+    text: "R3-counted outbound divided by gacha pack-pull spend, over the same 30 complete days. Above 100% means more left the gacha wallets than came in over that window — honest for a platform whose spend is falling, because payouts settle earlier and larger cohorts than today's smaller spend.",
+    href: "/methodology#economics",
+  },
+  r3Verified: {
+    term: "R3-verified share",
+    text: "Share of gross gacha-wallet outflow that rule R3 verifies as reaching a wallet which has spent into the gacha. R3 tests WHO the counterparty is, never what the transfer was for.",
+    href: "/methodology#economics",
+  },
+  held: {
+    term: "Held",
+    text: "A net figure we can compute but will not publish yet, with the reason attached. Held is a state, not an absence — the flows and the ratio beside it are measured and shipping; only the subtraction of two large numbers is withheld until it is defensible.",
+    href: "/methodology#economics",
+  },
   netGachaRevenue: {
     term: "Net gacha revenue",
     text: "Canonical gacha spend minus payouts to wallets that have spent in (rule R3) — the platform's gacha margin, not full P&L. Prize acquisition, chain and processor fees and operating costs all sit ahead of it and none are on-chain for us to subtract.",
