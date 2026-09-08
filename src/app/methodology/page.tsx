@@ -1,6 +1,8 @@
 import { NavBar } from "@/components/NavBar";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
-import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
+import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT, INDEX_DESCRIPTOR, indexReceipt } from "@/lib/indices/naming";
+import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/indices";
+import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
@@ -73,15 +75,22 @@ export default async function MethodologyPage() {
           <p>
             Every index we publish belongs to one family:{" "}
             <span className="font-semibold text-ink">{INDEX_FAMILY}</span> (nickname &quot;
-            {INDEX_FAMILY_SHORT}&quot;). Each is a constant-quality price index built from repeat
-            sales — the same physical card sold in two different weeks, each pair&apos;s move spread
-            over the weeks it spans and chained week to week, rebased to 100 at inception. It is a
-            trend estimator: smoother than any single week, and a week resting on too few pairs is
-            withheld rather than estimated. It replaced a set×grade stratified median that measured
-            mix, not price. Each index carries a <code>V-</code> ticker derived from the entity&apos;s short code, so the scheme
-            never drifts as the catalog grows. The whole market is <code>V-MKT</code>; each category
-            and named IP has its own. The public API echoes each index&apos;s ticker, which
-            makes this registry the canonical one.
+            {INDEX_FAMILY_SHORT}&quot;). Each is a <span className="text-ink">{INDEX_DESCRIPTOR}</span>:
+            the realised resale price of the same card <em>identity</em> — set, number, name and
+            grade, with edition and language when the platform carries them — priced in
+            consecutive calendar months. An identity&apos;s monthly price is the median of its
+            sales that month, and it only counts with two or more sales (one sale is a quote,
+            not a price). Each month&apos;s step is the weighted median of the log change across
+            identities priced in both that month and the one before, weighted by the smaller of
+            the two sale counts, and the level chains those steps from 100 at inception. A month
+            with fewer than 20 such identities for the market or a category, or 10 for a single
+            IP, is withheld: the chain does not advance through it, and the next published point
+            says how many months it spans. The band on every point is a bootstrap over
+            identities, and it widens with distance from the base, as a chained index&apos;s
+            uncertainty should. Each index carries a <code>V-</code> ticker derived from the
+            entity&apos;s short code, so the scheme never drifts as the catalog grows. The whole
+            market is <code>V-MKT</code>; each category and named IP has its own. The public API
+            echoes each index&apos;s ticker, which makes this registry the canonical one.
           </p>
           <ul className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
             {indexRegistry().map((idx) => (
@@ -94,6 +103,28 @@ export default async function MethodologyPage() {
               </li>
             ))}
           </ul>
+        </Section>
+
+        <Section title="What the index follows, and what it does not" id="index-bias">
+          <p>
+            The index follows what actually <em>resells</em>. That is the only constant-quality
+            comparison the market offers, and it carries a known tilt: sellers relist what they
+            can flip, so short-interval resales run hotter than long ones. We measure that tilt on
+            every rebuild as the holding-period spread — the per-month rate of identities observed
+            one month apart minus the rate of those observed two to three months apart — and print
+            it beside the level as the <span className="font-mono text-ink">resale skew</span>.
+            Beside it sits the <span className="font-mono text-ink">cap anchor</span>: the change
+            in tracked market cap over the same span, an independent reading of the whole market
+            rather than its resales. The gap between the two is the premium, made visible.
+          </p>
+          <p className="mt-2">
+            If the skew widens past three points a month the builder withholds the series
+            automatically and every surface prints the same sentence saying so; it republishes
+            when the next rebuild measures it back inside the limit. The manual hold used during
+            the method rebuild is a separate switch and stays available. This paragraph is the
+            anchor the ⓘ beside every index level opens.
+          </p>
+          <IndexBiasReceipt />
         </Section>
 
         <Section title="Market Cap">
@@ -323,5 +354,31 @@ function SrcLi({ label, chain, source }: { label: string; chain: string; source:
       </div>
       <span className="mt-1 text-[12.5px] text-ink-2">{source}</span>
     </li>
+  );
+}
+
+/**
+ * The live receipt, on the page that explains it — every clause from the blob.
+ * Renders nothing when the index is held or the blob carries no meta, so the
+ * paragraph above never sits next to a number that is not currently published.
+ */
+async function IndexBiasReceipt() {
+  const [meta, series] = await Promise.all([
+    readIndexMeta("market", "total").catch(() => null),
+    readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" }).catch(() => []),
+  ]);
+  const complete = completeMonthsOnly(series);
+  if (!meta || !complete.length) return null;
+  const latest = complete[complete.length - 1];
+  const line = indexReceipt({
+    latestMonthEnd: formatMonthDayUtc(latest.ts),
+    skewPP: meta.selectionPremiumPP,
+    anchorPct: meta.anchorPct,
+    anchorSince: meta.anchorSince,
+  });
+  return (
+    <p className="mt-3 border-l-2 border-line pl-3 font-mono text-[11.5px] leading-snug text-ink-3">
+      V-MKT {latest.value.toFixed(1)} · {line}
+    </p>
   );
 }

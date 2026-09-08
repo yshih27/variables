@@ -3,9 +3,9 @@ import { PRICE_INDEX_HOLD } from "@/lib/indices/hold";
 import type { TickerItem } from "@/components/NavBar";
 import type { IPRow } from "@/lib/types";
 import { formatCompactNumber, formatCompactUsd } from "@/lib/format";
-import { tickerOf } from "@/lib/indices/naming";
+import { tickerOf, INDEX_DESCRIPTOR } from "@/lib/indices/naming";
 import { fetchHomepage } from "./fetchHomepage";
-import { readIndexSeries, weeklyChangePct } from "./indices";
+import { readIndexSeries, monthlyChangePct } from "./indices";
 
 /**
  * The market context strip (P1-C) — one line of market state carried under the nav
@@ -32,23 +32,22 @@ async function buildItems(): Promise<TickerItem[]> {
   const hero = data.hero;
   const items: TickerItem[] = [];
 
-  // 1 — V-MKT. Level and Δ1w are built EXACTLY as the homepage headline builds
+  // 1 — V-MKT. Level and Δ1m are built EXACTLY as the homepage headline builds
   // them: rebase to the first finite point, read the newest level, and take the
-  // week-over-week move between the last two COMPLETE weeks (the price index is
-  // weekly and stamped at week-end, so the running week is a partial and
-  // `weeklyChangePct` drops it internally).
+  // month-over-month move between the last two COMPLETE months (the index is
+  // monthly and stamped at month-end; `monthlyChangePct` drops a running month).
   const idxBase = marketIdx.find((p) => Number.isFinite(p.value) && p.value > 0)?.value ?? null;
   const level =
     idxBase && marketIdx.length ? (marketIdx[marketIdx.length - 1].value / idxBase) * 100 : null;
   items.push({
     label: tickerOf("market", "total"),
     value: level != null && Number.isFinite(level) ? level.toFixed(2) : "—",
-    delta: weeklyChangePct(marketIdx), // null under the hold → no delta rendered
-    deltaWindow: "1w",
+    delta: monthlyChangePct(marketIdx), // null under the hold → no delta rendered
+    deltaWindow: "1m",
     href: "/ips",
     title: PRICE_INDEX_HOLD.active
       ? PRICE_INDEX_HOLD.title
-      : "The Varible Market Index — constant-quality price level, rebased to 100 at inception",
+      : `The Varible Market Index — ${INDEX_DESCRIPTOR}, rebased to 100 at inception`,
     priority: true,
   });
 
@@ -123,6 +122,6 @@ export const buildMarketTicker: () => Promise<TickerItem[]> = unstable_cache(
       return [];
     }
   },
-  ["market-context-strip:v1"],
+  ["market-context-strip:v2-monthly"],
   { revalidate: 1800, tags: ["platform-buckets"] },
 );

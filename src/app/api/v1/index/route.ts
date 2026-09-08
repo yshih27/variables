@@ -5,13 +5,17 @@
  * Query params:
  *   entity  market | category | ip        (default market)
  *   key     entity key                    (default total)
- *   kind    price | mcap                  (default price — constant-quality index)
+ *   kind    price | mcap                  (default price — resale comparables index, monthly)
  *   from    ISO date the series rebases to 100 at (default 2000-01-01 = inception)
- *   freq    daily | weekly                (mcap only; price is natively weekly)
+ *   freq    daily | weekly                (mcap only; price is natively MONTHLY and ignores it)
  *
- * Weekly points are stamped at the week's END (the covered Mon–Sun week's Sunday, UTC)
- * — a week's value is "as of" its Sunday, not the Monday it opened. (CSV/chart consumers:
- * weekly dates are the week-end Sunday; this changed from week-start Monday.)
+ * PRICE points (v4): one per calendar month, stamped at the month's END (UTC), for
+ * the same card identity (set, number, name, grade) priced in consecutive months.
+ *   n        = identities in that month's step (NOT trades, NOT pairs)
+ *   lo / hi  = bootstrap band over identities
+ *   cadence  = "monthly"
+ * Fields are only ever ADDED here, never renamed. Mcap points keep their daily /
+ * week-end (Sunday) stamping.
  *
  * Every response carries the index's `ticker` (e.g. "V-PKM") + `indexName` from the
  * naming SSOT — the API is the canonical ticker registry (docs/api-v1.md).

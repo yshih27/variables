@@ -22,7 +22,8 @@ import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
 export type Unit = "index" | "usd" | "count" | "percent";
-export type SeriesPoint = { ts: string; value: number };
+/** lo/hi = the bootstrap band the price indices carry; absent on everything else. */
+export type SeriesPoint = { ts: string; value: number; lo?: number; hi?: number };
 export type CatalogItem = {
   id: string;
   ticker: string;
@@ -31,9 +32,13 @@ export type CatalogItem = {
   unit: Unit;
   color: string;
   dash?: boolean;
-  /** Sampled weekly, not daily (the price indices). Drives the "weekly" tag and
-   *  the dated-endpoint honesty: a weekly line's last point is usually days
-   *  behind the window edge, and its value must not read as "as of today". */
+  /** Native sampling of a non-daily series. The price indices are MONTHLY
+   *  (v4): month-end stamps, nothing to resample down to, so the D/W grains hide
+   *  while one is active. Drives the chip tag and the dated-endpoint honesty: a
+   *  monthly line's last point is weeks behind the window edge, and its value
+   *  must not read as "as of today". `weekly` kept as an alias for any caller
+   *  still passing it — never set by the catalog any more. */
+  cadence?: "monthly" | "weekly";
   weekly?: boolean;
   /** A per-day FLOW (volume / trades / gacha rips) rather than a level or an
    *  index. Flows render as grouped bars in ABSOLUTE mode (a $/day quantity is a
@@ -242,7 +247,7 @@ export async function buildStudioCatalog(load: ChartLoader): Promise<{ items: Ca
       group: "Indices",
       unit: "index",
       color: p.reg.entity === "market" ? "#bfef01" : nextColor(),
-      weekly: true, // fetched freq:"weekly" above
+      cadence: "monthly", // v4: identity comparables, month-end stamps
     });
   }
 

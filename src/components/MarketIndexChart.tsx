@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * baseline at 100 marks "flat vs inception" and the line's color reads its sign
  * (green above, red below). Desktop-only — the MarketHeader hides it on mobile.
  */
-type Point = { ts: string; value: number };
+type Point = { ts: string; value: number; lo?: number; hi?: number };
 
 const H = 92;
 const PAD = { top: 12, right: 8, bottom: 10, left: 8 };
@@ -22,7 +22,17 @@ function fmtDay(ts: string): string {
   return Number.isNaN(d.getTime()) ? "" : `${MON[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 
-export function MarketIndexChart({ points }: { points: Point[] }) {
+/**
+ * `anchor` — the tracked market cap rebased to the same base month, drawn as a
+ * second faint line ("cap anchor"). It is the reader's check on the index: the
+ * index follows what RESELLS and runs warmer than the whole market, so the gap
+ * between the two lines is the disclosed resale premium made visible.
+ *
+ * The band is the bootstrap over identities (lo/hi on each point), filled at 35%
+ * like the stacked areas. Six or seven monthly points must still read as a chart:
+ * straight segments between month-end stamps, nothing smoothed or invented.
+ */
+export function MarketIndexChart({ points, anchor = [] }: { points: Point[]; anchor?: Point[] }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(360);
   const [hover, setHover] = useState<number | null>(null);
@@ -42,9 +52,26 @@ export function MarketIndexChart({ points }: { points: Point[] }) {
     const n = clean.length;
     if (n < 2) return null;
     const vals = clean.map((p) => p.value);
-    // Always frame the 100 baseline so "above / below inception" is legible.
-    const lo = Math.min(100, ...vals);
-    const hi = Math.max(100, ...vals);
+    // The anchor is drawn on the index's x positions: snap each index point to the
+    // anchor's last reading on or before that stamp (the anchor is daily, the
+    // index monthly), so the two lines share the same month-end columns.
+    const anchorAt = clean.map((p) => {
+      const t = Date.parse(p.ts);
+      let best: number | null = null;
+      for (const a of anchor) {
+        const ta = Date.parse(a.ts);
+        if (Number.isFinite(ta) && ta <= t && Number.isFinite(a.value)) best = a.value;
+        else if (ta > t) break;
+      }
+      return best;
+    });
+    const anchorVals = anchorAt.filter((v): v is number => v != null);
+    const bandLo = clean.map((p) => p.lo).filter((v): v is number => v != null && Number.isFinite(v));
+    const bandHi = clean.map((p) => p.hi).filter((v): v is number => v != null && Number.isFinite(v));
+    // Always frame the 100 baseline so "above / below inception" is legible; the
+    // band and the anchor must fit too or they would draw off-canvas.
+    const lo = Math.min(100, ...vals, ...bandLo, ...anchorVals);
+    const hi = Math.max(100, ...vals, ...bandHi, ...anchorVals);
     const span = hi - lo || 1;
     const plotW = w - PAD.left - PAD.right;
     const plotH = H - PAD.top - PAD.bottom;
@@ -54,8 +81,20 @@ export function MarketIndexChart({ points }: { points: Point[] }) {
     const area = `${line} L${x(n - 1).toFixed(1)} ${(PAD.top + plotH).toFixed(1)} L${x(0).toFixed(1)} ${(PAD.top + plotH).toFixed(1)} Z`;
     const last = vals[n - 1];
     const up = last >= 100;
-    return { clean, n, x, y, line, area, last, up, baseY: y(100), plotH };
-  }, [points, w]);
+    // Band polygon: hi edge forward, lo edge back. Only where every point has one.
+    const hasBand = clean.every((p) => p.lo != null && p.hi != null);
+    const band = hasBand
+      ? clean.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.hi!).toFixed(1)}`).join(" ") +
+        " " +
+        [...clean].reverse().map((p, k) => `L${x(n - 1 - k).toFixed(1)} ${y(p.lo!).toFixed(1)}`).join(" ") +
+        " Z"
+      : null;
+    const anchorLine =
+      anchorVals.length >= 2
+        ? anchorAt.map((v, i) => (v == null ? null : `${x(i).toFixed(1)} ${y(v).toFixed(1)}`)).filter(Boolean).map((seg, i) => `${i ? "L" : "M"}${seg}`).join(" ")
+        : null;
+    return { clean, n, x, y, line, area, last, up, baseY: y(100), plotH, band, anchorLine, anchorLast: anchorVals.at(-1) ?? null };
+  }, [points, anchor, w]);
 
   if (!model) return null;
   const stroke = model.up ? "var(--color-green)" : "var(--color-red)";
@@ -95,7 +134,16 @@ export function MarketIndexChart({ points }: { points: Point[] }) {
           100
         </text>
 
-        <path d={model.area} fill={`url(#${gradId})`} />
+        {/* bootstrap band — soft 35% fill, same weight as the stacked areas */}
+        {model.band ? (
+          <path d={model.band} fill={stroke} fillOpacity={0.35 * 0.35} stroke="none" />
+        ) : (
+          <path d={model.area} fill={`url(#${gradId})`} />
+        )}
+        {/* cap anchor — tracked market cap on the same base, the reader's check */}
+        {model.anchorLine && (
+          <path d={model.anchorLine} fill="none" stroke="var(--color-ink-4)" strokeWidth={1} strokeDasharray="2 3" strokeLinejoin="round" />
+        )}
         <path d={model.line} fill="none" stroke={stroke} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
 
         {hover != null && model.clean[hover] && (
@@ -105,6 +153,11 @@ export function MarketIndexChart({ points }: { points: Point[] }) {
           </>
         )}
         <circle cx={model.x(model.n - 1)} cy={model.y(model.last)} r={2.6} fill={stroke} />
+        {model.anchorLine && (
+          <text x={PAD.left} y={PAD.top + 8} fontSize={9} fill="var(--color-ink-4)" fontFamily="var(--font-jetbrains-mono), monospace">
+            ┄ cap anchor{model.anchorLast != null ? ` ${model.anchorLast.toFixed(0)}` : ""}
+          </text>
+        )}
       </svg>
 
       {hi && (
@@ -114,6 +167,9 @@ export function MarketIndexChart({ points }: { points: Point[] }) {
         >
           <span className="text-ink-3">{fmtDay(hi.ts)} </span>
           <span className="font-semibold tabular text-ink">{hi.value.toFixed(1)}</span>
+          {hi.lo != null && hi.hi != null && (
+            <span className="text-ink-4"> ({hi.lo.toFixed(0)}–{hi.hi.toFixed(0)})</span>
+          )}
         </div>
       )}
     </div>

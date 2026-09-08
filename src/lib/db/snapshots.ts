@@ -7,8 +7,32 @@
  * Phase-2 migration off local disk — see MIGRATION_PLAN.md §2.
  */
 import { db } from "./client";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * LOCAL VERIFICATION ONLY. When SNAPSHOT_LOCAL_DIR is set, a snapshot key that has
+ * a `<dir>/<key>.json` file is served from disk instead of Postgres. This exists so
+ * a rebuilt blob can be gated (check-invariants), rendered (the dev server) and
+ * screenshotted WITHOUT running a warmer against the production database — the
+ * warmer's `--out` flag writes the file this reads. Never set in Vercel.
+ */
+function readLocalOverride<T>(key: string): T | null | undefined {
+  const dir = process.env.SNAPSHOT_LOCAL_DIR;
+  if (!dir) return undefined;
+  const file = join(dir, `${key}.json`);
+  if (!existsSync(file)) return undefined;
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) as T;
+  } catch (e) {
+    console.warn(`[snapshots] local override "${key}" unreadable: ${(e as Error).message}`);
+    return undefined;
+  }
+}
 
 export async function readSnapshot<T>(key: string): Promise<T | null> {
+  const local = readLocalOverride<T>(key);
+  if (local !== undefined) return local;
   // Never throw — a read must degrade to null, not crash the caller. This also makes
   // ISR build-time prerendering safe: if the DB/env is unavailable at build, the page
   // renders empty and fills in on the first runtime revalidation (rather than failing

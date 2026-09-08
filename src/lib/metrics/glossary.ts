@@ -103,11 +103,12 @@ export const METRICS = {
   },
   priceIndex: {
     term: "Price index",
-    text: "Weekly repeat-sales index: the same physical card sold in two different weeks, chained week to week — a constant-quality price, not market cap. Each pair's move is spread over the weeks it spans, so this is a trend, smoother than any single week; a week with too few pairs is withheld, never estimated.",
+    text: "Monthly index of realised resale prices for the same card identity (set, number, name, grade) priced in consecutive months. It follows what actually resells, so it runs warmer than the whole market: short-interval resales measured ~2 points a month above longer ones. Published with that premium stated and a market-cap anchor beside it.",
+    href: "/methodology#index-bias",
   },
   variableIndex: {
     term: "The Varible Index (the V)",
-    text: "The market-wide constant-quality price index — one number for the whole tokenized-card market. Sub-indices per IP and category carry V- tickers (V-MKT is the market, V-PKM Pokémon, V-TCG the TCG category).",
+    text: "The market-wide resale comparables index, monthly — one number for what the tokenized-card market's cards actually resold for. Sub-indices per IP and category carry V- tickers (V-MKT is the market, V-PKM Pokémon, V-TCG the TCG category). Its resale skew and a market-cap anchor print beside the level.",
     href: "/methodology#naming",
   },
   vsBenchmarks: {

@@ -9,7 +9,8 @@ import { Section } from "@/components/Section";
 import { buildStatsBoard } from "@/lib/data/statsBoard";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { readStudioSeed } from "@/lib/studio/seed";
-import { PRICE_INDEX_HOLD } from "@/lib/indices/hold";
+import { PRICE_INDEX_HOLD, HOLD_REASON_TEXT } from "@/lib/indices/hold";
+import { readIndexMeta } from "@/lib/data/indices";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 // ISR: every input is an unstable_cache-backed snapshot read.
@@ -32,6 +33,10 @@ export default async function StatsPage() {
   const money = (n: number) => (Number.isFinite(n) ? formatCompactUsd(n) : "—");
   const count = (n: number) => (Number.isFinite(n) ? formatCompactNumber(n) : "—");
   const win = `${board.windowDays} days`;
+  // Zone 3 held state: the manual switch OR the builder's automatic selection-
+  // premium hold, explained with the same sentence every other surface uses.
+  const idxMeta = await readIndexMeta("market", "total").catch(() => null);
+  const holdReason = PRICE_INDEX_HOLD.active ? ("manual" as const) : (idxMeta?.heldReason ?? null);
 
   return (
     <>
@@ -106,24 +111,23 @@ export default async function StatsPage() {
           )}
 
           {/* ── 3 · The index vs benchmarks ────────────────────────────────
-              ⚠️ THE PRICE INDEX IS WITHHELD (hold.ts, Sep 8): the repeat-sales
-              rebuild rose in 31 of 31 weeks on a selection bias. The studio
-              already applies the hold through readIndexSeries, so this zone shows
-              the benchmarks and says why the index line is absent — rather than
-              omitting the zone, which would hide that we HAVE an index and are
-              holding it. */}
+              The studio draws the monthly resale-comparables index with its
+              bootstrap band; readIndexSeries applies both the manual hold and the
+              automatic selection-premium hold, so when either is on this zone
+              shows the benchmarks and says why the index line is absent — rather
+              than omitting the zone, which would hide that we HAVE an index. */}
           <div id="index" className="scroll-mt-20">
-            {PRICE_INDEX_HOLD.active && (
-              <Section title="The Varible Index" readMe="held — the method is under review, not the data" flush>
+            {holdReason && (
+              <Section title="The Varible Index" readMe={HOLD_REASON_TEXT[holdReason].label} flush>
                 <p className="px-4 pb-4 text-[12.5px] leading-relaxed text-ink-3 sm:px-5">
-                  {PRICE_INDEX_HOLD.title}{" "}
-                  <a href="/methodology" className="text-ink-2 underline-offset-2 hover:text-yellow hover:underline">
+                  {HOLD_REASON_TEXT[holdReason].title}{" "}
+                  <a href="/methodology#index-bias" className="text-ink-2 underline-offset-2 hover:text-yellow hover:underline">
                     Method →
                   </a>
                 </p>
               </Section>
             )}
-            <div className={PRICE_INDEX_HOLD.active ? "mt-3" : undefined}>
+            <div className={holdReason ? "mt-3" : undefined}>
               <IndexStudio seed={seed} />
             </div>
           </div>
