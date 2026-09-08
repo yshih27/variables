@@ -11,6 +11,7 @@ import { db } from "../db/client";
 import type { TokenMetadata } from "../onchain/tokenUri";
 import { normalizeTraits, gradeLabel } from "./traits";
 import { classifyIP } from "./ipCatalog";
+import { extractCardIdentity, type CardIdentityParts } from "./traits";
 
 export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard";
 
@@ -198,7 +199,14 @@ export async function searchCardsByName(query: string, limit = 12): Promise<Card
 }
 
 export type CardValuation = { tokenId: string; ipKey: string; insuredValueUsd: number | null };
-export type CardDims = { ip: string; set: string | null; grade: string };
+export type CardDims = {
+  ip: string;
+  set: string | null;
+  grade: string;
+  /** Identity parts for the v3 price index — see traits.ts `extractCardIdentity`.
+   *  Null on platforms with no `cards` rows (Courtyard, DYLI). */
+  identity: CardIdentityParts | null;
+};
 
 // ── Full-table cards streaming (the shared path warm-marketcap / warm-metric-
 //    snapshots / warm-sale-panel use to aggregate over EVERY card) ──
@@ -264,7 +272,7 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
   for (;;) {
     let q = db()
       .from("cards")
-      .select("id,platform,token_id,ip_key,set_name,grade_label")
+      .select("id,platform,token_id,ip_key,set_name,grade_label,name,card_name,year,card_number")
       .order("id", { ascending: true })
       .limit(PAGE);
     if (lastId !== null) q = q.gt("id", lastId);
@@ -279,6 +287,14 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
         ip: (r.ip_key as string) ?? "other",
         set: (r.set_name as string | null) ?? null,
         grade: (r.grade_label as string) ?? "Ungraded",
+        identity: extractCardIdentity({
+          name: r.name as string | null,
+          cardName: r.card_name as string | null,
+          set: r.set_name as string | null,
+          grade: r.grade_label as string | null,
+          year: r.year as number | null,
+          cardNumber: r.card_number as string | null,
+        }),
       });
     }
     if (rows.length < PAGE) break;

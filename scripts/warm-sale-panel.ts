@@ -30,6 +30,7 @@ import {
 import type { IndexPoint } from "../src/lib/data/indices";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
 import { writeSnapshot } from "../src/lib/db/snapshots";
+import { holdingPeriodInvariance } from "../src/lib/data/biasTests";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 async function main() {
@@ -66,8 +67,18 @@ async function main() {
   );
   if (market.length) series["market:total"] = market;
 
+  // INV-12 input: the holding-period invariance test is computed on EVERY index
+  // rebuild and stored with the series, so check-invariants can flag a selection
+  // bias without re-paying the panel's full dims join. See biasTests.ts for why a
+  // smoothness test could not catch what v2 was doing.
+  const invariance = holdingPeriodInvariance(panel.filter((r) => r.ip !== "other"));
+  console.log(
+    `  holding-period invariance: ${invariance.buckets.map((b) => `${b.label}=${b.perWeekPct.toFixed(2)}%/wk(n=${b.n})`).join(" ")} ` +
+      `· spread ${invariance.spreadPP.toFixed(2)}pp · ${invariance.pass ? "pass" : "FLAG"}`,
+  );
+
   const now = new Date().toISOString();
-  await writeSnapshot("price-index", { generatedAt: now, series }, now);
+  await writeSnapshot("price-index", { generatedAt: now, series, biasTests: { invariance } }, now);
 
   const published = Object.keys(series);
   console.log(
