@@ -35,6 +35,7 @@ const PAGES: PaletteItem[] = [
   { label: "Categories", sub: "market overview by IP", href: "/ips" },
   { label: "Platforms", sub: "every tracked venue", href: "/platforms" },
   { label: "Stats", sub: "the market in citable numbers", href: "/stats" },
+  { label: "Economics", sub: "what each platform keeps", href: "/economics" },
   { label: "Weekly Report", href: "/report" },
   { label: "Watchlist", href: "/watchlist" },
   { label: "Data status", sub: "freshness of every source", href: "/status" },

@@ -7,7 +7,10 @@
  * streamed 200 is already committed — see the note at the top of proxy.ts). So
  * the proxy rewrites first, and this list is what it checks.
  */
-export const EMBED_CHARTS = ["market-volume", "resale-vs-gacha", "holders"] as const;
+// "studio" = the Index Studio itself, bare, driven by the same #m=… hash it uses on
+// /ips — the studio's own Embed button pointed at the PAGE URL, which the site-wide
+// frame-ancestors 'self' policy now blocks, so it points here instead.
+export const EMBED_CHARTS = ["market-volume", "resale-vs-gacha", "holders", "studio"] as const;
 
 export type EmbedChartId = (typeof EMBED_CHARTS)[number];
 

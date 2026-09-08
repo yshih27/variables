@@ -15,6 +15,9 @@ import { BrandLockup, BrandMark } from "./Brand";
 const LINKS: Array<{ label: string; href: string; matchPrefix?: string; shortLabel?: string }> = [
   { label: "Categories", href: "/ips", matchPrefix: "/ip" },
   { label: "Platforms", href: "/platforms", matchPrefix: "/platform" },
+  // With SHELL_V2 off this is the only way to reach /economics; with it on the
+  // rail carries it and this whole bar renders nothing.
+  { label: "Economics", href: "/economics", shortLabel: "ECO" },
   { label: "Gacha", href: "/gacha" },
   { label: "Stats", href: "/stats" },
   { label: "Report", href: "/report" },

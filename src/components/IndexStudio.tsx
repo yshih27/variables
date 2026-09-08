@@ -1109,7 +1109,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   };
   const embedCode =
     typeof window !== "undefined"
-      ? `<iframe\n  src="${window.location.href}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
+      ? `<iframe\n  src="${window.location.origin}/embed/studio${window.location.hash}"\n  width="860" height="560" frameborder="0"\n  title="Varible — Index Studio">\n</iframe>`
       : "";
 
   // Right-click menu on the plot (both pages — this is the shared component). Every

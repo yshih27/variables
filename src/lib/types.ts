@@ -1,3 +1,6 @@
+import type { NetHeldReason, OutboundDisclosure } from "@/lib/metrics/outboundDisclosure";
+import type { SeriesPoint } from "@/lib/data/metricSnapshots";
+
 export type Chain = "Polygon" | "Solana" | "Base" | "Ethereum" | "Abstract";
 
 export type Trend = "up" | "down" | "flat";
@@ -256,4 +259,70 @@ export type GroupedSearchResponse = {
   query: string;
   total: number;
   groups: SearchGroup[];
+};
+
+// ─── /economics contracts ────────────────────────────────────────────────────
+// Frozen-contract rule, same as the rest of this file: ADD fields, never rename.
+
+/** Spend-tier row as the economics board carries it (a projection of the
+ *  player-analytics tiers, so the page needs no second shape). */
+export type EconomicsTier = { label: string; pctUsers: number; pctRevenue: number };
+
+/**
+ * One platform's economics over 30 COMPLETE days.
+ *
+ * ⚠️ `net30d` IS NON-NULL ONLY WHEN `heldReason` IS NULL, by construction in
+ * `buildEconomicsBoard`. The two fields are the same decision expressed twice,
+ * and keeping the number absent — rather than present-but-flagged — is what makes
+ * "never render a net while held" a property of the data instead of a rule every
+ * component has to remember.
+ */
+export type EconomicsPlatform = {
+  key: string;
+  name: string;
+  /** Gacha pack-pull spend, Σ 30 complete days. NaN when the window isn't covered. */
+  spend30d: number;
+  /** R3-counted outbound, Σ 30 complete days. null when unsourced or suppressed. */
+  outbound30d: number | null;
+  /** Outbound ÷ spend over the same 30 days, percent. null when either leg is absent. */
+  ratioPct30d: number | null;
+  /** The same ratio over the PRIOR 30 complete days — the KPI's trend basis. */
+  ratioPctPrior30d: number | null;
+  /** Share of gross outflow R3 verifies as reaching a wallet that spent in, percent. */
+  r3VerifiedPct30d: number | null;
+  /** Spend − R3-counted payouts. NULL WHENEVER `heldReason` IS SET. */
+  net30d: number | null;
+  heldReason: NetHeldReason | null;
+  disclosure: OutboundDisclosure;
+  /** From player analytics; null for a platform the snapshot doesn't cover. */
+  players: { top1PctSharePct: number; tiers: EconomicsTier[] } | null;
+  /** Share of pull spend carrying a memo_slug. CC only today; null elsewhere. */
+  partnerAttributedPct: number | null;
+  /** Daily pairs for the hero, completeness-gated, oldest → newest. */
+  spendDaily: SeriesPoint[];
+  outboundDaily: SeriesPoint[];
+};
+
+export type EconomicsBoard = {
+  /** Complete days every window is measured over. */
+  windowDays: number;
+  /** Last complete day covered across the board (ISO), or null when empty. */
+  asOf: string | null;
+  platforms: EconomicsPlatform[];
+  /** Σ spend across platforms WITH a payout source — the KPI strip's denominator. */
+  spend30d: number;
+  outbound30d: number | null;
+  ratioPct30d: number | null;
+  ratioPctPrior30d: number | null;
+  /**
+   * Σ net across sourced platforms — null when ANY contributor is held.
+   *
+   * ⚠️ A PARTIAL SUM IS NEVER SHOWN. Summing only the un-held platforms would
+   * print a market net that silently excludes the one platform we can actually
+   * count, which is worse than showing nothing.
+   */
+  net30d: number | null;
+  /** Every distinct hold blocking the sum, for the chip. Empty when net30d is set. */
+  heldReasons: NetHeldReason[];
+  generatedAt: string;
 };

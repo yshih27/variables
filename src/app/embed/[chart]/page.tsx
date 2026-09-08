@@ -32,10 +32,31 @@ export async function generateMetadata({ params }: { params: Promise<{ chart: st
   return { title: `Varible — ${chart}`, robots: { index: false, follow: false } };
 }
 
+import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioSeed } from "@/lib/studio/seed";
+
 export default async function EmbedPage({ params }: { params: Promise<{ chart: string }> }) {
   const { chart } = await params;
   // Belt-and-braces: the proxy already rewrote an unknown id to a real 404.
   if (!isEmbedChartId(chart)) notFound();
+  if (chart === "studio") {
+    // The studio reads its series from its seed and the chart bundle; the stats
+    // board is not needed for it. Its state (series, window, grain) rides the hash.
+    const seed = await readStudioSeed();
+    return (
+      <div className="flex min-h-screen flex-col bg-bg px-3 py-3 font-sans">
+        <div className="min-h-0 flex-1">
+          <IndexStudio seed={seed} />
+        </div>
+        <a
+          href="https://varible.rarible.com/ips"
+          className="mt-2 self-end font-mono text-[11px] text-ink-4 hover:text-ink-2"
+        >
+          varible.rarible.com · Index Studio
+        </a>
+      </div>
+    );
+  }
   const board = await buildStatsBoard();
   const asOf = board.asOf ? board.asOf.slice(0, 10) : null;
 
