@@ -1,0 +1,29 @@
+{
+  "kind": "list",
+  "eyebrow": "Legendary Collection · tokenized, across 5 platforms",
+  "title": "318 Legendary Collection cards are on-chain. 24 are PSA 10 reverse foils.",
+  "rows": [
+    {
+      "label": "Snorlax Reverse Foil PSA 10",
+      "value": "$150K insured"
+    },
+    {
+      "label": "Charizard Holo PSA 10",
+      "value": "$102K insured"
+    },
+    {
+      "label": "Charizard Reverse Foil PSA 10",
+      "value": "$99.1K insured"
+    },
+    {
+      "label": "Dark Blastoise Reverse Foil PSA 10",
+      "value": "$28.8K insured"
+    },
+    {
+      "label": "Venusaur Reverse Foil PSA 10",
+      "value": "$22.5K insured"
+    }
+  ],
+  "source": "varible.rarible.com/ip/pokemon/sets",
+  "asOf": "Sep 10, 2026"
+}
