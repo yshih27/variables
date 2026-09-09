@@ -25,6 +25,8 @@
  *   source    footer path, default "varible.rarible.com"
  *   image     local path to card art (jpg/png/webp); tape layout puts it in a left
  *             column so the physical card is in the frame — the asset class is the point
+ *   notes     art layout only: 2-4 short lines under the price explaining the card
+ *             (set, foil, grade context, comps) so the image teaches, not just states
  *   name      output basename (default: spec filename)
  */
 import { execFileSync } from "node:child_process";
@@ -51,6 +53,8 @@ type Spec = {
   name?: string;
   out?: string;
   image?: string;
+  /** Short explanatory lines (art layout): why the price, what the card is. */
+  notes?: string[];
 };
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -75,7 +79,7 @@ function signColor(v: string): string {
 
 /** Inline the art as a data URI so the file:// page needs no network for it. */
 function imageDataUri(path: string): string | null {
-  const p = resolve(path.replace(/^~(?=\/)/, homedir()));
+  const p = resolve(path);
   if (!existsSync(p)) { console.error(`post-card: image not found: ${p}`); return null; }
   const ext = p.toLowerCase().split(".").pop();
   const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
@@ -105,10 +109,11 @@ function body(spec: Spec): string {
       <div class="tape art">
         <div class="artcol"><img src="${art}" alt=""></div>
         <div class="artmain">
-          <div class="hero">
+          <div class="hero-inline">
             <div class="hero-v">${esc(hero.value)}</div>
             <div class="hero-l">${esc(hero.label)}</div>
           </div>
+          ${spec.notes?.length ? `<div class="notes">${spec.notes.map((n) => `<div class="note">${esc(n)}</div>`).join("")}</div>` : ""}
           <div class="rows">${rowsHtml(spec.rows ?? [], false)}</div>
         </div>
       </div>`;
@@ -177,12 +182,16 @@ function html(spec: Spec): string {
   .artcol{display:flex;align-items:center;justify-content:center;height:600px}
   .artcol img{max-height:600px;max-width:400px;object-fit:contain;display:block;
     box-shadow:0 30px 80px rgba(0,0,0,.6);border:1px solid #23261f}
-  .artmain{display:flex;flex-direction:column;gap:26px}
-  .tape.art .hero-v{font-size:132px}
-  .tape.art .hero-l{margin-top:14px;font-size:20px;max-width:34ch;line-height:1.45}
-  .tape.art .row{padding:14px 0}
-  .tape.art .lbl{font-size:26px}
-  .tape.art .val{font-size:38px}
+  .artmain{display:flex;flex-direction:column;gap:22px}
+  .hero-inline{display:flex;align-items:flex-end;gap:34px}
+  .tape.art .hero-v{font-size:124px;line-height:.9}
+  .tape.art .hero-l{margin:0 0 10px;font-size:19px;line-height:1.5;max-width:30ch;letter-spacing:.1em}
+  .notes{display:flex;flex-direction:column;gap:9px;border-top:1px solid #1f2219;padding-top:18px}
+  .note{font-size:23px;line-height:1.4;color:#c9cec0;max-width:52ch}
+  .note::before{content:"";display:inline-block;width:7px;height:7px;background:${BRAND_LIME};margin:0 14px 4px 0}
+  .tape.art .row{padding:11px 0}
+  .tape.art .lbl{font-size:24px}
+  .tape.art .val{font-size:34px}
 
   /* list */
   .list{flex:1;display:flex;flex-direction:column;justify-content:center;padding:10px 0}

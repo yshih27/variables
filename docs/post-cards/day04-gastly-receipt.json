@@ -3,7 +3,7 @@
   "eyebrow": "The receipt · Collector Crypt · Sep 6, 2026",
   "hero": {
     "value": "$16.7K",
-    "label": "2002 Legendary Collection Gastly Reverse Foil PSA 10 · seller received"
+    "label": "2002 Legendary Collection Gastly Reverse Foil, #76 of 110, PSA 10. Seller received."
   },
   "rows": [
     {
@@ -17,13 +17,14 @@
     {
       "label": "marketplace fee",
       "value": "340 USDC"
-    },
-    {
-      "label": "NFTs moved, seller to buyer",
-      "value": "1"
     }
   ],
   "source": "varible.rarible.com/report",
   "asOf": "Sep 6, 2026",
-  "image": "~/Desktop/varible-posts/gastly-art.jpg"
+  "image": "~/Desktop/varible-posts/gastly-art.jpg",
+  "notes": [
+    "Legendary Collection (2002) was the first English set to put a reverse holo on every card, and its starburst foil appears in no other set.",
+    "That foil scratches and whitens easily, so a PSA 10 is scarce even on a common Gastly.",
+    "Collector Crypt insured this copy at $13,800 when it was tokenized. The only other tokenized copy, a CGC 8.5, is insured at $130."
+  ]
 }
