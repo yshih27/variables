@@ -213,6 +213,11 @@ export async function readIndexMeta(entity: string, key: string): Promise<PriceI
 
 async function readPriceSeries(entity: string, key: string): Promise<IndexPoint[]> {
   const snap = await readSnapshot<PriceIndexBlob>("price-index");
+  // ⚠️ Every surface now says "monthly" and reads month over month. A blob written by
+  // an earlier method (weekly stamps, no cadence) must never be served under that
+  // copy: between this code deploying and the next index job, the reader treats it
+  // as not yet published rather than mislabelling a weekly series as monthly.
+  if (snap?.cadence !== "monthly") return [];
   // AUTOMATIC HOLD: a builder-written heldReason withholds the series the same way
   // the manual switch does — the reader is the one place both are enforced.
   if (snap?.biasTests?.entities?.[`${entity}:${key}`]?.heldReason) return [];

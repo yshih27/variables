@@ -99,8 +99,8 @@ export function MarketHeader({
   const mdCols = hasRel ? "md:grid-cols-[minmax(0,1fr)_auto_auto]" : "md:grid-cols-[minmax(0,1fr)_auto]";
   const lgCols = hasChart
     ? hasRel
-      ? "lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
-      : "lg:grid-cols-[auto_minmax(0,1fr)_auto]"
+      ? "lg:grid-cols-[auto_minmax(340px,1fr)_auto_auto]"
+      : "lg:grid-cols-[auto_minmax(340px,1fr)_auto]"
     : hasRel
       ? "lg:grid-cols-[minmax(0,1fr)_auto_auto]"
       : "lg:grid-cols-[minmax(0,1fr)_auto]";
@@ -166,8 +166,8 @@ export function MarketHeader({
           <div className="hidden min-w-0 lg:flex lg:flex-col lg:justify-center">
             <MarketIndexChart points={index.series!} anchor={index.anchorSeries ?? []} />
             <ReadMe className="mt-2">
-              {index.descriptor ?? "resale comparables index"} — the same card identity resold month to
-              month. it follows what actually resells, so it runs warmer than the whole market.
+              {index.descriptor ?? "resale comparables index"} — follows what resells, so it runs warmer
+              than the whole market
             </ReadMe>
             {/* THE RECEIPT — one mono line, every clause from the blob, none typed.
                 The ⓘ opens the methodology anchor that explains the skew. */}
@@ -207,7 +207,7 @@ export function MarketHeader({
                 </span>
               )}
             </div>
-            <ReadMe className="mt-1.5">
+            <ReadMe className="mt-1.5 max-w-[26ch]">
               V-MKT return minus benchmark · green = cards outperformed
             </ReadMe>
             <div className="mt-3 flex flex-col gap-2.5">

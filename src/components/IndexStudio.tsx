@@ -1438,7 +1438,8 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
                   : null;
               return (
                 <g key={L.id}>
-                  {band && <path d={band} fill={L.item.color} fillOpacity={0.35 * 0.35} stroke="none" />}
+                  {/* Bootstrap band: soft enough to read as uncertainty around the line, never a highlight box — lime at 12% over the plot read as a block over three monthly points. */}
+                  {band && <path d={band} fill={L.item.color} fillOpacity={0.07} stroke="none" />}
                   <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" filter={isPrim ? "url(#is-glow)" : undefined} />
                   {end && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
                 </g>
