@@ -1,0 +1,29 @@
+{
+  "kind": "tape",
+  "eyebrow": "The receipt · Collector Crypt · Sep 6, 2026",
+  "hero": {
+    "value": "$16.7K",
+    "label": "2002 Legendary Collection Gastly Reverse Foil PSA 10 · seller received"
+  },
+  "rows": [
+    {
+      "label": "buyer paid",
+      "value": "17,000 USDC"
+    },
+    {
+      "label": "seller received",
+      "value": "16,660 USDC"
+    },
+    {
+      "label": "marketplace fee",
+      "value": "340 USDC"
+    },
+    {
+      "label": "NFTs moved, seller to buyer",
+      "value": "1"
+    }
+  ],
+  "source": "varible.rarible.com/report",
+  "asOf": "Sep 6, 2026",
+  "image": "~/Desktop/varible-posts/gastly-art.jpg"
+}

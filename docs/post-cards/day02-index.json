@@ -2,23 +2,23 @@
   "kind": "tape",
   "eyebrow": "The Varible Index · V-MKT · constant-quality",
   "hero": {
-    "value": "231.0",
+    "value": "238.6",
     "label": "V-MKT · same cards, same grades, week to week"
   },
   "rows": [
     {
       "label": "this week",
-      "value": "+10.9%"
+      "value": "+12.1%"
     },
     {
       "label": "30 days",
-      "value": "+15.2%"
+      "value": "+18.6%"
     },
     {
       "label": "since inception · Jan 18",
-      "value": "+131.0%"
+      "value": "+138.6%"
     }
   ],
   "source": "varible.rarible.com/ips",
-  "asOf": "Sep 3, 2026"
+  "asOf": "Sep 4, 2026"
 }

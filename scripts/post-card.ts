@@ -23,10 +23,12 @@
  *   text      the statement                (quote)
  *   asOf      footer date, default = today
  *   source    footer path, default "varible.rarible.com"
+ *   image     local path to card art (jpg/png/webp); tape layout puts it in a left
+ *             column so the physical card is in the frame — the asset class is the point
  *   name      output basename (default: spec filename)
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
@@ -48,6 +50,7 @@ type Spec = {
   source?: string;
   name?: string;
   out?: string;
+  image?: string;
 };
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -70,6 +73,15 @@ function signColor(v: string): string {
   return "#e9ece3";
 }
 
+/** Inline the art as a data URI so the file:// page needs no network for it. */
+function imageDataUri(path: string): string | null {
+  const p = resolve(path.replace(/^~(?=\/)/, homedir()));
+  if (!existsSync(p)) { console.error(`post-card: image not found: ${p}`); return null; }
+  const ext = p.toLowerCase().split(".").pop();
+  const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+  return `data:${mime};base64,${readFileSync(p).toString("base64")}`;
+}
+
 function rowsHtml(rows: Row[], big: boolean): string {
   return rows
     .map(
@@ -87,6 +99,20 @@ function rowsHtml(rows: Row[], big: boolean): string {
 function body(spec: Spec): string {
   if (spec.kind === "tape") {
     const hero = spec.hero ?? { value: "", label: "" };
+    const art = spec.image ? imageDataUri(spec.image) : null;
+    if (art) {
+      return `
+      <div class="tape art">
+        <div class="artcol"><img src="${art}" alt=""></div>
+        <div class="artmain">
+          <div class="hero">
+            <div class="hero-v">${esc(hero.value)}</div>
+            <div class="hero-l">${esc(hero.label)}</div>
+          </div>
+          <div class="rows">${rowsHtml(spec.rows ?? [], false)}</div>
+        </div>
+      </div>`;
+    }
     return `
       <div class="tape">
         <div class="hero">
@@ -145,6 +171,18 @@ function html(spec: Spec): string {
   .val{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:44px;font-variant-numeric:tabular-nums;white-space:nowrap}
   .row.big .val{font-size:54px}
   .dlt{font-family:"JetBrains Mono",monospace;font-weight:600;font-size:30px;min-width:150px;text-align:right}
+
+  /* tape + art */
+  .tape.art{grid-template-columns:400px 1fr;gap:64px;align-items:center}
+  .artcol{display:flex;align-items:center;justify-content:center;height:600px}
+  .artcol img{max-height:600px;max-width:400px;object-fit:contain;display:block;
+    box-shadow:0 30px 80px rgba(0,0,0,.6);border:1px solid #23261f}
+  .artmain{display:flex;flex-direction:column;gap:26px}
+  .tape.art .hero-v{font-size:132px}
+  .tape.art .hero-l{margin-top:14px;font-size:20px;max-width:34ch;line-height:1.45}
+  .tape.art .row{padding:14px 0}
+  .tape.art .lbl{font-size:26px}
+  .tape.art .val{font-size:38px}
 
   /* list */
   .list{flex:1;display:flex;flex-direction:column;justify-content:center;padding:10px 0}

@@ -1,0 +1,29 @@
+{
+  "kind": "list",
+  "eyebrow": "Weekly report · week ending Sep 6",
+  "title": "The tokenized card market, week over week.",
+  "rows": [
+    {
+      "label": "Market cap",
+      "value": "$63.1M"
+    },
+    {
+      "label": "Market cap, w/w",
+      "value": "−0.6%"
+    },
+    {
+      "label": "Gacha + resale volume",
+      "value": "$34.9M"
+    },
+    {
+      "label": "Gacha + resale volume, w/w",
+      "value": "−18.1%"
+    },
+    {
+      "label": "Largest resale we track",
+      "value": "$16.7K"
+    }
+  ],
+  "source": "varible.rarible.com/report",
+  "asOf": "Sep 7, 2026"
+}
