@@ -15,6 +15,8 @@ import { getCCMetadata } from "@/lib/data/ccTraits";
 import { getBeezieMetadata } from "@/lib/data/beezieTraits";
 import { readCards } from "@/lib/data/cards";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "@/lib/data/traits";
+import { classifyIPFromMeta } from "@/lib/data/ipCatalog";
+import { identityFromCardRow, printingKey } from "@/lib/ripfun/identity";
 import { proxyImg } from "@/lib/img";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 import type { Chain } from "@/lib/types";
@@ -40,6 +42,17 @@ export type CardDetail = {
   gradeLabel: string;
   attributes: CardAttribute[];
   explorerUrl: string | null;
+  /**
+   * Grade-FREE key for this printing (src/lib/ripfun/identity.ts), or null when
+   * the metadata lacks a card number or name to key on.
+   *
+   * Computed here because it needs the RAW token metadata — the identity builder
+   * reads `attributes` for the card number and language, and `cleanAttributes`
+   * has already reshaped those for display by the time a caller sees CardDetail.
+   * It is an identity, not a price: it says WHICH printing this is, so a comp can
+   * be looked up. Nothing about the value of this token rides on it.
+   */
+  printingKey: string | null;
 };
 
 function explorerUrlFor(platform: CardPlatform, tokenId: string): string | null {
@@ -94,6 +107,17 @@ export async function getCardDetail(id: string): Promise<CardDetail | null> {
   const traits = normalizeTraits(meta);
   const pm = PLATFORM_META[platform];
 
+  // The printing identity, for the CardOS comp lookup. Grade-free by construction
+  // — the grade is passed separately at lookup time, because a PSA 10 and a loose
+  // copy of the same printing are the same PRINTING and different cards.
+  const identity = identityFromCardRow({
+    card_name: traits.cardName,
+    set_name: traits.set,
+    grade_label: gradeLabel(traits),
+    ip_key: classifyIPFromMeta(meta).key,
+    attributes: meta.attributes ?? null,
+  });
+
   return {
     id,
     platform,
@@ -107,6 +131,7 @@ export async function getCardDetail(id: string): Promise<CardDetail | null> {
     gradeLabel: gradeLabel(traits),
     attributes: cleanAttributes(meta),
     explorerUrl: explorerUrlFor(platform, tokenId),
+    printingKey: printingKey(identity),
   };
 }
 
