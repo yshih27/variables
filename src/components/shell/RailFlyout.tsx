@@ -67,12 +67,23 @@ export function useFlyout() {
 export function RailFlyout({
   node,
   ips,
+  groups,
   anchor,
   onClose,
 }: {
   node: RailNode;
   /** A category's members, so the collapsed rail can reach an IP directly. */
   ips?: RailNode[];
+  /**
+   * Further labelled lists under the members — the published sets in this
+   * category, and the market-wide grade indices.
+   *
+   * ⚠️ EACH GROUP CARRIES ITS OWN LABEL BECAUSE THE SCOPES DIFFER. The sets under
+   * a category ARE that category's; the grades are market-wide (a `grade:` entity
+   * has no IP). Listing them under one unlabelled rule would let a reader take
+   * the grade index for the category's own.
+   */
+  groups?: { label: string; items: RailNode[] }[];
   /** The rail node this panel belongs to — it is positioned off this rect. */
   anchor: HTMLElement | null;
   onClose: () => void;
@@ -124,6 +135,25 @@ export function RailFlyout({
             </Link>
           ))}
         </div>
+      )}
+      {groups?.map((g) =>
+        g.items.length === 0 ? null : (
+          <div key={g.label} className="mt-2 border-t border-line pt-1.5">
+            <div className="px-1.5 pb-1 font-mono text-[9.5px] uppercase tracking-[0.08em] text-ink-4">
+              {g.label}
+            </div>
+            {g.items.map((it) => (
+              <Link
+                key={it.key}
+                href={it.href}
+                className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-[12px] text-ink-2 transition-colors hover:bg-bg-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+              >
+                <span className="min-w-0 flex-1 truncate">{it.name}</span>
+                <RailSpark node={it} />
+              </Link>
+            ))}
+          </div>
+        ),
       )}
     </div>,
     document.body,
