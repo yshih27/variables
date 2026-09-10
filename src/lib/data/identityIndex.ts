@@ -108,19 +108,87 @@ export type IdentityIndexPoint = IndexPoint & {
   /** Weeks since the previously published point (1 = no gap). Withheld steps make
    *  this > 1, and the reader must not treat the move as a single week's. */
   spansWeeks?: number;
+  /**
+   * The per-identity observations behind this point's step, [logReturn, weight].
+   * Carried so INV-13 can re-derive the estimator from the raw sample and prove
+   * the step never rests on one identity. The warmer strips it into the blob's
+   * `stepObs` block; it is not part of the published `series` shape.
+   */
+  obs?: [number, number][];
 };
 
 /** Weighted median — the weight-aware 50th percentile. */
-function weightedMedian(xs: { v: number; w: number }[]): number {
-  if (!xs.length) return NaN;
-  const s = [...xs].sort((a, b) => a.v - b.v);
-  const total = s.reduce((acc, e) => acc + e.w, 0);
-  let run = 0;
-  for (const e of s) {
-    run += e.w;
-    if (run >= total / 2) return e.v;
+/**
+ * INTERPOLATED weighted median — the v4.1 estimator, and the ONE implementation
+ * (the premium and the bootstrap import it; there is no second copy).
+ *
+ * ⚠️ WHY NOT THE PLAIN WEIGHTED MEDIAN. The plain form returns the first
+ * observation whose cumulative weight crosses 50%, i.e. ONE identity's return.
+ * Measured Sep 10 on the market's June → July step: 49 identities priced in both
+ * months, 22 up, 2 flat, 25 down, unweighted median −2.08% — and the published
+ * step was exactly 0.00%, because the sale-count-weighted cut landed on one of
+ * the two identities that resold at the same price. The level of the whole market
+ * rested on a single card, and the hero drew a flat month.
+ *
+ * Here each sorted observation owns a weight interval and is positioned at that
+ * interval's MIDPOINT, p_k = (Σ_{i<k} w_i + w_k/2) / W. The 50% mark is then
+ * linearly interpolated between the two observations that straddle it — the
+ * "type 7" treatment generalised to weights. With equal weights it reduces to the
+ * textbook median (middle element for odd n, mean of the two middle elements for
+ * even n); with unequal weights the answer can equal a single identity's return
+ * only when the mark lands exactly on that identity's midpoint, or when the two
+ * straddling identities carry the same return — the degenerate cases INV-13
+ * allows and logs.
+ *
+ * A trimmed mean was considered and rejected: it changes what the index measures.
+ */
+export function weightedMedian(xs: { v: number; w: number }[]): number {
+  const s = xs.filter((e) => e.w > 0 && Number.isFinite(e.v)).sort((a, b) => a.v - b.v);
+  if (!s.length) return NaN;
+  if (s.length === 1) return s[0].v;
+  const W = s.reduce((acc, e) => acc + e.w, 0);
+  let cum = 0;
+  const pos = s.map((e) => {
+    const p = (cum + e.w / 2) / W;
+    cum += e.w;
+    return p;
+  });
+  if (pos[0] >= 0.5) return s[0].v;
+  for (let k = 1; k < s.length; k++) {
+    if (pos[k] >= 0.5) {
+      const span = pos[k] - pos[k - 1];
+      const t = span > 0 ? (0.5 - pos[k - 1]) / span : 0;
+      return s[k - 1].v + t * (s[k].v - s[k - 1].v);
+    }
   }
   return s[s.length - 1].v;
+}
+
+/**
+ * Where the 50% mark sits relative to the observations — for INV-13's
+ * "degenerate" classification. `onMidpoint` = the mark landed exactly on one
+ * observation's midpoint (the estimator then equals that single value by
+ * construction); `tie` = the two straddling observations share a value.
+ */
+export function weightedMedianDegeneracy(xs: { v: number; w: number }[]): { onMidpoint: boolean; tie: boolean } {
+  const s = xs.filter((e) => e.w > 0 && Number.isFinite(e.v)).sort((a, b) => a.v - b.v);
+  if (s.length < 2) return { onMidpoint: true, tie: false };
+  const W = s.reduce((acc, e) => acc + e.w, 0);
+  let cum = 0;
+  const pos = s.map((e) => {
+    const p = (cum + e.w / 2) / W;
+    cum += e.w;
+    return p;
+  });
+  const onMidpoint = pos.some((p) => Math.abs(p - 0.5) < 1e-12);
+  let tie = false;
+  for (let k = 1; k < s.length; k++) {
+    if (pos[k] >= 0.5) {
+      tie = Math.abs(s[k].v - s[k - 1].v) < 1e-9;
+      break;
+    }
+  }
+  return { onMidpoint, tie };
 }
 
 function median(xs: number[]): number {
@@ -337,6 +405,13 @@ export function identityIndex(
       lo: value * Math.exp(-half),
       hi: value * Math.exp(half),
       spansWeeks: spans,
+      // DISCLOSURE, not a hold: a step resting on fewer identities than
+      // THIN_MONTH_IDENTITIES is published (the ±25% gate above is unchanged)
+      // but says so, so the tooltip and the CSV can print "thin month · 49
+      // identities" rather than presenting it with the same confidence as a
+      // month with 200.
+      thin: st.overlap < THIN_MONTH_IDENTITIES,
+      obs: st.obs.map((o) => [o.v, o.w] as [number, number]),
     });
   }
 

@@ -23,7 +23,7 @@ import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
 export type Unit = "index" | "usd" | "count" | "percent";
 /** lo/hi = the bootstrap band the price indices carry; absent on everything else. */
-export type SeriesPoint = { ts: string; value: number; lo?: number; hi?: number };
+export type SeriesPoint = { ts: string; value: number; lo?: number; hi?: number; n?: number; thin?: boolean };
 export type CatalogItem = {
   id: string;
   ticker: string;

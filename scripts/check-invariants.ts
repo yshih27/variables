@@ -31,7 +31,11 @@ import {
   THIN_WEEK_PAIRS as INDEX_THIN_WEEK_PAIRS,
 } from "../src/lib/data/repeatSalesIndex";
 import { INVARIANCE_TOLERANCE_PP, INDEX_HARD_SKEW_PP } from "../src/lib/data/biasTests";
-import { THIN_MONTH_IDENTITIES as INDEX_THIN_MONTH_IDENTITIES } from "../src/lib/data/identityIndex";
+import {
+  THIN_MONTH_IDENTITIES as INDEX_THIN_MONTH_IDENTITIES,
+  weightedMedian,
+  weightedMedianDegeneracy,
+} from "../src/lib/data/identityIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
@@ -314,6 +318,69 @@ async function checkHoldingPeriodInvariance(): Promise<Result> {
 }
 
 /**
+ * INV-13 (HARD): no published step rests on ONE identity.
+ *
+ * The v4 estimator was a plain weighted median, which returns the first
+ * observation past 50% of the weight — one identity's return. On the market's
+ * June → July step (49 identities, 22 up / 2 flat / 25 down, unweighted median
+ * −2.08%) it printed exactly 0.00% because the cut landed on a flat card; the
+ * whole market's level rested on one identity. v4.1 interpolates between the two
+ * straddling identities, so a step can equal a single identity's return only in
+ * two degenerate cases: the 50% mark lands exactly on that identity's midpoint,
+ * or the two straddling identities share a value. Both are allowed and LOGGED.
+ *
+ * This re-derives the estimator from the raw observations the builder stores
+ * (`stepObs`), so it is an independent check, not a self-report: (a) the stored
+ * step return must equal the re-derived interpolated median, and (b) when the
+ * overlap is ≥ 3, that return must not equal any single observation to 1e-9
+ * unless the case is degenerate.
+ */
+async function checkStepNotSingleIdentity(): Promise<Result> {
+  const snap = await readSnapshot<{
+    series: Record<string, { ts: string; value: number; n?: number }[]>;
+    stepObs?: Record<string, Record<string, [number, number][]>>;
+  }>("price-index");
+  if (!snap?.series || !snap.stepObs) {
+    return skip("step-not-single-identity", "hard", "price-index snapshot carries no stepObs block (pre-v4.1 rebuild)");
+  }
+  const bads: string[] = [];
+  const degenerate: string[] = [];
+  let checked = 0;
+  for (const [key, pts] of Object.entries(snap.series)) {
+    if (key.startsWith("premium:")) continue;
+    const obsByTs = snap.stepObs[key] ?? {};
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const raw = obsByTs[b.ts];
+      if (!raw || !(a.value > 0) || !(b.value > 0)) continue;
+      const obs = raw.map(([v, w]) => ({ v, w }));
+      const stepRet = Math.log(b.value / a.value);
+      const derived = weightedMedian(obs);
+      checked += 1;
+      // (a) the published step IS the interpolated estimator of its own sample
+      if (!Number.isFinite(derived) || Math.abs(derived - stepRet) > 1e-9) {
+        bads.push(`${key} ${b.ts.slice(0, 10)}: published step ${stepRet.toFixed(6)} ≠ re-derived ${derived.toFixed(6)}`);
+        continue;
+      }
+      if (obs.length < 3) continue; // a 1- or 2-identity step is degenerate by definition
+      // (b) it does not equal any single identity's return, unless degenerate
+      const hit = obs.find((o) => Math.abs(o.v - derived) < 1e-9);
+      if (!hit) continue;
+      const { onMidpoint, tie } = weightedMedianDegeneracy(obs);
+      if (onMidpoint || tie) {
+        degenerate.push(`${key} ${b.ts.slice(0, 10)}: equals one identity's return (${derived.toFixed(6)}) — ${tie ? "straddling tie" : "mark on midpoint"}, n=${obs.length}`);
+      } else {
+        bads.push(`${key} ${b.ts.slice(0, 10)}: step ${derived.toFixed(6)} equals a single identity's return on n=${obs.length} with no degeneracy`);
+      }
+    }
+  }
+  for (const d of degenerate) console.log(`        · degenerate (allowed): ${d}`);
+  return bads.length
+    ? bad("step-not-single-identity", "hard", `${bads.length} step(s) rest on one identity or disagree with the estimator`, bads.slice(0, 8))
+    : ok("step-not-single-identity", "hard", `${checked} steps re-derived from raw observations; ${degenerate.length} degenerate (logged), 0 resting on one identity`);
+}
+
+/**
  * INV-8 (HARD): published Σ-based 24h deltas must be computed over SOURCE-COMPLETE days,
  * never a Dune-lagged partial newest day (the "gacha −79.8%" fake collapse). Recompute
  * the gated delta from the spine and compare to the homepage payload's hero.vol24Pct /
@@ -451,6 +518,7 @@ async function main() {
   results.push(await checkIndexCompleteness());
   results.push(await checkIndexStepSanity());
   results.push(await checkHoldingPeriodInvariance());
+  results.push(await checkStepNotSingleIdentity());
   results.push(await checkDailyDeltaCompleteness(hp));
   results.push(await checkSourceDeath());
 
