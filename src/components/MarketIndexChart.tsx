@@ -123,6 +123,59 @@ export function MarketIndexChart({
   const hi = hover != null ? model.clean[hover] : null;
 
   return (
+    <>
+      {/* ⚠️ IN NORMAL FLOW, ABOVE THE PLOT, NEVER OVER IT. The plot's top-right
+          is where a rising index ENDS — the peak dot and its hover tooltip live
+          there — so an absolutely positioned band sat on the one part of the
+          picture the reader looks at. The header's middle column is
+          justify-center with ~30px of slack at 1440; the 27px row with -mt-1 and
+          a 2px gap was MEASURED at a 0px change to the hero's height (242 → 242),
+          where mb-1 alone cost 6px. */}
+      {actions && model.clean.length >= 2 && (
+        <div className="-mt-1 mb-0.5 flex justify-end">
+          <ChartActions
+            meta={{
+              title: "The Varible Index",
+              readMe: "resale comparables — follows what resells, so it runs warmer than the market",
+              receipt: receipt ?? null,
+              unit: "index (100 = base month)",
+              window: `${model.clean.length} complete months`,
+              asOf: model.clean.at(-1)?.ts ?? null,
+              slug: "varible-index",
+            }}
+            series={[
+              {
+                key: "v-mkt",
+                label: "V-MKT (index)",
+                color: stroke,
+                points: model.clean.map((p) => ({ ts: p.ts, value: p.value })),
+              },
+              // ⚠️ THE ANCHOR IS EXPORTED AS THE CHART DRAWS IT — snapped to the
+              // index's month-end stamps, not as its own daily series. Pivoting a
+              // daily anchor against a monthly index produced a 102-row CSV whose
+              // two columns were almost never populated on the same row: the file
+              // said the two lines never coexist, when in the picture they do.
+              ...(anchor.length
+                ? [{
+                    key: "cap-anchor",
+                    label: "Cap anchor (rebased)",
+                    color: "var(--color-ink-4)",
+                    points: model.clean
+                      .map((p, i) => ({ ts: p.ts, value: model.anchorAt[i] }))
+                      .filter((p): p is { ts: string; value: number } => p.value != null),
+                  }]
+                : []),
+            ]}
+            svgRef={svgRef}
+            plotHeight={H}
+            legend={[
+              { color: stroke, text: "V-MKT" },
+              ...(anchor.length ? [{ color: "#8a8a92", text: "cap anchor" }] : []),
+            ]}
+            chartId="home-index"
+          />
+        </div>
+      )}
     <div
       ref={wrapRef}
       className="relative w-full"
@@ -181,57 +234,6 @@ export function MarketIndexChart({
         )}
       </svg>
 
-      {/* ⚠️ ABSOLUTE, SO THE BAND COSTS THE HEADER NO HEIGHT. This chart lives in
-          the MarketHeader's middle column with a fixed `height: H`; a band in
-          normal flow would push the read-me and the receipt down and change the
-          hero's height. It sits in the plot's top-right corner, where the plot
-          is empty by construction (the line starts at 100 on the left). */}
-      {actions && model.clean.length >= 2 && (
-        <div className="absolute right-0 top-0 z-10">
-          <ChartActions
-            meta={{
-              title: "The Varible Index",
-              readMe: "resale comparables — follows what resells, so it runs warmer than the market",
-              receipt: receipt ?? null,
-              unit: "index (100 = base month)",
-              window: `${model.clean.length} complete months`,
-              asOf: model.clean.at(-1)?.ts ?? null,
-              slug: "varible-index",
-            }}
-            series={[
-              {
-                key: "v-mkt",
-                label: "V-MKT (index)",
-                color: stroke,
-                points: model.clean.map((p) => ({ ts: p.ts, value: p.value })),
-              },
-              // ⚠️ THE ANCHOR IS EXPORTED AS THE CHART DRAWS IT — snapped to the
-              // index's month-end stamps, not as its own daily series. Pivoting a
-              // daily anchor against a monthly index produced a 102-row CSV whose
-              // two columns were almost never populated on the same row: the file
-              // said the two lines never coexist, when in the picture they do.
-              ...(anchor.length
-                ? [{
-                    key: "cap-anchor",
-                    label: "Cap anchor (rebased)",
-                    color: "var(--color-ink-4)",
-                    points: model.clean
-                      .map((p, i) => ({ ts: p.ts, value: model.anchorAt[i] }))
-                      .filter((p): p is { ts: string; value: number } => p.value != null),
-                  }]
-                : []),
-            ]}
-            svgRef={svgRef}
-            plotHeight={H}
-            legend={[
-              { color: stroke, text: "V-MKT" },
-              ...(anchor.length ? [{ color: "#8a8a92", text: "cap anchor" }] : []),
-            ]}
-            chartId="home-index"
-          />
-        </div>
-      )}
-
       {hi && (
         <div
           className="pointer-events-none absolute top-0 z-10 rounded-md border border-line-2 bg-bg-2/95 px-2 py-1 font-mono text-[10.5px] shadow-lg backdrop-blur"
@@ -245,5 +247,6 @@ export function MarketIndexChart({
         </div>
       )}
     </div>
+    </>
   );
 }

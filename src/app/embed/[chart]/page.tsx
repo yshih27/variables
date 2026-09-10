@@ -9,8 +9,7 @@ import { getHomeIndexChart } from "@/lib/data/homeIndex";
 import { RatioTrend } from "@/components/economics/RatioTrend";
 import { PlayerConcentration } from "@/components/economics/PlayerConcentration";
 import { MarketIndexChart } from "@/components/MarketIndexChart";
-import type { AreaSeries } from "@/components/StackedAreaChart";
-import type { SeriesPoint } from "@/lib/data/metricSnapshots";
+import { economicsHeroModel } from "@/lib/data/economicsHero";
 import { EXPORT_HOST } from "@/lib/chart/export";
 import { BrandLockup } from "@/components/Brand";
 import { EMBED_CHARTS, isEmbedChartId } from "@/lib/chart/embeds";
@@ -87,7 +86,7 @@ export default async function EmbedPage({ params }: { params: Promise<{ chart: s
             actions={false}
           />
         )}
-        {chart === "economics-players" && <PlayerConcentration platforms={eco.platforms} actions={false} />}
+        {chart === "economics-players" && <PlayerConcentration platforms={eco.platforms} asOf={ecoAsOf} actions={false} />}
       </EmbedFrame>
     );
   }
@@ -195,23 +194,9 @@ function EmbedFrame({
   );
 }
 
-/** The /economics hero, rebuilt from the board exactly as the page builds it. */
+/** The /economics hero — the page's own model (economicsHero.ts), overlay included. */
 function EconomicsSpend({ board }: { board: Awaited<ReturnType<typeof buildEconomicsBoard>> }) {
-  const BAND_COLORS = [
-    "var(--color-yellow)",
-    "var(--color-blue)",
-    "var(--color-purple)",
-    "var(--color-teal)",
-    "var(--color-solana)",
-  ];
-  const bands: AreaSeries[] = board.platforms
-    .filter((p) => p.spendDaily.length > 0)
-    .map((p, i) => ({
-      key: p.key,
-      label: p.name,
-      color: BAND_COLORS[i % BAND_COLORS.length],
-      points: p.spendDaily as SeriesPoint[],
-    }));
+  const { bands, overlay } = economicsHeroModel(board.platforms);
   if (bands.length === 0) return null;
   const asOf = board.asOf ? board.asOf.slice(0, 10) : null;
   return (
@@ -222,6 +207,7 @@ function EconomicsSpend({ board }: { board: Awaited<ReturnType<typeof buildEcono
       metric="gacha"
       series={bands}
       unit="usd"
+      overlay={overlay}
       actions={false}
     />
   );

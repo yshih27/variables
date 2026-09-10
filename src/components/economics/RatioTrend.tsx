@@ -108,11 +108,13 @@ export function RatioTrend({
       title="Where payouts can be counted"
       readMe="payout ÷ spend, by platform, week over week"
       subtitle={`Last ${WEEKS} complete weeks · 100% marked`}
-      /* ⚠️ ONE GROUP, NOT TWO SIBLINGS. Section's right slot is `flex-wrap`, so the
-         actions and the venue chip as separate children wrapped onto two rows in a
-         562px card — measured +35px of header, taken straight out of the plot. As
-         one non-wrapping group the header stays a single row and the band costs
-         the card 0px, which is the rule these §7 cards are held to. */
+      /* ⚠️ ONE GROUP, NOT TWO SIBLINGS, AND STILL A SECOND ROW. Section's right
+         slot is `flex-wrap`; the title block claims max-content first, so in a
+         562px card the four buttons plus the venue chip wrap under it as one row
+         (measured: header 130px against the neighbour's 95px). The CARD is what
+         §7 holds equal, and it is — 467px both sides, the plot still 150px — the
+         card's own slack absorbs the row. Grouping keeps the chip beside the
+         buttons instead of orphaning it on a third row. */
       right={
         <div className="flex flex-nowrap items-center gap-2">
           {actions && (

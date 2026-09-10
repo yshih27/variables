@@ -332,6 +332,18 @@ export async function pngFromSvg(
   // under the series rather than being buried by it.
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.querySelector("[data-plot-bg]")?.remove();
+  // ⚠️ LAYERS DRAWN AS SIBLING <svg>s ARE PART OF THE PICTURE. A chart may draw a
+  // line on its own scale in a second <svg> stacked over the first (the economics
+  // hero's payout ÷ spend overlay). Cloning only the first exported a PNG whose
+  // caption promised a line that was not in it. Siblings marked
+  // `data-export-layer` share the viewBox and the box, so their nodes fold into
+  // the clone as one more group, drawn after the bands exactly as on screen.
+  const layers = svg.parentElement?.querySelectorAll<SVGSVGElement>(":scope > svg[data-export-layer]") ?? [];
+  for (const layer of Array.from(layers)) {
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    for (const child of Array.from(layer.childNodes)) g.appendChild(child.cloneNode(true));
+    clone.appendChild(g);
+  }
   const plotXml = inlineVars(new XMLSerializer().serializeToString(clone))
     .replace(/^<svg[^>]*>/, "")
     .replace(/<\/svg>$/, "");

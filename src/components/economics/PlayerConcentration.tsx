@@ -18,8 +18,11 @@ export function PlayerConcentration({
   platforms,
   chartId,
   actions = true,
+  asOf = null,
 }: {
   platforms: EconomicsPlatform[];
+  /** The board's as-of (YYYY-MM-DD), so the CSV never prints "as of: —". */
+  asOf?: string | null;
   /** `/embed/[chart]` id. Omitted inside the embed itself. */
   chartId?: string;
   /** false inside `/embed/[chart]` — an embed offers no exports of its own. */
@@ -54,6 +57,7 @@ export function PlayerConcentration({
               readMe: "how concentrated each platform's pull spend is",
               unit: "%",
               window: "all-time",
+              asOf,
               slug: "economics-player-concentration",
             }}
             rows={rows}

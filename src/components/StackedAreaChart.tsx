@@ -371,10 +371,21 @@ export function StackedAreaChart({
               window: subtitle,
               asOf: days.length ? new Date(days[days.length - 1]).toISOString().slice(0, 10) : null,
             }}
-            series={series.map((b) => ({ key: b.key, label: b.label, color: b.color, points: b.points }))}
+            // ⚠️ THE OVERLAY IS PART OF THE EXPORT. Its line folds into the PNG
+            // (data-export-layer) and its ratio is one more CSV column; the legend
+            // names it too, or the picture carries a dashed line nothing explains.
+            series={[
+              ...series.map((b) => ({ key: b.key, label: b.label, color: b.color, points: b.points })),
+              ...(overlay
+                ? [{ key: `overlay:${overlay.label}`, label: `${overlay.label} (%)`, color: overlay.color, points: overlay.points }]
+                : []),
+            ]}
             svgRef={svgRef}
             plotHeight={PLOT_H}
-            legend={ordered.map((o) => ({ color: o.color, text: o.label }))}
+            legend={[
+              ...ordered.map((o) => ({ color: o.color, text: o.label })),
+              ...(shapedOverlay ? [{ color: shapedOverlay.color, text: `${shapedOverlay.label} · dashed` }] : []),
+            ]}
             chartId={chartId}
           />
         )}
@@ -494,6 +505,7 @@ export function StackedAreaChart({
               preserveAspectRatio="none"
               className="pointer-events-none absolute inset-0 h-full w-full"
               aria-hidden
+              data-export-layer=""
             >
               <path
                 d={overlayPath}
