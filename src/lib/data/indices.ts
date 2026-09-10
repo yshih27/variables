@@ -13,6 +13,7 @@
  */
 import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
 import { PRICE_INDEX_HOLD, applyPriceIndexHold } from "@/lib/indices/hold";
+import type { IndexEntity } from "@/lib/indices/naming";
 import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
 import { completeWeeksOnly, resampleWeekly, completeMonthsOnly } from "@/lib/chart/period";
@@ -211,6 +212,17 @@ export async function readIndexMeta(entity: string, key: string): Promise<PriceI
   };
 }
 
+/**
+ * Every entity id the price-index blob publishes, e.g. "grade:psa-10",
+ * "set:pokemon:151". The studio catalog and the rail read THIS rather than a
+ * typed list, so a set that clears the liquidity floor for the first time
+ * appears with no code change — and one that stops clearing it disappears.
+ */
+export async function readPriceIndexKeys(): Promise<string[]> {
+  const snap = await readSnapshot<PriceIndexBlob>("price-index");
+  return Object.keys(snap?.series ?? {});
+}
+
 async function readPriceSeries(entity: string, key: string): Promise<IndexPoint[]> {
   const snap = await readSnapshot<PriceIndexBlob>("price-index");
   // ⚠️ Every surface now says "monthly" and reads month over month. A blob written by
@@ -251,7 +263,7 @@ async function readMcapSeries(
  *     BTC price — it moves with supply). Daily, or weekly when freq:"weekly".
  */
 export async function readIndexSeries(
-  entity: "market" | "category" | "ip",
+  entity: IndexEntity,
   key: string,
   opts: { kind: "price" | "mcap"; from: string; freq?: "weekly" | "daily" },
 ): Promise<IndexPoint[]> {
@@ -263,6 +275,10 @@ export async function readIndexSeries(
     // nothing to resample down to, and resampling up would invent points.
     return rebaseWithBands(applyPriceIndexHold(await readPriceSeries(entity, key)), opts.from);
   }
+  // MARKET CAP exists per market / category / IP only. There is no per-grade or
+  // per-set float in the spine, so those entities return an empty series rather
+  // than a cap that is not theirs — the caller renders "insufficient data".
+  if (entity === "grade" || entity === "set") return [];
   const daily = rebaseSeries(await readMcapSeries(entity, key), opts.from);
   return opts.freq === "weekly" ? rebaseWithBands(resampleWeekly(daily), opts.from) : daily;
 }

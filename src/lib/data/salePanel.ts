@@ -27,6 +27,8 @@ export type SaleRow = {
   platform: CardPlatform;
   ip: string;
   set: string | null;
+  /** Canonical set key — the grouping key for `set:<ip>:<key>` entities. */
+  setKey: string | null;
   grade: string;
   /** v3 comparable key — `ip|set|number|name|grade|edition|language`, or null when
    *  the row is too thin to be a comparable (see traits.ts `identityKey`). */
@@ -106,6 +108,7 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[]): Promi
       platform,
       ip: d?.ip ?? "other",
       set: d?.set ?? null,
+      setKey: d?.setKey ?? null,
       grade: d?.grade ?? "Ungraded",
       identity: d?.identity ? identityKey(d.ip ?? "other", d.identity) : null,
     };

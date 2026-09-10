@@ -17,7 +17,7 @@
  * Transport enters through `ChartLoader` and nothing else: this module performs no
  * I/O and imports nothing server-only, so the client bundle can keep importing it.
  */
-import { indexRegistry } from "@/lib/indices/naming";
+import { indexRegistry, tickerOf, indexDisplayName } from "@/lib/indices/naming";
 import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 
@@ -58,7 +58,11 @@ export const DEFAULT_ACTIVE = ["idx:market:total", "bench:BTC", "bench:ETH", "be
  * picker on /platform/beezie isn't a list of every other platform's series.
  */
 export type StudioScope = {
-  entity: "platform";
+  /**
+   * "platform" — /platform/[key]. "grade" / "set" — the grade and set pages,
+   * whose studios compare the published grade or set indices against the market.
+   */
+  entity: "platform" | "grade" | "set";
   /** One entity (/platform/[key]) — omit for the whole FAMILY (/platforms), where
    *  the question is "how do the platforms compare", not "how is this one doing". */
   key?: string;
@@ -69,6 +73,12 @@ export const SCOPE_KEEP = new Set(["idx:market:total"]);
 
 export function inScope(id: string, scope: StudioScope): boolean {
   if (SCOPE_KEEP.has(id) || id.startsWith("bench:")) return true;
+  // Grade / set scopes select index series, not platform spine series: the
+  // question on those pages is "how do the grades compare", and the comparables
+  // are the indices themselves. `set` scopes to ONE ip so two IPs' sets never
+  // share a chart by accident.
+  if (scope.entity === "grade") return id.startsWith("idx:grade:");
+  if (scope.entity === "set") return id.startsWith(scope.key ? `idx:set:${scope.key}:` : "idx:set:");
   return scope.key
     ? id.startsWith(`sp:${scope.entity}:${scope.key}:`)
     : id.startsWith(`sp:${scope.entity}:`);
@@ -84,6 +94,11 @@ export function inScope(id: string, scope: StudioScope): boolean {
  * isn't a default line here. Its gacha series is still addable from the picker.
  */
 export function scopedDefaultActive(scope: StudioScope): string[] {
+  // Grade / set studios open on the market index plus whatever the scope has;
+  // the catalog's own reconcile drops ids with no series, so an IP whose sets
+  // publish nothing opens on V-MKT alone rather than an empty plot.
+  if (scope.entity === "grade") return ["idx:grade:psa-10", "idx:grade:psa-9", "idx:market:total"];
+  if (scope.entity === "set") return ["idx:market:total"];
   if (scope.key) return [`sp:${scope.entity}:${scope.key}:volume_usd`];
   // /platforms compares the venues on ONE comparable measure: each platform's
   // TOTAL 24h volume (marketplace + gacha), a synthetic series built in
@@ -159,6 +174,14 @@ export type ChartLoader = {
   index(params: { entity: string; key: string; kind: string; from: string; freq: string }): Promise<Record<string, unknown>>;
   benchmarks(params: { from: string; freq: string }): Promise<Record<string, unknown>>;
   series(params: { entity: string; metric: string; from: string }): Promise<Record<string, unknown>>;
+  /**
+   * Every entity id the price-index blob publishes. OPTIONAL: the server loader
+   * reads it straight from the blob, and the client-side fallback loader (used
+   * only when the one-shot bundle endpoint is unavailable) simply omits the
+   * grade and set groups rather than firing another round trip on a path that
+   * already exists to survive an outage.
+   */
+  keys?(): Promise<string[]>;
 };
 
 /**
@@ -248,6 +271,43 @@ export async function buildStudioCatalog(load: ChartLoader): Promise<{ items: Ca
       unit: "index",
       color: p.reg.entity === "market" ? "#bfef01" : nextColor(),
       cadence: "monthly", // v4: identity comparables, month-end stamps
+    });
+  }
+
+  // 1b. Grade + set indices — enumerated from the BLOB's own keys, never a typed
+  //     list, so a grade or set that starts (or stops) clearing the liquidity
+  //     floor appears (or disappears) with no code change. Premium series are
+  //     deliberately excluded: they are ratios, not levels, and would rebase
+  //     meaninglessly beside an index.
+  const extraKeys: string[] = (await load.keys?.().catch(() => [] as string[])) ?? [];
+  const depthProbes = await mapLimit(
+    extraKeys.filter((k) => k.startsWith("grade:") || k.startsWith("set:")),
+    8,
+    async (blobKey: string) => {
+      const entity = blobKey.slice(0, blobKey.indexOf(":")) as "grade" | "set";
+      const key = blobKey.slice(blobKey.indexOf(":") + 1);
+      try {
+        const d = await load.index({ entity, key, kind: "price", from: "2000-01-01", freq: "weekly" });
+        return { entity, key, blobKey, d };
+      } catch {
+        return null;
+      }
+    },
+  );
+  for (const p of depthProbes) {
+    if (!p) continue;
+    const points = (p.d.points as SeriesPoint[]) ?? [];
+    if (points.length < 2) continue;
+    const id = `idx:${p.blobKey}`;
+    data.set(id, points);
+    items.push({
+      id,
+      ticker: (p.d.ticker as string) ?? tickerOf(p.entity, p.key),
+      name: (p.d.indexName as string) ?? indexDisplayName(p.entity, p.key),
+      group: p.entity === "grade" ? "Grades" : "Sets",
+      unit: "index",
+      color: nextColor(),
+      cadence: "monthly",
     });
   }
 

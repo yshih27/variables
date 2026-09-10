@@ -101,6 +101,8 @@ export const MIN_IDENTITIES_IP = 10; // single IP
  * observation than one token resold once.
  */
 export const THIN_MONTH_IDENTITIES = 50;
+/** INV-11's magnitude limit: a step beyond this needs THIN_MONTH_IDENTITIES. */
+export const STEP_LIMIT_PCT = 25;
 
 export type IdentityIndexPoint = IndexPoint & {
   /** Weeks since the previously published point (1 = no gap). Withheld steps make
@@ -304,6 +306,22 @@ export function identityIndex(
     // Below the floor the step is UNKNOWN: do not advance the chain, do not
     // publish, and do not treat it as zero.
     if (st.overlap < floor) continue;
+    /**
+     * INV-11, ENFORCED HERE AND NOT ONLY CHECKED. A step beyond ±25% resting on
+     * fewer than THIN_MONTH_IDENTITIES identities is withheld the same way a
+     * below-floor step is: unpublished AND not chained through.
+     *
+     * ⚠️ It must not advance the chain. Advancing while withholding would keep
+     * the suspect move in the level and merely hide the point that shows it —
+     * the number would still be in the line, just harder to see. The reader gets
+     * a gap and `spansWeeks` instead. Before this, `THIN_MONTH_IDENTITIES` was
+     * declared but only ever checked by check-invariants, so the invariant could
+     * fail but never be satisfied by construction; `set:pokemon:black-star-promo`
+     * 2026-05-31 (+27.5% on 12 identities) is the step that exposed it.
+     */
+    if (Math.abs(Math.exp(st.logReturn) - 1) * 100 > STEP_LIMIT_PCT && st.overlap < THIN_MONTH_IDENTITIES) {
+      continue;
+    }
     logLevel += st.logReturn;
     const sd = bootstrapSd(st.obs, 1000003 + idx * 7919);
     if (Number.isFinite(sd)) cumVar += sd * sd;
