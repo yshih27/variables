@@ -230,6 +230,11 @@ async function checkIndexStepSanity(): Promise<Result> {
   const bads: string[] = [];
   let steps = 0, monthly = 0;
   for (const [key, pts] of Object.entries(snap.series)) {
+    // `premium:` series are RATIOS between two grades of the same card, not
+    // index levels: a real premium can move more than 25% in a month on a
+    // handful of matched identities, and that is the finding, not a fault. The
+    // step-sanity rule is about a chained LEVEL and does not apply to them.
+    if (key.startsWith("premium:")) continue;
     if (!Array.isArray(pts) || pts.length < 2) continue;
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];

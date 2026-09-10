@@ -12,6 +12,7 @@ import type { TokenMetadata } from "../onchain/tokenUri";
 import { normalizeTraits, gradeLabel } from "./traits";
 import { classifyIP } from "./ipCatalog";
 import { extractCardIdentity, type CardIdentityParts } from "./traits";
+import { normalizeSetName } from "../card/setName";
 
 export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard";
 
@@ -202,6 +203,9 @@ export type CardValuation = { tokenId: string; ipKey: string; insuredValueUsd: n
 export type CardDims = {
   ip: string;
   set: string | null;
+  /** Canonical set key (src/lib/card/setName.ts). Null when the raw set string
+   *  resolves to junk. Computed on read so it works before the column backfills. */
+  setKey: string | null;
   grade: string;
   /** Identity parts for the v3 price index — see traits.ts `extractCardIdentity`.
    *  Null on platforms with no `cards` rows (Courtyard, DYLI). */
@@ -286,6 +290,16 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
       m.set(r.token_id as string, {
         ip: (r.ip_key as string) ?? "other",
         set: (r.set_name as string | null) ?? null,
+        /**
+         * ⚠️ COMPUTED, NOT SELECTED. `cards.set_key` ships in
+         * 20260910000001_cards_set_key.sql and is NOT applied yet; selecting a
+         * column PostgREST does not know about fails the whole request, which
+         * would take down every page that reads dims. Normalising here is the
+         * same answer from the same SSOT, so this PR is safe to merge before the
+         * migration lands. Switching to the column is a one-line follow-up once
+         * it is applied and backfilled — worth doing only for the read cost.
+         */
+        setKey: normalizeSetName(r.set_name as string | null).key,
         grade: (r.grade_label as string) ?? "Ungraded",
         identity: extractCardIdentity({
           name: r.name as string | null,
@@ -323,6 +337,9 @@ export type CardMeta = {
   cardName: string | null;
   ip: string;
   set: string | null;
+  /** Canonical set key + display name (src/lib/card/setName.ts). */
+  setKey: string | null;
+  setName: string | null;
   grade: string;
   image: string | null;
 };
@@ -351,11 +368,14 @@ export async function readCardMeta(
       continue;
     }
     for (const r of data ?? []) {
+      const setId = normalizeSetName(r.set_name as string | null);
       out.set(r.token_id as string, {
         name: (r.name as string | null) ?? null,
         cardName: (r.card_name as string | null) ?? null,
         ip: (r.ip_key as string) ?? "other",
         set: (r.set_name as string | null) ?? null,
+        setKey: setId.key, // computed — see readAllCardDims on why the column is not selected
+        setName: setId.name,
         grade: (r.grade_label as string) ?? "Ungraded",
         image: (r.image as string | null) ?? null,
       });

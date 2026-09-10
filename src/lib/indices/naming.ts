@@ -19,7 +19,13 @@
  */
 import { IP_CATALOG, OTHER_IP, type IPCategory } from "../data/ipCatalog";
 
-export type IndexEntity = "market" | "category" | "ip";
+/**
+ * Index entities. `grade` and `set` joined in with the grade/set depth work:
+ * their keys come from the price-index blob (`grade:psa-10`,
+ * `set:pokemon:151`), never from a hand-typed list, so a set that clears the
+ * liquidity floor for the first time gets a ticker with no code change.
+ */
+export type IndexEntity = "market" | "category" | "ip" | "grade" | "set";
 
 export const INDEX_FAMILY = "The Varible Index";
 export const INDEX_FAMILY_SHORT = "the V";
@@ -116,6 +122,11 @@ function uniqueSuffix(base: string, used: Set<string>): string {
 export function tickerOf(entity: IndexEntity, key: string): string {
   if (entity === "market") return TICKER_PREFIX + MARKET_CODE;
   if (entity === "category") return TICKER_PREFIX + (CATEGORY_CODE[key as IPCategory] ?? (normalizeCode(key) || "OTH"));
+  // grade "psa-10" → V-PSA10 · set "pokemon:151" → V-151 (the ip qualifies the
+  // key, not the ticker: two IPs with a same-named set would collide, which the
+  // display name disambiguates and the blob key already prevents).
+  if (entity === "grade") return TICKER_PREFIX + (normalizeCode(key) || "GRD");
+  if (entity === "set") return TICKER_PREFIX + (normalizeCode(key.split(":").pop() ?? key) || "SET");
   // ip — derived catalog code, or a defensive fallback for an unknown key.
   return TICKER_PREFIX + (IP_CODE_BY_KEY.get(key) ?? (normalizeCode(key) || "UNK"));
 }
@@ -130,8 +141,21 @@ export function indexDisplayName(entity: IndexEntity, key: string): string {
 function indexNoun(entity: IndexEntity, key: string): string {
   if (entity === "market") return MARKET_NAME;
   if (entity === "category") return CATEGORY_NAME[key as IPCategory] ?? titleCase(key);
+  if (entity === "grade") return gradeNoun(key);
+  if (entity === "set") {
+    const [ip, ...rest] = key.split(":");
+    const setKey = rest.join(":") || ip;
+    return `${indexNoun("ip", ip)} ${titleCase(setKey)}`;
+  }
   if (key === OTHER_IP.key) return OTHER_IP.name;
   return IP_CATALOG.find((i) => i.key === key)?.name ?? titleCase(key);
+}
+
+/** "psa-10" → "PSA 10", "ungraded" → "Ungraded". The grader token keeps its case. */
+function gradeNoun(key: string): string {
+  const m = /^([a-z]+)-(\d{1,2}(?:-\d)?)$/i.exec(key);
+  if (!m) return titleCase(key);
+  return `${m[1].toUpperCase()} ${m[2].replace("-", ".")}`;
 }
 
 export type IndexIdentity = { entity: IndexEntity; key: string; ticker: string; name: string };

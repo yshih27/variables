@@ -13,11 +13,12 @@
  * Server-only: it imports the DB readers, so nothing in the client bundle may
  * import this file (the client uses the HTTP loader in the component).
  */
-import { readIndexSeries } from "@/lib/data/indices";
+import { readIndexSeries, readPriceIndexKeys } from "@/lib/data/indices";
 import { readBenchmarkSeries, ALL_BENCHMARK_SYMBOLS } from "@/lib/data/benchmarks";
 import { readMetricSeriesBulk, type MetricEntityType, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { shapeSeries } from "@/lib/api/chartSeries";
 import type { ChartLoader } from "./catalog";
+import type { IndexEntity } from "@/lib/indices/naming";
 
 export function serverChartLoader(): ChartLoader {
   return {
@@ -25,11 +26,18 @@ export function serverChartLoader(): ChartLoader {
     // catalog never reads them, so the bundle does not pay for them.
     async index({ entity, key, kind, from, freq }) {
       const points = await readIndexSeries(
-        entity as "market" | "category" | "ip",
+        entity as IndexEntity,
         key,
         { kind: kind as "price" | "mcap", from, freq: freq as "weekly" | "daily" },
       );
       return { points };
+    },
+
+    // The blob's own entity ids — how the catalog discovers grade and set
+    // indices without a typed list. Mirrors nothing over HTTP on purpose: the
+    // bundle route is the only consumer, and it runs server-side.
+    async keys() {
+      return readPriceIndexKeys();
     },
 
     // Mirrors /api/internal/chart/benchmarks with no `symbols` param — every
