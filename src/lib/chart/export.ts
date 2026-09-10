@@ -25,6 +25,8 @@ import { SITE_ORIGIN } from "@/lib/site";
 // ── PNG chrome geometry (the studio's, now shared) ───────────────────────────
 export const EXPORT_PAD = 14;
 export const LEGEND_TOP = 55;
+/** Mono advance width at 10.5px — the basis for every text-fit estimate here. */
+const MONO_CH = 6.2;
 export const LEGEND_ROW_H = 15;
 export const FOOTER_H = 24;
 
@@ -49,6 +51,19 @@ export type ExportMeta = {
   window?: string;
   /** The DATA's as-of, ISO or YYYY-MM-DD. Null when the chart has none. */
   asOf?: string | null;
+  /**
+   * The disclosure receipt, for a surface that shows one on the page (the index:
+   * `indexReceipt()` — cadence, latest month end, resale skew, cap anchor).
+   *
+   * ⚠️ IT TRAVELS OR THE PICTURE LIES BY OMISSION. The index runs warmer than the
+   * whole market BY CONSTRUCTION — it follows what resells — and the receipt is
+   * where that is disclosed. An exported index image without it is a level with
+   * no stated bias, pasted into someone else's deck, and nothing on the artefact
+   * would tell the next reader to go looking. So it is a first-class field here
+   * rather than folded into `readMe`, which the chart already spends on how to
+   * read the shape.
+   */
+  receipt?: string | null;
   /** Filename stem; slugified from the title when absent. */
   slug?: string;
 };
@@ -79,13 +94,20 @@ function cell(v: string): string {
  * this the hard way — carrying a weekly value across the daily rows around it
  * exported V-MKT as if it were sampled daily.
  */
-export function csvFromSeries(series: ExportSeries[], meta: ExportMeta): string {
-  const head = [
+/** The comment block every CSV opens with — one definition, so a table export and
+ *  a series export carry the same receipt. */
+function csvHeader(meta: ExportMeta): string[] {
+  return [
     `# ${meta.title}`,
     meta.readMe ? `# ${meta.readMe}` : null,
+    meta.receipt ? `# ${meta.receipt}` : null,
     `# metric: ${meta.metricKey ?? "—"} · unit: ${meta.unit}${meta.window ? ` · window: ${meta.window}` : ""}`,
     `# as of: ${meta.asOf ? String(meta.asOf).slice(0, 10) : "—"} · source: ${EXPORT_HOST}`,
   ].filter(Boolean) as string[];
+}
+
+export function csvFromSeries(series: ExportSeries[], meta: ExportMeta): string {
+  const head = csvHeader(meta);
 
   const days = [
     ...new Set(series.flatMap((s) => s.points.filter((p) => Number.isFinite(p.value)).map((p) => p.ts.slice(0, 10)))),
@@ -101,6 +123,31 @@ export function csvFromSeries(series: ExportSeries[], meta: ExportMeta): string 
     rows.push(`${d},${at.map((m) => (m.has(d) ? String(m.get(d)) : "")).join(",")}`);
   }
   return [...head, ...rows].join("\n");
+}
+
+/**
+ * A TABLE as CSV — the movers boards, the biggest-sales list.
+ *
+ * ⚠️ A TABLE IS NOT A PICTURE, so these surfaces export CSV and nothing else.
+ * Rasterizing a list of rows produces an image nobody can sort, filter or paste
+ * into a model, which is the entire reason someone wanted the data. They carry
+ * the same header block as a series CSV, so provenance does not depend on which
+ * shape the surface happened to be.
+ *
+ * `null` is written as an EMPTY CELL, never as 0 — the same honest-absence rule
+ * the tables themselves follow.
+ */
+export type ExportRows = { columns: string[]; rows: (string | number | null | undefined)[][] };
+
+export function csvFromRows(table: ExportRows, meta: ExportMeta): string {
+  const head = csvHeader(meta);
+  const body = [
+    table.columns.map(cell).join(","),
+    ...table.rows.map((r) =>
+      r.map((v) => (v == null || (typeof v === "number" && !Number.isFinite(v)) ? "" : cell(String(v)))).join(","),
+    ),
+  ];
+  return [...head, ...body].join("\n");
 }
 
 /** Trigger a browser download for a blob. */
@@ -179,7 +226,6 @@ export function exportSvgDocument(
   // Flow the legend onto as many rows as it needs; the header grows to fit, so a
   // dozen series cannot spill off the canvas. Width is estimated from character
   // count because there is nothing to measure in a document that doesn't exist yet.
-  const MONO_CH = 6.2;
   const SWATCH = 7;
   let cx = EXPORT_PAD;
   let row = 0;
@@ -194,25 +240,57 @@ export function exportSvgDocument(
     return at;
   });
 
-  const hasNote = !!meta.readMe;
-  const legendTop = LEGEND_TOP + (hasNote ? 12 : 0);
-  const headH = legend.length ? legendTop + (row + 1) * LEGEND_ROW_H + 6 : legendTop;
-  const height = headH + plotHeight + FOOTER_H;
-
   const basis = [meta.window, meta.asOf ? `as of ${String(meta.asOf).slice(0, 10)}` : null]
     .filter(Boolean)
     .join(" · ");
 
+  /**
+   * ⚠️ THE HEADER LINES WRAP; THEY DO NOT RUN OFF THE CANVAS. A chart exported at
+   * its on-screen width can be narrow — the homepage index is ~400px — and the
+   * receipt is one of the longest lines the app writes. Clipped, it read
+   * "…resale skew +1.8 pts/mo" with the cap anchor cut off: a disclosure that
+   * silently loses half of itself at small sizes. There is nothing to measure in a
+   * document that does not exist yet, so the fit is estimated from the mono
+   * advance width, the same way the legend's own flow above is.
+   */
+  const maxChars = Math.max(16, Math.floor((w - EXPORT_PAD * 2) / MONO_CH));
+  const wrap = (text: string): string[] => {
+    if (text.length <= maxChars) return [text];
+    const out: string[] = [];
+    let line = "";
+    for (const word of text.split(" ")) {
+      if (!line) line = word;
+      else if (line.length + 1 + word.length <= maxChars) line += ` ${word}`;
+      else { out.push(line); line = word; }
+    }
+    if (line) out.push(line);
+    return out;
+  };
+
+  /**
+   * The mono block under the title: the window this covers, then the DISCLOSURE
+   * that qualifies it, then how to read the shape. Order is deliberate — a reader
+   * who stops after two lines has still seen the receipt. Every one of them
+   * travels with the picture (the brief's "notes survive on every artefact").
+   */
+  const noteLines = [basis, meta.receipt, meta.readMe]
+    .filter(Boolean)
+    .flatMap((t) => wrap(t as string));
+  const HEAD_LINE_H = 14;
+  const HEAD_FIRST_Y = 36;
+
+  const legendTop = HEAD_FIRST_Y + noteLines.length * HEAD_LINE_H + 5;
+  const headH = legend.length ? legendTop + (row + 1) * LEGEND_ROW_H + 6 : legendTop;
+  const height = headH + plotHeight + FOOTER_H;
+
   const chrome =
     `<text x="${EXPORT_PAD}" y="21" fill="#f2f2f3" font-size="15" font-weight="700" font-family="'Inter', sans-serif">${escXml(meta.title)}</text>` +
-    (basis
-      ? `<text x="${EXPORT_PAD}" y="36" fill="#8a8a92" font-size="10.5" font-family="'JetBrains Mono', monospace">${escXml(basis)}</text>`
-      : "") +
-    // The honesty note travels with the picture — the brief's "notes survive on
-    // every exported artefact".
-    (hasNote
-      ? `<text x="${EXPORT_PAD}" y="50" fill="#8a8a92" font-size="10.5" font-family="'JetBrains Mono', monospace">${escXml(meta.readMe!)}</text>`
-      : "") +
+    noteLines
+      .map(
+        (t, k) =>
+          `<text x="${EXPORT_PAD}" y="${HEAD_FIRST_Y + k * HEAD_LINE_H}" fill="#8a8a92" font-size="10.5" font-family="'JetBrains Mono', monospace">${escXml(t)}</text>`,
+      )
+      .join("") +
     placed
       .map(
         (pI) =>
@@ -258,7 +336,15 @@ export async function pngFromSvg(
     .replace(/^<svg[^>]*>/, "")
     .replace(/<\/svg>$/, "");
 
-  const doc = exportSvgDocument(plotXml, meta, opts);
+  // ⚠️ THE LEGEND NEEDS THE SAME RESOLUTION AS THE PLOT. Its swatches are drawn
+  // into the CHROME, which never passed through `inlineVars`, so a caller giving
+  // its colours as `var(--color-yellow)` — every StackedAreaChart does — got a row
+  // of BLACK squares beside correctly-coloured bands. Resolved here, where the
+  // live document is still in reach, so `exportSvgDocument` stays pure.
+  const doc = exportSvgDocument(plotXml, meta, {
+    ...opts,
+    legend: opts.legend?.map((l) => ({ ...l, color: inlineVars(l.color) })),
+  });
   const data = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(doc.svg)}`;
 
   return new Promise((resolve) => {

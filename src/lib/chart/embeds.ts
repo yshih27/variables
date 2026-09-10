@@ -10,7 +10,19 @@
 // "studio" = the Index Studio itself, bare, driven by the same #m=… hash it uses on
 // /ips — the studio's own Embed button pointed at the PAGE URL, which the site-wide
 // frame-ancestors 'self' policy now blocks, so it points here instead.
-export const EMBED_CHARTS = ["market-volume", "resale-vs-gacha", "holders", "studio"] as const;
+export const EMBED_CHARTS = [
+  "market-volume",
+  "resale-vs-gacha",
+  "holders",
+  "studio",
+  // /economics — rendered from the SAME cached buildEconomicsBoard() the page
+  // uses, so an embed cannot disagree with the page it was copied from.
+  "economics-spend",
+  "economics-ratio",
+  "economics-players",
+  // The homepage index. Bare: the chart, its receipt, and the mark.
+  "home-index",
+] as const;
 
 export type EmbedChartId = (typeof EMBED_CHARTS)[number];
 

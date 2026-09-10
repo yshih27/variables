@@ -10,9 +10,11 @@ import { getGachaData } from "@/lib/data/fetchGacha";
 import { getTrendingCards } from "@/lib/data/fetchTrending";
 import { formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { readMetricSeries, pctChange } from "@/lib/data/metricSnapshots";
-import { rebaseSeries, readIndexSeries, readIndexMeta, monthlyChangePct, completeMonthsOnly, type IndexPoint } from "@/lib/data/indices";
-import { indexReceipt, INDEX_DESCRIPTOR } from "@/lib/indices/naming";
-import { formatMonthDayUtc } from "@/lib/format";
+import { rebaseSeries, readIndexSeries, monthlyChangePct, completeMonthsOnly } from "@/lib/data/indices";
+import { INDEX_DESCRIPTOR } from "@/lib/indices/naming";
+// ⚠️ ONE ACCESSOR, TWO SURFACES. /embed/home-index renders the same chart from
+// this exact read, so the embed cannot drift from the page it was copied from.
+import { getHomeIndexChart } from "@/lib/data/homeIndex";
 import { getPlatformSeries, platformVolumeBands } from "@/lib/data/platformSeries";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
 
@@ -68,15 +70,6 @@ function floatAgeLabelOf(iso: string | null): string | null {
 // (R2-B1). All reads are unstable_cache-backed; no cookies/headers/searchParams here.
 export const revalidate = 1800;
 
-/** rebaseSeries drops lo/hi; the hero band needs them scaled by the same factor. */
-function rebaseWithBandsLocal(series: IndexPoint[], fromTs: string): IndexPoint[] {
-  const base = series.find((p) => p.ts >= fromTs && Number.isFinite(p.value) && p.value > 0)?.value ?? null;
-  if (!base) return [];
-  const f = 100 / base;
-  return series
-    .filter((p) => p.ts >= fromTs && Number.isFinite(p.value))
-    .map((p) => ({ ts: p.ts, value: p.value * f, n: p.n, lo: p.lo != null ? p.lo * f : undefined, hi: p.hi != null ? p.hi * f : undefined }));
-}
 
 export default async function Home() {
   const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries] =
@@ -143,21 +136,8 @@ export default async function Home() {
   // DISCLOSURE — every clause of the receipt is read from the blob (readIndexMeta),
   // never typed: the resale skew is the holding-period spread the builder
   // measured, the cap anchor is the tracked-cap change over the series' span.
-  const meta = await readIndexMeta("market", "total").catch(() => null);
-  const complete = completeMonthsOnly(marketIdx);
-  const latestMonthEnd = complete.length ? formatMonthDayUtc(complete[complete.length - 1].ts) : null;
-  const receipt = indexReceipt({
-    latestMonthEnd,
-    skewPP: meta?.selectionPremiumPP ?? null,
-    anchorPct: meta?.anchorPct ?? null,
-    anchorSince: meta?.anchorSince ?? null,
-  });
-  // The cap anchor as a LINE: tracked market cap rebased to 100 at the index's
-  // base month, so the two are comparable on one axis. Same spine the anchor % in
-  // the receipt was computed from; a missing anchor simply draws no line.
-  const anchorSeries: IndexPoint[] = fromTs
-    ? await readIndexSeries("market", "total", { kind: "mcap", from: fromTs }).catch(() => [])
-    : [];
+  const indexChart = await getHomeIndexChart();
+  const receipt = indexChart.receipt;
 
   const marketIndex = {
     value: indexValue,
@@ -184,8 +164,8 @@ export default async function Home() {
     relStrength,
     // Rebased-to-100 MONTHLY points for the header's index chart (QA-5), carrying
     // the bootstrap band (lo/hi) so the chart can draw it, plus the cap anchor.
-    series: fromTs ? rebaseWithBandsLocal(marketIdx, fromTs) : [],
-    anchorSeries,
+    series: indexChart.points,
+    anchorSeries: indexChart.anchor,
   };
 
   // 24h volume split — each platform row carries the components, so the homepage

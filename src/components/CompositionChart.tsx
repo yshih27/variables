@@ -119,6 +119,7 @@ export function CompositionChart({
   foot,
   fill,
   chartId,
+  actions = true,
 }: {
   title: string;
   /** How to read it (see <ReadMe>) — sits above `subtitle`, never replaces it. */
@@ -139,6 +140,15 @@ export function CompositionChart({
   /** Grow the plot to fill a stretched card (see Section's `fill`). PLOT_H becomes
    *  a MINIMUM rather than a fixed height. */
   fill?: boolean;
+  /**
+   * false inside `/embed/[chart]`.
+   *
+   * ⚠️ AN EMBED OFFERS NO EXPORTS. It renders inside someone else's page, where a
+   * CSV button is chrome for a site the reader is not on — the route's own
+   * contract says "no shell, no nav, no actions", and the band was the one part
+   * still ignoring it.
+   */
+  actions?: boolean;
 }) {
   const MODES = flow ? ALL_MODES : LEVEL_MODES;
   const [mode, setMode] = useState<Mode>("stacked");
@@ -159,18 +169,20 @@ export function CompositionChart({
       subtitle={subtitle}
       right={
         <div className="flex flex-wrap items-center gap-1.5">
-        <ChartActions
-          meta={{
-            title,
-            readMe,
-            metricKey: metric,
-            unit: unit === "usd" ? "USD" : "count",
-            window: subtitle,
-            asOf: dates.length ? dates[dates.length - 1].slice(0, 10) : null,
-          }}
-          series={series.map((x) => ({ key: x.key, label: x.label, color: x.color, points: x.points }))}
-          chartId={chartId}
-        />
+        {actions && (
+          <ChartActions
+            meta={{
+              title,
+              readMe,
+              metricKey: metric,
+              unit: unit === "usd" ? "USD" : "count",
+              window: subtitle,
+              asOf: dates.length ? dates[dates.length - 1].slice(0, 10) : null,
+            }}
+            series={series.map((x) => ({ key: x.key, label: x.label, color: x.color, points: x.points }))}
+            chartId={chartId}
+          />
+        )}
         <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
           {MODES.map((m) => (
             <button

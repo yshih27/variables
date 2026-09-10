@@ -181,6 +181,7 @@ export default async function EconomicsPage() {
               series={bands}
               unit="usd"
               grainSurface="chart:economics-hero"
+              chartId="economics-spend"
               overlay={
                 ratioOverlay.length >= 2
                   ? { label: "payout ÷ spend", color: "var(--color-red)", points: ratioOverlay }
@@ -193,8 +194,12 @@ export default async function EconomicsPage() {
               "Is the payout leg outrunning spend" and "how few people is the
               spend coming from" are two questions, so they may share a row. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <RatioTrend platforms={board.platforms} scope={legCountChip(coverage, "outbound")} />
-            <PlayerConcentration platforms={board.platforms} />
+            <RatioTrend
+              platforms={board.platforms}
+              scope={legCountChip(coverage, "outbound")}
+              chartId="economics-ratio"
+            />
+            <PlayerConcentration platforms={board.platforms} chartId="economics-players" />
           </div>
 
           {/* ── ZONE 4 — the leaderboard ────────────────────────────────────── */}

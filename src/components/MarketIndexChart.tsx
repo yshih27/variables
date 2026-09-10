@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ChartActions } from "./ChartActions";
 
 /**
  * Compact market-index line chart for the MarketHeader's middle band (QA-5) —
@@ -32,8 +33,28 @@ function fmtDay(ts: string): string {
  * like the stacked areas. Six or seven monthly points must still read as a chart:
  * straight segments between month-end stamps, nothing smoothed or invented.
  */
-export function MarketIndexChart({ points, anchor = [] }: { points: Point[]; anchor?: Point[] }) {
+export function MarketIndexChart({
+  points,
+  anchor = [],
+  receipt,
+  actions = true,
+}: {
+  points: Point[];
+  anchor?: Point[];
+  /**
+   * The disclosure receipt (`indexReceipt()`), verbatim from the page.
+   *
+   * ⚠️ IT IS PASSED, NOT RE-DERIVED. The header already prints this line from the
+   * blob; recomputing it here would give the export a second chance to disagree
+   * with the page about the resale skew, which is exactly the number an exported
+   * index image must not be able to travel without.
+   */
+  receipt?: string | null;
+  /** false inside `/embed/home-index` — an embed offers no export band. */
+  actions?: boolean;
+}) {
   const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const [w, setW] = useState(360);
   const [hover, setHover] = useState<number | null>(null);
 
@@ -93,7 +114,7 @@ export function MarketIndexChart({ points, anchor = [] }: { points: Point[]; anc
       anchorVals.length >= 2
         ? anchorAt.map((v, i) => (v == null ? null : `${x(i).toFixed(1)} ${y(v).toFixed(1)}`)).filter(Boolean).map((seg, i) => `${i ? "L" : "M"}${seg}`).join(" ")
         : null;
-    return { clean, n, x, y, line, area, last, up, baseY: y(100), plotH, band, anchorLine, anchorLast: anchorVals.at(-1) ?? null };
+    return { clean, n, x, y, line, area, last, up, baseY: y(100), plotH, band, anchorLine, anchorAt, anchorLast: anchorVals.at(-1) ?? null };
   }, [points, anchor, w]);
 
   if (!model) return null;
@@ -113,7 +134,7 @@ export function MarketIndexChart({ points, anchor = [] }: { points: Point[]; anc
         setHover(Math.round(frac * (model.n - 1)));
       }}
     >
-      <svg width={w} height={H} className="block">
+      <svg ref={svgRef} width={w} height={H} className="block">
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={stroke} stopOpacity="0.22" />
@@ -159,6 +180,57 @@ export function MarketIndexChart({ points, anchor = [] }: { points: Point[]; anc
           </text>
         )}
       </svg>
+
+      {/* ⚠️ ABSOLUTE, SO THE BAND COSTS THE HEADER NO HEIGHT. This chart lives in
+          the MarketHeader's middle column with a fixed `height: H`; a band in
+          normal flow would push the read-me and the receipt down and change the
+          hero's height. It sits in the plot's top-right corner, where the plot
+          is empty by construction (the line starts at 100 on the left). */}
+      {actions && model.clean.length >= 2 && (
+        <div className="absolute right-0 top-0 z-10">
+          <ChartActions
+            meta={{
+              title: "The Varible Index",
+              readMe: "resale comparables — follows what resells, so it runs warmer than the market",
+              receipt: receipt ?? null,
+              unit: "index (100 = base month)",
+              window: `${model.clean.length} complete months`,
+              asOf: model.clean.at(-1)?.ts ?? null,
+              slug: "varible-index",
+            }}
+            series={[
+              {
+                key: "v-mkt",
+                label: "V-MKT (index)",
+                color: stroke,
+                points: model.clean.map((p) => ({ ts: p.ts, value: p.value })),
+              },
+              // ⚠️ THE ANCHOR IS EXPORTED AS THE CHART DRAWS IT — snapped to the
+              // index's month-end stamps, not as its own daily series. Pivoting a
+              // daily anchor against a monthly index produced a 102-row CSV whose
+              // two columns were almost never populated on the same row: the file
+              // said the two lines never coexist, when in the picture they do.
+              ...(anchor.length
+                ? [{
+                    key: "cap-anchor",
+                    label: "Cap anchor (rebased)",
+                    color: "var(--color-ink-4)",
+                    points: model.clean
+                      .map((p, i) => ({ ts: p.ts, value: model.anchorAt[i] }))
+                      .filter((p): p is { ts: string; value: number } => p.value != null),
+                  }]
+                : []),
+            ]}
+            svgRef={svgRef}
+            plotHeight={H}
+            legend={[
+              { color: stroke, text: "V-MKT" },
+              ...(anchor.length ? [{ color: "#8a8a92", text: "cap anchor" }] : []),
+            ]}
+            chartId="home-index"
+          />
+        </div>
+      )}
 
       {hi && (
         <div

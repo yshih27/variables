@@ -1,8 +1,20 @@
+"use client";
+
+/**
+ * ⚠️ CLIENT ONLY FOR THE EXPORT REF. Nothing here is interactive; the boundary
+ * exists because a PNG is rasterized from the LIVE <svg>, and a ref cannot cross
+ * the server→client line. Its inputs are the plain `EconomicsPlatform` rows the
+ * page already serialises, and `resampleToPeriod` is pure calendar maths that the
+ * D|W|M toggles already run in the browser — so nothing new reaches the bundle
+ * but this component.
+ */
+import { useRef } from "react";
 import type { EconomicsPlatform } from "@/lib/types";
 import { resampleToPeriod } from "@/lib/chart/period";
 import { Section } from "../Section";
 import { HeldChip } from "./HeldChip";
 import { VenueCountChip } from "./CoverageChip";
+import { ChartActions } from "../ChartActions";
 
 /**
  * Payout ÷ spend, by platform, over the last 12 COMPLETE weeks.
@@ -43,6 +55,8 @@ function weeklyRatio(p: EconomicsPlatform): { ts: string; v: number }[] {
 export function RatioTrend({
   platforms,
   scope,
+  chartId,
+  actions = true,
 }: {
   platforms: EconomicsPlatform[];
   /**
@@ -52,7 +66,13 @@ export function RatioTrend({
    * KPI label above used, or the page states two scopes for one leg.
    */
   scope: string;
+  /** `/embed/[chart]` id. Omitted inside the embed itself — an embed does not
+   *  offer its own embed button. */
+  chartId?: string;
+  /** false inside `/embed/[chart]` — an embed offers no exports of its own. */
+  actions?: boolean;
 }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const lines: Line[] = platforms
     .map((p, i) => ({ key: p.key, name: p.name, color: COLORS[i % COLORS.length], points: weeklyRatio(p).slice(-WEEKS) }))
     .filter((l) => l.points.length >= 2);
@@ -88,7 +108,38 @@ export function RatioTrend({
       title="Where payouts can be counted"
       readMe="payout ÷ spend, by platform, week over week"
       subtitle={`Last ${WEEKS} complete weeks · 100% marked`}
-      right={<VenueCountChip>{scope}</VenueCountChip>}
+      /* ⚠️ ONE GROUP, NOT TWO SIBLINGS. Section's right slot is `flex-wrap`, so the
+         actions and the venue chip as separate children wrapped onto two rows in a
+         562px card — measured +35px of header, taken straight out of the plot. As
+         one non-wrapping group the header stays a single row and the band costs
+         the card 0px, which is the rule these §7 cards are held to. */
+      right={
+        <div className="flex flex-nowrap items-center gap-2">
+          {actions && (
+          <ChartActions
+            meta={{
+              title: "Where payouts can be counted",
+              readMe: "payout ÷ spend, by platform, week over week",
+              unit: "%",
+              window: `last ${WEEKS} complete weeks`,
+              asOf: lines[0]?.points.at(-1)?.ts ?? null,
+              slug: "economics-payout-ratio",
+            }}
+            series={lines.map((l) => ({
+              key: l.key,
+              label: `${l.name} payout ÷ spend (%)`,
+              color: l.color,
+              points: l.points.map((p) => ({ ts: p.ts, value: p.v })),
+            }))}
+            svgRef={svgRef}
+            plotHeight={PLOT_H}
+            legend={lines.map((l) => ({ color: l.color, text: l.name }))}
+            chartId={chartId}
+          />
+          )}
+          <VenueCountChip>{scope}</VenueCountChip>
+        </div>
+      }
       fill
     >
       <div className="flex min-h-0 flex-1 flex-col">
@@ -102,7 +153,7 @@ export function RatioTrend({
           ))}
         </div>
 
-        <svg viewBox={`0 0 100 ${PLOT_H}`} preserveAspectRatio="none" className="h-[150px] w-full" role="img" aria-label="Payout to spend ratio by platform, last 12 complete weeks">
+        <svg ref={svgRef} viewBox={`0 0 100 ${PLOT_H}`} preserveAspectRatio="none" className="h-[150px] w-full" role="img" aria-label="Payout to spend ratio by platform, last 12 complete weeks">
           {/* The 100% baseline — above it, more left than came in. */}
           <line x1="0" y1={y(100)} x2="100" y2={y(100)} stroke="var(--color-line-2)" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
           {lines.map((l) => (
