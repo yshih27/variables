@@ -134,6 +134,19 @@ export function RailNav({ model }: Props) {
           onMouseLeave: () => flyout.close(node.key),
           onFocus: (e: React.FocusEvent<HTMLElement>) =>
             flyout.open(node.key, e.currentTarget.closest<HTMLElement>("[data-rail-node]")),
+          /**
+           * ⚠️ CLICK OPENS THE PANEL, IT DOES NOT NAVIGATE — for nodes that HAVE a
+           * panel worth opening (a category's IP list, a venue's card). The tile
+           * still carries its href, so middle-click / open-in-new-tab keep
+           * working; a plain click is caught here because the flyout is the only
+           * path to the branch at 56px and hover was the only way to reach it.
+           * Focus moves into the panel (RailFlyout), Escape brings it back.
+           */
+          onClick: (e: React.MouseEvent<HTMLElement>) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            flyout.toggle(node.key, e.currentTarget.closest<HTMLElement>("[data-rail-node]"));
+          },
           flyout:
             flyout.openKey === node.key ? (
               <RailFlyout
@@ -141,6 +154,7 @@ export function RailNav({ model }: Props) {
                 ips={ips}
                 groups={groups}
                 anchor={flyout.anchor}
+                pinned={flyout.pinned}
                 onClose={() => flyout.close(node.key)}
               />
             ) : null,
@@ -185,7 +199,9 @@ export function RailNav({ model }: Props) {
           {...nodeProps("/stats")}
         />
 
-        <RailSectionLabel collapsed={collapsed}>Categories</RailSectionLabel>
+        <RailSectionLabel collapsed={collapsed} href="/ips" code={RAIL_CODES.categories} active={pathname === "/ips"}>
+          Categories
+        </RailSectionLabel>
         {model.categories.map((c) => {
           const open = isOpen(c.key);
           return (
@@ -195,6 +211,7 @@ export function RailNav({ model }: Props) {
                 open={open}
                 count={c.ips.length}
                 collapsed={collapsed}
+                active={false}
                 onToggle={() => toggle(c.key)}
                 onSetOpen={(v) => setOpen(c.key, v)}
                 {...flyoutProps(c, c.ips, [
@@ -212,7 +229,11 @@ export function RailNav({ model }: Props) {
           );
         })}
 
-        {model.platforms.length > 0 && <RailSectionLabel collapsed={collapsed}>Platforms</RailSectionLabel>}
+        {model.platforms.length > 0 && (
+          <RailSectionLabel collapsed={collapsed} href="/platforms" code={RAIL_CODES.platforms} active={pathname === "/platforms"}>
+            Platforms
+          </RailSectionLabel>
+        )}
         {model.platforms.map((p) => (
           <RailLink key={p.key} node={p} collapsed={collapsed} {...nodeProps(p.href)} {...flyoutProps(p)} />
         ))}
@@ -256,15 +277,51 @@ export function RailNav({ model }: Props) {
   );
 }
 
-/** A section break. Expanded it is a label; collapsed it is a 1px rule — a
- *  three-letter label above a column of 36px tiles is the "debug text" read the
- *  whole round is fixing. */
-function RailSectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed?: boolean }) {
-  if (collapsed) return <RailRule />;
+/**
+ * A section break. Expanded it is a label; collapsed it is a 1px rule.
+ *
+ * ⚠️ WITH `href`, THE LABEL IS A LANDING LINK (nav r3). "Categories" and
+ * "Platforms" were text a first-time reader clicked and nothing happened — the
+ * only way to /ips was to know a category ROW went there. Now the heading is the
+ * link, with the same active state a row gets. Collapsed, the rule is replaced by
+ * a tile carrying the section's monogram (`code`) so icons mode keeps the path;
+ * a section with no destination ("More") stays a label / a rule.
+ */
+function RailSectionLabel({
+  children,
+  collapsed,
+  href,
+  code,
+  active,
+}: {
+  children: React.ReactNode;
+  collapsed?: boolean;
+  href?: string;
+  /** Two-character monogram for the collapsed tile. Required with `href`. */
+  code?: string;
+  active?: boolean;
+}) {
+  if (collapsed) {
+    if (!href || !code) return <RailRule />;
+    return (
+      <>
+        <RailRule />
+        <RailTile as="link" href={href} code={code} label={String(children)} active={!!active} aria-current={active ? "page" : undefined} />
+      </>
+    );
+  }
+  const cls = "rail-label mt-3 block px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em]";
+  if (!href) return <div className={`${cls} text-ink-4`}>{children}</div>;
   return (
-    <div className="rail-label mt-3 px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-ink-4">
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={`${cls} rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 ${
+        active ? "text-ink" : "text-ink-4 hover:text-ink"
+      }`}
+    >
       {children}
-    </div>
+    </Link>
   );
 }
 
@@ -287,6 +344,7 @@ function RailTile({
   label,
   active,
   onClick,
+  onLinkClick,
   onFocus,
   ...rest
 }: {
@@ -297,6 +355,8 @@ function RailTile({
   label: string;
   active: boolean;
   onClick?: () => void;
+  /** For the link form: intercept a plain click (the flyout), let modified clicks through. */
+  onLinkClick?: (e: React.MouseEvent<HTMLElement>) => void;
   onFocus?: (e: React.FocusEvent<HTMLElement>) => void;
   "aria-current"?: "page";
   "aria-label"?: string;
@@ -313,7 +373,7 @@ function RailTile({
     );
   }
   return (
-    <Link href={href ?? "#"} onFocus={onFocus} title={label} aria-label={label} className={cls} {...rest}>
+    <Link href={href ?? "#"} onFocus={onFocus} onClick={onLinkClick} title={label} aria-label={label} className={cls} {...rest}>
       {inner}
     </Link>
   );
@@ -334,6 +394,7 @@ type FlyoutProps = {
   onMouseEnter?: (e: React.MouseEvent<HTMLElement>) => void;
   onMouseLeave?: () => void;
   onFocus?: (e: React.FocusEvent<HTMLElement>) => void;
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
   flyout?: React.ReactNode;
 };
 
@@ -353,6 +414,7 @@ function RailLink({
   onMouseEnter,
   onMouseLeave,
   onFocus,
+  onClick,
   flyout,
   ...rest
 }: {
@@ -375,6 +437,9 @@ function RailLink({
           label={node.name}
           active={active}
           onFocus={onFocus}
+          /* A leaf tile (Stats, Report…) has no panel: a click navigates. Only a
+             node that was given flyout wiring intercepts the click. */
+          onLinkClick={flyout !== undefined ? onClick : undefined}
           {...rest}
         />
         {flyout}
@@ -414,37 +479,38 @@ function RailLink({
 }
 
 /**
- * A category row (polish r1, item 4).
+ * A category row.
  *
- * ⚠️ THE ROW IS THE TOGGLE, NOT A LINK. It used to be a link plus an 11px `+` at
- * the far right — a disclosure nobody could see, on a row that navigated away
- * when you tried to expand it. Now the whole row expands, a chevron at the LEFT
- * says so, and the category PAGE is a deliberate "open →" that appears on hover
- * or focus. A click on the row can no longer navigate by surprise.
+ * r1 made the WHOLE row the toggle with the page behind a hover-only "open →" —
+ * which fixed the accidental navigation and created the r3 complaint: two
+ * controls on one row with one affordance, nothing saying which was which. Now
+ * the chevron is a visible 24px button that only expands, and the label is a
+ * link that only navigates — to `/ips#<category>`, the category's own anchor.
  *
- * The link is a SIBLING of the button, never nested inside it: an <a> within a
- * <button> is invalid, and both need to be independently clickable.
- *
- * Keyboard: Enter/Space toggle natively (it is a real button); Right opens and
- * Left closes, the tree-widget convention, so a keyboard user isn't forced to
- * toggle blind.
+ * Keyboard: Tab reaches the chevron, then the label. Enter on the label
+ * navigates; Enter/Space on the chevron toggles (a real button); Right opens and
+ * Left closes, the tree-widget convention, so nobody toggles blind.
  */
 function RailBranch({
   node,
   open,
   count,
   collapsed,
+  active,
   onToggle,
   onSetOpen,
   onMouseEnter,
   onMouseLeave,
   onFocus,
+  onClick,
   flyout,
 }: {
   node: RailNode;
   open: boolean;
   count: number;
   collapsed: boolean;
+  /** The category page itself is the current route (/ips#<key>). */
+  active: boolean;
   onToggle: () => void;
   onSetOpen: (open: boolean) => void;
 } & FlyoutProps) {
@@ -462,6 +528,7 @@ function RailBranch({
           label={`${node.name} (${count} IPs)`}
           active={false}
           onFocus={onFocus}
+          onLinkClick={onClick}
         />
         {flyout}
       </div>
@@ -470,7 +537,18 @@ function RailBranch({
 
   return (
     <div data-rail-node className="relative" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      <div className="group mx-1 flex items-center rounded-lg transition-colors hover:bg-bg-1">
+      {/* ⚠️ TWO CONTROLS, TWO AFFORDANCES (nav r3). The chevron is a 24px button
+          that only expands; the label is a link that only navigates — to the
+          category's own anchor on /ips, so "Sports" and "TCG" no longer land on
+          the same top of page. Neither can do the other's job by accident, and
+          the browser's own status line shows the label's destination on hover
+          the way it does for a tape item. The link is a SIBLING of the button:
+          an <a> inside a <button> is invalid, and both need their own focus. */}
+      <div
+        className={`group mx-1 flex items-center rounded-lg transition-colors ${
+          active ? "bg-bg-2 text-ink" : "hover:bg-bg-1"
+        }`}
+      >
         <button
           type="button"
           onClick={onToggle}
@@ -486,18 +564,34 @@ function RailBranch({
           }}
           aria-expanded={open}
           aria-label={`${open ? "Collapse" : "Expand"} ${node.name} (${count} IPs)`}
-          title={node.name}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] text-ink-2 transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+          title={open ? "Collapse" : "Expand"}
+          /* 24px hit area, visibly a control: its own hover fill, one step up.
+             ⚠️ NO MARGIN OF ITS OWN — the row's mx-1 already insets it, and the
+             13px the wider chevron costs against r1's 11px glyph is paid back by
+             the tighter gaps below, or "Sports" truncates to "Sp…" at 240px. */
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-bg-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
         >
-          {/* Chevron first, so the disclosure is where the eye starts the row. */}
-          <span aria-hidden className="rail-chevron shrink-0 text-ink-2" data-open={open ? "" : undefined}>
+          <span aria-hidden className="rail-chevron" data-open={open ? "" : undefined}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
+        </button>
+
+        <Link
+          href={node.href}
+          onFocus={onFocus}
+          aria-current={active ? "page" : undefined}
+          title={`${node.name} · ${node.href}`}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-1.5 pl-0.5 pr-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 ${
+            active ? "text-ink" : "text-ink-2 hover:text-ink"
+          }`}
+        >
           <span
             aria-hidden
-            className="rail-code w-7 shrink-0 text-center font-mono text-[9.5px] uppercase tracking-[0.04em] text-ink-4"
+            className={`rail-code w-6 shrink-0 text-center font-mono text-[9.5px] uppercase tracking-[0.04em] ${
+              active ? "text-yellow" : "text-ink-4"
+            }`}
           >
             {node.railCode ?? node.short ?? node.name.slice(0, 2).toUpperCase()}
           </span>
@@ -506,21 +600,10 @@ function RailBranch({
           <span className="rail-label shrink-0 rounded bg-bg-2 px-1 font-mono text-[9.5px] leading-[1.4] text-ink-4">
             {count}
           </span>
-        </button>
-
-        {/* The category page, on purpose rather than by accident. It takes the
-            stats' slot on hover/focus so the 240px row doesn't grow. */}
-        <span className="rail-stats relative mr-1 flex shrink-0 items-center">
-          <span className="group-focus-within:invisible group-hover:invisible">
+          <span className="rail-stats flex shrink-0 items-center">
             <RailSpark node={node} />
           </span>
-          <Link
-            href={node.href}
-            className="absolute inset-0 hidden items-center justify-end whitespace-nowrap rounded px-1 text-[11px] text-ink-3 transition-colors hover:text-yellow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 group-focus-within:flex group-hover:flex"
-          >
-            open →
-          </Link>
-        </span>
+        </Link>
       </div>
       {flyout}
     </div>

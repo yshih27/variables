@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { SetLeaderboard } from "@/components/sets/SetLeaderboard";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
@@ -45,9 +46,7 @@ export default async function IPSetsPage({ params }: { params: Promise<{ key: st
     <>
       <NavBar ticker={ticker} />
       <div className="px-8 pt-6 pb-20 font-sans">
-        <a href={`/ip/${key}`} className="mb-1.5 inline-block text-[12px] text-ink-3 transition-colors hover:text-yellow">
-          ← {detail.ip.name}
-        </a>
+        <Breadcrumbs />
         <h1 className="mb-1 text-[20px] font-bold leading-none tracking-[-0.01em]">
           {detail.ip.name} · Sets
         </h1>

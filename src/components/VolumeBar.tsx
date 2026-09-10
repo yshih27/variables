@@ -95,9 +95,17 @@ export function VolumeBar({
               const d = segPct[s.key];
               return (
                 <span key={s.key} className="flex items-center gap-1.5 text-[12px]">
-                  <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: s.color }} />
-                  <span className="text-ink-3">{s.label}</span>
-                  <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
+                  {/* The split's legend hands off to /platforms (nav r3) — the
+                      page that breaks this same money down by venue. The ⓘ stays
+                      outside the link so it keeps opening its own popover. */}
+                  <Link
+                    href={href ?? "/platforms"}
+                    className="flex items-center gap-1.5 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+                  >
+                    <span className="h-2 w-2 shrink-0 rounded-md" style={{ background: s.color }} />
+                    <span className="text-ink-3">{s.label}</span>
+                    <span className="font-mono font-semibold tabular text-ink-2">{formatCompactUsd(s.value)}</span>
+                  </Link>
                   {d != null && Number.isFinite(d) && <Delta pct={d} />}
                   <MetricInfo metric={s.info} />
                 </span>

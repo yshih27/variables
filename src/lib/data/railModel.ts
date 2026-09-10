@@ -203,7 +203,11 @@ async function build(): Promise<RailModel> {
       name: CATEGORY_NAME[c],
       short: shortOf("category", c),
       railCode: railCodeOf("category", c, CATEGORY_NAME[c]),
-      href: "/ips",
+      // ⚠️ THE CATEGORY'S OWN ANCHOR, not the bare overview. Every category row
+      // used to land on the identical top of /ips; the click promised a category
+      // and delivered the overview. The hash is the category key, which /ips
+      // scrolls to and highlights (CategoryLanding).
+      href: `/ips#${c}`,
       spark: sumSparks(rows.map((r) => r.spark ?? [])),
       // No per-category 24h delta exists in the payload, and a cap-weighted mean
       // of the members' mcap moves would be a number we invented. "—" is the
