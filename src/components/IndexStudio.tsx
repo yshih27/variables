@@ -248,11 +248,14 @@ function clampWindow(
 /** In-window slice of an ASCENDING-by-ms array via binary search — O(log n + k),
  *  not the O(n) scan the model used to run on every zoom frame (total_volume now
  *  carries years of daily points). */
+/** A parsed series point: ms timestamp + value, with the bootstrap band when the series carries one. */
+type MsPoint = { ms: number; value: number; lo?: number; hi?: number };
+
 function sliceInWindow(
-  arr: { ms: number; value: number }[],
+  arr: MsPoint[],
   s: number,
   e: number,
-): { ms: number; value: number }[] {
+): MsPoint[] {
   let lo = 0;
   let hi = arr.length;
   while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m].ms < s) lo = m + 1; else hi = m; }
@@ -387,6 +390,26 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
             return own ? [own.id] : cur;
           });
         }
+        // RE-ADMIT A SERIES THE SEED COULD NOT SEE. The seed warmer reconciles the
+        // default set against the catalog AS OF ITS RUN, so a default series that
+        // was withheld then (the price index under a hold) is simply missing from
+        // the seed's `active` — and would stay missing here for as long as the seed
+        // outlives the hold, even though the live bundle carries it. Add back any
+        // default id that (a) the live catalog has, (b) is not active, and (c) was
+        // absent from the seed's OWN catalog — that last test is what separates
+        // "unavailable at seed time" from "the user removed it", which is never
+        // overridden. Prepended, because the first active id is the primary and the
+        // market index is meant to lead. Skipped when the hash chose the set.
+        if (!initial.active && seed?.active?.length) {
+          const live = new Set(scoped.map((c) => c.id));
+          const seedHad = new Set((seed.items ?? []).map((c) => c.id));
+          const wanted = scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE;
+          setActive((cur) => {
+            const have = new Set(cur);
+            const back = wanted.filter((id) => live.has(id) && !have.has(id) && !seedHad.has(id));
+            return back.length ? [...back, ...cur] : cur;
+          });
+        }
         setLoaded(true);
       })
       // A failed upgrade is not a failed chart: the seeded default view is already
@@ -467,11 +490,21 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
    * Rebase happens downstream in `model`, so it rebases the AGGREGATED series to
    * 100 at its first in-window point — the order the brief asks for.
    */
+  const anyMonthly = useMemo(
+    () => [...seriesData.keys()].some((id) => byId.get(id)?.cadence === "monthly"),
+    [seriesData, byId],
+  );
   const shaped = useMemo(() => {
     if (period === "D") return seriesData;
     const out = new Map<string, SeriesPoint[]>();
     for (const [id, pts] of seriesData) {
       const item = byId.get(id);
+      // A MONTHLY series is already at the coarsest grain offered: under D/W it
+      // stays exactly as it is, under M it is already month-end stamped.
+      if (item?.cadence === "monthly") {
+        out.set(id, pts);
+        continue;
+      }
       out.set(
         id,
         resampleToPeriod(pts, period, item?.flow ? "sum" : "last", {
@@ -527,12 +560,12 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
    * down. Parsing is hoisted here; the per-frame work is now numeric compares.
    */
   const parsed = useMemo(() => {
-    const m = new Map<string, { ms: number; value: number }[]>();
+    const m = new Map<string, MsPoint[]>();
     for (const [id, pts] of shaped) {
       m.set(
         id,
         pts
-          .map((p) => ({ ms: Date.parse(p.ts), value: p.value }))
+          .map((p) => ({ ms: Date.parse(p.ts), value: p.value, lo: p.lo, hi: p.hi }))
           // Finite + ascending ONCE here, not per-window: the model's boundary
           // interpolation (interpAt) needs sorted input, and doing it in this
           // shaped-keyed memo keeps it off the wheel's per-frame path.
@@ -601,14 +634,22 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
         mode === "rebase" ? (Number.isFinite(base) ? (val / base) * 100 : NaN) : val;
 
       // Real in-window points — the ONLY points anything interactive reads.
-      const pts = inWin.map((p) => ({ ms: p.ms, v: rebase(p.value), raw: p.value }));
+      const pts = inWin.map((p) => ({
+        ms: p.ms,
+        v: rebase(p.value),
+        raw: p.value,
+        // The bootstrap band rides along, rebased by the same factor as the value
+        // so it stays a band AROUND the line in rebased mode.
+        lo: p.lo != null && Number.isFinite(p.lo) ? rebase(p.lo) : undefined,
+        hi: p.hi != null && Number.isFinite(p.hi) ? rebase(p.hi) : undefined,
+      }));
 
       // Path points = the boundary (when we have one and the first real point is
       // strictly inside the window) followed by the real points. Drawn, not read.
       let pathPts = pts;
       if (boundaryRaw != null && inWin.length > 0 && inWin[0].ms > s) {
         const b = boundaryRaw;
-        pathPts = [{ ms: s, v: rebase(b), raw: b }, ...pts];
+        pathPts = [{ ms: s, v: rebase(b), raw: b, lo: undefined, hi: undefined }, ...pts];
       }
 
       return { id, item, pts, pathPts, step: medianStep(pts) };
@@ -1165,10 +1206,13 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
           {/* Grain. Same <Seg> as the two beside it, so adding it cannot change
               the control band's height — the band is sized by its tallest child
               and all three are the identical control. */}
+          {/* A monthly series has nothing to resample DOWN to, so D and W hide
+              while one is on the chart — offering them would draw the same
+              month-end points under a label that promises finer grain. */}
           <Seg
             variant="mode"
-            options={PERIODS.map((p) => ({ key: p, label: PERIOD_LABEL[p] }))}
-            value={period}
+            options={(anyMonthly ? (["M"] as Period[]) : PERIODS).map((p) => ({ key: p, label: PERIOD_LABEL[p] }))}
+            value={anyMonthly ? "M" : period}
             onChange={(k) => setPeriod(k as Period)}
           />
           <Seg
@@ -1212,7 +1256,8 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
           // it so 139.6 doesn't read as today's number.
           const asOf = last ? endpointDate(last.ms) : null;
           const off = hidden.has(id);
-          const title = `${item.name}${item.weekly ? " · weekly series" : ""}${asOf ? ` · latest ${asOf}` : ""}`;
+          const cadence = item.cadence ?? (item.weekly ? "weekly" : null);
+          const title = `${item.name}${cadence ? ` · ${cadence}` : ""}${asOf ? ` · latest ${asOf}` : ""}`;
           return (
             <span
               key={id}
@@ -1223,9 +1268,9 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
               <button type="button" className="font-mono font-semibold tracking-[0.01em] text-ink-2 hover:text-ink" onClick={() => toggleMetric(id)}>
                 {item.ticker}
               </button>
-              {item.weekly && (
-                <span className="rounded-sm bg-bg-3 px-1 py-px font-mono text-[8.5px] uppercase leading-none tracking-[0.08em] text-ink-4">
-                  wk
+              {cadence && (
+                <span className="rounded-sm bg-bg-3 px-1 py-px font-mono text-[8.5px] uppercase leading-none tracking-[0.08em] text-ink-4" title={`${cadence}${asOf ? ` · latest ${asOf}` : ""}`}>
+                  {cadence === "monthly" ? "mo" : "wk"}
                 </span>
               )}
               <span className="font-mono text-[11px] text-ink-3">
@@ -1380,8 +1425,21 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
               const fp = L.pts.filter((p) => Number.isFinite(p.v));
               const end = fp[fp.length - 1];
               const isPrim = L.id === model.primary?.id;
+              // Bootstrap band (price indices): hi edge forward, lo edge back, at
+              // the 35% fill the stacked areas use. Only when every real point
+              // carries one — a partial band would invent an edge.
+              const bandPts = fp.filter((p) => p.lo != null && p.hi != null && Number.isFinite(p.lo) && Number.isFinite(p.hi));
+              const band =
+                bandPts.length >= 2 && bandPts.length === fp.length
+                  ? bandPts.map((p, i) => `${i ? "L" : "M"}${model.X(p.ms).toFixed(1)} ${model.Y(p.hi!).toFixed(1)}`).join(" ") +
+                    " " +
+                    [...bandPts].reverse().map((p) => `L${model.X(p.ms).toFixed(1)} ${model.Y(p.lo!).toFixed(1)}`).join(" ") +
+                    " Z"
+                  : null;
               return (
                 <g key={L.id}>
+                  {/* Bootstrap band: soft enough to read as uncertainty around the line, never a highlight box — lime at 12% over the plot read as a block over three monthly points. */}
+                  {band && <path d={band} fill={L.item.color} fillOpacity={0.07} stroke="none" />}
                   <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" filter={isPrim ? "url(#is-glow)" : undefined} />
                   {end && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
                 </g>

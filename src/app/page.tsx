@@ -10,7 +10,9 @@ import { getGachaData } from "@/lib/data/fetchGacha";
 import { getTrendingCards } from "@/lib/data/fetchTrending";
 import { formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { readMetricSeries, pctChange } from "@/lib/data/metricSnapshots";
-import { rebaseSeries, readIndexSeries, weeklyChangePct, completeWeeksOnly } from "@/lib/data/indices";
+import { rebaseSeries, readIndexSeries, readIndexMeta, monthlyChangePct, completeMonthsOnly, type IndexPoint } from "@/lib/data/indices";
+import { indexReceipt, INDEX_DESCRIPTOR } from "@/lib/indices/naming";
+import { formatMonthDayUtc } from "@/lib/format";
 import { getPlatformSeries, platformVolumeBands } from "@/lib/data/platformSeries";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
 
@@ -66,6 +68,16 @@ function floatAgeLabelOf(iso: string | null): string | null {
 // (R2-B1). All reads are unstable_cache-backed; no cookies/headers/searchParams here.
 export const revalidate = 1800;
 
+/** rebaseSeries drops lo/hi; the hero band needs them scaled by the same factor. */
+function rebaseWithBandsLocal(series: IndexPoint[], fromTs: string): IndexPoint[] {
+  const base = series.find((p) => p.ts >= fromTs && Number.isFinite(p.value) && p.value > 0)?.value ?? null;
+  if (!base) return [];
+  const f = 100 / base;
+  return series
+    .filter((p) => p.ts >= fromTs && Number.isFinite(p.value))
+    .map((p) => ({ ts: p.ts, value: p.value * f, n: p.n, lo: p.lo != null ? p.lo * f : undefined, hi: p.hi != null ? p.hi * f : undefined }));
+}
+
 export default async function Home() {
   const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries] =
     await Promise.all([
@@ -108,7 +120,7 @@ export default async function Home() {
   // a row is "—" only when its benchmark is missing for that window.
   const fromTs = marketIdx[0]?.ts ?? null;
   const marketRet = indexValue != null && Number.isFinite(indexValue) ? indexValue - 100 : null;
-  const market30 = pctChange(completeWeeksOnly(marketIdx), 30);
+  const market30 = pctChange(completeMonthsOnly(marketIdx), 30);
   const relStrength = (
     [
       ["vs BTC", "BTC"],
@@ -128,31 +140,52 @@ export default async function Home() {
     return { label, pct, sincePct };
   });
 
+  // DISCLOSURE — every clause of the receipt is read from the blob (readIndexMeta),
+  // never typed: the resale skew is the holding-period spread the builder
+  // measured, the cap anchor is the tracked-cap change over the series' span.
+  const meta = await readIndexMeta("market", "total").catch(() => null);
+  const complete = completeMonthsOnly(marketIdx);
+  const latestMonthEnd = complete.length ? formatMonthDayUtc(complete[complete.length - 1].ts) : null;
+  const receipt = indexReceipt({
+    latestMonthEnd,
+    skewPP: meta?.selectionPremiumPP ?? null,
+    anchorPct: meta?.anchorPct ?? null,
+    anchorSince: meta?.anchorSince ?? null,
+  });
+  // The cap anchor as a LINE: tracked market cap rebased to 100 at the index's
+  // base month, so the two are comparable on one axis. Same spine the anchor % in
+  // the receipt was computed from; a missing anchor simply draws no line.
+  const anchorSeries: IndexPoint[] = fromTs
+    ? await readIndexSeries("market", "total", { kind: "mcap", from: fromTs }).catch(() => [])
+    : [];
+
   const marketIndex = {
     value: indexValue,
     // Under the hold the caption says so, right where the level is read.
     inceptionLabel: PRICE_INDEX_HOLD.active
       ? [inceptionLabel, PRICE_INDEX_HOLD.label].filter(Boolean).join(" · ")
       : inceptionLabel,
-    // Benchmark column now leads with 30d; the header labels the window + tooltips
-    // the since-inception figure. Inception day is shared with the index caption.
-    relWindowLabel: "30d",
+    descriptor: INDEX_DESCRIPTOR,
+    receipt,
+    // Benchmark column leads with the last complete MONTH (the index is monthly,
+    // so "30d" would promise a daily window it does not have); the header labels
+    // the window + tooltips the since-inception figure.
+    relWindowLabel: "1m",
     relSinceLabel: inceptionLabel, // e.g. "since Jan 12"
     deltas: [
-      // Price index is weekly → no 24h resolution; null renders "—" rather than
-      // mislabeling a weekly move as a 24h change (X3).
+      // The index is MONTHLY → no 24h resolution; null renders "—" rather than
+      // mislabeling a monthly move as a 24h change (X3).
       { label: "24h", pct: null },
-      // "1w", not "7d": this index is WEEKLY, so the move is one weekly step — and
-      // it's measured between the last two COMPLETE weeks. Comparing against the
-      // running partial week printed a phantom "+18.5%" that contradicted /report's
-      // "+1.3% WoW" for the same window (M1). Same two points the report uses.
-      { label: "1w", pct: weeklyChangePct(marketIdx) },
-      // Held: the 30d figure would be the broken method's too (see hold.ts).
-      { label: "30d", pct: PRICE_INDEX_HOLD.active ? null : pctChange(completeWeeksOnly(marketIdx), 30) },
+      // "1m": one month-over-month step between the last two COMPLETE months —
+      // the same two points the weekly report uses. The old 30d row is gone: on a
+      // monthly series it was the same number under a second name.
+      { label: "1m", pct: monthlyChangePct(marketIdx) },
     ],
     relStrength,
-    // Rebased-to-100 daily series for the header's middle-band index chart (QA-5).
-    series: fromTs ? rebaseSeries(marketIdx, fromTs, 100) : [],
+    // Rebased-to-100 MONTHLY points for the header's index chart (QA-5), carrying
+    // the bootstrap band (lo/hi) so the chart can draw it, plus the cap anchor.
+    series: fromTs ? rebaseWithBandsLocal(marketIdx, fromTs) : [],
+    anchorSeries,
   };
 
   // 24h volume split — each platform row carries the components, so the homepage

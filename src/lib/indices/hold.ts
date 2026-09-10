@@ -60,16 +60,38 @@
  *
  * Do not set `active: true` without a finding of the same weight as the one above.
  */
+/**
+ * ONE SENTENCE PER HOLD REASON, printed identically on every surface. The manual
+ * switch below and the automatic selection-premium re-hold (warm-sale-panel writes
+ * `heldReason`; readIndexSeries returns [] for it) both resolve through this map,
+ * so the hero, the strip, the studio, /stats and the report can never explain the
+ * same absence three different ways.
+ */
+export type HoldReason = "manual" | "selection-premium";
+export const HOLD_REASON_TEXT: Record<HoldReason, { label: string; title: string }> = {
+  manual: {
+    label: "index withheld · method under review",
+    title:
+      "The Varible Index is withheld while the method is under review — nothing is published until a method passes a bias test",
+  },
+  "selection-premium": {
+    label: "index withheld · resale skew above limit",
+    title:
+      "The Varible Index is withheld automatically: the resale-selection premium (short-interval resales vs longer ones) widened past 3 points a month, the limit at which a disclosed skew stops being a footnote. It republishes when the next rebuild measures it back inside the limit.",
+  },
+};
+
 export const PRICE_INDEX_HOLD = {
-  active: true,
+  // LIFTED Sep 8 — published as a disclosed resale index (option 2). The manual
+  // switch stays; the automatic re-hold lives in the blob's `heldReason`.
+  active: false,
   /** Last week-end close that stays visible (inclusive). */
   /** Last close that stays visible (inclusive); NULL withholds the whole series. */
   since: null as string | null,
   /** Short caption for headline surfaces. */
-  label: "index withheld · method under review",
+  label: HOLD_REASON_TEXT.manual.label,
   /** Tooltip / long form. */
-  title:
-    "Price index withheld while the method is rebuilt — the repeat-sales series rose every week on a resale-selection bias and could not print a down week; nothing is published until a method passes a bias test",
+  title: HOLD_REASON_TEXT.manual.title,
 } as const;
 
 const HOLD_CUTOFF_MS = PRICE_INDEX_HOLD.since ? Date.parse(`${PRICE_INDEX_HOLD.since}T23:59:59.999Z`) : null;

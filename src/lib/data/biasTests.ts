@@ -39,6 +39,13 @@ export const HOLDING_BUCKETS_MONTHLY: [string, number, number][] = [
 ];
 /** Buckets must agree within this many percentage points per week. */
 export const INVARIANCE_TOLERANCE_PP = 1;
+/**
+ * HARD re-hold limit, pts/month. Between INVARIANCE_TOLERANCE_PP and this the skew
+ * is published as a receipt on every surface; above it the builder writes
+ * heldReason="selection-premium" and the index is withheld automatically. 3 is the
+ * point at which a disclosed premium stops being a footnote and becomes the number.
+ */
+export const INDEX_HARD_SKEW_PP = 3;
 /** Down-week share must be within this many points of the short-gap benchmark. */
 export const SIGN_BALANCE_TOLERANCE_PP = 15;
 

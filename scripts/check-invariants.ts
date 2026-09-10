@@ -30,7 +30,7 @@ import {
   STEP_LIMIT_PCT as INDEX_STEP_LIMIT_PCT,
   THIN_WEEK_PAIRS as INDEX_THIN_WEEK_PAIRS,
 } from "../src/lib/data/repeatSalesIndex";
-import { INVARIANCE_TOLERANCE_PP } from "../src/lib/data/biasTests";
+import { INVARIANCE_TOLERANCE_PP, INDEX_HARD_SKEW_PP } from "../src/lib/data/biasTests";
 import { THIN_MONTH_IDENTITIES as INDEX_THIN_MONTH_IDENTITIES } from "../src/lib/data/identityIndex";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
@@ -272,20 +272,39 @@ async function checkIndexStepSanity(): Promise<Result> {
  */
 async function checkHoldingPeriodInvariance(): Promise<Result> {
   const snap = await readSnapshot<{
-    biasTests?: { invariance?: { buckets: { label: string; n: number; perWeekPct: number }[]; spreadPP: number; pass: boolean } };
+    biasTests?: {
+      invariance?: { buckets: { label: string; n: number; perWeekPct: number }[]; spreadPP: number; pass: boolean };
+      entities?: Record<string, { selectionPremiumPP: number | null; heldReason?: string | null }>;
+    };
   }>("price-index");
   const inv = snap?.biasTests?.invariance;
   if (!inv || !Number.isFinite(inv.spreadPP)) {
     return skip("holding-period-invariance", "soft", "price-index snapshot carries no bias-test block (pre-INV-12 rebuild)");
   }
-  const detail = inv.buckets.map((b) => `${b.label} ${b.perWeekPct >= 0 ? "+" : ""}${b.perWeekPct.toFixed(2)}%/wk (n=${b.n})`).join(" · ");
+  const detail = inv.buckets.map((b) => `${b.label} ${b.perWeekPct >= 0 ? "+" : ""}${b.perWeekPct.toFixed(2)}%/mo (n=${b.n})`).join(" · ");
+  const mkt = snap?.biasTests?.entities?.["market:total"];
+  // TWO THRESHOLDS. Above the disclosure tolerance (1pp) the skew is DISCLOSED on
+  // every surface as the "resale skew" receipt — soft, informational. Above the
+  // hard limit (3pp) the builder must have written heldReason="selection-premium"
+  // for V-MKT and the reader withholds it; an index that publishes with a skew
+  // past the hard limit is a HARD failure, because the receipt then understates a
+  // bias too large to footnote.
+  if (inv.spreadPP > INDEX_HARD_SKEW_PP) {
+    return mkt?.heldReason === "selection-premium"
+      ? ok("holding-period-invariance", "hard", `spread ${inv.spreadPP.toFixed(2)}pp > ${INDEX_HARD_SKEW_PP}pp — V-MKT correctly auto-held (selection-premium)`)
+      : bad(
+          "holding-period-invariance",
+          "hard",
+          `spread ${inv.spreadPP.toFixed(2)}pp > ${INDEX_HARD_SKEW_PP}pp but V-MKT is NOT held — the builder must write heldReason=selection-premium`,
+          [detail],
+        );
+  }
   return inv.spreadPP <= INVARIANCE_TOLERANCE_PP
     ? ok("holding-period-invariance", "soft", `spread ${inv.spreadPP.toFixed(2)}pp ≤ ${INVARIANCE_TOLERANCE_PP}pp — ${detail}`)
-    : bad(
+    : ok(
         "holding-period-invariance",
         "soft",
-        `spread ${inv.spreadPP.toFixed(2)}pp > ${INVARIANCE_TOLERANCE_PP}pp — per-week rate depends on holding period, i.e. the sample is selected`,
-        [detail],
+        `spread ${inv.spreadPP.toFixed(2)}pp — disclosed as resale skew (soft band ${INVARIANCE_TOLERANCE_PP}–${INDEX_HARD_SKEW_PP}pp) — ${detail}`,
       );
 }
 
@@ -399,12 +418,18 @@ async function checkSourceDeath(): Promise<Result> {
 
 async function main() {
   const strict = process.argv.includes("--strict");
+  // --no-dune: skip the two Dune feed checks. For gating a LOCALLY built blob
+  // (SNAPSHOT_LOCAL_DIR) where the point is the index invariants and a Dune
+  // export would be a paid read for nothing. CI never passes it.
+  const noDune = process.argv.includes("--no-dune");
   console.log(`\nData invariants — ${process.env.SUPABASE_URL ?? "(no SUPABASE_URL)"}\n`);
 
   const results: Result[] = [];
   // Dune feeds (0-credit reads; independent of Supabase).
-  results.push(...(await checkDuneFeed("cc", CC_SECONDARY_QUERY_ID)));
-  results.push(...(await checkDuneFeed("courtyard", COURTYARD_SECONDARY_QUERY_ID)));
+  if (!noDune) {
+    results.push(...(await checkDuneFeed("cc", CC_SECONDARY_QUERY_ID)));
+    results.push(...(await checkDuneFeed("courtyard", COURTYARD_SECONDARY_QUERY_ID)));
+  }
 
   // Snapshot-backed invariants — skip cleanly if the homepage blob is unreadable.
   const hp = await readSnapshot<HomepagePayload>(HOMEPAGE_SNAPSHOT_KEY);

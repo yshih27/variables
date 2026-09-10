@@ -15,7 +15,7 @@ import { readMetricSeries, dayStartUtc } from "./metricSnapshots";
 import { PRICE_INDEX_HOLD, applyPriceIndexHold } from "@/lib/indices/hold";
 import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
-import { completeWeeksOnly, resampleWeekly } from "@/lib/chart/period";
+import { completeWeeksOnly, resampleWeekly, completeMonthsOnly } from "@/lib/chart/period";
 
 export type IndexPoint = { ts: string; value: number; n?: number; lo?: number; hi?: number };
 
@@ -94,6 +94,22 @@ export function rebaseSeries(
  * weekly index. Same two points /report compares for its WoW, so the two surfaces
  * can't disagree. null until two complete weeks exist.
  */
+/**
+ * Month-over-month move between the last two COMPLETE months. The price index is
+ * monthly and stamped at month-end, so the running month never appears in the
+ * blob (builder gate) — but the guard stays so a stale blob cannot print a partial.
+ */
+export function monthlyChangePct(series: IndexPoint[], nowMs: number = Date.now()): number | null {
+  if (PRICE_INDEX_HOLD.active) return null;
+  const months = completeMonthsOnly(series, nowMs)
+    .filter((p) => p.value > 0)
+    .sort((a, b) => a.ts.localeCompare(b.ts));
+  if (months.length < 2) return null;
+  const last = months[months.length - 1].value;
+  const prev = months[months.length - 2].value;
+  return prev > 0 ? (last / prev - 1) * 100 : null;
+}
+
 export function weeklyChangePct(series: IndexPoint[], nowMs: number = Date.now()): number | null {
   // ⚠️ HOLD: no weekly change is published while the method is under review — the
   // held close vs the week before it is still the broken method's number.
@@ -159,8 +175,52 @@ export function sanitizeStockSeries(
 type PriceIndexSnapshot = { generatedAt: string; series: Record<string, IndexPoint[]> };
 
 /** Read a precomputed price-index series (written by warm-sale-panel) from the blob. */
+/**
+ * What the price-index blob knows about an entity beyond its points: the
+ * selection premium (holding-period invariance spread) and an automatic hold.
+ * Every disclosure surface reads THIS; nothing is typed.
+ */
+export type PriceIndexEntityMeta = {
+  /** Holding-period invariance spread, pts/month — the disclosed resale skew. */
+  selectionPremiumPP: number | null;
+  /** Set by the builder when the skew exceeds the hard limit; readIndexSeries
+   *  then returns [] for the entity, exactly as the manual hold does. */
+  heldReason: "selection-premium" | null;
+  /** Tracked market-cap change over the same span as the series, %, from the
+   *  builder — the anchor printed beside the level. */
+  anchorPct: number | null;
+  anchorSince: string | null; // "Feb"
+};
+
+type PriceIndexBlob = PriceIndexSnapshot & {
+  cadence?: "monthly" | "weekly";
+  biasTests?: {
+    invariance?: { spreadPP: number; pass: boolean };
+    entities?: Record<string, { selectionPremiumPP: number | null; heldReason?: "selection-premium" | null; anchorPct?: number | null; anchorSince?: string | null }>;
+  };
+};
+
+export async function readIndexMeta(entity: string, key: string): Promise<PriceIndexEntityMeta> {
+  const snap = await readSnapshot<PriceIndexBlob>("price-index");
+  const e = snap?.biasTests?.entities?.[`${entity}:${key}`];
+  return {
+    selectionPremiumPP: e?.selectionPremiumPP ?? null,
+    heldReason: e?.heldReason ?? null,
+    anchorPct: e?.anchorPct ?? null,
+    anchorSince: e?.anchorSince ?? null,
+  };
+}
+
 async function readPriceSeries(entity: string, key: string): Promise<IndexPoint[]> {
-  const snap = await readSnapshot<PriceIndexSnapshot>("price-index");
+  const snap = await readSnapshot<PriceIndexBlob>("price-index");
+  // ⚠️ Every surface now says "monthly" and reads month over month. A blob written by
+  // an earlier method (weekly stamps, no cadence) must never be served under that
+  // copy: between this code deploying and the next index job, the reader treats it
+  // as not yet published rather than mislabelling a weekly series as monthly.
+  if (snap?.cadence !== "monthly") return [];
+  // AUTOMATIC HOLD: a builder-written heldReason withholds the series the same way
+  // the manual switch does — the reader is the one place both are enforced.
+  if (snap?.biasTests?.entities?.[`${entity}:${key}`]?.heldReason) return [];
   return snap?.series?.[`${entity}:${key}`] ?? [];
 }
 
@@ -199,7 +259,9 @@ export async function readIndexSeries(
     // HOLD (src/lib/indices/hold.ts): LIFTED now the index is rebuilt on repeat
     // sales — applyPriceIndexHold is the identity while `active: false`. The call
     // stays so the same one-line switch is available if it is ever needed again.
-    return rebaseWithBands(applyPriceIndexHold(await readPriceSeries(entity, key)), opts.from); // natively weekly
+    // Natively MONTHLY (month-end stamps). `freq` is ignored for price: there is
+    // nothing to resample down to, and resampling up would invent points.
+    return rebaseWithBands(applyPriceIndexHold(await readPriceSeries(entity, key)), opts.from);
   }
   const daily = rebaseSeries(await readMcapSeries(entity, key), opts.from);
   return opts.freq === "weekly" ? rebaseWithBands(resampleWeekly(daily), opts.from) : daily;
@@ -226,8 +288,21 @@ export async function indexStats(
   entity: "market" | "category" | "ip",
   key: string,
   opts: { from: string },
-): Promise<{ return30d: number; return90d: number; betaVsBtc: number; corrVsBtc: number }> {
+): Promise<{
+  return30d: number;
+  return90d: number;
+  /** Monthly-native windows (added, never renamed): last 1 / 3 complete months. */
+  return1m: number;
+  return3m: number;
+  betaVsBtc: number;
+  corrVsBtc: number;
+}> {
   const idx = await readIndexSeries(entity, key, { kind: "price", from: opts.from, freq: "weekly" });
+  const retMonths = (n: number): number => {
+    if (idx.length < n + 1) return 0;
+    const last = idx[idx.length - 1], prev = idx[idx.length - 1 - n];
+    return prev.value > 0 ? last.value / prev.value - 1 : 0;
+  };
   const ret = (days: number): number => {
     if (idx.length < 2) return 0;
     const last = idx[idx.length - 1];
@@ -253,5 +328,5 @@ export async function indexStats(
     }
   }
   const { beta, corr } = betaCorr(rIdx, rBtc);
-  return { return30d: ret(30), return90d: ret(90), betaVsBtc: beta, corrVsBtc: corr };
+  return { return30d: ret(30), return90d: ret(90), return1m: retMonths(1), return3m: retMonths(3), betaVsBtc: beta, corrVsBtc: corr };
 }

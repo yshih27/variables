@@ -103,7 +103,19 @@ export type WeeklyReport = {
   weekEnd: string;
   /** Constant-quality price index: ticker + name (naming SSOT), completed-week level
    *  (rebased, 100 = inception) + WoW. The market index is V-MKT. */
-  index: { ticker: string; name: string; level: number | null; wowPct: number | null; asOf: string | null };
+  index: {
+    ticker: string;
+    name: string;
+    level: number | null;
+    /** Kept for consumers; ALWAYS null on the monthly index — a week-over-week
+     *  number cannot be read from a monthly series. */
+    wowPct: number | null;
+    asOf: string | null;
+    /** Month over month between the last two complete months, set only when the
+     *  report week CONTAINS a month end; otherwise null and `note` says why. */
+    momPct: number | null;
+    note: string | null;
+  };
   mcap: { totalUsd: number | null; wowPct: number | null };
   /** Total tracked activity (marketplace + gacha) for the week vs the prior week. */
   volume: { weekUsd: number; prevWeekUsd: number; wowPct: number | null };
@@ -351,36 +363,47 @@ export async function buildWeeklyReport(nowMs: number = Date.now()): Promise<Wee
   const weekStartMs = weekEndMs - 7 * DAY;
   const weekStart = new Date(weekStartMs).toISOString();
 
-  // ── Index WoW. The price index is weekly, stamped at each week's END (Sunday).
-  //    `weekEndMs` here is the RUNNING week's Monday 00:00, so lastBefore() picks the
-  //    completed week's Sunday point (< that Monday) for p1 and the prior week's Sunday
-  //    for p0; the running week's (later) point is excluded by the strict `< weekEnd`. ──
+  // ── Index, MONTHLY. The price index is month-end stamped, so a week-over-week
+  //    number is never read from it. When the report week contains a month end,
+  //    the newest point is that month's close and the line reads month over
+  //    month; otherwise the level is the latest complete month and the line says
+  //    when the next point lands. ──
   const idx = await readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" });
-  const p1 = lastBefore(idx, weekEndMs);
-  const p0 = lastBefore(idx, weekStartMs);
-  // Guard against a stale price-index snapshot: a "current" point older than the
-  // report week would silently compare two old weeks.
-  const p1Fresh = p1 && Date.parse(p1.ts) >= weekStartMs;
+  const latest = lastBefore(idx, weekEndMs);
+  const monthEndInWeek = latest != null && Date.parse(latest.ts) >= weekStartMs;
+  const prevMonth = latest ? lastBefore(idx, Date.parse(latest.ts)) : null;
   const index = {
     ticker: tickerOf("market", "total"), // V-MKT
     name: indexDisplayName("market", "total"),
-    level: p1Fresh ? p1.value : null,
-    wowPct: p1Fresh && p0 && p0.value > 0 ? (p1.value / p0.value - 1) * 100 : null,
-    asOf: p1Fresh ? p1.ts : null,
+    level: latest ? latest.value : null,
+    wowPct: null,
+    asOf: latest ? latest.ts : null,
+    momPct: monthEndInWeek && prevMonth && prevMonth.value > 0 ? (latest.value / prevMonth.value - 1) * 100 : null,
+    note: monthEndInWeek ? null : `${tickerOf("market", "total")}: monthly index, next point at month end`,
   };
 
-  // ── Benchmarks WoW + spread vs the index, over the same week ──
+  // ── Benchmarks WoW (their own weekly line) + spread vs the index over the SAME
+  //    WINDOW AS THE INDEX MOVE. The index is monthly, so its spread is measured
+  //    against each benchmark's month-over-month close (prev month-end → this
+  //    month-end), never against the benchmark's weekly move — subtracting a
+  //    week from a month is the mismatched-window error this report exists to
+  //    avoid. No month end this week → no index move → no spread. ──
   const benchmarks: ReportBenchmark[] = [];
+  const mEndMs = monthEndInWeek && latest ? Date.parse(latest.ts) + 1 : null;
+  const mPrevMs = monthEndInWeek && prevMonth ? Date.parse(prevMonth.ts) + 1 : null;
   for (const symbol of ["BTC", "ETH", "SP500", "NASDAQ", "GOLD"] as const) {
     const closes = await readMetricSeries("benchmark", symbol, "close");
     const b1 = lastBefore(closes, weekEndMs);
     const b0 = lastBefore(closes, weekStartMs);
     const wowPct = b1 && b0 && b0.value > 0 ? (b1.value / b0.value - 1) * 100 : null;
-    benchmarks.push({
-      symbol,
-      wowPct,
-      spreadPct: index.wowPct != null && wowPct != null ? index.wowPct - wowPct : null,
-    });
+    let spreadPct: number | null = null;
+    if (index.momPct != null && mEndMs != null && mPrevMs != null) {
+      const m1 = lastBefore(closes, mEndMs);
+      const m0 = lastBefore(closes, mPrevMs);
+      const momBench = m1 && m0 && m0.value > 0 ? (m1.value / m0.value - 1) * 100 : null;
+      spreadPct = momBench != null ? index.momPct - momBench : null;
+    }
+    benchmarks.push({ symbol, wowPct, spreadPct });
   }
 
   // ── Market cap WoW (stock: last reading in each week) ──

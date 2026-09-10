@@ -25,6 +25,43 @@ export const INDEX_FAMILY = "The Varible Index";
 export const INDEX_FAMILY_SHORT = "the V";
 export const TICKER_PREFIX = "V-";
 
+/**
+ * DESCRIPTOR — what the family IS, in one phrase, everywhere it is described.
+ *
+ * Was "constant-quality price index". It is now a RESALE COMPARABLES index: the
+ * realised resale price of the same card identity (set, number, name, grade)
+ * priced in consecutive months. It follows what actually resells, so it runs
+ * warmer than the whole market — short-interval resales measure ~2 points a
+ * month above longer ones — and is published with that premium stated and a
+ * market-cap anchor beside it. Named for what it is; the tickers do not change.
+ */
+export const INDEX_DESCRIPTOR = "resale comparables index, monthly";
+export const INDEX_CADENCE = "monthly" as const;
+
+/**
+ * The DISCLOSURE RECEIPT — one mono line under the level, computed never typed.
+ *   "monthly · latest month ended Aug 31 · resale skew +2.0 pts/mo · cap anchor +42% since Feb"
+ * Every argument comes from the price-index blob; a missing input drops its clause
+ * rather than printing a placeholder, so the line can never claim a number the
+ * blob does not hold.
+ */
+export function indexReceipt(p: {
+  latestMonthEnd?: string | null; // "Aug 31"
+  skewPP?: number | null; // selection premium, pts/month
+  anchorPct?: number | null; // market-cap change over the same span
+  anchorSince?: string | null; // "Feb"
+}): string {
+  const parts: string[] = [INDEX_CADENCE];
+  if (p.latestMonthEnd) parts.push(`latest month ended ${p.latestMonthEnd}`);
+  if (p.skewPP != null && Number.isFinite(p.skewPP)) {
+    parts.push(`resale skew ${p.skewPP >= 0 ? "+" : ""}${p.skewPP.toFixed(1)} pts/mo`);
+  }
+  if (p.anchorPct != null && Number.isFinite(p.anchorPct)) {
+    parts.push(`cap anchor ${p.anchorPct >= 0 ? "+" : ""}${Math.round(p.anchorPct)}%${p.anchorSince ? ` since ${p.anchorSince}` : ""}`);
+  }
+  return parts.join(" · ");
+}
+
 // Market + category short codes live HERE — categories carry no `short` in the
 // catalog, and "market" is a singleton. `Record<IPCategory, …>` makes adding a
 // category to ipCatalog a compile error until its code + name are defined here.

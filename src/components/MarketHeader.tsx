@@ -41,6 +41,12 @@ export type MarketIndex = {
   value: number | null;
   /** e.g. "since May 14" — the honest index-inception note. */
   inceptionLabel: string | null;
+  /** From the naming SSOT — "resale comparables index, monthly". */
+  descriptor?: string;
+  /** The disclosure receipt, computed from the blob (indexReceipt). */
+  receipt?: string | null;
+  /** Tracked market cap rebased to the index's base — the "cap anchor" line. */
+  anchorSeries?: { ts: string; value: number }[];
   /** 24h / 7d / 30d change of the market index. */
   deltas: MarketDelta[];
   /** vs BTC / ETH / S&P / NASDAQ — hidden entirely until at least one is real. */
@@ -84,7 +90,7 @@ export function MarketHeader({
    * Without saying so the chart just stops a few days short of today and reads as
    * stale data. Derived from the newest point — never hardcoded, so it cannot rot.
    */
-  const latestWeekEnd = hasChart
+  const latestMonthEnd = hasChart
     ? formatMonthDayUtc(index.series![index.series!.length - 1].ts)
     : null;
   // Change / benchmark clusters hug the right as tight, content-width columns; on
@@ -93,8 +99,8 @@ export function MarketHeader({
   const mdCols = hasRel ? "md:grid-cols-[minmax(0,1fr)_auto_auto]" : "md:grid-cols-[minmax(0,1fr)_auto]";
   const lgCols = hasChart
     ? hasRel
-      ? "lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
-      : "lg:grid-cols-[auto_minmax(0,1fr)_auto]"
+      ? "lg:grid-cols-[auto_minmax(340px,1fr)_auto_auto]"
+      : "lg:grid-cols-[auto_minmax(340px,1fr)_auto]"
     : hasRel
       ? "lg:grid-cols-[minmax(0,1fr)_auto_auto]"
       : "lg:grid-cols-[minmax(0,1fr)_auto]";
@@ -158,14 +164,23 @@ export function MarketHeader({
         {/* Market-index chart — fills the middle band on wide screens only. */}
         {hasChart && (
           <div className="hidden min-w-0 lg:flex lg:flex-col lg:justify-center">
-            <MarketIndexChart points={index.series!} />
+            <MarketIndexChart points={index.series!} anchor={index.anchorSeries ?? []} />
             <ReadMe className="mt-2">
-              constant-quality index — same cards, same grades, week to week. moves are
-              price, not mix.
+              {index.descriptor ?? "resale comparables index"} — follows what resells, so it runs warmer
+              than the whole market
             </ReadMe>
-            {latestWeekEnd && (
-              <div className="mt-1 font-mono text-[10.5px] leading-snug text-ink-4">
-                weekly · latest week ended {latestWeekEnd}
+            {/* THE RECEIPT — one mono line, every clause from the blob, none typed.
+                The ⓘ opens the methodology anchor that explains the skew. */}
+            {(index.receipt || latestMonthEnd) && (
+              <div className="mt-1 flex items-center gap-1 font-mono text-[10.5px] leading-snug text-ink-4">
+                <span>{index.receipt ?? `monthly · latest month ended ${latestMonthEnd}`}</span>
+                <a
+                  href="/methodology#index-bias"
+                  aria-label="How to read the resale skew and the cap anchor"
+                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-line-2 text-[8.5px] leading-none text-ink-4 hover:border-ink-3 hover:text-ink-2"
+                >
+                  i
+                </a>
               </div>
             )}
           </div>
@@ -192,7 +207,7 @@ export function MarketHeader({
                 </span>
               )}
             </div>
-            <ReadMe className="mt-1.5">
+            <ReadMe className="mt-1.5 max-w-[26ch]">
               V-MKT return minus benchmark · green = cards outperformed
             </ReadMe>
             <div className="mt-3 flex flex-col gap-2.5">

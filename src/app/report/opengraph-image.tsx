@@ -17,10 +17,10 @@ export default async function Image() {
     return renderOgCard({ eyebrow: "The market, weekly", title: "Weekly Report" });
   }
 
-  const wow = report.index.wowPct;
+  const wow = report.index.momPct;
   return renderOgCard({
     eyebrow: "Weekly Report",
     title: "The market, this week",
-    stat: wow != null ? { value: formatPct(wow), label: `${tickerOf("market", "total")} · week over week` } : undefined,
+    stat: wow != null ? { value: formatPct(wow), label: `${tickerOf("market", "total")} · month over month` } : undefined,
   });
 }
