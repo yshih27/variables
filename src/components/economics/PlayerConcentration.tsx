@@ -1,6 +1,7 @@
 import type { EconomicsPlatform } from "@/lib/types";
 import { Section } from "../Section";
 import { MetricInfo } from "../MetricInfo";
+import { ChartActions } from "../ChartActions";
 
 /**
  * Who the spend comes from — top-1% share and the spend tiers.
@@ -13,14 +14,57 @@ import { MetricInfo } from "../MetricInfo";
  * backend. Never ×100 — the opposite hazard to mcapPct24h, and the reason both
  * are stated here rather than left to the reader of the call site.
  */
-export function PlayerConcentration({ platforms }: { platforms: EconomicsPlatform[] }) {
+export function PlayerConcentration({
+  platforms,
+  chartId,
+  actions = true,
+  asOf = null,
+}: {
+  platforms: EconomicsPlatform[];
+  /** The board's as-of (YYYY-MM-DD), so the CSV never prints "as of: —". */
+  asOf?: string | null;
+  /** `/embed/[chart]` id. Omitted inside the embed itself. */
+  chartId?: string;
+  /** false inside `/embed/[chart]` — an embed offers no exports of its own. */
+  actions?: boolean;
+}) {
   const covered = platforms.filter((p) => p.players != null);
+
+  /**
+   * ⚠️ ROWS, NOT A SERIES, AND NO PNG. The tiers are a distribution at one moment
+   * — a label, a share of users and a share of revenue — with no time axis to
+   * pivot on, so `csvFromSeries` would have to invent one. And the bars are HTML,
+   * not an <svg>, so there is nothing to rasterize: ChartActions drops the PNG
+   * button rather than offering one that produces a blank.
+   */
+  const rows = {
+    columns: ["platform", "tier", "pct_users", "pct_revenue", "top_1pct_share"],
+    rows: covered.flatMap((p) =>
+      p.players!.tiers.map((t) => [p.name, t.label, t.pctUsers, t.pctRevenue, p.players!.top1PctSharePct]),
+    ),
+  };
 
   return (
     <Section
       title="Who is spending"
       readMe="how concentrated each platform's pull spend is"
       subtitle="Share of all-time spend held by the top 1% of wallets"
+      right={
+        actions && rows.rows.length > 0 ? (
+          <ChartActions
+            meta={{
+              title: "Who is spending",
+              readMe: "how concentrated each platform's pull spend is",
+              unit: "%",
+              window: "all-time",
+              asOf,
+              slug: "economics-player-concentration",
+            }}
+            rows={rows}
+            chartId={chartId}
+          />
+        ) : undefined
+      }
       fill
     >
       {covered.length === 0 ? (

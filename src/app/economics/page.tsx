@@ -1,6 +1,6 @@
 import { NavBar } from "@/components/NavBar";
 import { StatCard, StatCardRow } from "@/components/StatCard";
-import { StackedAreaChart, type AreaSeries } from "@/components/StackedAreaChart";
+import { StackedAreaChart } from "@/components/StackedAreaChart";
 import { EconomicsLeaderboard } from "@/components/economics/EconomicsLeaderboard";
 import { CoverageMatrix } from "@/components/economics/CoverageMatrix";
 import { RatioTrend } from "@/components/economics/RatioTrend";
@@ -15,7 +15,7 @@ import {
 } from "@/lib/data/economicsCoverage";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { formatCompactUsd } from "@/lib/format";
-import type { SeriesPoint } from "@/lib/data/metricSnapshots";
+import { economicsHeroModel } from "@/lib/data/economicsHero";
 
 // ISR: every input is an unstable_cache-backed snapshot read, so per-request
 // rendering would be pure waste. Same 30 min as every other overview page.
@@ -26,37 +26,6 @@ export const metadata = {
   description:
     "What a gacha platform keeps: pack-pull spend, R3-counted outbound, the payout-to-spend ratio and player concentration across every tracked venue.",
 };
-
-const BAND_COLORS = [
-  "var(--color-yellow)",
-  "var(--color-blue)",
-  "var(--color-purple)",
-  "var(--color-teal)",
-  "var(--color-solana)",
-];
-
-/** Σ two same-day series into a market ratio series, day by day.
- *  ⚠️ Re-derived from the two LEGS, never averaged from per-platform ratios — a
- *  mean of ratios weights a $200 platform like a $2M one. */
-function marketRatioDaily(
-  spend: SeriesPoint[][],
-  outbound: SeriesPoint[][],
-): SeriesPoint[] {
-  const sum = (rows: SeriesPoint[][]) => {
-    const m = new Map<string, number>();
-    for (const r of rows) for (const p of r) if (Number.isFinite(p.value)) m.set(p.ts, (m.get(p.ts) ?? 0) + p.value);
-    return m;
-  };
-  const s = sum(spend);
-  const o = sum(outbound);
-  return [...o.entries()]
-    .flatMap(([ts, ov]) => {
-      const sv = s.get(ts);
-      // Both legs or no point: a day only one side covered is a gap, not 0%.
-      return sv != null && sv > 0 ? [{ ts, value: (ov / sv) * 100 }] : [];
-    })
-    .sort((a, b) => a.ts.localeCompare(b.ts));
-}
 
 export default async function EconomicsPage() {
   const [board, ticker] = await Promise.all([buildEconomicsBoard(), buildMarketTicker()]);
@@ -80,18 +49,9 @@ export default async function EconomicsPage() {
       : null;
 
   // ── Hero bands: spend per platform, plus the market ratio as an overlay ────
-  const bands: AreaSeries[] = board.platforms
-    .filter((p) => p.spendDaily.length > 0)
-    .map((p, i) => ({
-      key: p.key,
-      label: p.name,
-      color: BAND_COLORS[i % BAND_COLORS.length],
-      points: p.spendDaily,
-    }));
-  const ratioOverlay = marketRatioDaily(
-    board.platforms.map((p) => p.spendDaily),
-    board.platforms.map((p) => p.outboundDaily),
-  );
+  // One model for the page and /embed/economics-spend (economicsHero.ts), so the
+  // embed draws the overlay its readMe promises.
+  const { bands, overlay: ratioOverlay } = economicsHeroModel(board.platforms);
 
   const asOf = board.asOf ? board.asOf.slice(0, 10) : null;
   const held = board.heldReasons;
@@ -181,11 +141,8 @@ export default async function EconomicsPage() {
               series={bands}
               unit="usd"
               grainSurface="chart:economics-hero"
-              overlay={
-                ratioOverlay.length >= 2
-                  ? { label: "payout ÷ spend", color: "var(--color-red)", points: ratioOverlay }
-                  : undefined
-              }
+              chartId="economics-spend"
+              overlay={ratioOverlay}
             />
           )}
 
@@ -193,8 +150,12 @@ export default async function EconomicsPage() {
               "Is the payout leg outrunning spend" and "how few people is the
               spend coming from" are two questions, so they may share a row. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <RatioTrend platforms={board.platforms} scope={legCountChip(coverage, "outbound")} />
-            <PlayerConcentration platforms={board.platforms} />
+            <RatioTrend
+              platforms={board.platforms}
+              scope={legCountChip(coverage, "outbound")}
+              chartId="economics-ratio"
+            />
+            <PlayerConcentration platforms={board.platforms} chartId="economics-players" asOf={asOf} />
           </div>
 
           {/* ── ZONE 4 — the leaderboard ────────────────────────────────────── */}

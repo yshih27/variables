@@ -164,7 +164,11 @@ export function MarketHeader({
         {/* Market-index chart — fills the middle band on wide screens only. */}
         {hasChart && (
           <div className="hidden min-w-0 lg:flex lg:flex-col lg:justify-center">
-            <MarketIndexChart points={index.series!} anchor={index.anchorSeries ?? []} />
+            <MarketIndexChart
+              points={index.series!}
+              anchor={index.anchorSeries ?? []}
+              receipt={index.receipt ?? null}
+            />
             <ReadMe className="mt-2">
               {index.descriptor ?? "resale comparables index"} — follows what resells, so it runs warmer
               than the whole market

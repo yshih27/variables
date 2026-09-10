@@ -134,6 +134,7 @@ export function MetricBarCard({
   note,
   fill,
   embedId,
+  actions = true,
 }: {
   label: string;
   /** The FULL daily series, oldest → newest. The card slices it itself, because
@@ -165,6 +166,15 @@ export function MetricBarCard({
    *  (terminal-ux-study §7): without it the rail's frames end above the canvas
    *  and the pair reads as two unrelated blocks. */
   fill?: boolean;
+  /**
+   * false inside `/embed/[chart]`.
+   *
+   * ⚠️ AN EMBED OFFERS NO EXPORTS. It renders inside someone else's page, where a
+   * CSV button is chrome for a site the reader is not on — the route's own
+   * contract says "no shell, no nav, no actions", and the band was the one part
+   * still ignoring it.
+   */
+  actions?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [period, setPeriod] = useWindowPref<Period>(surface ?? null, PERIODS, "D");
@@ -257,17 +267,19 @@ export function MetricBarCard({
               non-uniform SVG, so a PNG of it would rasterise to ellipses and a
               wrong aspect. An export that lies about the picture is worse than no
               export — the CSV carries the same numbers, honestly. */}
-          <ChartActions
-            meta={{
-              title: typeof label === "string" ? label : "Metric",
-              metricKey: metric,
-              unit: unit === "usd" ? "USD" : "count",
-              window: `${windowCount}${grain.short}, complete ${grain.many}`,
-              asOf: hasData ? series[series.length - 1].ts.slice(0, 10) : null,
-            }}
-            series={[{ key: "v", label: typeof label === "string" ? label : "value", points: series }]}
-            chartId={embedId}
-          />
+          {actions && (
+            <ChartActions
+              meta={{
+                title: typeof label === "string" ? label : "Metric",
+                metricKey: metric,
+                unit: unit === "usd" ? "USD" : "count",
+                window: `${windowCount}${grain.short}, complete ${grain.many}`,
+                asOf: hasData ? series[series.length - 1].ts.slice(0, 10) : null,
+              }}
+              series={[{ key: "v", label: typeof label === "string" ? label : "value", points: series }]}
+              chartId={embedId}
+            />
+          )}
           <PeriodToggle value={period} onChange={setPeriod} />
         </span>
       </div>

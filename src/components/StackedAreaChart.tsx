@@ -95,6 +95,7 @@ export function StackedAreaChart({
   unit = "usd",
   className,
   chartId,
+  actions = true,
   grainSurface,
   overlay,
 }: {
@@ -110,6 +111,15 @@ export function StackedAreaChart({
   className?: string;
   /** `/embed/[chart]` id. Omit and the card offers no embed. */
   chartId?: string;
+  /**
+   * false inside `/embed/[chart]`.
+   *
+   * ⚠️ AN EMBED OFFERS NO EXPORTS. It renders inside someone else's page, where a
+   * CSV button is chrome for a site the reader is not on — the route's own
+   * contract says "no shell, no nav, no actions", and the band was the one part
+   * still ignoring it.
+   */
+  actions?: boolean;
   /**
    * localStorage surface for a D | W | M grain control (P1-B). Omit and no
    * control renders and the series are untouched — which is what every existing
@@ -351,21 +361,34 @@ export function StackedAreaChart({
 
         {/* Export lives in the same band as the mode switch — same control height,
             so a card that gains it keeps its frame (and its §7 pairing). */}
-        <ChartActions
-          meta={{
-            title,
-            readMe: readMe ? `${readMe} — ${MODE_CLAUSE[mode]}` : MODE_CLAUSE[mode],
-            metricKey: metric,
-            unit: unit === "usd" ? "USD" : "count",
-            window: subtitle,
-            asOf: days.length ? new Date(days[days.length - 1]).toISOString().slice(0, 10) : null,
-          }}
-          series={series.map((b) => ({ key: b.key, label: b.label, color: b.color, points: b.points }))}
-          svgRef={svgRef}
-          plotHeight={PLOT_H}
-          legend={ordered.map((o) => ({ color: o.color, text: o.label }))}
-          chartId={chartId}
-        />
+        {actions && (
+          <ChartActions
+            meta={{
+              title,
+              readMe: readMe ? `${readMe} — ${MODE_CLAUSE[mode]}` : MODE_CLAUSE[mode],
+              metricKey: metric,
+              unit: unit === "usd" ? "USD" : "count",
+              window: subtitle,
+              asOf: days.length ? new Date(days[days.length - 1]).toISOString().slice(0, 10) : null,
+            }}
+            // ⚠️ THE OVERLAY IS PART OF THE EXPORT. Its line folds into the PNG
+            // (data-export-layer) and its ratio is one more CSV column; the legend
+            // names it too, or the picture carries a dashed line nothing explains.
+            series={[
+              ...series.map((b) => ({ key: b.key, label: b.label, color: b.color, points: b.points })),
+              ...(overlay
+                ? [{ key: `overlay:${overlay.label}`, label: `${overlay.label} (%)`, color: overlay.color, points: overlay.points }]
+                : []),
+            ]}
+            svgRef={svgRef}
+            plotHeight={PLOT_H}
+            legend={[
+              ...ordered.map((o) => ({ color: o.color, text: o.label })),
+              ...(shapedOverlay ? [{ color: shapedOverlay.color, text: `${shapedOverlay.label} · dashed` }] : []),
+            ]}
+            chartId={chartId}
+          />
+        )}
         <div className="flex gap-1 rounded-lg border border-line bg-bg-2 p-0.5">
           {MODES.map((m) => (
             <button
@@ -482,6 +505,7 @@ export function StackedAreaChart({
               preserveAspectRatio="none"
               className="pointer-events-none absolute inset-0 h-full w-full"
               aria-hidden
+              data-export-layer=""
             >
               <path
                 d={overlayPath}

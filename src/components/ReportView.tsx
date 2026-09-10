@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CardThumb } from "./CardThumb";
 import { StatCard, StatCardRow } from "./StatCard";
 import { Section } from "./Section";
+import { ChartActions } from "./ChartActions";
 import { formatCompactUsd, formatPct } from "@/lib/format";
 import { cardHref } from "@/lib/card/ids";
 import { tickerOf, INDEX_FAMILY_SHORT } from "@/lib/indices/naming";
@@ -116,7 +117,13 @@ export function ReportView({ report }: { report: WeeklyReport }) {
       {anyMovers && (
         <div className="grid gap-6 md:grid-cols-2">
           {BOARDS.map((b) => (
-            <MoverBoardCard key={b.key} title={b.title} board={report.movers[b.key]} hrefOf={b.hrefOf} />
+            <MoverBoardCard
+              key={b.key}
+              title={b.title}
+              board={report.movers[b.key]}
+              hrefOf={b.hrefOf}
+              weekEnd={report.weekEnd}
+            />
           ))}
         </div>
       )}
@@ -127,6 +134,29 @@ export function ReportView({ report }: { report: WeeklyReport }) {
           title="Biggest sales"
           readMe="the week's largest single trades — where conviction showed up"
           subtitle="Largest single sales this week"
+          right={
+            <ChartActions
+              meta={{
+                title: "Biggest sales",
+                readMe: "the week's largest single trades — where conviction showed up",
+                unit: "USD",
+                window: "week over week",
+                asOf: report.weekEnd,
+                slug: "report-biggest-sales",
+              }}
+              rows={{
+                columns: ["name", "ip", "platform", "token_id", "price_usd", "date"],
+                rows: report.biggestSales.map((s) => [
+                  s.name,
+                  s.ipName,
+                  s.platformName,
+                  s.tokenId,
+                  s.priceUsd,
+                  s.date,
+                ]),
+              }}
+            />
+          }
           flush
         >
           <ul className="divide-y divide-line/60">
@@ -165,14 +195,55 @@ export function ReportView({ report }: { report: WeeklyReport }) {
 }
 
 
-function MoverBoardCard({ title, board, hrefOf }: { title: string; board: MoverBoard; hrefOf: (k: string) => string }) {
+function MoverBoardCard({
+  title,
+  board,
+  hrefOf,
+  weekEnd,
+}: {
+  title: string;
+  board: MoverBoard;
+  hrefOf: (k: string) => string;
+  weekEnd: string;
+}) {
   if (board.gainers.length === 0 && board.losers.length === 0) return null;
+  /**
+   * ⚠️ CSV ONLY — no PNG, no embed. These boards are RANKED ROWS, and rasterizing
+   * a ranking produces an image nobody can sort or paste into a model, which is
+   * the whole reason someone wants a mover list. `direction` is a column rather
+   * than two files, so a reader can re-rank the whole board in one sort.
+   */
+  const rows = {
+    columns: ["direction", "name", "key", "current_usd", "prior_usd", "pct"],
+    rows: [
+      ...board.gainers.map((m) => ["gainer", m.name, m.key, m.currentUsd, m.previousUsd, m.pct]),
+      ...board.losers.map((m) => ["loser", m.name, m.key, m.currentUsd, m.previousUsd, m.pct]),
+    ],
+  };
   return (
     // §7: the two boards sit side by side and can hold different row counts, so
     // the shorter one fills its frame rather than ending above its neighbour. The
     // rows take the slack (`flex-1` each) instead of a blank band under the last
     // one — the same treatment the partner board uses.
-    <Section title={title} readMe="biggest week-over-week movers — gainers first, then losers" flush fill>
+    <Section
+      title={title}
+      readMe="biggest week-over-week movers — gainers first, then losers"
+      right={
+        <ChartActions
+          meta={{
+            title: `${title} — weekly movers`,
+            readMe: "biggest week-over-week movers — gainers first, then losers",
+            unit: "USD and %",
+            window: "week over week",
+            asOf: weekEnd,
+            slug: `report-movers-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`,
+          }}
+          rows={rows}
+        />
+      }
+      flush
+      fill
+    >
       <div className="flex min-h-0 flex-1 flex-col [&>*]:flex-1">
         {board.gainers.map((m) => (
           <MoverRow key={`g:${m.key}`} m={m} href={hrefOf(m.key)} arrow="▲" />

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import {
+  csvFromRows,
   csvFromSeries,
   downloadCsv,
   downloadPng,
@@ -9,6 +10,7 @@ import {
   pngFromSvg,
   shareHref,
   type ExportMeta,
+  type ExportRows,
   type ExportSeries,
   type PngLegendItem,
 } from "@/lib/chart/export";
@@ -32,6 +34,7 @@ import {
 export function ChartActions({
   meta,
   series,
+  rows,
   svgRef,
   plotHeight = 260,
   legend,
@@ -41,6 +44,12 @@ export function ChartActions({
   meta: ExportMeta;
   /** Omit to hide CSV — a chart with no tabular form should not offer one. */
   series?: ExportSeries[];
+  /**
+   * A TABLE's CSV, for a surface whose data is rows rather than a time series
+   * (the report's movers and biggest-sales boards). Mutually exclusive with
+   * `series` in practice; `series` wins if both are passed.
+   */
+  rows?: ExportRows;
   /** The chart's live <svg>. Omit to hide PNG. */
   svgRef?: RefObject<SVGSVGElement | null>;
   plotHeight?: number;
@@ -61,8 +70,9 @@ export function ChartActions({
   useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
 
   const onCsv = () => {
-    if (!series?.length) return;
-    downloadCsv(csvFromSeries(series, meta), meta);
+    if (series?.length) downloadCsv(csvFromSeries(series, meta), meta);
+    else if (rows?.rows.length) downloadCsv(csvFromRows(rows, meta), meta);
+    else return;
     say("CSV downloaded");
   };
 
@@ -85,7 +95,7 @@ export function ChartActions({
 
   return (
     <div className={`relative flex items-center gap-1 ${className}`}>
-      {series?.length ? <Btn onClick={onCsv} label="CSV" title="Download CSV" /> : null}
+      {series?.length || rows?.rows.length ? <Btn onClick={onCsv} label="CSV" title="Download CSV" /> : null}
       {svgRef ? <Btn onClick={() => void onPng()} label="PNG" title="Download PNG (carries the note and as-of)" /> : null}
       <Btn onClick={onShare} label="Share" title="Copy a link to this exact view" />
       {chartId ? <Btn onClick={() => setEmbedOpen(true)} label="Embed" title="Embed this chart" /> : null}
