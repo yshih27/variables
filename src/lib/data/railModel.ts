@@ -5,6 +5,8 @@ import { tickerOf } from "@/lib/indices/naming";
 import { railCodeOf } from "./railCode";
 import { categoryOf, type IPCategory } from "./ipCatalog";
 import { fetchHomepage } from "./fetchHomepage";
+import { listGradeIndices, listSetIndices, type PublishedEntity } from "./gradeSetIndex";
+import { ipOfSetId } from "@/lib/indices/entityLabels";
 import {
   bulkDayOverDayPctComplete,
   readMetricSeriesBulk,
@@ -131,14 +133,52 @@ function platformNode(r: PlatformRow): RailNode {
   };
 }
 
+/**
+ * A published index entity as a rail node.
+ *
+ * ⚠️ THE DELTA IS MONTHLY AND SAYS SO. `deltaWindow: "1m"` exists for exactly
+ * this: the grade and set indices are month-end stamped, and letting a monthly
+ * move render under the rail's default "24h" label would be the same category of
+ * error as the one `deltaWindow` was added to prevent for platforms' 7d volume.
+ */
+function indexNode(e: PublishedEntity, href: string): RailNode {
+  return {
+    key: e.id,
+    name: e.name,
+    short: e.ticker.replace(/^V-/, ""),
+    railCode: undefined, // these never render as collapsed tiles
+    href,
+    spark: null, // the blob carries levels, not a rail-width sample
+    deltaPct: e.changePct1m,
+    deltaWindow: "1m",
+    deltaLabel: "index",
+  };
+}
+
 async function build(): Promise<RailModel> {
-  const [data, ipVolume] = await Promise.all([
+  const [data, ipVolume, gradeIdx, setIdx] = await Promise.all([
     fetchHomepage(),
     // The one extra read (see the module note). Total by its own contract — the
     // reader returns an empty map rather than throwing — so a spine hiccup costs
     // the deltas, not the rail.
     readMetricSeriesBulk("ip", "volume_usd").catch(() => new Map<string, SeriesPoint[]>()),
+    // Enumerated from the price-index blob, so the rail offers exactly what is
+    // published. Both are total by their own contract.
+    listGradeIndices().catch(() => [] as PublishedEntity[]),
+    listSetIndices().catch(() => [] as PublishedEntity[]),
   ]);
+
+  // Published sets, bucketed by the CATEGORY of the IP they belong to.
+  const setsByCategory = new Map<IPCategory, RailNode[]>();
+  for (const e of setIdx) {
+    const ip = ipOfSetId(e.id);
+    if (!ip || !e.href) continue;
+    const c = categoryOf(ip);
+    const list = setsByCategory.get(c);
+    const node = indexNode(e, e.href);
+    if (list) list.push(node);
+    else setsByCategory.set(c, [node]);
+  }
 
   // IPs by 24h volume desc — the payload's `ips` is mcap-ranked, so re-sort here
   // rather than inheriting an order the rail doesn't want.
@@ -171,6 +211,7 @@ async function build(): Promise<RailModel> {
       deltaPct: null,
       deltaWindow: "24h" as const,
       ips: rows.map((r) => ipNode(r, ipVolume.get(r.key))),
+      sets: setsByCategory.get(c) ?? [],
     };
   });
 
@@ -190,6 +231,9 @@ async function build(): Promise<RailModel> {
     },
     categories,
     platforms: data.platforms.map(platformNode),
+    // Market-wide: a grade index carries no IP, so it hangs off the model and
+    // every surface that offers it has to label the scope.
+    grades: gradeIdx.map((e) => indexNode(e, "/ip/pokemon/grades")),
     generatedAt: data.hero.updatedAt,
   };
 }
@@ -200,6 +244,7 @@ const EMPTY: RailModel = {
   market: { key: "market", name: "Market", href: "/", spark: null, deltaPct: null, deltaWindow: "24h" },
   categories: [],
   platforms: [],
+  grades: [],
   generatedAt: "",
 };
 

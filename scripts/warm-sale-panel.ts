@@ -20,6 +20,16 @@
  *                            heldReason="selection-premium" when the skew is past
  *                            the hard limit — readIndexSeries then withholds it.
  *
+ * ENTITY KINDS in `series`: `market:total`, `category:<c>`, `ip:<ip>`,
+ * `grade:<slug>` (every grade clearing the narrow floor) and `set:<ip>:<key>`
+ * (every set clearing it, keyed by the set-name SSOT). All five are the SAME
+ * estimator with the same floors, bias tests and automatic hold — a grade index
+ * is not a special case, it is the identity index over a grade's sales.
+ *
+ * `premium:<a>:<b>` series are NOT indices: they are within-identity RATIOS (see
+ * gradePremium.ts) and carry no biasTests entry, because a ratio of the same
+ * card to itself has no holding period to be invariant over.
+ *
  * The v2 token repeat-sales and weekly identity builders stay exported from their
  * modules for comparison only; nothing here calls them.
  */
@@ -32,6 +42,7 @@ import type { IndexPoint } from "../src/lib/data/indices";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
 import { writeSnapshot } from "../src/lib/db/snapshots";
 import { holdingPeriodInvariance, INDEX_HARD_SKEW_PP } from "../src/lib/data/biasTests";
+import { canonicalGrade, gradePremiumSeries, PREMIUM_PAIRS } from "../src/lib/data/gradePremium";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -54,6 +65,11 @@ type EntityMeta = {
  */
 async function capAnchor(entity: string, key: string, series: IndexPoint[]): Promise<{ pct: number | null; since: string | null }> {
   if (series.length < 2) return { pct: null, since: null };
+  // ⚠️ ONLY where the spine actually holds the matching cap. There is no
+  // per-GRADE market cap and no per-SET market cap, so anchoring those against
+  // the whole market's cap would print a number that is not their anchor — the
+  // receipt drops the clause instead (indexReceipt omits a null).
+  if (entity === "grade" || entity === "set") return { pct: null, since: null };
   const ips =
     entity === "ip" ? [key] : entity === "category" ? ipsInCategory(key as IPCategory) : ipsInCategory("tcg").concat(ipsInCategory("sports"));
   const perDay = new Map<string, number>();
@@ -102,6 +118,45 @@ async function main() {
     const idx = identityIndex(pooled, { minIdentities: MIN_IDENTITIES_BROAD, grain: "month" });
     if (idx.length) { series[`category:${cat}`] = idx; salesOf[`category:${cat}`] = pooled; }
   }
+  // ── Grades. One entity per canonical grade label; the narrow floor, because a
+  //    grade is a slice of the market, not the market. "PSA 10.0" folds into
+  //    "PSA 10" and BECKETT into BGS via the grade SSOT before grouping, or the
+  //    same grade would publish twice at two different levels.
+  const byGrade = new Map<string, SaleRow[]>();
+  for (const r of panel) {
+    if (r.ip === "other") continue;
+    const g = canonicalGrade(r.grade);
+    const a = byGrade.get(g);
+    if (a) a.push(r);
+    else byGrade.set(g, [r]);
+  }
+  const gradeSlug = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  for (const [label, sales] of byGrade) {
+    const idx = identityIndex(sales, { minIdentities: MIN_IDENTITIES_IP, grain: "month" });
+    if (!idx.length) { gated.push(`grade:${label}(${sales.length})`); continue; }
+    const id = `grade:${gradeSlug(label)}`;
+    series[id] = idx;
+    salesOf[id] = sales;
+  }
+
+  // ── Sets. Keyed by the set-name SSOT, scoped by IP so two IPs cannot share a
+  //    key. A set that does not clear the floor publishes nothing — the set page
+  //    still has volume and sales, and says the index is absent.
+  const bySet = new Map<string, SaleRow[]>();
+  for (const r of panel) {
+    if (r.ip === "other" || !r.setKey) continue;
+    const id = `set:${r.ip}:${r.setKey}`;
+    const a = bySet.get(id);
+    if (a) a.push(r);
+    else bySet.set(id, [r]);
+  }
+  for (const [id, sales] of bySet) {
+    const idx = identityIndex(sales, { minIdentities: MIN_IDENTITIES_IP, grain: "month" });
+    if (!idx.length) continue; // thin sets are the rule here, not worth listing
+    series[id] = idx;
+    salesOf[id] = sales;
+  }
+
   const mktSales = panel.filter((r) => r.ip !== "other");
   const market = identityIndex(mktSales, { minIdentities: MIN_IDENTITIES_BROAD, grain: "month" });
   if (market.length) { series["market:total"] = market; salesOf["market:total"] = mktSales; }
@@ -113,6 +168,7 @@ async function main() {
   const entities: Record<string, EntityMeta> = {};
   for (const id of Object.keys(series)) {
     const [entity, key] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];
+    if (entity === "premium") continue; // a ratio has no selection premium of its own
     const inv = holdingPeriodInvariance(salesOf[id], { grain: "month" });
     const skew = Number.isFinite(inv.spreadPP) ? inv.spreadPP : null;
     const anchor = await capAnchor(entity, key, series[id]);
@@ -130,6 +186,21 @@ async function main() {
   for (const [id, m] of Object.entries(entities)) {
     console.log(`  ${id.padEnd(20)} skew ${m.selectionPremiumPP == null ? "—" : m.selectionPremiumPP.toFixed(2) + "pp"} · cap anchor ${m.anchorPct == null ? "—" : (m.anchorPct >= 0 ? "+" : "") + m.anchorPct.toFixed(1) + "%"} since ${m.anchorSince ?? "—"}${m.heldReason ? " · HELD " + m.heldReason : ""}`);
   }
+
+  // ── Grade premiums. Ratios, not indices: no biasTests entry, no hold — a
+  //    within-identity ratio has no holding period to be invariant over. Built
+  //    over the whole panel so a pair is not starved by one IP's thinness.
+  const premiums: Record<string, IndexPoint[]> = {};
+  for (const pair of PREMIUM_PAIRS) {
+    const s1 = gradePremiumSeries(mktSales, pair.better, pair.worse, { minSales: 1 });
+    if (s1.length) premiums[pair.id] = s1;
+    const latest = s1[s1.length - 1];
+    console.log(
+      `  ${pair.id.padEnd(26)} ${String(s1.length).padStart(2)} months` +
+        (latest ? ` · latest ${latest.ts.slice(0, 7)} ${latest.value.toFixed(2)}x on ${latest.n} matched identities` : " · none clear the floor"),
+    );
+  }
+  for (const [id, pts] of Object.entries(premiums)) series[id] = pts;
 
   const now = new Date().toISOString();
   const blob = { generatedAt: now, cadence: "monthly" as const, series, biasTests: { invariance, entities } };

@@ -42,9 +42,15 @@ type Row = {
   card_number: string | null;
   grader: string | null;
   grade_num: number | null;
+  token_id: string;
+  chain: string | null;
+  source: string | null;
 };
 
-type Update = { id: string; year?: number; card_number?: string; grader?: string; grade_num?: number };
+// The NOT NULL columns are echoed back unchanged: PostgREST's upsert is INSERT … ON
+// CONFLICT DO UPDATE, and Postgres validates the INSERT row before the conflict
+// resolves, so a payload without `platform` fails even though the row exists.
+type Update = { id: string; platform: string; token_id: string; chain: string | null; source: string | null; name: string | null; year?: number; card_number?: string; grader?: string; grade_num?: number };
 
 /** Write one chunk, halving on timeout. Returns rows written. */
 async function writeChunk(rows: Update[]): Promise<number> {
@@ -86,7 +92,7 @@ async function main() {
   for (;;) {
     let q = db()
       .from("cards")
-      .select("id,platform,name,card_name,set_name,grade_label,year,card_number,grader,grade_num")
+      .select("id,platform,token_id,chain,source,name,card_name,set_name,grade_label,year,card_number,grader,grade_num")
       .order("id", { ascending: true })
       .limit(READ_PAGE);
     if (lastId !== null) q = q.gt("id", lastId);
@@ -108,7 +114,7 @@ async function main() {
         cardNumber: r.card_number,
       });
       const g = parseGradeLabel(r.grade_label);
-      const u: Update = { id: r.id };
+      const u: Update = { id: r.id, platform: r.platform, token_id: r.token_id, chain: r.chain ?? null, source: r.source ?? null, name: r.name ?? null };
       let any = false;
       // Never overwrite a value that is already there — this fills gaps only.
       if (r.year == null && parts.year != null) { u.year = parts.year; s.year++; any = true; }

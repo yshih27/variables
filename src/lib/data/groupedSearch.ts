@@ -18,6 +18,7 @@ import { fetchHomepage } from "./fetchHomepage";
 import { buildSearch, cardHitToResult, type SearchResult } from "./searchIndex";
 import { searchCardsByName } from "./cards";
 import { readStudioSeed } from "@/lib/studio/seed";
+import { listGradeIndices, listSetIndices } from "./gradeSetIndex";
 import type { GroupedSearchResponse, SearchGroup } from "@/lib/types";
 
 /** Below this a query matches almost everything and ranks nothing. */
@@ -64,6 +65,54 @@ async function metricGroup(q: string): Promise<SearchGroup | null> {
   return hits.length ? { kind: "metric", label: "Metrics", items: hits } : null;
 }
 
+/**
+ * Published grades and sets, from the price-index blob's own keys.
+ *
+ * ⚠️ ENUMERATED, NOT TYPED. The palette offers exactly the `grade:` / `set:`
+ * entities the blob holds, so "PSA 10" and "Pokémon 151" become findable the
+ * moment they clear the identity floor and stop being offered the moment an
+ * entity is auto-held. A hand-kept list here would be a second source of truth
+ * for what exists, and it would be wrong in the window before someone edited it.
+ *
+ * A grade has no page of its own — the grade surface is per-IP — so a grade hit
+ * points at the grades page of the IP it is most likely being asked about. That
+ * is a judgement, so the sub-label says which IP the link goes to rather than
+ * letting the row imply the index is that IP's.
+ */
+async function gradeSetGroups(q: string): Promise<SearchGroup[]> {
+  const [grades, sets] = await Promise.all([
+    listGradeIndices().catch(() => []),
+    listSetIndices().catch(() => []),
+  ]);
+  const out: SearchGroup[] = [];
+
+  const gradeHits = grades
+    .map((e) => ({
+      label: e.name,
+      sub: `${e.ticker} · market-wide grade index`,
+      href: "/ip/pokemon/grades",
+      score: Math.max(scoreMatch(e.name, q), scoreMatch(e.ticker, q) * 0.9),
+    }))
+    .filter((h) => h.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, PER_GROUP);
+  if (gradeHits.length) out.push({ kind: "grade", label: "Grades", items: gradeHits });
+
+  const setHits = sets
+    .map((e) => ({
+      label: e.name,
+      sub: `${e.ticker} · set index`,
+      href: e.href ?? "/ips",
+      score: Math.max(scoreMatch(e.name, q), scoreMatch(e.ticker, q) * 0.9),
+    }))
+    .filter((h) => h.score > 0 && h.href !== "/ips")
+    .sort((a, b) => b.score - a.score)
+    .slice(0, PER_GROUP);
+  if (setHits.length) out.push({ kind: "set", label: "Sets", items: setHits });
+
+  return out;
+}
+
 const toItems = (rs: SearchResult[]) =>
   rs.slice(0, PER_GROUP).map((r) => ({ label: r.label, sub: r.sub, href: r.href, score: r.score }));
 
@@ -73,10 +122,11 @@ export async function buildGroupedSearch(rawQuery: string): Promise<GroupedSearc
 
   // Every leg degrades to empty on its own. A palette that 500s because one index
   // hiccuped is worse than one that returns three groups instead of four.
-  const [home, cardHits, metrics] = await Promise.all([
+  const [home, cardHits, metrics, gradeSet] = await Promise.all([
     fetchHomepage().catch(() => null),
     searchCardsByName(query, PER_GROUP).catch(() => []),
     metricGroup(query).catch(() => null),
+    gradeSetGroups(query).catch(() => [] as SearchGroup[]),
   ]);
   const base = home ? buildSearch(home, query) : null;
 
@@ -95,6 +145,9 @@ export async function buildGroupedSearch(rawQuery: string): Promise<GroupedSearc
   };
   push("ip", "IPs", base?.ips ?? []);
   push("platform", "Platforms", base?.platforms ?? []);
+  // Grades and sets rank above cards: someone typing "151" or "PSA 10" is far
+  // more likely to want the set or the grade than one card that mentions it.
+  for (const g of gradeSet) groups.push(g);
   push("card", "Cards", cards);
   if (metrics) groups.push(metrics);
 
