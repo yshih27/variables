@@ -123,7 +123,11 @@ export function RailNav({ model }: Props) {
   /** Flyouts are REAL DOM with links in it, so they are gated on the pref rather
    *  than hidden by CSS — `display:none` would leave those links tabbable at 240px. */
   const collapsed = pref === "icons";
-  const flyoutProps = (node: RailNode, ips?: RailNode[]) =>
+  const flyoutProps = (
+    node: RailNode,
+    ips?: RailNode[],
+    groups?: { label: string; items: RailNode[] }[],
+  ) =>
     collapsed
       ? {
           onMouseEnter: (e: React.MouseEvent<HTMLElement>) => flyout.open(node.key, e.currentTarget),
@@ -135,6 +139,7 @@ export function RailNav({ model }: Props) {
               <RailFlyout
                 node={node}
                 ips={ips}
+                groups={groups}
                 anchor={flyout.anchor}
                 onClose={() => flyout.close(node.key)}
               />
@@ -192,7 +197,13 @@ export function RailNav({ model }: Props) {
                 collapsed={collapsed}
                 onToggle={() => toggle(c.key)}
                 onSetOpen={(v) => setOpen(c.key, v)}
-                {...flyoutProps(c, c.ips)}
+                {...flyoutProps(c, c.ips, [
+                  { label: "Sets", items: c.sets },
+                  // ⚠️ LABELLED "market-wide" because a `grade:` entity carries no
+                  // IP. Under a category heading, an unqualified "Grades" list
+                  // would read as this category's own grade indices.
+                  { label: "Grades · market-wide", items: model.grades },
+                ])}
               />
               {open &&
                 !collapsed &&

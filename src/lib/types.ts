@@ -192,15 +192,23 @@ export type RailNode = {
   href: string;
   spark: number[] | null;
   deltaPct: number | null;
-  deltaWindow: "24h" | "7d";
+  deltaWindow: "24h" | "7d" | "1m";
   /** What the delta measures, for the node's tooltip ("market cap", "volume"). */
   deltaLabel?: string;
 };
 
 export type RailModel = {
   market: RailNode;
-  categories: (RailNode & { ips: RailNode[] })[];
+  /** `sets` are the published set indices whose IP sits in this category —
+   *  enumerated from the price-index blob, never a typed list. */
+  categories: (RailNode & { ips: RailNode[]; sets: RailNode[] })[];
   platforms: RailNode[];
+  /**
+   * Published grade indices. MARKET-WIDE by construction (`grade:<label>` carries
+   * no IP), so they hang off the model rather than off a category, and every
+   * surface that offers them has to say so.
+   */
+  grades: RailNode[];
   generatedAt: string;
 };
 
@@ -235,7 +243,7 @@ export type TapeItem = {
 
 
 /** Which index a grouped search hit came out of. */
-export type SearchGroupKind = "ip" | "platform" | "card" | "metric" | "page";
+export type SearchGroupKind = "ip" | "platform" | "card" | "metric" | "page" | "grade" | "set";
 
 export type SearchGroup = {
   kind: SearchGroupKind;
