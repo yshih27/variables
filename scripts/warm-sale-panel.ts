@@ -202,8 +202,26 @@ async function main() {
   }
   for (const [id, pts] of Object.entries(premiums)) series[id] = pts;
 
+  // INV-13 input: the raw per-identity observations behind every published step,
+  // lifted OUT of the points (the published `series` shape is unchanged) into a
+  // side block keyed entity → point ts → [logReturn, weight][]. check-invariants
+  // re-derives the estimator from these and proves no step equals one identity's
+  // return except in the degenerate cases it logs.
+  const stepObs: Record<string, Record<string, [number, number][]>> = {};
+  for (const [id, pts] of Object.entries(series)) {
+    for (const pt of pts as (IndexPoint & { obs?: [number, number][] })[]) {
+      if (pt.obs) {
+        (stepObs[id] ??= {})[pt.ts] = pt.obs;
+        delete pt.obs;
+      }
+    }
+  }
+  let thinPts = 0;
+  for (const pts of Object.values(series)) for (const pt of pts) if (pt.thin) thinPts++;
+  console.log(`  thin points (overlap < THIN_MONTH_IDENTITIES): ${thinPts} across ${Object.keys(series).length} series`);
+
   const now = new Date().toISOString();
-  const blob = { generatedAt: now, cadence: "monthly" as const, series, biasTests: { invariance, entities } };
+  const blob = { generatedAt: now, cadence: "monthly" as const, series, biasTests: { invariance, entities }, stepObs };
   if (OUT_DIR) {
     mkdirSync(OUT_DIR, { recursive: true });
     const file = join(OUT_DIR, "price-index.json");
