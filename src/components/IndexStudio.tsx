@@ -1436,15 +1436,87 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
                     [...bandPts].reverse().map((p) => `L${model.X(p.ms).toFixed(1)} ${model.Y(p.lo!).toFixed(1)}`).join(" ") +
                     " Z"
                   : null;
+              /**
+               * ⚠️ A MONTHLY LINE ENDS WHERE ITS DATA ENDS, AND SAYS SO (nav r3,
+               * item 7). Its last point is a month END (Aug 31) while daily series
+               * run to the window edge, so it read as "stopped". Nothing is
+               * extended and nothing synthetic is drawn for the month in progress;
+               * the endpoint becomes a HOLLOW marker labelled with the last complete
+               * month, and a dimmed bracket spans the building month to the window
+               * edge. Both are drawn only — the CSV, the tooltip and the crosshair
+               * still see the real readings and nothing else.
+               */
+              const monthly = L.item.cadence === "monthly";
+              const hollow = monthly && end != null;
               return (
                 <g key={L.id}>
                   {/* Bootstrap band: soft enough to read as uncertainty around the line, never a highlight box — lime at 12% over the plot read as a block over three monthly points. */}
                   {band && <path d={band} fill={L.item.color} fillOpacity={0.07} stroke="none" />}
                   <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" filter={isPrim ? "url(#is-glow)" : undefined} />
-                  {end && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
+                  {end && !hollow && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
+                  {end && hollow && (
+                    <circle
+                      cx={model.X(end.ms)}
+                      cy={model.Y(end.v)}
+                      r={isPrim ? 3.6 : 2.9}
+                      fill="#0a0a0c"
+                      stroke={L.item.color}
+                      strokeWidth={1.6}
+                      data-last-complete-month=""
+                    />
+                  )}
                 </g>
               );
             })}
+            {/* The last-complete-month label and the building bracket: ONE of each,
+                off the primary monthly line, so three monthly series do not stack
+                three captions. Drawn only — see the note on the hollow marker. */}
+            {(() => {
+              const prim = model.lines.find((L) => L.item.cadence === "monthly" && !(mode === "abs" && L.item.flow));
+              if (!prim) return null;
+              const end = prim.pts.filter((p) => Number.isFinite(p.v)).at(-1);
+              if (!end) return null;
+              const endD = new Date(end.ms);
+              const edgeD = new Date(model.e);
+              const building = model.e - end.ms > 1.5 * DAY && edgeD.getUTCMonth() !== endD.getUTCMonth();
+              const x0 = model.X(end.ms);
+              const x1 = model.X(model.e);
+              const yB = PAD.t + model.plotH - 5;
+              const markerY = model.Y(end.v);
+              const labelAbove = markerY - 9 > PAD.t + 8;
+              return (
+                <g fontFamily="var(--font-jetbrains-mono), monospace" fontSize={8.5}>
+                  <text
+                    x={x0 - 6}
+                    y={labelAbove ? markerY - 7 : markerY + 13}
+                    textAnchor="end"
+                    fill="var(--color-ink-4)"
+                    data-last-complete-label=""
+                  >
+                    {MON[endD.getUTCMonth()]} · last complete month
+                  </text>
+                  {building && x1 - x0 > 4 && (
+                    <g opacity={0.55} data-building-bracket="">
+                      <path
+                        d={`M${x0.toFixed(1)} ${(yB - 4).toFixed(1)} V${yB.toFixed(1)} H${x1.toFixed(1)} V${(yB - 4).toFixed(1)}`}
+                        fill="none"
+                        stroke="var(--color-ink-4)"
+                        strokeWidth={1}
+                        strokeDasharray="2 2"
+                      />
+                      <text
+                        x={x1 - x0 > 96 ? (x0 + x1) / 2 : x1}
+                        y={yB - 7}
+                        textAnchor={x1 - x0 > 96 ? "middle" : "end"}
+                        fill="var(--color-ink-4)"
+                      >
+                        {MON[edgeD.getUTCMonth()]} · building
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })()}
             {/* primary end-value label */}
             {model.primary && (() => {
               const end = model.primary.pts.filter((p) => Number.isFinite(p.v)).at(-1);

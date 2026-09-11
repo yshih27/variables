@@ -10,6 +10,9 @@ import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/Overv
 import { formatCompactUsd, formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
+import { CategoryLanding } from "@/components/CategoryLanding";
+import { CATEGORY_ANCHORS } from "@/lib/shell/categoryAnchors";
+import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { readMetricSeries, readMetricSeriesBulk, lastNDays, dropIncompleteTail, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
@@ -259,7 +262,15 @@ export default async function AllIPsPage() {
           the rail + chart + all three bar cards. Gaps are one rung tighter than
           the app default (3 vs 4) and the zones share the same rhythm. */}
       <div className="px-8 pt-6 pb-20 font-sans">
+        <Breadcrumbs />
         <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">Market Overview</h1>
+        {/* Anchor targets for /ips#<category>: empty, zero-height, placed at the
+            top so a hash scroll lands on the whole overview and CategoryLanding
+            then scrolls to the category's own tiles. */}
+        {CATEGORY_ANCHORS.map((c) => (
+          <span key={c} id={c} aria-hidden className="block h-0 w-0" />
+        ))}
+        <CategoryLanding />
 
         <CategoryStatBar rows={data.ips} categories={categories} />
 

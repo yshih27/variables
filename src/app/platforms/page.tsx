@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { NavBar } from "@/components/NavBar";
+import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { MetricBarCard } from "@/components/MetricBarCard";
@@ -207,6 +208,7 @@ export default async function AllPlatformsPage() {
     <>
       <NavBar ticker={await buildMarketTicker()} />
       <div className="px-8 pt-6 pb-20 font-sans">
+        <Breadcrumbs />
         <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">
           Platforms Overview
         </h1>

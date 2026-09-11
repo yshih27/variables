@@ -61,7 +61,7 @@ export function platformVolumeBands(
   mktSeries: Record<string, SeriesPoint[]>,
   gachaSeries: Record<string, SeriesPoint[]>,
   days: number,
-): { key: string; label: string; color: string; points: SeriesPoint[] }[] {
+): { key: string; label: string; color: string; points: SeriesPoint[]; href: string }[] {
   return ranked
     .map((p, i) => {
       const mkt = mktSeries[p.key];
@@ -74,6 +74,9 @@ export function platformVolumeBands(
         key: p.key,
         label: p.name,
         color: PLATFORM_BAND_COLORS[i % PLATFORM_BAND_COLORS.length],
+        // The band hands off to its venue (nav r3): the homepage's chart is the
+        // first place a reader sees Beezie, and it could not be clicked.
+        href: `/platform/${p.key}`,
         points: lastNDays(dropIncompleteTail(totalDaily(mkt, gacha), streams), days),
       };
     })

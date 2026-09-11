@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { TopCardsTable } from "@/components/IPTraitTables";
 import { getIPDetail } from "@/lib/data/fetchIP";
@@ -19,9 +20,7 @@ export default async function IPCardsPage({
     <>
       <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20 font-sans">
-        <a href={`/ip/${key}`} className="mb-1.5 inline-block text-[12px] text-ink-3 transition-colors hover:text-yellow">
-          ← {detail.ip.name}
-        </a>
+        <Breadcrumbs />
         <h1 className="mb-1.5 text-[20px] font-bold leading-none tracking-[-0.01em]">
           {detail.ip.name} · Top Cards
         </h1>

@@ -6,6 +6,7 @@ import { buildRailModel } from "@/lib/data/railModel";
 import { getTape, TAPE_AVAILABLE } from "@/lib/data/tape";
 import { BottomTabs } from "./BottomTabs";
 import { RailNav } from "./RailNav";
+import { RailModelProvider } from "./RailModelContext";
 import { ShellChrome } from "./ShellChrome";
 import { RailToggle } from "./RailToggle";
 import { ShellSearch } from "./ShellSearch";
@@ -114,7 +115,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <div className="shell-grid">
         <RailNav model={rail} />
         <div className="min-w-0">
-          <main id="content">{children}</main>
+          {/* The same model the rail was built from, made reachable by the
+              breadcrumb trail inside each page — zero new reads by construction
+              (see RailModelContext). */}
+          <RailModelProvider model={rail}>
+            <main id="content">{children}</main>
+          </RailModelProvider>
           <SiteFooter />
         </div>
       </div>
