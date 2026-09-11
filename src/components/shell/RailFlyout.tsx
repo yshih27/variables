@@ -15,13 +15,14 @@ import { RailSpark } from "./RailSpark";
  * spark, delta — and for a category, its IP list, so the collapsed rail is fully
  * usable WITHOUT expanding it.
  *
- * ⚠️ 120ms HOVER-INTENT DELAY, none on close, none on CLICK. Without the delay,
+ * ⚠️ 120ms HOVER-INTENT DELAY, none on close, none on →. Without the delay,
  * dragging the cursor down the rail strobes six panels on the way to the seventh;
  * 120ms is under the threshold where a deliberate stop feels laggy (nav r3 cut it
  * from 250). The close is immediate because a panel that lingers covers the thing
- * you moved to. A click opens at once AND moves focus into the panel, so a
- * keyboard or touch user has the same path a mouse user has — hover was the only
- * way in before, and a hover-gated path is no path on a phone.
+ * you moved to. Right arrow on a tile opens at once AND moves focus into the
+ * panel, so a keyboard user has a path in — hover was the only way before. A
+ * plain CLICK on a tile navigates; it never opens the panel (a tile has one
+ * destination, and a panel in front of it is a second click nobody asked for).
  *
  * Escape closes the open panel and returns focus to the tile that opened it.
  *
@@ -40,7 +41,7 @@ export const OPEN_DELAY_MS = 120;
 export function useFlyout() {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  /** True when the panel was opened by a click/keyboard: it then takes focus and
+  /** True when the panel was opened by → (keyboard): it then takes focus and
    *  does NOT close on mouseleave — a deliberately opened panel outlives the
    *  cursor wandering off it. */
   const [pinned, setPinned] = useState(false);
@@ -96,13 +97,12 @@ export function useFlyout() {
       }, OPEN_DELAY_MS);
     },
     /**
-     * Click / keyboard: open now, keep open, focus the panel.
+     * → on a tile: open now, keep open, focus the panel.
      *
-     * ⚠️ A CLICK ON A HOVER-OPENED PANEL PINS IT, IT DOES NOT CLOSE IT. The
-     * mousedown that precedes a click focuses the tile, focus opens the panel on
-     * the intent path, and a naive toggle then saw "already open" and closed it
-     * — so clicking did the opposite of what it promised. Only a panel that is
-     * already PINNED closes on a second click.
+     * ⚠️ → ON A HOVER-OPENED PANEL PINS IT, IT DOES NOT CLOSE IT. Focus opens the
+     * panel on the intent path, so a naive toggle would see "already open" and
+     * close it — the opposite of what the key promised. Only a panel that is
+     * already PINNED closes on a second →.
      */
     toggle(key: string, el: HTMLElement | null) {
       clear();
@@ -137,7 +137,7 @@ export function RailFlyout({
   onClose,
 }: {
   node: RailNode;
-  /** Opened by click/keyboard: focus moves in, mouseleave does not close. */
+  /** Opened by → (keyboard): focus moves in, mouseleave does not close. */
   pinned?: boolean;
   /** A category's members, so the collapsed rail can reach an IP directly. */
   ips?: RailNode[];
@@ -158,7 +158,7 @@ export function RailFlyout({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // A panel opened by click/keyboard takes focus on its first link, so Tab
+  // A panel opened by → takes focus on its first link, so Tab
   // continues INTO the panel rather than past it down the rail.
   useEffect(() => {
     if (!pinned) return;

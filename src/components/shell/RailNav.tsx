@@ -135,15 +135,17 @@ export function RailNav({ model }: Props) {
           onFocus: (e: React.FocusEvent<HTMLElement>) =>
             flyout.open(node.key, e.currentTarget.closest<HTMLElement>("[data-rail-node]")),
           /**
-           * ⚠️ CLICK OPENS THE PANEL, IT DOES NOT NAVIGATE — for nodes that HAVE a
-           * panel worth opening (a category's IP list, a venue's card). The tile
-           * still carries its href, so middle-click / open-in-new-tab keep
-           * working; a plain click is caught here because the flyout is the only
-           * path to the branch at 56px and hover was the only way to reach it.
-           * Focus moves into the panel (RailFlyout), Escape brings it back.
+           * ⚠️ A CLICK NAVIGATES. THE PANEL OPENS ON HOVER, ON FOCUS, OR ON →.
+           * A tile has one destination and a plain click goes there — the first
+           * cut intercepted the click to open the panel, which made the Market
+           * tile a two-click path to the homepage and every venue tile a
+           * two-click path to its page. Right arrow opens the panel PINNED with
+           * focus inside (the tree-widget convention the expanded rail already
+           * uses for its chevrons), so a keyboard user has a path into the branch
+           * without a mouse; Escape brings focus back to the tile.
            */
-          onClick: (e: React.MouseEvent<HTMLElement>) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+          onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+            if (e.key !== "ArrowRight") return;
             e.preventDefault();
             flyout.toggle(node.key, e.currentTarget.closest<HTMLElement>("[data-rail-node]"));
           },
@@ -344,7 +346,7 @@ function RailTile({
   label,
   active,
   onClick,
-  onLinkClick,
+  onKeyDown,
   onFocus,
   ...rest
 }: {
@@ -355,8 +357,8 @@ function RailTile({
   label: string;
   active: boolean;
   onClick?: () => void;
-  /** For the link form: intercept a plain click (the flyout), let modified clicks through. */
-  onLinkClick?: (e: React.MouseEvent<HTMLElement>) => void;
+  /** → opens the tile's flyout pinned (see flyoutProps); a plain click navigates. */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void;
   onFocus?: (e: React.FocusEvent<HTMLElement>) => void;
   "aria-current"?: "page";
   "aria-label"?: string;
@@ -367,13 +369,13 @@ function RailTile({
   const inner = <span aria-hidden>{code}</span>;
   if (as === "button") {
     return (
-      <button type="button" onClick={onClick} onFocus={onFocus} title={label} aria-label={label} className={cls} {...rest}>
+      <button type="button" onClick={onClick} onKeyDown={onKeyDown} onFocus={onFocus} title={label} aria-label={label} className={cls} {...rest}>
         {inner}
       </button>
     );
   }
   return (
-    <Link href={href ?? "#"} onFocus={onFocus} onClick={onLinkClick} title={label} aria-label={label} className={cls} {...rest}>
+    <Link href={href ?? "#"} onFocus={onFocus} onKeyDown={onKeyDown} title={label} aria-label={label} className={cls} {...rest}>
       {inner}
     </Link>
   );
@@ -394,7 +396,8 @@ type FlyoutProps = {
   onMouseEnter?: (e: React.MouseEvent<HTMLElement>) => void;
   onMouseLeave?: () => void;
   onFocus?: (e: React.FocusEvent<HTMLElement>) => void;
-  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
+  /** → on a tile: open its flyout pinned, focus inside. A plain click navigates. */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void;
   flyout?: React.ReactNode;
 };
 
@@ -414,7 +417,7 @@ function RailLink({
   onMouseEnter,
   onMouseLeave,
   onFocus,
-  onClick,
+  onKeyDown,
   flyout,
   ...rest
 }: {
@@ -437,9 +440,7 @@ function RailLink({
           label={node.name}
           active={active}
           onFocus={onFocus}
-          /* A leaf tile (Stats, Report…) has no panel: a click navigates. Only a
-             node that was given flyout wiring intercepts the click. */
-          onLinkClick={flyout !== undefined ? onClick : undefined}
+          onKeyDown={onKeyDown}
           {...rest}
         />
         {flyout}
@@ -502,7 +503,7 @@ function RailBranch({
   onMouseEnter,
   onMouseLeave,
   onFocus,
-  onClick,
+  onKeyDown,
   flyout,
 }: {
   node: RailNode;
@@ -528,7 +529,7 @@ function RailBranch({
           label={`${node.name} (${count} IPs)`}
           active={false}
           onFocus={onFocus}
-          onLinkClick={onClick}
+          onKeyDown={onKeyDown}
         />
         {flyout}
       </div>
