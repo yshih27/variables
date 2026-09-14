@@ -18,20 +18,30 @@ export function windowPrefKey(surface: string): string {
   return `${WINDOW_PREF_PREFIX}${surface}`;
 }
 
-export function readWindowPref(surface: string): string | null {
+/** Read one stored preference by its FULL key. Null when absent or blocked. */
+export function readStoredPref(key: string): string | null {
   try {
-    return localStorage.getItem(windowPrefKey(surface));
+    return localStorage.getItem(key);
   } catch {
     return null; // private mode / blocked storage — the toggle just won't persist
   }
 }
 
-export function writeWindowPref(surface: string, value: string): void {
+/** Write one stored preference by its FULL key. Silent when blocked. */
+export function writeStoredPref(key: string, value: string): void {
   try {
-    localStorage.setItem(windowPrefKey(surface), value);
+    localStorage.setItem(key, value);
   } catch {
     /* storage full / blocked */
   }
+}
+
+export function readWindowPref(surface: string): string | null {
+  return readStoredPref(windowPrefKey(surface));
+}
+
+export function writeWindowPref(surface: string, value: string): void {
+  writeStoredPref(windowPrefKey(surface), value);
 }
 
 /**
@@ -62,26 +72,40 @@ export function useWindowPref<T extends string>(
   allowed: readonly T[],
   fallback: T,
 ): [T, (v: T) => void] {
+  return useStoredPref(surface ? windowPrefKey(surface) : null, allowed, fallback);
+}
+
+/**
+ * The same hook for a preference that is not a window — a table's row limit, a
+ * card's open/closed state — keyed by its FULL storage key (`varible:…`). Same
+ * rules: read after mount, never during render; each instance holds its own
+ * state; `key: null` opts out of persistence.
+ */
+export function useStoredPref<T extends string>(
+  key: string | null,
+  allowed: readonly T[],
+  fallback: T,
+): [T, (v: T) => void] {
   const [value, setValue] = useState<T>(fallback);
 
   // `allowed` is a module-level literal at every call site, so it is referentially
   // stable and listing it can't make this re-run and stomp a live choice.
   useEffect(() => {
-    if (!surface) return;
-    const stored = readWindowPref(surface);
+    if (!key) return;
+    const stored = readStoredPref(key);
     if (!stored || !(allowed as readonly string[]).includes(stored)) return;
     // The ONE repaint this rule warns about is exactly the intent here: storage
     // cannot be read during render without a hydration mismatch, so the restore
     // has to land after mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setValue(stored as T);
-  }, [surface, allowed]);
+  }, [key, allowed]);
 
   return [
     value,
     (v: T) => {
       setValue(v);
-      if (surface) writeWindowPref(surface, v);
+      if (key) writeStoredPref(key, v);
     },
   ];
 }
