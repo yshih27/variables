@@ -148,7 +148,12 @@ export function parseIdentitySlug(input: string): ParsedIdentitySlug | null {
     return null;
   }
   if (segs.length < 5 || segs.length > 7) return null;
-  if (segs.some((x) => !x || !/^[a-z0-9~._-]+$/.test(x))) return null;
+  // ⚠️ `&` IS A LEGAL SEGMENT CHARACTER HERE. Set keys keep it ("sword-&-shield-promos",
+  // "sun-&-moon-unbroken-bonds"), `identitySlug` emits it, and a parser that
+  // rejected it made 3,474 identities (6.4%, every Scarlet & Violet and Sword &
+  // Shield card) unreachable: the reader returned null and the proxy 404'd the
+  // palette's own top hit. RFC 3986 allows `&` in a path segment unencoded.
+  if (segs.some((x) => !x || !/^[a-z0-9~._&-]+$/.test(x))) return null;
   const [ip, setKey, number, name, grade, ...rest] = segs;
   if (name === ABSENT || setKey === ABSENT && number === ABSENT) return null;
   let edition: string | null = null;
