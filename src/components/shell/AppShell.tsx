@@ -48,6 +48,10 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ShellChrome chrome={
+    /* The same model the rail was built from, made reachable by every client
+       leaf in the shell — the breadcrumb trail inside each page and the ⌘K
+       palette's landing rows — zero new reads by construction (RailModelContext). */
+    <RailModelProvider model={rail}>
     <ChartFocusProvider>
     <div className={`shell-root font-sans${TAPE_AVAILABLE ? " shell-has-tape" : ""}`}>
       {/* Stamps data-rail on <html> BEFORE paint, so a stored "icons" doesn't
@@ -115,12 +119,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <div className="shell-grid">
         <RailNav model={rail} />
         <div className="min-w-0">
-          {/* The same model the rail was built from, made reachable by the
-              breadcrumb trail inside each page — zero new reads by construction
-              (see RailModelContext). */}
-          <RailModelProvider model={rail}>
-            <main id="content">{children}</main>
-          </RailModelProvider>
+          <main id="content">{children}</main>
           <SiteFooter />
         </div>
       </div>
@@ -129,6 +128,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <KeyboardLayer />
     </div>
     </ChartFocusProvider>
+    </RailModelProvider>
     }>
       {children}
     </ShellChrome>

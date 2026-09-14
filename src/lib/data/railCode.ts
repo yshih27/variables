@@ -20,6 +20,12 @@ import type { IPCategory } from "./ipCatalog";
 
 /** Fixed nodes — pages, not series, so there is no SSOT to derive them from. */
 export const RAIL_CODES = {
+  /** The homepage row — "Overview", the first row of the MARKET section (nav r4).
+   *  Was MK "Market"; renamed because /ips also called itself "Market Overview"
+   *  and two rows claiming the market is what made the top of the rail unreadable. */
+  overview: "HM",
+  /** Kept so `railCodeOf("fixed", "market")` still resolves for any caller that
+   *  addresses the market node by its old key. Not rendered by the rail. */
   market: "MK",
   stats: "ST",
   economics: "EC",
@@ -27,10 +33,19 @@ export const RAIL_CODES = {
   watchlist: "★",
   status: "SY",
   gacha: "GC",
-  // The two SECTION landings (nav r3): the collapsed rail's "Categories" and
-  // "Platforms" headings become tiles that link, so icons mode keeps the path to
-  // /ips and /platforms. Two letters like every other tile — a section is not a
-  // different kind of thing at 36px.
+  /**
+   * The two "All …" landing rows' EXPANDED code (nav r4). One code for both on
+   * purpose: the section heading directly above each row says which "all" it
+   * is, so the column reads AL · TC · SP · OT under CATEGORIES and AL · CC · CY …
+   * under PLATFORMS.
+   */
+  all: "AL",
+  /**
+   * The same two rows' COLLAPSED tiles. At 56px the headings are rules, so two
+   * AL tiles would be indistinguishable — these keep the section in the glyph.
+   * They were r3's section-heading tiles; r4 puts a real row behind each, so the
+   * two modes agree about what the tile is.
+   */
   categories: "CT",
   platforms: "PL",
 } as const;

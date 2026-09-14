@@ -5,6 +5,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { GroupedSearchResponse, SearchGroup } from "@/lib/types";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { pushRecent, readRecents, type RecentEntry } from "@/lib/shellPrefs";
+import { useRailModel } from "./RailModelContext";
+import type { RailModel } from "@/lib/types";
 
 /**
  * ⌘K / Ctrl+K / "/" — jump to anything (SHELL_V2 S3, north-star Move 3).
@@ -29,23 +31,55 @@ type PaletteItem = { label: string; sub?: string; href: string };
  *  (src/lib/types.ts GroupedSearchResponse): one entry per group that has hits. */
 type RemoteResults = GroupedSearchResponse;
 
-/** Routes — not data. Listing them client-side fabricates nothing. */
-const PAGES: PaletteItem[] = [
-  { label: "Market", sub: "homepage", href: "/" },
-  { label: "Categories", sub: "market overview by IP", href: "/ips" },
-  { label: "Platforms", sub: "every tracked venue", href: "/platforms" },
+/**
+ * Routes — not data. Listing them client-side fabricates nothing.
+ *
+ * ⚠️ THE FOUR SECTION LANDINGS COME FROM THE RAIL MODEL (nav r4), not from this
+ * list: "Overview", "All categories", "All platforms" and "Economics" are the
+ * rail's own landing rows, read through the same context the rail was built
+ * from, so the palette cannot call a destination one thing while the rail calls
+ * it another. The `sub` lines below are the palette's own copy and stay here.
+ */
+const LANDING_SUB: Record<string, string> = {
+  "/": "homepage",
+  "/ips": "the market by category and IP",
+  "/platforms": "every tracked venue",
+  "/economics": "what each platform keeps",
+};
+/** The static rest — pages with no rail landing row of their own. */
+const STATIC_PAGES: PaletteItem[] = [
   { label: "Stats", sub: "the market in citable numbers", href: "/stats" },
-  { label: "Economics", sub: "what each platform keeps", href: "/economics" },
   { label: "Weekly Report", href: "/report" },
   { label: "Watchlist", href: "/watchlist" },
   { label: "Data status", sub: "freshness of every source", href: "/status" },
   { label: "Methodology", href: "/methodology" },
   ...(GACHA_ENABLED ? [{ label: "Gacha", href: "/gacha" }] : []),
 ];
+/** Without a model (flag-off shell, which never mounts this) the same four routes
+ *  under their rail names — so the list is never shorter than the rail. */
+const LANDING_FALLBACK: PaletteItem[] = [
+  { label: "Overview", href: "/" },
+  { label: "All categories", href: "/ips" },
+  { label: "All platforms", href: "/platforms" },
+  { label: "Economics", href: "/economics" },
+];
+
+function pagesFrom(model: RailModel | null): PaletteItem[] {
+  const L = model?.landings;
+  const landings: PaletteItem[] = L
+    ? [L.overview, L.categories, L.platforms, L.economics].map((n) => ({ label: n.name, href: n.href }))
+    : LANDING_FALLBACK;
+  return [
+    ...landings.map((p) => ({ ...p, sub: LANDING_SUB[p.href] })),
+    ...STATIC_PAGES,
+  ];
+}
 
 const MIN_QUERY = 2;
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const model = useRailModel();
+  const PAGES = useMemo(() => pagesFrom(model), [model]);
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -127,7 +161,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       }
     }
     return out;
-  }, [q, remote, recents]);
+  }, [q, remote, recents, PAGES]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
   const clampedCursor = flat.length === 0 ? 0 : Math.min(cursor, flat.length - 1);

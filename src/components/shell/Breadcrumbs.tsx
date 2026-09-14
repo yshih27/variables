@@ -30,7 +30,11 @@ export function Breadcrumbs({ leaf, className = "" }: { leaf?: string | null; cl
     () => crumbsFor(pathname, model ? crumbNamesFrom(model) : crumbNamesFromCatalog(), leaf),
     [pathname, model, leaf],
   );
-  if (crumbs.length === 0) return null;
+  // ⚠️ A ONE-SEGMENT TRAIL IS NOT A TRAIL (nav r4). On /ips and /platforms the
+  // only segment is the page itself, and since r4 the h1 directly beneath says
+  // the same word — "Categories" over "Categories" read as a stutter. A trail
+  // earns its line when there is somewhere to climb to.
+  if (crumbs.length < 2) return null;
 
   const firstVisibleOnMobile = Math.max(0, crumbs.length - 2);
 

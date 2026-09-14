@@ -189,6 +189,13 @@ export type RailNode = {
   /** EXACTLY two characters (or the ★ glyph) for the collapsed rail's tiles —
    *  see lib/data/railCode.ts for why this is separate from `short`. */
   railCode?: string;
+  /** The collapsed tile's monogram when it must DIFFER from `railCode` — the two
+   *  "All …" landing rows share AL in the expanded column (the heading above
+   *  disambiguates) but need CT / PL at 56px, where headings are rules. */
+  tileCode?: string;
+  /** A landing row: the row that makes a section heading reachable. Renders a
+   *  trailing → and is active only on its own page, never for a child. */
+  landing?: boolean;
   href: string;
   spark: number[] | null;
   deltaPct: number | null;
@@ -198,7 +205,19 @@ export type RailNode = {
 };
 
 export type RailModel = {
-  market: RailNode;
+  /**
+   * The section landing rows (nav r4) — static entries, never fetched. Every
+   * section opens with one so a heading is reachable by a row that looks like
+   * every other row; `overview` is the old "Market" node and still carries the
+   * market spark and delta.
+   */
+  landings: {
+    overview: RailNode;
+    stats: RailNode;
+    economics: RailNode;
+    categories: RailNode;
+    platforms: RailNode;
+  };
   /** `sets` are the published set indices whose IP sits in this category —
    *  enumerated from the price-index blob, never a typed list. */
   categories: (RailNode & { ips: RailNode[]; sets: RailNode[] })[];
