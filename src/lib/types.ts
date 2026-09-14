@@ -262,7 +262,7 @@ export type TapeItem = {
 
 
 /** Which index a grouped search hit came out of. */
-export type SearchGroupKind = "ip" | "platform" | "card" | "metric" | "page" | "grade" | "set";
+export type SearchGroupKind = "ip" | "platform" | "card" | "identity" | "metric" | "page" | "grade" | "set";
 
 export type SearchGroup = {
   kind: SearchGroupKind;
