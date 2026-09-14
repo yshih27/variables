@@ -13,7 +13,8 @@
  */
 import { getCCMetadata } from "@/lib/data/ccTraits";
 import { getBeezieMetadata } from "@/lib/data/beezieTraits";
-import { readCards } from "@/lib/data/cards";
+import { readCards, readCardDims } from "@/lib/data/cards";
+import { identitySlug } from "@/lib/card/identity";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "@/lib/data/traits";
 import { proxyImg } from "@/lib/img";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
@@ -40,6 +41,10 @@ export type CardDetail = {
   gradeLabel: string;
   attributes: CardAttribute[];
   explorerUrl: string | null;
+  /** The identity page for this card ("this card, every slab →"), or null when
+   *  the token's parts cannot name an identity. From the same extractor + SSOT
+   *  the index and the identity reader use. */
+  identitySlug: string | null;
 };
 
 function explorerUrlFor(platform: CardPlatform, tokenId: string): string | null {
@@ -93,9 +98,12 @@ export async function getCardDetail(id: string): Promise<CardDetail | null> {
 
   const traits = normalizeTraits(meta);
   const pm = PLATFORM_META[platform];
+  const dim = (await readCardDims(platform).catch(() => null))?.get(tokenId) ?? null;
+  const identity = dim?.identity ? identitySlug(dim.ip, dim.identity) : null;
 
   return {
     id,
+    identitySlug: identity,
     platform,
     platformLabel: pm.label,
     chain: pm.chain,

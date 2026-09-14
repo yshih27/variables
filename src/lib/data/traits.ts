@@ -194,6 +194,33 @@ export function identityKey(ip: string, p: CardIdentityParts): string | null {
   ].join("|");
 }
 
+/**
+ * The inverse of `identityKey`: the parts a key was built from. `cardName` comes
+ * back UPPERCASED (that is what the key holds), which every consumer that needs
+ * display text must remember — the slug does not care, the page reads the name
+ * from the token's own metadata. `year` is not in the key and comes back null.
+ */
+export function parseIdentityKey(key: string | null | undefined): { ip: string; parts: CardIdentityParts } | null {
+  if (!key) return null;
+  const f = key.split("|");
+  if (f.length !== 7) return null;
+  const [ip, set, number, name, grade, edition, language] = f;
+  if (!ip || !name || !grade) return null;
+  if (!set && !number) return null;
+  return {
+    ip,
+    parts: {
+      year: null,
+      set: set || null,
+      number: number || null,
+      cardName: name,
+      grade,
+      edition: edition || null,
+      language: language || null,
+    },
+  };
+}
+
 /** Display-friendly label for "PSA 10", "CGC 9.5", or "Ungraded". */
 export function gradeLabel(t: NormalizedTraits): string {
   if (!t.grader && !t.gradeRaw) return "Ungraded";

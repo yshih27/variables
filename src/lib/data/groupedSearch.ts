@@ -19,6 +19,7 @@ import { buildSearch, cardHitToResult, type SearchResult } from "./searchIndex";
 import { searchCardsByName } from "./cards";
 import { readStudioSeed } from "@/lib/studio/seed";
 import { listGradeIndices, listSetIndices } from "./gradeSetIndex";
+import { readIdentitySearchRows } from "./identitySearch";
 import type { GroupedSearchResponse, SearchGroup } from "@/lib/types";
 
 /** Below this a query matches almost everything and ranks nothing. */
@@ -113,6 +114,28 @@ async function gradeSetGroups(q: string): Promise<SearchGroup[]> {
   return out;
 }
 
+/**
+ * Card IDENTITIES — one row per card, every slab folded in. Ranked by 30d sales
+ * then slab count (the rows arrive pre-sorted), scored on name / set / number /
+ * grade so "charizard psa 10" lands on the identity, not on twenty tokens.
+ */
+async function identityGroup(q: string): Promise<SearchGroup | null> {
+  const rows = await readIdentitySearchRows().catch(() => []);
+  if (!rows.length) return null;
+  const n = q.toLowerCase();
+  const terms = n.split(/\s+/).filter(Boolean);
+  const hits = rows
+    .map((r) => {
+      // Every term must appear; the score is the best single-term match so a
+      // multi-word query ranks like a one-word one rather than multiplying away.
+      if (!terms.every((t) => r.haystack.includes(t))) return null;
+      return { label: r.label, sub: r.sub, href: r.href, score: Math.max(...terms.map((t) => scoreMatch(r.haystack, t))) };
+    })
+    .filter((h): h is NonNullable<typeof h> => !!h && h.score > 0)
+    .slice(0, PER_GROUP); // already in activity order; keep it, do not re-sort by score
+  return hits.length ? { kind: "identity", label: "Cards", items: hits } : null;
+}
+
 const toItems = (rs: SearchResult[]) =>
   rs.slice(0, PER_GROUP).map((r) => ({ label: r.label, sub: r.sub, href: r.href, score: r.score }));
 
@@ -122,11 +145,12 @@ export async function buildGroupedSearch(rawQuery: string): Promise<GroupedSearc
 
   // Every leg degrades to empty on its own. A palette that 500s because one index
   // hiccuped is worse than one that returns three groups instead of four.
-  const [home, cardHits, metrics, gradeSet] = await Promise.all([
+  const [home, cardHits, metrics, gradeSet, identities] = await Promise.all([
     fetchHomepage().catch(() => null),
     searchCardsByName(query, PER_GROUP).catch(() => []),
     metricGroup(query).catch(() => null),
     gradeSetGroups(query).catch(() => [] as SearchGroup[]),
+    identityGroup(query).catch(() => null),
   ]);
   const base = home ? buildSearch(home, query) : null;
 
@@ -148,7 +172,10 @@ export async function buildGroupedSearch(rawQuery: string): Promise<GroupedSearc
   // Grades and sets rank above cards: someone typing "151" or "PSA 10" is far
   // more likely to want the set or the grade than one card that mentions it.
   for (const g of gradeSet) groups.push(g);
-  push("card", "Cards", cards);
+  // Identities are "Cards" — one row per card. The per-token group below is
+  // "Slabs": the same word for the same thing everywhere on the site.
+  if (identities) groups.push(identities);
+  push("card", "Slabs", cards);
   if (metrics) groups.push(metrics);
 
   return { query, total: groups.reduce((s, g) => s + g.items.length, 0), groups };
