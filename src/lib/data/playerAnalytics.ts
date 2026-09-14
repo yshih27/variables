@@ -206,17 +206,31 @@ export type MachineBoard = {
 };
 
 /**
- * Display names for slugs whose partner we have actually confirmed. Everything
- * else falls back to the raw slug in the component.
+ * Display names for slugs whose partner we have actually confirmed. THE ONLY
+ * MAP: every surface that names a partner — the partners board, the machines
+ * table and its share chart, player analytics — reads the `label` this produces.
+ * A second map used to live in PlatformPartners.tsx and drifted from this one
+ * (it printed `sol` as "Solana", which is the chain, not the storefront); it is
+ * gone, and the component renders `row.label ?? row.slug`, never a guess.
  *
- * ⚠️ Deliberately sparse. The live feed also carries 'sol', 'comic', 'slabz',
- * 'watch', 'glyde', 'roll', 'me' — plausible guesses exist for several, but a
- * guessed brand name on a published board is a fabrication, and the slug itself
- * is honest. Add entries here only once a partner is confirmed.
+ * ⚠️ Deliberately sparse, and every entry says who confirmed it and when. The
+ * live feed also carries 'comic', 'watch', 'glyde', 'roll', 'me' — plausible
+ * guesses exist for several, but a guessed brand name on a published board is a
+ * fabrication, and the raw slug is honest. A slug presented capitalised is
+ * halfway to a brand, so the fallback is the slug exactly as captured. Add an
+ * entry here only once the partner is confirmed, with the same attribution line.
  */
 export const PARTNER_LABELS: Record<string, string> = {
+  // Collector Crypt's own storefront — the house slug, established at capture (PR #73, 2026-08-18).
   cc: "Collector Crypt",
+  // Rarible — confirmed 2026-06-24: its gacha hero pack "151 & Friends" is machine pokemon_151.
   rare: "Rarible",
+  // Jupiter — product owner, brief-backend-partner-labels-ssot, 2026-09-10.
+  jupiter: "Jupiter",
+  // Slabz — product owner, brief-backend-partner-labels-ssot, 2026-09-10 (already in the CC feed per the Sep 2 partner DD).
+  slabz: "Slabz",
+  // Solflare, the wallet's in-app pack store — product owner, 2026-09-10. NOT "Solana": that is the chain.
+  sol: "Solflare",
 };
 
 /**

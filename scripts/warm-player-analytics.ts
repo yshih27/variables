@@ -5,6 +5,10 @@
  *   npm run warm-player-analytics                  # full scan (minutes)
  *   npm run warm-player-analytics -- --pages 20    # bounded, for a dry run
  *   npm run warm-player-analytics -- --pages 20 --dry-run   # print, write NOTHING
+ *   npx tsx --env-file=.env.local scripts/warm-player-analytics.ts --out=/tmp/blob
+ *       # LOCAL: write <out>/player-analytics.json instead of Postgres, so a
+ *       # rebuilt snapshot can be rendered (SNAPSHOT_LOCAL_DIR=<out>) and
+ *       # screenshotted without touching production.
  *
  * DAILY, never per-request: PostgREST caps every response at 1000 rows, so a full
  * pass over ~1.5M pull rows is ~1,525 sequential requests. Precomputing is the
@@ -16,11 +20,14 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { aggregatePlayerAnalytics, writePlayerAnalytics } from "../src/lib/data/playerAnalytics";
+import { aggregatePlayerAnalytics, writePlayerAnalytics, PLAYER_ANALYTICS_SNAPSHOT_KEY } from "../src/lib/data/playerAnalytics";
 import { runWarmer } from "../src/lib/db/runWarmer";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const argv = process.argv;
 const dryRun = argv.includes("--dry-run");
+const outDir = argv.find((a) => a.startsWith("--out="))?.split("=")[1] ?? null;
 const pagesIdx = argv.indexOf("--pages");
 let maxPages = Infinity;
 if (pagesIdx >= 0) {
@@ -107,6 +114,13 @@ async function run() {
     console.log(`\nDRY RUN — nothing written. (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     return { rowsWritten: 0 };
   }
+  if (outDir) {
+    mkdirSync(outDir, { recursive: true });
+    const file = join(outDir, `${PLAYER_ANALYTICS_SNAPSHOT_KEY}.json`);
+    writeFileSync(file, JSON.stringify(snap));
+    console.log(`\nwrote LOCAL snapshot → ${file} (production untouched, ${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    return { rowsWritten: 0 };
+  }
   await writePlayerAnalytics(snap);
   console.log(
     `\nWrote player-analytics: ${snap.platforms.length} platform(s), ${snap.rowsScanned.toLocaleString()} rows scanned (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
@@ -116,7 +130,9 @@ async function run() {
 
 // A bounded or dry run must not touch source_freshness — it would advertise a
 // complete aggregation that never happened.
-const partial = dryRun || Number.isFinite(maxPages);
+// A local --out run is partial in the same sense: the snapshot never reached
+// Postgres, so a freshness row saying it did would be a lie.
+const partial = dryRun || outDir !== null || Number.isFinite(maxPages);
 const main = partial ? run : () => runWarmer("player-analytics", run);
 
 main().catch((e) => {

@@ -88,32 +88,22 @@ const PLATFORM_OWN_SLUG: Record<string, string> = {
 };
 
 /**
- * Slugs are wire codes; the board renders names.
+ * Slugs are wire codes; the board renders names — and the NAME COMES FROM THE
+ * BACKEND, full stop.
  *
- * ⚠️ ONLY CONFIRMED PARTNERS GET AN ENTRY — the same rule the backend's
- * PARTNER_LABELS follows. A guessed brand name on a published board is a
- * fabrication, and the slug itself is honest, so an unknown code falls back to a
- * capitalized form of the slug rather than a plausible-looking invention. The raw
- * slug stays in every row's `title` so a reader who knows the memo codes can
- * always check what was actually captured.
+ * ⚠️ NO MAP HERE, ON PURPOSE. This component used to carry its own
+ * PARTNER_DISPLAY beside the backend's PARTNER_LABELS, and the two drifted: it
+ * printed `sol` as "Solana" (the chain) when the storefront is Solflare, and
+ * "ComicBook" for a slug nobody had confirmed. Two naming rules for one code is
+ * how a guess reaches a published board. `PARTNER_LABELS` in
+ * src/lib/data/playerAnalytics.ts is the one map, the warmer writes its answer
+ * into `row.label`, and this renders that or the RAW slug — not capitalised: a
+ * code presented as a word is halfway to a brand. The slug stays in every row's
+ * `title` either way, so a reader who knows the memo codes can check what was
+ * captured.
  */
-const PARTNER_DISPLAY: Record<string, string> = {
-  jupiter: "Jupiter",
-  slabz: "Slabz",
-  sol: "Solana",
-  comic: "ComicBook",
-};
-
-/** Documented fallback for an unknown slug: capitalize it. Not a guess at a brand
- *  — just the code, made presentable. */
-function capitalizeSlug(slug: string): string {
-  return slug.length ? slug[0].toUpperCase() + slug.slice(1) : slug;
-}
-
-/** Backend label first (it knows Rarible / Collector Crypt), then our map, then the
- *  documented fallback. */
 function partnerName(row: PartnerRow): string {
-  return row.label || PARTNER_DISPLAY[row.slug] || capitalizeSlug(row.slug);
+  return row.label ?? row.slug;
 }
 
 /** Rows the board always draws. Real partners fill from the top; the remainder are
