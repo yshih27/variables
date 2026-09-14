@@ -3,6 +3,7 @@ import { Section } from "../Section";
 import { TableFoot } from "../TableFoot";
 import { CardThumb } from "../CardThumb";
 import { cardHref, cardSupported } from "@/lib/card/ids";
+import { identityHref } from "@/lib/card/identity";
 import { formatCompactUsd } from "@/lib/format";
 import type { PanelSale } from "@/lib/data/gradeSetPanel";
 
@@ -18,6 +19,11 @@ import type { PanelSale } from "@/lib/data/gradeSetPanel";
  * of the same Charizard are two rows because they are two assets with two prices;
  * folding them together would average a PSA 10 into a PSA 7 and print a number
  * that describes neither.
+ *
+ * A row hands off to its IDENTITY page (`/i/<slug>` — this card at this grade,
+ * every slab, every venue) when the token's parts name one; the token page is
+ * one click further, from the identity's slabs table. A token with no identity
+ * keeps its own page as the destination.
  */
 type Row = {
   tokenId: string;
@@ -25,6 +31,7 @@ type Row = {
   name: string | null;
   grade: string;
   image: string | null;
+  identitySlug: string | null;
   sales: number;
   volumeUsd: number;
   lastUsd: number;
@@ -44,6 +51,7 @@ export function SetCardsTable({ sales, limit = 12 }: { sales: PanelSale[]; limit
         name: s.cardName,
         grade: s.grade,
         image: s.image,
+        identitySlug: s.identitySlug,
         sales: 1,
         volumeUsd: s.priceUsd,
         // `sales` arrives newest-first, so the first row seen is the latest price.
@@ -88,7 +96,11 @@ export function SetCardsTable({ sales, limit = 12 }: { sales: PanelSale[]; limit
               return (
                 <tr key={r.tokenId} className="border-b border-line/60 last:border-0">
                   <th scope="row" className="py-2 pl-4 pr-3 text-left font-normal sm:pl-5">
-                    {cardSupported(r.platform) ? (
+                    {r.identitySlug ? (
+                      <Link href={identityHref(r.identitySlug)} className="block min-w-0 hover:text-yellow">
+                        {label}
+                      </Link>
+                    ) : cardSupported(r.platform) ? (
                       <Link href={cardHref(r.platform, r.tokenId)} className="block min-w-0 hover:text-yellow">
                         {label}
                       </Link>

@@ -3,6 +3,7 @@ import { Section } from "../Section";
 import { TableFoot } from "../TableFoot";
 import { GradeChip } from "../GradeChip";
 import { cardHref, cardSupported } from "@/lib/card/ids";
+import { identityHref } from "@/lib/card/identity";
 import { formatCompactUsd, formatDelta, deltaDir } from "@/lib/format";
 import type { GradeRow } from "@/lib/data/gradeSetPanel";
 import type { PublishedEntity } from "@/lib/data/gradeSetIndex";
@@ -105,7 +106,17 @@ export function GradeTable({
                   <td className="py-2 pl-3 pr-4 text-[12.5px] sm:pr-5">
                     {r.topSale ? (
                       <span className="flex min-w-0 items-baseline gap-2">
-                        {cardSupported(r.topSale.platform) ? (
+                        {/* The identity page when the sale's token names one
+                            (this card at this grade, every slab), else the
+                            token's own page. */}
+                        {r.topSale.identitySlug ? (
+                          <Link
+                            href={identityHref(r.topSale.identitySlug)}
+                            className="min-w-0 truncate text-ink-2 hover:text-yellow"
+                          >
+                            {r.topSale.name ?? "—"}
+                          </Link>
+                        ) : cardSupported(r.topSale.platform) ? (
                           <Link
                             href={cardHref(r.topSale.platform, r.topSale.tokenId)}
                             className="min-w-0 truncate text-ink-2 hover:text-yellow"

@@ -118,6 +118,18 @@ export function identityHref(slug: string): string {
   return `${IDENTITY_PATH_PREFIX}/${slug}`;
 }
 
+/**
+ * Display case for a card name — the feeds store most of them in caps
+ * ("CHARIZARD EX", "PIKACHU WITH GREY FELT HAT"). ONE function, so the palette
+ * row, the page title, the crumb and the share card spell a card the same way.
+ * Deliberately naive (every word capitalised, nothing else): a list of tokens
+ * that "should" stay upper-case (EX, GX, V…) would be a second vocabulary to
+ * keep, and a wrong guess there reads worse than a plain title case.
+ */
+export function identityDisplayName(cardName: string): string {
+  return cardName.toLowerCase().replace(/(^|[\s\-\/'])(\w)/g, (m, sep: string, c: string) => sep + c.toUpperCase());
+}
+
 export type ParsedIdentitySlug = {
   ip: string;
   /** Canonical set key, or null when the segment was `-`. */

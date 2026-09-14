@@ -2,10 +2,11 @@ import type { RailModel } from "@/lib/types";
 import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { parseCardId, PLATFORM_META } from "@/lib/card/ids";
+import { parseIdentitySlug } from "@/lib/card/identity";
 
 /**
  * The breadcrumb trail — ONE derivation from the pathname, for every page under
- * /ip, /platform, /ips, /platforms and /card.
+ * /ip, /platform, /ips, /platforms, /card and /i (card identities).
  *
  * ⚠️ NAMES COME FROM THE RAIL MODEL, NEVER FROM A TYPED LIST. The trail shows the
  * same words the rail shows, because it is built from the same object the rail
@@ -76,6 +77,20 @@ export function crumbNamesFromCatalog(): CrumbNames {
   };
 }
 
+/**
+ * Merge a page's own names over the model's — the identity page knows its set's
+ * name from its reader even when no set index is published for it, and the rail
+ * model only names sets that are. Page names win only where they are given.
+ */
+export function withNames(base: CrumbNames, extra?: Partial<CrumbNames> | null): CrumbNames {
+  if (!extra) return base;
+  return {
+    ips: { ...base.ips, ...(extra.ips ?? {}) },
+    platforms: { ...base.platforms, ...(extra.platforms ?? {}) },
+    sets: { ...base.sets, ...(extra.sets ?? {}) },
+  };
+}
+
 /** Sub-page nouns under an IP or a venue. Route segments, not copy. */
 const IP_LEAF: Record<string, string> = { cards: "Cards", grades: "Grades", sets: "Sets" };
 const PLATFORM_LEAF: Record<string, string> = { ips: "IPs", sales: "Sales", cards: "Cards" };
@@ -120,6 +135,30 @@ export function crumbsFor(pathname: string, names: CrumbNames, leaf?: string | n
       { label: names.platforms[key] ?? leafOr(leaf, key), href: `/platform/${key}` },
     ];
     if (sub && PLATFORM_LEAF[sub]) trail.push({ label: PLATFORM_LEAF[sub], href: `/platform/${key}/${sub}` });
+    return finish(trail);
+  }
+
+  if (root === "i" && key) {
+    // /i/<ip>/<set>/<number>/<name>/<grade>[/<edition>][/<lang>] — one card
+    // identity. Hangs under Categories › <IP> › Sets › <set> when the slug names
+    // a set, under Categories › <IP> when it does not (the `-` segment). The
+    // leaf is the page's own "Charizard Ex · PSA 10"; the set and IP names come
+    // through `names` — the page passes its reader's parts, so nothing here is
+    // typed and a set with no published index is still named.
+    const parsed = parseIdentitySlug(pathname);
+    if (!parsed) return [];
+    const trail: Omit<Crumb, "current">[] = [
+      { label: "Categories", href: "/ips" },
+      { label: names.ips[parsed.ip] ?? parsed.ip, href: `/ip/${parsed.ip}` },
+    ];
+    if (parsed.setKey) {
+      trail.push({ label: "Sets", href: `/ip/${parsed.ip}/sets` });
+      trail.push({
+        label: names.sets[`${parsed.ip}:${parsed.setKey}`] ?? parsed.setKey,
+        href: `/ip/${parsed.ip}/sets/${parsed.setKey}`,
+      });
+    }
+    trail.push({ label: leafOr(leaf, `${parsed.nameSlug} · ${parsed.gradeSlug}`), href: pathname });
     return finish(trail);
   }
 

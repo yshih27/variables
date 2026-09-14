@@ -8,6 +8,7 @@ import type { CardDetail } from "@/lib/card/fetchCard";
 import type { CardSalesHistory } from "@/lib/data/cardSales";
 import { buyLinks } from "@/lib/links/buyLinks";
 import { isSealed } from "@/lib/card/sealed";
+import { identityHref } from "@/lib/card/identity";
 
 const CHAIN_COLOR: Record<string, string> = {
   Solana: "#14f195",
@@ -102,6 +103,18 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
             <div className="mt-1.5 text-[14px] text-ink-2">
               {[t.set, t.year ? String(t.year) : null].filter(Boolean).join(" · ")}
             </div>
+          )}
+          {/* The hand-up: this token is one slab of an identity, and the identity
+              page is where every slab, every venue and the monthly price live.
+              Only when the reader named one — a token whose parts cannot form an
+              identity gets no dead link. */}
+          {card.identitySlug && (
+            <Link
+              href={identityHref(card.identitySlug)}
+              className="mt-2 inline-block font-mono text-[12px] text-ink-3 underline-offset-2 transition-colors hover:text-yellow hover:underline"
+            >
+              this card, every slab →
+            </Link>
           )}
 
           <div className="mt-6 flex flex-wrap items-end gap-x-10 gap-y-4">

@@ -13,7 +13,7 @@ import { unstable_cache } from "next/cache";
 import { listIdentityIndex, cachedPanel } from "./identityDetail";
 import { parseIdentityKey } from "./traits";
 import { normalizeSetName } from "@/lib/card/setName";
-import { identityHref } from "@/lib/card/identity";
+import { identityHref, identityDisplayName } from "@/lib/card/identity";
 import { canonicalGrade } from "./gradePremium";
 import { formatCompactUsd } from "@/lib/format";
 
@@ -29,8 +29,6 @@ export type IdentitySearchRow = {
   sales30d: number;
   slabs: number;
 };
-
-const titleCase = (s: string) => s.toLowerCase().replace(/(^|[\s\-\/'])(\w)/g, (m, sep, c) => sep + c.toUpperCase());
 
 /**
  * Uncached core. Reads the persisted panel and the persisted identity index —
@@ -59,7 +57,7 @@ export async function buildIdentitySearchRows(): Promise<IdentitySearchRow[]> {
     if (!pk) continue;
     const setName = pk.parts.set ? normalizeSetName(pk.parts.set).name : null;
     const grade = canonicalGrade(pk.parts.grade);
-    const name = titleCase(pk.parts.cardName ?? "");
+    const name = identityDisplayName(pk.parts.cardName ?? "");
     const mid = [setName, pk.parts.number ? `#${pk.parts.number}` : null].filter(Boolean).join(" ");
     rows.push({
       slug,

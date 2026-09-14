@@ -342,6 +342,9 @@ export type CardMeta = {
   setName: string | null;
   grade: string;
   image: string | null;
+  /** Identity parts — the same `extractCardIdentity` the dims and the index
+   *  use, so a sale can hand off to its identity page (`identitySlug`). */
+  identity: CardIdentityParts | null;
 };
 
 /**
@@ -360,7 +363,9 @@ export async function readCardMeta(
   for (let i = 0; i < ids.length; i += CHUNK) {
     const { data, error } = await db()
       .from("cards")
-      .select("token_id,name,card_name,ip_key,set_name,grade_label,image")
+      // `year` + `card_number` ride the same query so the identity parts can be
+      // derived here — no second read per token for the identity hand-off.
+      .select("token_id,name,card_name,ip_key,set_name,grade_label,image,year,card_number")
       .eq("platform", platform)
       .in("token_id", ids.slice(i, i + CHUNK));
     if (error) {
@@ -378,6 +383,14 @@ export async function readCardMeta(
         setName: setId.name,
         grade: (r.grade_label as string) ?? "Ungraded",
         image: (r.image as string | null) ?? null,
+        identity: extractCardIdentity({
+          name: r.name as string | null,
+          cardName: r.card_name as string | null,
+          set: r.set_name as string | null,
+          grade: r.grade_label as string | null,
+          year: r.year as number | null,
+          cardNumber: r.card_number as string | null,
+        }),
       });
     }
   }
