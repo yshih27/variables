@@ -214,7 +214,7 @@ export type MachineBoard = {
  * gone, and the component renders `row.label ?? row.slug`, never a guess.
  *
  * ⚠️ Deliberately sparse, and every entry says who confirmed it and when. The
- * live feed also carries 'comic', 'watch', 'glyde', 'roll', 'me' — plausible
+ * live feed also carries 'watch', 'glyde', 'roll', 'me' — plausible
  * guesses exist for several, but a guessed brand name on a published board is a
  * fabrication, and the raw slug is honest. A slug presented capitalised is
  * halfway to a brand, so the fallback is the slug exactly as captured. Add an
@@ -231,6 +231,10 @@ export const PARTNER_LABELS: Record<string, string> = {
   slabz: "Slabz",
   // Solflare, the wallet's in-app pack store — product owner, 2026-09-10. NOT "Solana": that is the chain.
   sol: "Solflare",
+  // ComicBook — product owner, 2026-09-14 (the old frontend guess, now confirmed).
+  comic: "ComicBook",
+  // One Arena — product owner, 2026-09-14.
+  arena: "One Arena",
 };
 
 /**
