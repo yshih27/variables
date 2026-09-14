@@ -27,8 +27,33 @@ const READ_PAGE = 1000;
 const WRITE_CHUNK_START = 500;
 const WRITE_CHUNK_FLOOR = 25;
 
-type Row = { id: string; ip_key: string | null; set_name: string | null; set_key: string | null };
-type Update = { id: string; set_key: string };
+type Row = {
+  id: string;
+  platform: string;
+  token_id: string;
+  chain: string | null;
+  source: string | null;
+  name: string | null;
+  ip_key: string | null;
+  set_name: string | null;
+  set_key: string | null;
+};
+/**
+ * ⚠️ THE NOT NULL COLUMNS ARE ECHOED BACK UNCHANGED (PR #128's lesson, hit again
+ * here on 2026-09-14: `null value in column "platform" violates not-null
+ * constraint`). PostgREST's upsert is INSERT … ON CONFLICT DO UPDATE and Postgres
+ * validates the INSERT row before the conflict resolves, so a payload of only
+ * `{ id, set_key }` fails even though every row exists.
+ */
+type Update = {
+  id: string;
+  platform: string;
+  token_id: string;
+  chain: string | null;
+  source: string | null;
+  name: string | null;
+  set_key: string;
+};
 
 async function columnExists(): Promise<boolean> {
   const { error } = await db().from("cards").select("set_key").limit(1);
@@ -90,7 +115,7 @@ async function main() {
   for (;;) {
     let q = db()
       .from("cards")
-      .select(hasColumn ? "id,ip_key,set_name,set_key" : "id,ip_key,set_name")
+      .select(hasColumn ? "id,platform,token_id,chain,source,name,ip_key,set_name,set_key" : "id,platform,token_id,chain,source,name,ip_key,set_name")
       .order("id", { ascending: true })
       .limit(READ_PAGE);
     if (lastId !== null) q = q.gt("id", lastId);
@@ -109,7 +134,7 @@ async function main() {
       if (!key) { s.junk++; continue; } // junk stays NULL — the honest answer
       s.filled++;
       s.keys.add(key);
-      pending.push({ id: r.id, set_key: key });
+      pending.push({ id: r.id, platform: r.platform, token_id: r.token_id, chain: r.chain ?? null, source: r.source ?? null, name: r.name ?? null, set_key: key });
     }
 
     if (APPLY && pending.length >= 2000) {
