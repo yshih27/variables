@@ -19,7 +19,9 @@
 import type { IndexPoint } from "./indices";
 import type { SaleRow } from "./salePanel";
 import { parseGradeLabel } from "../card/grade";
-import { GRAINS, MIN_SALES_PER_IDENTITY, type Grain } from "./identityIndex";
+// The estimator is the index's own interpolated weighted median — one
+// implementation, so a premium can never snap to one matched card either.
+import { GRAINS, MIN_SALES_PER_IDENTITY, weightedMedian, type Grain } from "./identityIndex";
 
 /** Matched identities below which a month is withheld, never interpolated. */
 export const MIN_MATCHED_IDENTITIES = 5;
@@ -62,18 +64,6 @@ function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
-function weightedMedian(xs: { v: number; w: number }[]): number {
-  if (!xs.length) return NaN;
-  const s = [...xs].sort((a, b) => a.v - b.v);
-  const total = s.reduce((acc, e) => acc + e.w, 0);
-  let run = 0;
-  for (const e of s) {
-    run += e.w;
-    if (run >= total / 2) return e.v;
-  }
-  return s[s.length - 1].v;
 }
 
 export type PremiumOptions = {

@@ -249,7 +249,7 @@ function clampWindow(
  *  not the O(n) scan the model used to run on every zoom frame (total_volume now
  *  carries years of daily points). */
 /** A parsed series point: ms timestamp + value, with the bootstrap band when the series carries one. */
-type MsPoint = { ms: number; value: number; lo?: number; hi?: number };
+type MsPoint = { ms: number; value: number; lo?: number; hi?: number; n?: number; thin?: boolean };
 
 function sliceInWindow(
   arr: MsPoint[],
@@ -565,7 +565,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
       m.set(
         id,
         pts
-          .map((p) => ({ ms: Date.parse(p.ts), value: p.value, lo: p.lo, hi: p.hi }))
+          .map((p) => ({ ms: Date.parse(p.ts), value: p.value, lo: p.lo, hi: p.hi, n: p.n, thin: p.thin }))
           // Finite + ascending ONCE here, not per-window: the model's boundary
           // interpolation (interpAt) needs sorted input, and doing it in this
           // shaped-keyed memo keeps it off the wheel's per-frame path.
@@ -642,6 +642,8 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
         // so it stays a band AROUND the line in rebased mode.
         lo: p.lo != null && Number.isFinite(p.lo) ? rebase(p.lo) : undefined,
         hi: p.hi != null && Number.isFinite(p.hi) ? rebase(p.hi) : undefined,
+        n: p.n,
+        thin: p.thin,
       }));
 
       // Path points = the boundary (when we have one and the first real point is
@@ -649,7 +651,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
       let pathPts = pts;
       if (boundaryRaw != null && inWin.length > 0 && inWin[0].ms > s) {
         const b = boundaryRaw;
-        pathPts = [{ ms: s, v: rebase(b), raw: b, lo: undefined, hi: undefined }, ...pts];
+        pathPts = [{ ms: s, v: rebase(b), raw: b, lo: undefined, hi: undefined, n: undefined, thin: undefined }, ...pts];
       }
 
       return { id, item, pts, pathPts, step: medianStep(pts) };
@@ -958,10 +960,10 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
    * series has no reading here and gets no dot and no tooltip row.
    */
   const snapped = useMemo(() => {
-    const out = new Map<string, { ms: number; v: number; raw: number }>();
+    const out = new Map<string, { ms: number; v: number; raw: number; n?: number; thin?: boolean }>();
     if (hoverTs == null || !model) return out;
     for (const L of model.lines) {
-      let best: { ms: number; v: number; raw: number } | null = null;
+      let best: { ms: number; v: number; raw: number; n?: number; thin?: boolean } | null = null;
       let bd = Infinity;
       for (const p of L.pts) {
         if (!Number.isFinite(p.v)) continue;
@@ -1000,7 +1002,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   const exportCsv = () => {
     if (!model) return;
     const cols = model.lines;
-    const rows = [`date,${cols.map((c) => c.item.ticker.replace(/,/g, "")).join(",")}`];
+    const rows = [`date,${cols.map((c) => c.item.ticker.replace(/,/g, "")).join(",")},note`];
     for (const ms of model.unionTs) {
       // Exact date matches only. This used to carry a weekly series' value across
       // the ~7 daily rows around it, which exported V-MKT as if it were sampled
@@ -1010,7 +1012,18 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
         if (!p || !Number.isFinite(p.v)) return "";
         return mode === "rebase" ? p.v.toFixed(3) : p.raw.toFixed(2);
       });
-      rows.push(`${new Date(ms).toISOString().slice(0, 10)},${cells.join(",")}`);
+      // v4.1 disclosure travels with the export: a `note` column that reads
+      // "thin month · 49 identities" on the rows where a step rested on few
+      // identities, blank everywhere else — so a downloaded CSV cannot present
+      // a thin month with the confidence of a thick one.
+      const notes = cols
+        .map((c) => {
+          const p = c.pts.find((q) => q.ms === ms);
+          return p?.thin ? `${c.item.ticker}: thin month${p.n != null ? ` · ${p.n} identities` : ""}` : "";
+        })
+        .filter(Boolean)
+        .join("; ");
+      rows.push(`${new Date(ms).toISOString().slice(0, 10)},${cells.join(",")},${notes.replace(/,/g, " ")}`);
     }
     const blob = new Blob([rows.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -1495,7 +1508,7 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
             <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3">{fmtDateY(hoverTs)}</div>
             {model.lines
               .map((L) => ({ L, p: snapped.get(L.id) }))
-              .filter((r): r is { L: (typeof model.lines)[number]; p: { ms: number; v: number; raw: number } } => r.p != null)
+              .filter((r): r is { L: (typeof model.lines)[number]; p: { ms: number; v: number; raw: number; n?: number; thin?: boolean } } => r.p != null)
               .sort((a, b) => b.p.v - a.p.v)
               .map(({ L, p }) => (
                 <div key={L.id} className="flex items-center justify-between gap-3 py-0.5">
@@ -1511,6 +1524,10 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
                   </span>
                   <span className="font-mono font-semibold tabular text-ink">
                     {mode === "rebase" ? p.v.toFixed(1) : fmtVal(L.item.unit, p.raw)}
+                    {/* v4.1 disclosure — the step rested on few identities */}
+                    {p.thin && (
+                      <span className="ml-1.5 font-normal text-ink-4">thin month{p.n != null ? ` · ${p.n} identities` : ""}</span>
+                    )}
                   </span>
                 </div>
               ))}

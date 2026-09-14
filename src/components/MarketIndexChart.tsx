@@ -12,7 +12,7 @@ import { ChartActions } from "./ChartActions";
  * baseline at 100 marks "flat vs inception" and the line's color reads its sign
  * (green above, red below). Desktop-only — the MarketHeader hides it on mobile.
  */
-type Point = { ts: string; value: number; lo?: number; hi?: number };
+type Point = { ts: string; value: number; lo?: number; hi?: number; n?: number; thin?: boolean };
 
 const H = 92;
 const PAD = { top: 12, right: 8, bottom: 10, left: 8 };
@@ -243,6 +243,12 @@ export function MarketIndexChart({
           <span className="font-semibold tabular text-ink">{hi.value.toFixed(1)}</span>
           {hi.lo != null && hi.hi != null && (
             <span className="text-ink-4"> ({hi.lo.toFixed(0)}–{hi.hi.toFixed(0)})</span>
+          )}
+          {/* v4.1 disclosure: a step on fewer than THIN_MONTH_IDENTITIES identities is
+              published, and says so here rather than reading with the confidence of
+              a month with 200. */}
+          {hi.thin && (
+            <div className="text-ink-4">thin month{hi.n != null ? ` · ${hi.n} identities` : ""}</div>
           )}
         </div>
       )}

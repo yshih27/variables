@@ -18,7 +18,17 @@ import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
 import { completeWeeksOnly, resampleWeekly, completeMonthsOnly } from "@/lib/chart/period";
 
-export type IndexPoint = { ts: string; value: number; n?: number; lo?: number; hi?: number };
+export type IndexPoint = {
+  ts: string;
+  value: number;
+  n?: number;
+  lo?: number;
+  hi?: number;
+  /** v4.1 disclosure: the step behind this point rested on fewer identities than
+   *  THIN_MONTH_IDENTITIES. Published, not withheld — the tooltip and CSV say
+   *  "thin month · n identities". Absent on non-identity series. */
+  thin?: boolean;
+};
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -140,6 +150,7 @@ export function rebaseWithBands(series: IndexPoint[], from: string, rebaseTo = 1
     n: p.n,
     lo: p.lo != null ? p.lo * f : undefined,
     hi: p.hi != null ? p.hi * f : undefined,
+    thin: p.thin,
   }));
 }
 

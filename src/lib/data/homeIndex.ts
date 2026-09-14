@@ -42,6 +42,7 @@ export function rebaseIndexWithBands(series: IndexPoint[], fromTs: string): Inde
       n: p.n,
       lo: p.lo != null ? p.lo * f : undefined,
       hi: p.hi != null ? p.hi * f : undefined,
+      thin: p.thin,
     }));
 }
 
