@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { MachineBoard, MachineRow } from "@/lib/data/playerAnalytics";
 import { GACHA_ENABLED } from "@/lib/flags";
@@ -13,6 +13,16 @@ import {
   sortMachines,
   type MachineSortKey,
 } from "@/lib/machines/board";
+import {
+  MACHINES_ANCHOR,
+  OPEN_PREF,
+  ROWS_PREF,
+  TOP_ROWS,
+  machinesPrefKey,
+  type OpenPref,
+  type RowsPref,
+} from "@/lib/machines/prefs";
+import { useStoredPref } from "@/lib/windowPref";
 import { Section } from "./Section";
 import { TableFoot } from "./TableFoot";
 
@@ -35,6 +45,20 @@ import { TableFoot } from "./TableFoot";
  *
  * Odds, EV and hit lists are gacha-section content and stay behind
  * GACHA_ENABLED; this is an economics view over aggregates.
+ *
+ * ── Top rows by default, the rest on request, the card foldable ──────────────
+ * 53 machines over 30 days ran the card two screens long and pushed economics
+ * and players below the fold of the fold. So: the first TOP_ROWS of the CURRENT
+ * sort render by default (sorting always runs over the full set — re-sort by
+ * pulls and the ten change), the foot carries "Show all 53 →", and a chevron in
+ * the header folds the card to its header plus one summary line. Both choices
+ * persist per platform. `#machines` on the URL overrides both for that visit:
+ * a link to "the machines" opens the card with every row, and writes nothing.
+ *
+ * ⚠️ THE LIMIT IS APPLIED AT THE <tbody> AND NOWHERE ELSE. `sorted` is always
+ * the whole board; only the rows mapped into the table are cut. There is no
+ * CSV action on this table today, and if one is ever added it must be fed from
+ * `sorted` — a truncated table must never produce a truncated file.
  */
 
 /** The bar's neutral. Deliberately NOT from PALETTE — the whole point is that a
@@ -51,11 +75,45 @@ export function PlatformMachines({
   const [sortKey, setSortKey] = useState<MachineSortKey>("spend");
   const [dir, setDir] = useState<1 | -1>(-1);
 
+  // The two reader preferences, per platform, restored after mount (never in
+  // the first render — the server has no storage; see useStoredPref).
+  const [rowsPref, setRowsPref] = useStoredPref<RowsPref>(machinesPrefKey(platformKey, "rows"), ROWS_PREF, "top");
+  const [openPref, setOpenPref] = useStoredPref<OpenPref>(machinesPrefKey(platformKey, "open"), OPEN_PREF, "open");
+
+  /**
+   * `#machines` — captured at render, applied in an effect (the CategoryLanding
+   * pattern). The Index Studio above rewrites the fragment with its own state as
+   * soon as it loads, so an effect reading `location.hash` could see `#m=…`
+   * where the reader typed `#machines`; a lazy initializer runs during the
+   * client render, before any sibling's effect. It is not USED in render, so
+   * the server ("") and the client ("#machines") never disagree about the HTML.
+   */
+  const [arrivedWith] = useState(() => (typeof window === "undefined" ? "" : window.location.hash));
+  // A transient override, not a preference: the link opens the card with every
+  // row for THIS visit and writes nothing, so a shared link cannot rewrite what
+  // the reader chose. The first click on either control clears it.
+  const [linked, setLinked] = useState(false);
+  useEffect(() => {
+    const check = (hash: string) => {
+      if (hash.replace(/^#/, "") !== MACHINES_ANCHOR) return;
+      setLinked(true);
+    };
+    check(arrivedWith);
+    const onHash = () => check(window.location.hash);
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [arrivedWith]);
+
+  const open = linked || openPref === "open";
+  const showAll = linked || rowsPref === "all";
+
   // Memoized so the identity is stable — a fresh [] on every render would re-run both
   // memos below on every keystroke elsewhere on the page.
   const rows = useMemo(() => board?.rows ?? [], [board]);
   const colors = useMemo(() => colorBySlug(rows), [rows]);
 
+  // ⚠️ Always the WHOLE board, in the current order. The row limit is applied
+  // where the rows are rendered, below — never here.
   const sorted = useMemo(() => sortMachines(rows, sortKey, dir), [rows, sortKey, dir]);
 
   // ⚠️ The board carries NO platform key — it is Collector Crypt's by
@@ -76,10 +134,34 @@ export function PlatformMachines({
   };
   const sp = (k: MachineSortKey) => ({ active: sortKey === k, dir, onClick: () => onSort(k) });
 
+  const setRows = (v: RowsPref) => {
+    setLinked(false);
+    setRowsPref(v);
+    // Going from 53 rows to 10 pulls the foot — and the button the reader just
+    // pressed — up past the top of the viewport and leaves them looking at
+    // whatever was a screen and a half below. Bring the card's head back into
+    // view, but only when it has actually left it.
+    if (v === "top") {
+      const el = document.getElementById(MACHINES_ANCHOR);
+      if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: "start" });
+    }
+  };
+  const setOpen = (v: OpenPref) => {
+    setLinked(false);
+    setOpenPref(v);
+  };
+
   const asOf = board.asOf.slice(0, 10);
+  // Cut ONLY here. `sorted` stays whole for the count and for anything that
+  // exports.
+  const visible = showAll ? sorted : sorted.slice(0, TOP_ROWS);
+  const truncated = visible.length < sorted.length;
 
   return (
     <Section
+      id={MACHINES_ANCHOR}
+      // Clears the sticky top bar + tape when `#machines` lands here.
+      className="scroll-mt-24"
       title="Machines"
       readMe="where the pull money goes, per machine — shares are of attributed spend"
       subtitle={`Last ${board.windowDays} complete days · through ${asOf}`}
@@ -90,32 +172,80 @@ export function PlatformMachines({
           attributed
         </span>
       }
+      disclosure={{ open, onToggle: () => setOpen(open ? "closed" : "open"), label: "Machines" }}
       flush
     >
-      <div className="scroll-x">
-        <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1040px]">
-          <thead>
-            <tr className="border-b border-line">
-              <Th>#</Th>
-              <SortTh {...sp("name")}>Machine</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sp("price")}>Price</SortTh>
-              <SortTh align="right" {...sp("spend")}>{board.windowDays}d Spend</SortTh>
-              <SortTh align="right" className="hidden md:table-cell" {...sp("pulls")}>Pulls</SortTh>
-              <SortTh align="right" className="hidden lg:table-cell" {...sp("spend7d")}>7d Spend</SortTh>
-              <SortTh align="right" className="hidden sm:table-cell" {...sp("attributed")}>Attr %</SortTh>
-              <Th className="hidden md:table-cell">Top partner</Th>
-              <Th className="hidden sm:table-cell">Split</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r, i) => (
-              <MachineTr key={r.key} row={r} rank={i + 1} colors={colors} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <TableFoot shown={sorted.length} total={rows.length} noun="machine" />
+      {open ? (
+        <>
+          <div className="scroll-x">
+            <table className="w-full min-w-0 border-collapse text-[13px] md:min-w-[1040px]">
+              <thead>
+                <tr className="border-b border-line">
+                  <Th>#</Th>
+                  <SortTh {...sp("name")}>Machine</SortTh>
+                  <SortTh align="right" className="hidden md:table-cell" {...sp("price")}>Price</SortTh>
+                  <SortTh align="right" {...sp("spend")}>{board.windowDays}d Spend</SortTh>
+                  <SortTh align="right" className="hidden md:table-cell" {...sp("pulls")}>Pulls</SortTh>
+                  <SortTh align="right" className="hidden lg:table-cell" {...sp("spend7d")}>7d Spend</SortTh>
+                  <SortTh align="right" className="hidden sm:table-cell" {...sp("attributed")}>Attr %</SortTh>
+                  <Th className="hidden md:table-cell">Top partner</Th>
+                  <Th className="hidden sm:table-cell">Split</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((r, i) => (
+                  <MachineTr key={r.key} row={r} rank={i + 1} colors={colors} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <TableFoot
+            shown={visible.length}
+            total={sorted.length}
+            noun="machine"
+            action={
+              // Only when there is something to show or hide: a board of eight
+              // machines has no "top 10" to go back to.
+              sorted.length > TOP_ROWS
+                ? truncated
+                  ? { label: `Show all ${sorted.length} →`, onClick: () => setRows("all") }
+                  : { label: `Show top ${TOP_ROWS}`, onClick: () => setRows("top") }
+                : undefined
+            }
+          />
+        </>
+      ) : (
+        <MachinesSummary board={board} asOf={asOf} />
+      )}
     </Section>
+  );
+}
+
+/**
+ * The folded card's one line: `53 machines · $89.9M spend · 41.0% of spend
+ * attributed · through 2026-09-13`. Every number is already on the board —
+ * `rows.length`, Σ `spendUsd` over the rows, `attributedSpendPct`, `asOf` —
+ * and each is printed exactly as the open card prints it (same formatter,
+ * same precision), so folding the card cannot change a figure.
+ *
+ * ⚠️ IT SAYS "OF SPEND", NOT "OF PULLS". The board's attribution rate is
+ * attributed ÷ total SPEND (the header chip's number). No attributed pull count
+ * exists on the board, and a spend share captioned as a pull share would be a
+ * different, unmeasured claim.
+ */
+function MachinesSummary({ board, asOf }: { board: MachineBoard; asOf: string }) {
+  const n = board.rows.length;
+  const spend = board.rows.reduce((s, r) => s + r.spendUsd, 0);
+  return (
+    <p className="border-t border-line px-4 py-2.5 font-mono text-[11px] text-ink-3 sm:px-5">
+      <span className="tabular text-ink-2">{formatInt(n)}</span> {n === 1 ? "machine" : "machines"}
+      {" · "}
+      <span className="tabular text-ink-2">{formatCompactUsd(spend)}</span> spend
+      {" · "}
+      <span className="tabular text-ink-2">{board.attributedSpendPct.toFixed(1)}%</span> of spend attributed
+      {" · "}
+      through <span className="tabular text-ink-2">{asOf}</span>
+    </p>
   );
 }
 

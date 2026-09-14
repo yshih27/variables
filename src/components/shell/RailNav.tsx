@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { RailModel, RailNode } from "@/lib/types";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { RailSpark } from "./RailSpark";
+import { DisclosureChevron } from "@/components/DisclosureChevron";
 import { RailFlyout, useFlyout } from "./RailFlyout";
 import { RailToggle } from "./RailToggle";
 import { RAIL_OPEN_KEY } from "./railPref";
@@ -573,9 +574,15 @@ function RailBranch({
           active ? "bg-bg-2 text-ink" : "hover:bg-bg-1"
         }`}
       >
-        <button
-          type="button"
-          onClick={onToggle}
+        {/* The shared 24px control (DisclosureChevron) — the same button a card
+            header folds with. ⚠️ NO MARGIN OF ITS OWN — the row's mx-1 already
+            insets it, and the 13px the wider chevron costs against r1's 11px
+            glyph is paid back by the tighter gaps below, or "Sports" truncates to
+            "Sp…" at 240px. */}
+        <DisclosureChevron
+          open={open}
+          onToggle={onToggle}
+          label={`${node.name} (${count} IPs)`}
           onFocus={onFocus}
           onKeyDown={(e) => {
             if (e.key === "ArrowRight" && !open) {
@@ -586,21 +593,7 @@ function RailBranch({
               onSetOpen(false);
             }
           }}
-          aria-expanded={open}
-          aria-label={`${open ? "Collapse" : "Expand"} ${node.name} (${count} IPs)`}
-          title={open ? "Collapse" : "Expand"}
-          /* 24px hit area, visibly a control: its own hover fill, one step up.
-             ⚠️ NO MARGIN OF ITS OWN — the row's mx-1 already insets it, and the
-             13px the wider chevron costs against r1's 11px glyph is paid back by
-             the tighter gaps below, or "Sports" truncates to "Sp…" at 240px. */
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-bg-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
-        >
-          <span aria-hidden className="rail-chevron" data-open={open ? "" : undefined}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-        </button>
+        />
 
         <Link
           href={node.href}
