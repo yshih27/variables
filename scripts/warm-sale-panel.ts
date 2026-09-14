@@ -36,12 +36,13 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { buildSalePanel, type SaleRow } from "../src/lib/data/salePanel";
+import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
 import { identityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP } from "../src/lib/data/identityIndex";
 import type { IndexPoint } from "../src/lib/data/indices";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
 import { writeSnapshot } from "../src/lib/db/snapshots";
 import { holdingPeriodInvariance, INDEX_HARD_SKEW_PP } from "../src/lib/data/biasTests";
+import { buildIdentityIndex, packIdentityIndex, writeIdentityIndex, IDENTITY_INDEX_SNAPSHOT_KEY, IDENTITY_SLABS_SNAPSHOT_KEY } from "../src/lib/data/identityDetail";
 import { canonicalGrade, gradePremiumSeries, PREMIUM_PAIRS } from "../src/lib/data/gradePremium";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
@@ -222,6 +223,42 @@ async function main() {
 
   const now = new Date().toISOString();
   const blob = { generatedAt: now, cadence: "monthly" as const, series, biasTests: { invariance, entities }, stepObs };
+  // Persist the panel this run already built, so the identity reader and the
+  // palette never build it on a request path (see salePanel.ts). Written FIRST:
+  // if the index write below fails, the panel is still fresh for its readers.
+  const panelSnap = { generatedAt: now, rows: panel };
+  if (OUT_DIR) {
+    mkdirSync(OUT_DIR, { recursive: true });
+    const pf = join(OUT_DIR, `${SALE_PANEL_SNAPSHOT_KEY}.json`);
+    const packed = packSalePanel(panelSnap);
+    writeFileSync(pf, JSON.stringify(packed));
+    console.log(`  wrote LOCAL sale-panel → ${pf} (${panel.length.toLocaleString()} rows, ${(packed.__gz__.length / 1024).toFixed(0)}KB gz)`);
+  } else {
+    await writeSalePanel(panelSnap);
+    console.log(`  wrote sale-panel snapshot (${panel.length.toLocaleString()} rows)`);
+  }
+
+  // The identity index (slug → keys, key → slabs, siblings) — derived from the
+  // panel plus the cards dims scan, which is the OTHER 90 s the identity reader
+  // must never pay on a request path. Same run, same panel, so the two
+  // snapshots agree.
+  const tIdx = Date.now();
+  const identityIdx = await buildIdentityIndex(panel);
+  if (OUT_DIR) {
+    const packed = packIdentityIndex(identityIdx, panel.length, now);
+    const f1 = join(OUT_DIR, `${IDENTITY_INDEX_SNAPSHOT_KEY}.json`);
+    const f2 = join(OUT_DIR, `${IDENTITY_SLABS_SNAPSHOT_KEY}.json`);
+    writeFileSync(f1, JSON.stringify(packed.index));
+    writeFileSync(f2, JSON.stringify(packed.slabs));
+    console.log(
+      `  wrote LOCAL identity-index → ${f1} (${identityIdx.bySlug.size.toLocaleString()} slugs, ${(packed.index.__gz__.length / 1024).toFixed(0)}KB gz) ` +
+        `+ identity-slabs → ${f2} (${(packed.slabs.__gz__.length / 1024).toFixed(0)}KB gz) in ${((Date.now() - tIdx) / 1000).toFixed(0)}s`,
+    );
+  } else {
+    await writeIdentityIndex(identityIdx, panel.length, now);
+    console.log(`  wrote identity-index + identity-slabs snapshots (${identityIdx.bySlug.size.toLocaleString()} slugs, ${((Date.now() - tIdx) / 1000).toFixed(0)}s)`);
+  }
+
   if (OUT_DIR) {
     mkdirSync(OUT_DIR, { recursive: true });
     const file = join(OUT_DIR, "price-index.json");

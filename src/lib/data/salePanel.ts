@@ -136,3 +136,56 @@ export async function buildSalePanel(): Promise<SaleRow[]> {
   );
   return tagged.flat();
 }
+
+// ── the PERSISTED panel ──────────────────────────────────────────────────────
+
+/**
+ * The sale panel as a snapshot, so no request path ever builds it.
+ *
+ * ⚠️ WHY. `buildSalePanel` is a 90–220 s job (the dims join over ~152K cards is
+ * the expensive half), and the identity reader and the palette's identity
+ * group both need the panel. Building it on a request path meant the first
+ * read after every deploy paid that in full — 222 s in the orchestrator's
+ * probe — and every deploy resets the cache. So the indices batch
+ * (warm-sale-panel) writes the panel it has already built, and readers
+ * inflate it in well under a second.
+ *
+ * Gzip-wrapped with the same `{ __gz__ }` convention as the listings blob:
+ * ~21K rows of JSON exceed what a plain jsonb upsert survives through PostgREST
+ * (statement_timeout). Readers accept the wrapped form only — there is no legacy
+ * unwrapped `sale-panel`, so nothing to auto-detect.
+ */
+import { gzipSync, gunzipSync } from "node:zlib";
+import { readSnapshot, writeSnapshot } from "@/lib/db/snapshots";
+
+export const SALE_PANEL_SNAPSHOT_KEY = "sale-panel";
+
+export type SalePanelSnapshot = { generatedAt: string; rows: SaleRow[] };
+type GzWrapper = { __gz__: string };
+
+function isGz(p: unknown): p is GzWrapper {
+  return !!p && typeof p === "object" && typeof (p as { __gz__?: unknown }).__gz__ === "string";
+}
+
+/** The wrapped payload the warmer stores — exported so `--out` writes the exact
+ *  bytes `readSalePanel` expects (SNAPSHOT_LOCAL_DIR serves them verbatim). */
+export function packSalePanel(snap: SalePanelSnapshot): GzWrapper {
+  return { __gz__: gzipSync(Buffer.from(JSON.stringify(snap))).toString("base64") };
+}
+
+/** The persisted panel, or null when none has been written yet. Never throws. */
+export async function readSalePanel(): Promise<SalePanelSnapshot | null> {
+  const raw = await readSnapshot<GzWrapper>(SALE_PANEL_SNAPSHOT_KEY);
+  if (!raw || !isGz(raw)) return null;
+  try {
+    const snap = JSON.parse(gunzipSync(Buffer.from(raw.__gz__, "base64")).toString()) as SalePanelSnapshot;
+    return Array.isArray(snap?.rows) ? snap : null;
+  } catch (e) {
+    console.warn(`[sale-panel] snapshot unreadable: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+export async function writeSalePanel(snap: SalePanelSnapshot): Promise<void> {
+  await writeSnapshot(SALE_PANEL_SNAPSHOT_KEY, packSalePanel(snap), snap.generatedAt);
+}

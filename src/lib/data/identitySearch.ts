@@ -10,14 +10,11 @@
  * then slab count. Cached 30 minutes with the panel.
  */
 import { unstable_cache } from "next/cache";
-import { listIdentitySlugs } from "./identityDetail";
+import { listIdentityIndex, cachedPanel } from "./identityDetail";
 import { parseIdentityKey } from "./traits";
 import { normalizeSetName } from "@/lib/card/setName";
 import { identityHref } from "@/lib/card/identity";
 import { canonicalGrade } from "./gradePremium";
-import { buildSalePanel } from "./salePanel";
-import { readAllCardDims } from "./cards";
-import { identityKey } from "./traits";
 import { formatCompactUsd } from "@/lib/format";
 
 export type IdentitySearchRow = {
@@ -35,46 +32,64 @@ export type IdentitySearchRow = {
 
 const titleCase = (s: string) => s.toLowerCase().replace(/(^|[\s\-\/'])(\w)/g, (m, sep, c) => sep + c.toUpperCase());
 
-export const readIdentitySearchRows = unstable_cache(
-  async (): Promise<IdentitySearchRow[]> => {
-    const [bySlug, panel, dims] = await Promise.all([listIdentitySlugs(), buildSalePanel(), readAllCardDims()]);
-    const d30 = Date.now() - 30 * 86_400_000;
-    const sales30 = new Map<string, number>();
-    const last = new Map<string, { ts: string; priceUsd: number }>();
-    for (const r of panel) {
-      if (!r.identity) continue;
-      if (Date.parse(r.ts) >= d30) sales30.set(r.identity, (sales30.get(r.identity) ?? 0) + 1);
-      const cur = last.get(r.identity);
-      if (!cur || r.ts > cur.ts) last.set(r.identity, { ts: r.ts, priceUsd: r.priceUsd });
-    }
-    const slabs = new Map<string, number>();
-    for (const [, m] of dims) for (const [, d] of m) { const k = d.identity ? identityKey(d.ip, d.identity) : null; if (k) slabs.set(k, (slabs.get(k) ?? 0) + 1); }
+/**
+ * Uncached core. Reads the persisted panel and the persisted identity index —
+ * NEVER a dims scan or a panel build on a request path.
+ */
+export async function buildIdentitySearchRows(): Promise<IdentitySearchRow[]> {
+  const [idx, panel] = await Promise.all([listIdentityIndex(), cachedPanel()]);
+  const d30 = Date.now() - 30 * 86_400_000;
+  const sales30 = new Map<string, number>();
+  const last = new Map<string, { ts: string; priceUsd: number }>();
+  for (const r of panel) {
+    if (!r.identity) continue;
+    if (Date.parse(r.ts) >= d30) sales30.set(r.identity, (sales30.get(r.identity) ?? 0) + 1);
+    const cur = last.get(r.identity);
+    if (!cur || r.ts > cur.ts) last.set(r.identity, { ts: r.ts, priceUsd: r.priceUsd });
+  }
 
-    const rows: IdentitySearchRow[] = [];
-    for (const [slug, keys] of bySlug) {
-      // The same card can be keyed twice (set-string fragments); sum across keys
-      // for the search row so the card's true activity ranks it.
-      const s30 = keys.reduce((a, k) => a + (sales30.get(k) ?? 0), 0);
-      const nSlabs = keys.reduce((a, k) => a + (slabs.get(k) ?? 0), 0);
-      const lastSale = keys.map((k) => last.get(k)).filter(Boolean).sort((a, b) => (b!.ts > a!.ts ? 1 : -1))[0] ?? null;
-      const pk = parseIdentityKey(keys[0]);
-      if (!pk) continue;
-      const setName = pk.parts.set ? normalizeSetName(pk.parts.set).name : null;
-      const grade = canonicalGrade(pk.parts.grade);
-      const name = titleCase(pk.parts.cardName ?? "");
-      const mid = [setName, pk.parts.number ? `#${pk.parts.number}` : null].filter(Boolean).join(" ");
-      rows.push({
-        slug,
-        label: [name, mid || null, grade].filter(Boolean).join(" · "),
-        sub: `${nSlabs} slab${nSlabs === 1 ? "" : "s"}${lastSale ? ` · ${formatCompactUsd(lastSale.priceUsd)} last` : ""}`,
-        href: identityHref(slug),
-        haystack: `${name} ${setName ?? ""} ${pk.parts.number ?? ""} ${grade} ${pk.ip}`.toLowerCase(),
-        sales30d: s30,
-        slabs: nSlabs,
-      });
-    }
-    return rows.sort((a, b) => b.sales30d - a.sales30d || b.slabs - a.slabs);
-  },
-  ["identity-search-rows:v1"],
-  { revalidate: 1800, tags: ["platform-buckets"] },
-);
+  const rows: IdentitySearchRow[] = [];
+  for (const [slug, keys] of idx.bySlug) {
+    // The same card can be keyed twice (set-string fragments); sum across keys
+    // for the search row so the card's true activity ranks it.
+    const s30 = keys.reduce((a, k) => a + (sales30.get(k) ?? 0), 0);
+    const nSlabs = keys.reduce((a, k) => a + (idx.slabsByKey.get(k)?.length ?? 0), 0);
+    const lastSale = keys.map((k) => last.get(k)).filter(Boolean).sort((a, b) => (b!.ts > a!.ts ? 1 : -1))[0] ?? null;
+    const pk = parseIdentityKey(keys[0]);
+    if (!pk) continue;
+    const setName = pk.parts.set ? normalizeSetName(pk.parts.set).name : null;
+    const grade = canonicalGrade(pk.parts.grade);
+    const name = titleCase(pk.parts.cardName ?? "");
+    const mid = [setName, pk.parts.number ? `#${pk.parts.number}` : null].filter(Boolean).join(" ");
+    rows.push({
+      slug,
+      label: [name, mid || null, grade].filter(Boolean).join(" · "),
+      sub: `${nSlabs} slab${nSlabs === 1 ? "" : "s"}${lastSale ? ` · ${formatCompactUsd(lastSale.priceUsd)} last` : ""}`,
+      href: identityHref(slug),
+      haystack: `${name} ${setName ?? ""} ${pk.parts.number ?? ""} ${grade} ${pk.ip}`.toLowerCase(),
+      sales30d: s30,
+      slabs: nSlabs,
+    });
+  }
+  return rows.sort((a, b) => b.sales30d - a.sales30d || b.slabs - a.slabs);
+}
+
+const nextCachedRows = unstable_cache(buildIdentitySearchRows, ["identity-search-rows:v2"], {
+  revalidate: 1800,
+  tags: ["platform-buckets"],
+});
+let rowsMemo: { at: number; p: Promise<IdentitySearchRow[]> } | null = null;
+/**
+ * Next's data cache in the app; an in-process memo elsewhere — `unstable_cache`
+ * throws outside the Next runtime, and a thrown search leg was silently an
+ * EMPTY group (the palette showed no "Cards" section in the cold probe).
+ */
+export async function readIdentitySearchRows(): Promise<IdentitySearchRow[]> {
+  try {
+    return await nextCachedRows();
+  } catch (e) {
+    if (!/incrementalCache/.test(String(e))) throw e;
+    if (!rowsMemo || Date.now() - rowsMemo.at > 30 * 60_000) rowsMemo = { at: Date.now(), p: buildIdentitySearchRows() };
+    return rowsMemo.p;
+  }
+}

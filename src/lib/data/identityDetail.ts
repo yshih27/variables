@@ -32,12 +32,12 @@
  * Never throws; null when the slug resolves to nothing.
  */
 import { unstable_cache } from "next/cache";
-import { buildSalePanel, type SaleRow } from "./salePanel";
+import { buildSalePanel, readSalePanel, type SaleRow } from "./salePanel";
 import { readAllCardDims, readCards, type CardPlatform } from "./cards";
 import { identityKey, parseIdentityKey, type CardIdentityParts } from "./traits";
 import { identitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
 import { normalizeSetName } from "@/lib/card/setName";
-import { cardHref, PLATFORM_META } from "@/lib/card/ids";
+import { cardHref, parseCardId, PLATFORM_META } from "@/lib/card/ids";
 import { monthlyIdentityPrices, MIN_SALES_PER_IDENTITY } from "./identityIndex";
 import { canonicalGrade, PREMIUM_PAIRS } from "./gradePremium";
 import { readPremiumSeries, PREMIUM_TO_PERCENT } from "./gradeSetIndex";
@@ -46,6 +46,8 @@ import { readPriceIndexKeys } from "./indices";
 import { IP_CATALOG, categoryOf } from "./ipCatalog";
 import { monthStartUtc, monthEndUtc } from "@/lib/chart/period";
 import { db } from "@/lib/db/client";
+import { readSnapshot, writeSnapshot } from "@/lib/db/snapshots";
+import { gzipSync, gunzipSync } from "node:zlib";
 
 // ── contracts (ADD fields, never rename) ─────────────────────────────────────
 
@@ -148,23 +150,37 @@ export type IdentityDetail = {
  * after a deploy pays the build; every one after reads the cache.
  */
 const PANEL_TTL_MS = 30 * 60_000;
-const nextCachedPanel = unstable_cache(async () => buildSalePanel(), ["identity-sale-panel:v1"], {
+
+/**
+ * The panel, SNAPSHOT FIRST. `warm-sale-panel` persists the panel it builds
+ * (salePanel.ts `writeSalePanel`); this inflates it in well under a second.
+ * Only when NO snapshot exists — a fresh database, or the indices batch has
+ * never run — does it fall back to building the panel, and it says so on the
+ * console, because a request path that builds the panel is a 90–220 s page.
+ *
+ * Next's data cache inside the app; an in-process memo with the same TTL
+ * everywhere else, because `unstable_cache` throws ("incrementalCache missing")
+ * outside the Next runtime and the probes and the CI gate must be able to read.
+ */
+async function loadPanel(): Promise<SaleRow[]> {
+  const snap = await readSalePanel();
+  if (snap) return snap.rows;
+  console.warn(
+    "[identity] no sale-panel snapshot — building the panel on the request path (90–220 s). Run warm-sale-panel.",
+  );
+  return buildSalePanel();
+}
+const nextCachedPanel = unstable_cache(loadPanel, ["identity-sale-panel:v2"], {
   revalidate: 1800,
   tags: ["platform-buckets"],
 });
 let panelMemo: { at: number; p: Promise<SaleRow[]> } | null = null;
-/**
- * Next's data cache inside the app; an in-process memo with the same TTL
- * everywhere else. `unstable_cache` THROWS ("incrementalCache missing") when
- * called outside the Next runtime, which would make this reader unusable from
- * the probe scripts and the CI gate — the places that prove it is right.
- */
-async function cachedPanel(): Promise<SaleRow[]> {
+export async function cachedPanel(): Promise<SaleRow[]> {
   try {
     return await nextCachedPanel();
   } catch (e) {
     if (!/incrementalCache/.test(String(e))) throw e;
-    if (!panelMemo || Date.now() - panelMemo.at > PANEL_TTL_MS) panelMemo = { at: Date.now(), p: buildSalePanel() };
+    if (!panelMemo || Date.now() - panelMemo.at > PANEL_TTL_MS) panelMemo = { at: Date.now(), p: loadPanel() };
     return panelMemo.p;
   }
 }
@@ -188,26 +204,52 @@ function baseOf(key: string): string {
   f[4] = "";
   return f.join("|");
 }
-let slugMemo: { panel: SaleRow[]; idx: SlugIndex } | null = null;
 
-async function slugIndex(panel: SaleRow[]): Promise<SlugIndex> {
-  if (slugMemo && slugMemo.panel === panel) return slugMemo.idx;
+/**
+ * The persisted form of the slug index — the SECOND thing that must never be
+ * built on a request path. The panel snapshot removed one 90 s cost; measured
+ * with it in place the cold read was STILL 98–172 s, because this index is
+ * derived from `readAllCardDims()` — the 152K-row scan that is the expensive
+ * half of the panel build itself. So `warm-sale-panel` persists this too, from
+ * the same run and the same panel, and readers inflate it.
+ */
+export type IdentityIndexSnapshot = {
+  generatedAt: string;
+  /** panel rows the index was built against — readers check it matches. */
+  panelRows: number;
+  /**
+   * COMPACT, AND SPLIT IN TWO. The first cut stored the 53-char identity key in
+   * three maps: 9.3 MB base64, above the 6.8 MB listings blob that is the largest
+   * snapshot proven to write through PostgREST. Interning the keys and deriving
+   * `siblingsOf` on read brought it to 7.1 MB — still above, because the 119K
+   * slab refs are 41-char base58 mints and do not compress. So the slabs live in
+   * their OWN snapshot (`identity-slabs`), and each piece stays under the proven
+   * size: this one ~1.5 MB, the slabs ~5.7 MB. Post-migration the slabs snapshot
+   * is redundant (a keyset read on cards.identity_key replaces it).
+   */
+  keys: string[];
+  bySlug: Record<string, number[]>;
+};
+export type IdentitySlabsSnapshot = {
+  generatedAt: string;
+  panelRows: number;
+  /** key index (into identity-index.keys) → card ids (`<code>-<tokenId>`). */
+  slabs: Record<number, string[]>;
+};
+export const IDENTITY_INDEX_SNAPSHOT_KEY = "identity-index";
+export const IDENTITY_SLABS_SNAPSHOT_KEY = "identity-slabs";
+
+/** Build the index from the panel + the dims scan. The warmer's path. */
+export async function buildIdentityIndex(panel: SaleRow[]): Promise<SlugIndex> {
   const bySlug = new Map<string, string[]>();
   const slabsByKey = new Map<string, { platform: CardPlatform; tokenId: string }[]>();
-  const siblingsOf = new Map<string, string[]>();
   const seenKey = new Set<string>();
   const add = (slug: string | null, key: string) => {
     if (!slug) return;
     const a = bySlug.get(slug);
     if (!a) bySlug.set(slug, [key]);
     else if (!a.includes(key)) a.push(key);
-    if (!seenKey.has(key)) {
-      seenKey.add(key);
-      const b = baseOf(key);
-      const sibs = siblingsOf.get(b);
-      if (sibs) sibs.push(key);
-      else siblingsOf.set(b, [key]);
-    }
+    seenKey.add(key);
   };
   for (const r of panel) {
     if (!r.identity) continue;
@@ -221,13 +263,99 @@ async function slugIndex(panel: SaleRow[]): Promise<SlugIndex> {
       const key = identityKey(d.ip, d.identity);
       if (!key) continue;
       add(identitySlug(d.ip, d.identity), key);
-      const s = slabsByKey.get(key);
-      if (s) s.push({ platform: platform as CardPlatform, tokenId });
+      const sl = slabsByKey.get(key);
+      if (sl) sl.push({ platform: platform as CardPlatform, tokenId });
       else slabsByKey.set(key, [{ platform: platform as CardPlatform, tokenId }]);
     }
   }
-  slugMemo = { panel, idx: { bySlug, slabsByKey, siblingsOf } };
-  return slugMemo.idx;
+  return { bySlug, slabsByKey, siblingsOf: siblingsFrom(seenKey) };
+}
+
+/** `siblingsOf` from a key set — the grade ladder's join, rebuilt on read. */
+function siblingsFrom(keys: Iterable<string>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const k of keys) {
+    const b = baseOf(k);
+    const sibs = out.get(b);
+    if (sibs) sibs.push(k);
+    else out.set(b, [k]);
+  }
+  return out;
+}
+
+type Gz = { __gz__: string };
+const gz = (o: unknown): Gz => ({ __gz__: gzipSync(Buffer.from(JSON.stringify(o))).toString("base64") });
+
+/** The two packed snapshots the warmer writes (and `--out` writes verbatim). */
+export function packIdentityIndex(idx: SlugIndex, panelRows: number, generatedAt: string): { index: Gz; slabs: Gz } {
+  const keys = [...new Set([...[...idx.bySlug.values()].flat(), ...idx.slabsByKey.keys()])];
+  const at = new Map(keys.map((k, i) => [k, i]));
+  const slabs: Record<number, string[]> = {};
+  for (const [k, refs] of idx.slabsByKey) slabs[at.get(k)!] = refs.map((r) => cardHref(r.platform, r.tokenId).replace(/^\/card\//, ""));
+  const index: IdentityIndexSnapshot = {
+    generatedAt,
+    panelRows,
+    keys,
+    bySlug: Object.fromEntries([...idx.bySlug].map(([s, ks]) => [s, ks.map((k) => at.get(k)!)])),
+  };
+  const slabSnap: IdentitySlabsSnapshot = { generatedAt, panelRows, slabs };
+  return { index: gz(index), slabs: gz(slabSnap) };
+}
+
+export async function writeIdentityIndex(idx: SlugIndex, panelRows: number, generatedAt: string): Promise<void> {
+  const packed = packIdentityIndex(idx, panelRows, generatedAt);
+  await writeSnapshot(IDENTITY_INDEX_SNAPSHOT_KEY, packed.index, generatedAt);
+  await writeSnapshot(IDENTITY_SLABS_SNAPSHOT_KEY, packed.slabs, generatedAt);
+}
+
+function inflate<T>(raw: { __gz__?: string } | null): T | null {
+  if (!raw || typeof raw.__gz__ !== "string") return null;
+  return JSON.parse(gunzipSync(Buffer.from(raw.__gz__, "base64")).toString()) as T;
+}
+
+async function readIdentityIndex(): Promise<SlugIndex | null> {
+  try {
+    const [index, slabSnap] = await Promise.all([
+      readSnapshot<Gz>(IDENTITY_INDEX_SNAPSHOT_KEY).then((r) => inflate<IdentityIndexSnapshot>(r)),
+      readSnapshot<Gz>(IDENTITY_SLABS_SNAPSHOT_KEY).then((r) => inflate<IdentitySlabsSnapshot>(r)),
+    ]);
+    if (!index || !Array.isArray(index.keys) || !slabSnap) return null;
+    // Both must come from the same warmer run, or a key index would point at
+    // the wrong key. `generatedAt` is the run stamp on both.
+    if (index.generatedAt !== slabSnap.generatedAt) {
+      console.warn(`[identity] identity-index (${index.generatedAt}) and identity-slabs (${slabSnap.generatedAt}) are from different runs — rebuilding`);
+      return null;
+    }
+    const bySlug = new Map<string, string[]>();
+    for (const [slug, idxs] of Object.entries(index.bySlug)) bySlug.set(slug, idxs.map((i) => index.keys[i]));
+    const slabsByKey = new Map<string, { platform: CardPlatform; tokenId: string }[]>();
+    for (const [i, ids] of Object.entries(slabSnap.slabs)) {
+      const refs: { platform: CardPlatform; tokenId: string }[] = [];
+      for (const id of ids) {
+        const parsed = parseCardId(id);
+        if (parsed) refs.push(parsed);
+      }
+      slabsByKey.set(index.keys[Number(i)], refs);
+    }
+    return { bySlug, slabsByKey, siblingsOf: siblingsFrom(index.keys) };
+  } catch (e) {
+    console.warn(`[identity] identity snapshots unreadable: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+let slugMemo: { panel: SaleRow[]; idx: SlugIndex } | null = null;
+
+/** Snapshot first; the dims scan only when no snapshot exists, and it says so. */
+async function slugIndex(panel: SaleRow[]): Promise<SlugIndex> {
+  if (slugMemo && slugMemo.panel === panel) return slugMemo.idx;
+  let idx = await readIdentityIndex();
+  if (!idx) {
+    console.warn("[identity] no identity-index snapshot — scanning cards dims on the request path (~90 s). Run warm-sale-panel.");
+    idx = await buildIdentityIndex(panel);
+  }
+  slugMemo = { panel, idx };
+  return idx;
 }
 
 // ── resolution: two paths, one candidate set ─────────────────────────────────
@@ -243,14 +371,52 @@ async function resolveViaPanel(slug: string, panel: SaleRow[]): Promise<string[]
  * applied. Returns null (not []) while the column is absent so the caller can
  * tell "no such column yet" from "no such identity".
  */
+/**
+ * Whether `cards.identity_slug` exists, learned ONCE per process per TTL and
+ * OFF the critical path: the first read fires the probe and does not wait for
+ * it (the panel path answers, identically — proven), later reads use whatever
+ * it learned. Until the migration lands every read was paying a round trip to
+ * relearn that the column is absent; after it lands the switch is automatic.
+ */
+let columnState: { known: "present" | "absent"; until: number } | null = null;
+let columnProbe: Promise<void> | null = null;
+function probeColumn(): Promise<void> {
+  if (columnProbe) return columnProbe;
+  columnProbe = (async () => {
+    try {
+      const { error } = await db().from("cards").select("identity_slug").limit(1);
+      const absent = !!error && /identity_slug|identity_key/.test(error.message);
+      columnState = { known: absent ? "absent" : "present", until: Date.now() + PANEL_TTL_MS };
+    } catch {
+      columnState = { known: "absent", until: Date.now() + 60_000 };
+    } finally {
+      columnProbe = null;
+    }
+  })();
+  return columnProbe;
+}
+
+/** Keyset read on `cards.identity_slug`. Null while the column is absent OR not
+ *  yet known — the caller then uses the panel path, which yields the same keys. */
 export async function resolveViaColumn(slug: string): Promise<string[] | null> {
+  if (!columnState || Date.now() > columnState.until) {
+    void probeColumn(); // learn in the background; this read does not wait
+    return null;
+  }
+  if (columnState.known === "absent") return null;
   try {
     const { data, error } = await db().from("cards").select("identity_key").eq("identity_slug", slug).limit(200);
-    if (error) return /identity_slug|identity_key/.test(error.message) ? null : [];
+    if (error) return null;
     return [...new Set((data ?? []).map((r) => String(r.identity_key)).filter(Boolean))];
   } catch {
     return null;
   }
+}
+
+/** For the probe scripts: wait for the column state to be known. */
+export async function awaitColumnProbe(): Promise<"present" | "absent"> {
+  await probeColumn();
+  return columnState?.known ?? "absent";
 }
 
 /** Most sales, then most slabs, then the lexicographically first key. */
@@ -507,6 +673,13 @@ export async function resolveViaPanelForProbe(slug: string): Promise<string[]> {
 export async function listIdentitySlugs(): Promise<Map<string, string[]>> {
   return (await slugIndex(await cachedPanel())).bySlug;
 }
+
+/** The whole persisted index (slugs, slabs, siblings) — search reads slab
+ *  counts from here rather than scanning dims itself. */
+export async function listIdentityIndex(): Promise<SlugIndex> {
+  return slugIndex(await cachedPanel());
+}
+export type { SlugIndex as IdentityIndex };
 
 /** Exposed for the probe: the same `buildDetail` from a given key set. */
 export async function buildDetailForProbe(slug: string, keys: string[], via: "panel" | "column"): Promise<IdentityDetail | null> {
