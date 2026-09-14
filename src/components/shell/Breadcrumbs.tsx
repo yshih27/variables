@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
-import { crumbsFor, crumbNamesFrom, crumbNamesFromCatalog } from "@/lib/shell/crumbs";
+import { crumbsFor, crumbNamesFrom, crumbNamesFromCatalog, withNames, type CrumbNames } from "@/lib/shell/crumbs";
 import { useRailModel } from "./RailModelContext";
 
 /**
  * The trail — `Categories › Pokémon › Sets › 151` — on every page under /ip,
- * /platform, /ips, /platforms and /card.
+ * /platform, /ips, /platforms, /card and /i.
  *
  * ⚠️ IT TAKES THE SLOT THE "← Pokémon" LINK HAD, and no more: the same 12px line,
  * the same `mb-1.5`, so a page that swaps one for the other keeps its height and
@@ -23,12 +23,23 @@ import { useRailModel } from "./RailModelContext";
  * are the ones a reader climbs. The full trail stays in the DOM for assistive
  * tech; the earlier segments are hidden visually, not removed.
  */
-export function Breadcrumbs({ leaf, className = "" }: { leaf?: string | null; className?: string }) {
+export function Breadcrumbs({
+  leaf,
+  names,
+  className = "",
+}: {
+  leaf?: string | null;
+  /** The page's own names for segments the rail model may not know (an
+   *  identity's set with no published index). Data from the page's reader,
+   *  never typed; merged over the model's names. */
+  names?: Partial<CrumbNames> | null;
+  className?: string;
+}) {
   const pathname = usePathname() ?? "/";
   const model = useRailModel();
   const crumbs = useMemo(
-    () => crumbsFor(pathname, model ? crumbNamesFrom(model) : crumbNamesFromCatalog(), leaf),
-    [pathname, model, leaf],
+    () => crumbsFor(pathname, withNames(model ? crumbNamesFrom(model) : crumbNamesFromCatalog(), names), leaf),
+    [pathname, model, leaf, names],
   );
   // ⚠️ A ONE-SEGMENT TRAIL IS NOT A TRAIL (nav r4). On /ips and /platforms the
   // only segment is the page itself, and since r4 the h1 directly beneath says

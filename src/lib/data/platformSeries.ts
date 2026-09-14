@@ -13,6 +13,7 @@ import {
   readMetricSeriesBulk,
   type SeriesPoint,
 } from "./metricSnapshots";
+import { PLATFORM_SOURCES } from "./sources";
 
 export const getPlatformSeries = unstable_cache(
   async (metric: string) => Object.fromEntries(await readMetricSeriesBulk("platform", metric)),
@@ -48,6 +49,19 @@ export const PLATFORM_BAND_COLORS = [
   "#22d3ee",
   "#fbbf24",
 ];
+
+/**
+ * A venue's colour wherever a surface colours BY VENUE rather than by rank —
+ * the identity page's sale dots and venue bars. Assigned by the venue's position
+ * in the platform catalog, so Beezie is the same colour on every identity page
+ * and a reader who learned it once keeps it. The homepage bands above colour by
+ * rank on purpose (the ranking is the picture there); this is the other case.
+ * Same ramp, no new colours; an unknown key takes the last swatch.
+ */
+export function venueColor(platform: string): string {
+  const i = PLATFORM_SOURCES.findIndex((p) => p.key === platform);
+  return PLATFORM_BAND_COLORS[(i < 0 ? PLATFORM_BAND_COLORS.length - 1 : i) % PLATFORM_BAND_COLORS.length];
+}
 
 /**
  * Ranked platforms → stacked bands of daily total volume.

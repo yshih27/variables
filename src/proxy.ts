@@ -3,13 +3,15 @@ import {
   isValidIpKey,
   isValidPlatformKey,
   isValidCardId,
+  isValidIdentityPath,
 } from "@/lib/data/validKeys";
 import { isEmbedChartId } from "@/lib/chart/embeds";
 
 /**
  * Why this file exists — fixing soft 404s.
  *
- * The dynamic detail pages (`/ip/[key]`, `/platform/[key]`, `/card/[id]`) call
+ * The dynamic detail pages (`/ip/[key]`, `/platform/[key]`, `/card/[id]`,
+ * `/i/[...slug]`) call
  * `notFound()` for unknown keys, but they only do so AFTER awaiting their data.
  * Because the app has a global `app/loading.tsx`, that data fetch suspends under
  * a Suspense boundary, which commits a streamed `200 OK` before `notFound()`
@@ -41,6 +43,9 @@ function isInvalidDetailPath(pathname: string): boolean {
       return !isValidPlatformKey(key);
     case "embed":
       return !isEmbedChartId(key);
+    case "i":
+      // The whole path: an identity is five to seven segments, not one key.
+      return !isValidIdentityPath(pathname);
     default:
       return false;
   }
@@ -56,5 +61,5 @@ export function proxy(request: NextRequest): NextResponse {
 export const config = {
   // Only the dynamic detail routes (and their sub-pages). Note `/ip/:path+`
   // does NOT match the list pages `/ips` or `/platforms`.
-  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+"],
+  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+"],
 };

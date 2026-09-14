@@ -13,7 +13,7 @@
  */
 import { getCCMetadata } from "@/lib/data/ccTraits";
 import { getBeezieMetadata } from "@/lib/data/beezieTraits";
-import { readCards, readCardDims } from "@/lib/data/cards";
+import { readCards, readCardMeta } from "@/lib/data/cards";
 import { identitySlug } from "@/lib/card/identity";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "@/lib/data/traits";
 import { proxyImg } from "@/lib/img";
@@ -98,8 +98,12 @@ export async function getCardDetail(id: string): Promise<CardDetail | null> {
 
   const traits = normalizeTraits(meta);
   const pm = PLATFORM_META[platform];
-  const dim = (await readCardDims(platform).catch(() => null))?.get(tokenId) ?? null;
-  const identity = dim?.identity ? identitySlug(dim.ip, dim.identity) : null;
+  // ⚠️ ONE KEYSET READ, NEVER THE DIMS SCAN. The first cut called
+  // readCardDims(platform) — the 152K-row scan — and a cold /card/<id> paid
+  // 64–100 s for it (99 s in the orchestrator's probe). readCardMeta reads the
+  // one row and derives the same parts with the same extractor.
+  const metaRow = (await readCardMeta(platform, [tokenId]).catch(() => new Map())).get(tokenId) ?? null;
+  const identity = metaRow?.identity ? identitySlug(metaRow.ip ?? "other", metaRow.identity) : null;
 
   return {
     id,

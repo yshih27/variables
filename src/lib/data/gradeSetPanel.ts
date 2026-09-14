@@ -3,6 +3,7 @@ import { readSaleFeed, type UntaggedSale } from "./salePanel";
 import { readCardMeta, type CardPlatform, type CardMeta } from "./cards";
 import { canonicalGrade } from "./gradePremium";
 import { dayStartUtc } from "./metricSnapshots";
+import { identitySlug } from "@/lib/card/identity";
 
 /**
  * The 30-complete-day resale panel behind /ip/[key]/grades and /ip/[key]/sets.
@@ -48,6 +49,9 @@ export type PanelSale = {
   setName: string | null;
   cardName: string | null;
   image: string | null;
+  /** The token's identity page (`/i/<slug>`), from the one slug SSOT; null when
+   *  the parts cannot name an identity. */
+  identitySlug: string | null;
 };
 
 export type GradeSetPanel = {
@@ -111,6 +115,7 @@ async function build(): Promise<GradeSetPanel> {
       setName: m.setName,
       cardName: m.cardName?.trim() || m.name?.trim() || null,
       image: m.image ?? null,
+      identitySlug: m.identity ? identitySlug(m.ip ?? "other", m.identity) : null,
     });
   }
 
@@ -131,7 +136,9 @@ export const getGradeSetPanel: () => Promise<GradeSetPanel> = unstable_cache(
       return { sales: [], fromDay: "", toDay: "", unresolved: 0 };
     }
   },
-  ["grade-set-panel:v1"],
+  // v2: rows carry `identitySlug` — a v1 entry from before this shape would
+  // hand the tables rows with no slug until the next revalidation.
+  ["grade-set-panel:v2"],
   { revalidate: 1800, tags: ["platform-buckets"] },
 );
 
@@ -153,7 +160,7 @@ export type GradeRow = {
    *  price actually paid in the bucket. */
   medianPriceUsd: number;
   sharePct: number;
-  topSale: { name: string | null; priceUsd: number; tokenId: string; platform: CardPlatform } | null;
+  topSale: { name: string | null; priceUsd: number; tokenId: string; platform: CardPlatform; identitySlug: string | null } | null;
 };
 
 export function gradeRows(panel: GradeSetPanel, ip: string): GradeRow[] {
@@ -178,7 +185,7 @@ export function gradeRows(panel: GradeSetPanel, ip: string): GradeRow[] {
         // A share of nothing is not 0% — but `total` is only 0 when the bucket is
         // empty too, in which case there is no row here at all.
         sharePct: total > 0 ? (volumeUsd / total) * 100 : 0,
-        topSale: top ? { name: top.cardName, priceUsd: top.priceUsd, tokenId: top.tokenId, platform: top.platform } : null,
+        topSale: top ? { name: top.cardName, priceUsd: top.priceUsd, tokenId: top.tokenId, platform: top.platform, identitySlug: top.identitySlug } : null,
       };
     })
     .sort((a, b) => b.volumeUsd - a.volumeUsd);
