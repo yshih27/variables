@@ -3,8 +3,7 @@ import { Breadcrumbs } from "../shell/Breadcrumbs";
 import { CardThumb } from "../CardThumb";
 import { GradeChip } from "../GradeChip";
 import type { IdentityDetail } from "@/lib/data/identityDetail";
-import { identityDisplayName } from "@/lib/card/identity";
-import { membershipLine } from "@/lib/card/identityView";
+import { identityName, membershipLine } from "@/lib/card/identityView";
 
 /**
  * Who this card is — the identity strip for /i/[...slug], in the venue page's
@@ -22,7 +21,7 @@ import { membershipLine } from "@/lib/card/identityView";
 export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
   const p = detail.parts;
   const art = detail.tokens.find((t) => t.image)?.image ?? null;
-  const name = identityDisplayName(p.name);
+  const name = identityName(p);
 
   return (
     <header className="mb-3">

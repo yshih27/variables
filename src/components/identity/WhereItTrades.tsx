@@ -25,7 +25,7 @@ export function WhereItTrades({ detail }: { detail: IdentityDetail }) {
   const listed = detail.tokens
     .filter((t) => t.listing && t.listing.priceUsd > 0)
     .sort((a, b) => a.listing!.priceUsd - b.listing!.priceUsd);
-  const fr = readFloor(detail.floor);
+  const fr = readFloor(detail.floor, detail.sales.at(-1)?.priceUsd ?? null);
   const aggregatorVenues = detail.floor?.coverage.filter((c) => c.source === "aggregator").map((c) => venueName(c.platform)) ?? [];
 
   return (

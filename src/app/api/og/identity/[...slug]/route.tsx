@@ -1,8 +1,7 @@
 import { getIdentityDetail } from "@/lib/data/identityDetail";
 import { formatCompactUsd } from "@/lib/format";
 import { renderOgCard } from "@/lib/og/ogCard";
-import { identityDisplayName } from "@/lib/card/identity";
-import { latestCompleteMonthly } from "@/lib/card/identityView";
+import { identityName, latestCompleteMonthly } from "@/lib/card/identityView";
 
 /**
  * GET /api/og/identity/<slug> — the identity page's share image.
@@ -38,7 +37,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ slug: string[]
 
   return renderOgCard({
     eyebrow: [p.ipName, p.setName, p.number ? `#${p.number}` : null].filter(Boolean).join(" · "),
-    title: `${identityDisplayName(p.name)} · ${p.grade}`,
+    title: `${identityName(p)} · ${p.grade}`,
     stat,
     substat: monthly || last ? { value: `${detail.tokens.length} slab${detail.tokens.length === 1 ? "" : "s"}`, label: "" } : undefined,
   });

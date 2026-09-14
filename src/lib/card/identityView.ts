@@ -40,18 +40,31 @@ export type FloorReading = {
   headline: boolean;
   /** The listing venue's coverage. */
   source: "native" | "aggregator";
+  /** What the ask was measured against, or null when nothing was available. */
+  reference: "monthly" | "last sale" | null;
   /** True when any venue with slabs here has aggregator-sourced listings. */
   anyAggregator: boolean;
 };
 
-export function readFloor(floor: IdentityFloor): FloorReading | null {
+/**
+ * ⚠️ A FLOOR NEEDS A REFERENCE, NATIVE OR NOT. The first rule let any native ask
+ * headline, and on a 55-slab Crown Zenith Pikachu PSA 9 with no sale that
+ * printed "$1" (Collector Crypt asks of $1.37 and $2.00) as the card's floor.
+ * A live ask is real; calling it the floor is a claim about the market. So the
+ * ask headlines only when it sits within 0.5×–3× of a reference price: the
+ * latest complete monthly price, else the last sale. With no reference at all
+ * the KPI reads "—" and the ask is a receipt line with its count.
+ */
+export function readFloor(floor: IdentityFloor, lastSaleUsd: number | null = null): FloorReading | null {
   if (!floor) return null;
   const source = floor.coverage.find((c) => c.platform === floor.platform)?.source ?? "aggregator";
-  const plausible =
-    floor.vsMonthly != null && floor.vsMonthly >= FLOOR_VS_MONTHLY_MIN && floor.vsMonthly <= FLOOR_VS_MONTHLY_MAX;
+  const ratio =
+    floor.vsMonthly != null ? floor.vsMonthly : lastSaleUsd && lastSaleUsd > 0 ? floor.priceUsd / lastSaleUsd : null;
+  const plausible = ratio != null && ratio >= FLOOR_VS_MONTHLY_MIN && ratio <= FLOOR_VS_MONTHLY_MAX;
   return {
-    headline: source === "native" || plausible,
+    headline: plausible,
     source,
+    reference: floor.vsMonthly != null ? "monthly" : lastSaleUsd ? "last sale" : null,
     anyAggregator: floor.coverage.some((c) => c.source === "aggregator"),
   };
 }
@@ -88,7 +101,13 @@ export function venueName(platform: string): string {
 
 /** "Charizard Ex · PSA 10" — the page's title, the crumb's leaf, the share card. */
 export function identityTitle(parts: IdentityDetail["parts"]): string {
-  return `${identityDisplayName(parts.name)} · ${parts.grade}`;
+  return `${identityName(parts)} · ${parts.grade}`;
+}
+
+/** The card's name as the venue spells it ("Charizard EX"), else the key's name
+ *  in display case. ONE place, so the header, crumb, title and share card agree. */
+export function identityName(parts: IdentityDetail["parts"]): string {
+  return parts.displayName?.trim() || identityDisplayName(parts.name);
 }
 
 /**

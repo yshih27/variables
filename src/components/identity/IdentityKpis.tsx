@@ -16,7 +16,7 @@ export function IdentityKpis({ detail }: { detail: IdentityDetail }) {
   const last = detail.sales.at(-1) ?? null;
   const monthly = latestCompleteMonthly(detail.monthly);
   const floor = detail.floor;
-  const fr = readFloor(floor);
+  const fr = readFloor(floor, last?.priceUsd ?? null);
 
   // 30d from the reader's own venue split — its clock, not the render's, so
   // this card and the "Where it trades" bars cannot disagree by a day.
@@ -68,10 +68,11 @@ export function IdentityKpis({ detail }: { detail: IdentityDetail }) {
             </>
           ) : (
             <>
-              no native listing
+              {fr?.reference ? "ask far from the reference price" : "no sale to compare"}
               {/* The ask, as a receipt: stated, sourced, never a headline. */}
               <span className="block text-ink-3">
-                unverified ask {askText(floor.priceUsd)} · aggregator listing
+                {fr?.source === "aggregator" ? "unverified ask" : "lowest ask"} {askText(floor.priceUsd)} ·{" "}
+                {fr?.source === "aggregator" ? "aggregator listing" : `${venueName(floor.platform)} · no floor without a sale`}
               </span>
             </>
           )
