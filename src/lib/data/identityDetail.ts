@@ -174,19 +174,25 @@ async function loadPanel(): Promise<SaleRow[]> {
   );
   return buildSalePanel();
 }
-const nextCachedPanel = unstable_cache(loadPanel, ["identity-sale-panel:v2"], {
-  revalidate: 1800,
-  tags: ["platform-buckets"],
-});
+/**
+ * ⚠️ AN IN-PROCESS MEMO, NOT `unstable_cache`. The inflated panel is ~5.3 MB and
+ * Next's data cache refuses items over 2 MB ("items over 2MB can not be
+ * cached") — measured on the audit dev server: the set failed on every read and
+ * surfaced as an unhandledRejection, so the wrapper cached nothing and threw
+ * noise. The per-SLUG result (`getIdentityDetail`) is small and stays in
+ * `unstable_cache`; the panel itself lives in this module-level memo, which a
+ * warm server instance keeps across requests for the same 30 minutes. A cold
+ * instance pays one snapshot read and inflate (~1–4 s), never a build.
+ */
 let panelMemo: { at: number; p: Promise<SaleRow[]> } | null = null;
 export async function cachedPanel(): Promise<SaleRow[]> {
-  try {
-    return await nextCachedPanel();
-  } catch (e) {
-    if (!/incrementalCache/.test(String(e))) throw e;
-    if (!panelMemo || Date.now() - panelMemo.at > PANEL_TTL_MS) panelMemo = { at: Date.now(), p: loadPanel() };
-    return panelMemo.p;
+  if (!panelMemo || Date.now() - panelMemo.at > PANEL_TTL_MS) {
+    const p = loadPanel();
+    panelMemo = { at: Date.now(), p };
+    // A failed load must not poison the memo for 30 minutes.
+    p.catch(() => { if (panelMemo?.p === p) panelMemo = null; });
   }
+  return panelMemo.p;
 }
 
 /**
