@@ -9,7 +9,6 @@
  * hit and the page it opens agree on what the identity is. Ranked by 30d sales,
  * then slab count. Cached 30 minutes with the panel.
  */
-import { unstable_cache } from "next/cache";
 import { listIdentityIndex, cachedPanel } from "./identityDetail";
 import { parseIdentityKey } from "./traits";
 import { normalizeSetName } from "@/lib/card/setName";
@@ -72,22 +71,19 @@ export async function buildIdentitySearchRows(): Promise<IdentitySearchRow[]> {
   return rows.sort((a, b) => b.sales30d - a.sales30d || b.slabs - a.slabs);
 }
 
-const nextCachedRows = unstable_cache(buildIdentitySearchRows, ["identity-search-rows:v2"], {
-  revalidate: 1800,
-  tags: ["platform-buckets"],
-});
-let rowsMemo: { at: number; p: Promise<IdentitySearchRow[]> } | null = null;
 /**
- * Next's data cache in the app; an in-process memo elsewhere — `unstable_cache`
- * throws outside the Next runtime, and a thrown search leg was silently an
- * EMPTY group (the palette showed no "Cards" section in the cold probe).
+ * ⚠️ AN IN-PROCESS MEMO, NOT `unstable_cache`: ~55K rows are well over the 2 MB
+ * item limit of Next's data cache (the panel hit the same wall — see
+ * identityDetail.ts `cachedPanel`). A warm instance keeps the rows for 30
+ * minutes; a cold one rebuilds them from the persisted panel and index in
+ * well under a second. Never a dims scan, never a panel build.
  */
+let rowsMemo: { at: number; p: Promise<IdentitySearchRow[]> } | null = null;
 export async function readIdentitySearchRows(): Promise<IdentitySearchRow[]> {
-  try {
-    return await nextCachedRows();
-  } catch (e) {
-    if (!/incrementalCache/.test(String(e))) throw e;
-    if (!rowsMemo || Date.now() - rowsMemo.at > 30 * 60_000) rowsMemo = { at: Date.now(), p: buildIdentitySearchRows() };
-    return rowsMemo.p;
+  if (!rowsMemo || Date.now() - rowsMemo.at > 30 * 60_000) {
+    const p = buildIdentitySearchRows();
+    rowsMemo = { at: Date.now(), p };
+    p.catch(() => { if (rowsMemo?.p === p) rowsMemo = null; });
   }
+  return rowsMemo.p;
 }

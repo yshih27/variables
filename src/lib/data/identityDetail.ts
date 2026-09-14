@@ -34,7 +34,7 @@
 import { unstable_cache } from "next/cache";
 import { buildSalePanel, readSalePanel, type SaleRow } from "./salePanel";
 import { readAllCardDims, readCards, type CardPlatform } from "./cards";
-import { identityKey, parseIdentityKey, type CardIdentityParts } from "./traits";
+import { identityKey, parseIdentityKey, normalizeTraits, type CardIdentityParts } from "./traits";
 import { identitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
 import { normalizeSetName } from "@/lib/card/setName";
 import { cardHref, parseCardId, PLATFORM_META } from "@/lib/card/ids";
@@ -54,6 +54,10 @@ import { gzipSync, gunzipSync } from "node:zlib";
 export type IdentityParts = {
   ip: string;
   ipName: string;
+  /** The card's name in the venue's own casing ("Charizard EX"), from the
+   *  canonical token's traits; falls back to the identity key's upper-cased
+   *  name. Surfaces print this; `name` stays the key's form for matching. */
+  displayName: string;
   setKey: string | null;
   setName: string | null;
   number: string | null;
@@ -170,19 +174,25 @@ async function loadPanel(): Promise<SaleRow[]> {
   );
   return buildSalePanel();
 }
-const nextCachedPanel = unstable_cache(loadPanel, ["identity-sale-panel:v2"], {
-  revalidate: 1800,
-  tags: ["platform-buckets"],
-});
+/**
+ * ⚠️ AN IN-PROCESS MEMO, NOT `unstable_cache`. The inflated panel is ~5.3 MB and
+ * Next's data cache refuses items over 2 MB ("items over 2MB can not be
+ * cached") — measured on the audit dev server: the set failed on every read and
+ * surfaced as an unhandledRejection, so the wrapper cached nothing and threw
+ * noise. The per-SLUG result (`getIdentityDetail`) is small and stays in
+ * `unstable_cache`; the panel itself lives in this module-level memo, which a
+ * warm server instance keeps across requests for the same 30 minutes. A cold
+ * instance pays one snapshot read and inflate (~1–4 s), never a build.
+ */
 let panelMemo: { at: number; p: Promise<SaleRow[]> } | null = null;
 export async function cachedPanel(): Promise<SaleRow[]> {
-  try {
-    return await nextCachedPanel();
-  } catch (e) {
-    if (!/incrementalCache/.test(String(e))) throw e;
-    if (!panelMemo || Date.now() - panelMemo.at > PANEL_TTL_MS) panelMemo = { at: Date.now(), p: loadPanel() };
-    return panelMemo.p;
+  if (!panelMemo || Date.now() - panelMemo.at > PANEL_TTL_MS) {
+    const p = loadPanel();
+    panelMemo = { at: Date.now(), p };
+    // A failed load must not poison the memo for 30 minutes.
+    p.catch(() => { if (panelMemo?.p === p) panelMemo = null; });
   }
+  return panelMemo.p;
 }
 
 /**
@@ -444,12 +454,21 @@ const LISTING_SOURCE: Record<string, "native" | "aggregator"> = {
   beezie: "aggregator",
 };
 
+/**
+ * The slab's grading cert, or null.
+ *
+ * ⚠️ MEASURED 2026-09-14: Collector Crypt's traits carry BOTH a `Serial Number`
+ * (the CARD number — "085" on Pikachu #085) and a `Grading ID` (the PSA cert,
+ * 130495647); Beezie's cert is its `Serial`. A first-match on
+ * /cert|certificate|serial/ returned the card number for every CC slab. So the
+ * grading id and any "cert" trait win, and a bare `serial` is accepted only
+ * when nothing better exists — never a "serial number".
+ */
 function certOf(attributes: { trait_type?: string; value?: unknown }[] | undefined): string | null {
-  for (const a of attributes ?? []) {
-    const t = (a.trait_type ?? "").toLowerCase();
-    if (/cert|certificate|serial/.test(t) && a.value != null) return String(a.value);
-  }
-  return null;
+  const attrs = (attributes ?? []).filter((a) => a.value != null && String(a.value).trim() !== "");
+  const find = (re: RegExp) => attrs.find((a) => re.test((a.trait_type ?? "").toLowerCase()));
+  const hit = find(/grading id|^cert(ificate)?( number| no\.?| id)?$/) ?? find(/^serial$/);
+  return hit ? String(hit.value) : null;
 }
 
 // ── the build ────────────────────────────────────────────────────────────────
@@ -616,12 +635,23 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
     .map((k) => ({ key: k, sales: panel.filter((r) => r.identity === k).length, slabs: idx.slabsByKey.get(k)?.length ?? 0 }));
 
   const setId = pk.parts.set ? normalizeSetName(pk.parts.set) : null;
+  // The venue's own spelling of the name, from the first token that carries one.
+  let displayName: string | null = null;
+  for (const [platform, ids] of byPlatform) {
+    if (displayName) break;
+    const meta = await readCards(platform, ids.slice(0, 3)).catch(() => new Map());
+    for (const m of meta.values()) {
+      const n = normalizeTraits(m as Parameters<typeof normalizeTraits>[0])?.cardName?.trim();
+      if (n) { displayName = n; break; }
+    }
+  }
   return {
     slug,
     key,
     parts: {
       ip: pk.ip,
       ipName: ipNameOf(pk.ip),
+      displayName: displayName ?? (pk.parts.cardName ?? slug.split("/")[3]),
       setKey: setId?.key ?? null,
       setName: setId?.name ?? null,
       number: pk.parts.number,
