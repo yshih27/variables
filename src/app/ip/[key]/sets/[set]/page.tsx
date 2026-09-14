@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { SetTopSales } from "@/components/sets/SetTopSales";
 import { SetCardsTable } from "@/components/sets/SetCardsTable";
@@ -58,12 +59,7 @@ export default async function IPSetDetailPage({
     <>
       <NavBar ticker={ticker} />
       <div className="px-8 pt-6 pb-20 font-sans">
-        <a
-          href={`/ip/${key}/sets`}
-          className="mb-1.5 inline-block text-[12px] text-ink-3 transition-colors hover:text-yellow"
-        >
-          ← {detail.ip.name} · Sets
-        </a>
+        <Breadcrumbs leaf={name} />
         <h1 className="mb-1 flex flex-wrap items-baseline gap-2 text-[20px] font-bold leading-none tracking-[-0.01em]">
           {name}
           {entity && <span className="font-mono text-[12px] font-normal text-ink-4">{entity.ticker}</span>}

@@ -1,3 +1,4 @@
+import { Breadcrumbs } from "./shell/Breadcrumbs";
 import Link from "next/link";
 import type { IPDetail } from "@/lib/data/fetchIP";
 import { IPIcon } from "./IPIcon";
@@ -41,6 +42,7 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
     // reach its own bottom.
     <aside className="scroll-y font-sans min-[860px]:h-full min-[860px]:min-h-0 min-[860px]:overflow-y-auto min-[860px]:border-r min-[860px]:border-line min-[860px]:pr-7">
       <div className="flex min-h-full flex-col pb-6 pt-7">
+        <Breadcrumbs />
         {/* Identity */}
         <div className="mb-6 flex items-center gap-3.5">
           <IPIcon

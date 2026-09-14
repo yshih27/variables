@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { Section } from "./Section";
 import { ChartActions } from "./ChartActions";
@@ -47,6 +48,13 @@ export type AreaSeries = {
   label: string;
   color: string;
   points: SeriesPoint[];
+  /**
+   * Where the band's entity lives (nav r3, homepage hand-offs). With it, the
+   * legend chip is a link and the band itself is clickable; without it both are
+   * inert, as before. Cursor and underline on hover only — a band's colour is
+   * its identity and is not touched.
+   */
+  href?: string;
 };
 
 /**
@@ -411,12 +419,23 @@ export function StackedAreaChart({
     >
       <div className="px-4 pb-4 pt-1 sm:px-5 sm:pb-5">
         <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1.5">
-          {ordered.map((s) => (
-            <span key={s.key} className="flex items-center gap-1.5 text-[11.5px]">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
-              <span className="text-ink-2">{s.label}</span>
-            </span>
-          ))}
+          {ordered.map((s) =>
+            s.href ? (
+              <Link
+                key={s.key}
+                href={s.href}
+                className="flex items-center gap-1.5 text-[11.5px] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
+                <span className="text-ink-2">{s.label}</span>
+              </Link>
+            ) : (
+              <span key={s.key} className="flex items-center gap-1.5 text-[11.5px]">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
+                <span className="text-ink-2">{s.label}</span>
+              </span>
+            ),
+          )}
         </div>
 
         <div
@@ -464,9 +483,22 @@ export function StackedAreaChart({
                 vectorEffect="non-scaling-stroke"
               />
             ))}
-            {paths.map((p) => (
-              <path key={p.key} d={p.d} fill={p.color} fillOpacity={FILL_OPACITY} />
-            ))}
+            {paths.map((p) => {
+              const href = series.find((b) => b.key === p.key)?.href;
+              const band = <path d={p.d} fill={p.color} fillOpacity={FILL_OPACITY} />;
+              // ⚠️ THE BAND IS THE LINK, the tooltip layer above stays
+              // pointer-events-none, so the plot's own hover/crosshair keeps
+              // working through it. An SVG <a> is a real link: it takes the
+              // pointer cursor, Tab reaches it, Enter follows it.
+              return href ? (
+                <a key={p.key} href={href} className="cursor-pointer focus-visible:outline-none" aria-label={`${series.find((b) => b.key === p.key)?.label ?? p.key} — open venue page`}>
+                  <title>{series.find((b) => b.key === p.key)?.label}</title>
+                  {band}
+                </a>
+              ) : (
+                <g key={p.key}>{band}</g>
+              );
+            })}
             {/* Top edge at full colour so adjacent soft fills stay separable. */}
             {paths.map((p) => (
               <path

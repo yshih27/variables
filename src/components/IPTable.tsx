@@ -8,6 +8,7 @@ import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
 import { TableFoot } from "./TableFoot";
 import { MetricInfo } from "./MetricInfo";
+import { categoryOf } from "@/lib/data/ipCatalog";
 import { TableRowLink } from "./TableRowLink";
 import { hasRealMcap } from "@/lib/ip/mcap";
 import type { MetricKey } from "@/lib/metrics/glossary";
@@ -244,7 +245,12 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface }: P
               // (a tiny/suppressed IP would show a wild % off a near-zero base).
               const hasMcap = Number.isFinite(mcapValue(ip));
               return (
-                <TableRowLink key={ip.key} href={`/ip/${ip.key}`} className="[&:last-child>td]:border-b-0">
+                <TableRowLink
+                  key={ip.key}
+                  href={`/ip/${ip.key}`}
+                  className="[&:last-child>td]:border-b-0"
+                  data-category={categoryOf(ip.key)}
+                >
                   <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                   <Td>
                     <Link

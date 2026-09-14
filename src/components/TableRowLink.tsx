@@ -29,10 +29,14 @@ export function TableRowLink({
   href,
   className = "",
   children,
+  ...rest
 }: {
   href: string;
   className?: string;
   children: ReactNode;
+  /** `data-*` hooks a page can address a row by — the /ips category landing
+   *  highlights every row of one category through `data-category`. */
+  [attr: `data-${string}`]: string | undefined;
 }) {
   const router = useRouter();
 
@@ -58,6 +62,7 @@ export function TableRowLink({
          because a <tr> has no native activation. */
       tabIndex={-1}
       data-shell-row=""
+      {...rest}
       onKeyDown={(e) => {
         if (e.key !== "Enter" || e.target !== e.currentTarget) return;
         e.preventDefault();

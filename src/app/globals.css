@@ -493,3 +493,16 @@ html[data-density="compact"] .mbc {
 @media (prefers-reduced-motion: reduce) {
   .rail-chevron { transition: none; }
 }
+
+/* ── /ips#<category> landing pulse (nav r3) ─────────────────────────────────
+   The house focus ring, applied by CategoryLanding for ~1.2s to every tile and
+   row of the category that was linked to. Same colour as focus-visible, so it
+   reads as "this is what you asked for" rather than as a new state. Uses
+   box-shadow (not outline) so a table row — which cannot paint an outline — gets
+   the same treatment as a tile. */
+.landing-hl {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-yellow) 60%, transparent);
+  transition: box-shadow 160ms ease-out;
+}
+tr.landing-hl > td:first-child { box-shadow: inset 2px 0 0 0 var(--color-yellow); }
+tr.landing-hl { box-shadow: none; background: color-mix(in oklab, var(--color-yellow) 8%, transparent); }

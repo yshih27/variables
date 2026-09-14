@@ -1,3 +1,4 @@
+import { Breadcrumbs } from "./shell/Breadcrumbs";
 import Link from "next/link";
 import { CardImage } from "./CardImage";
 import { BuyLinks } from "./BuyLinks";
@@ -64,6 +65,11 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
         </div>
 
         <div className="min-w-0">
+          {/* Platforms › <venue> › <card>. The card knows its venue from its own
+              id; it does not know its IP KEY (only a display category), so the
+              trail hangs it under Platforms rather than guessing a Categories
+              path — the category chip below still links to /ips. */}
+          <Breadcrumbs leaf={card.name} />
           <div className="flex flex-wrap items-center gap-2 text-[12px]">
             {/* The one navigation the breadcrumb actually carried, kept inline as
                 a chip. It points at /ips, not /ip/[key], because CardDetail has

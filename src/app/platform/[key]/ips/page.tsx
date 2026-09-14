@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { PlatformIPsTable } from "@/components/PlatformTables";
 import { getPlatformDetail } from "@/lib/data/fetchPlatform";
@@ -19,9 +20,7 @@ export default async function PlatformIPsPage({
     <>
       <NavBar ticker={await buildMarketTicker()} />
       <div className="mx-auto max-w-[1760px] px-8 pt-10 pb-20 font-sans">
-        <a href={`/platform/${key}`} className="mb-1.5 inline-block text-[12px] text-ink-3 transition-colors hover:text-yellow">
-          ← {detail.source.name}
-        </a>
+        <Breadcrumbs />
         <h1 className="mb-1.5 text-[20px] font-bold leading-none tracking-[-0.01em]">
           {detail.source.name} · IPs
         </h1>

@@ -15,9 +15,16 @@ import { RailSpark } from "./RailSpark";
  * spark, delta — and for a category, its IP list, so the collapsed rail is fully
  * usable WITHOUT expanding it.
  *
- * ⚠️ 250ms OPEN DELAY, none on close. Without the delay, dragging the cursor down
- * the rail strobes six panels on the way to the seventh. The close is immediate
- * because a panel that lingers covers the thing you moved to.
+ * ⚠️ 120ms HOVER-INTENT DELAY, none on close, none on →. Without the delay,
+ * dragging the cursor down the rail strobes six panels on the way to the seventh;
+ * 120ms is under the threshold where a deliberate stop feels laggy (nav r3 cut it
+ * from 250). The close is immediate because a panel that lingers covers the thing
+ * you moved to. Right arrow on a tile opens at once AND moves focus into the
+ * panel, so a keyboard user has a path in — hover was the only way before. A
+ * plain CLICK on a tile navigates; it never opens the panel (a tile has one
+ * destination, and a panel in front of it is a second click nobody asked for).
+ *
+ * Escape closes the open panel and returns focus to the tile that opened it.
  *
  * Rendered only in icons mode — `RailNav` gates it on the pref rather than the
  * CSS, because this is real DOM with links in it and hiding it with `display:none`
@@ -29,12 +36,20 @@ import { RailSpark } from "./RailSpark";
  * overflow-x rule says. Same lesson, same fix as ChartTooltip: portal to <body>,
  * position: fixed off the anchor's rect, clamp to the viewport.
  */
-const OPEN_DELAY_MS = 250;
+export const OPEN_DELAY_MS = 120;
 
 export function useFlyout() {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  /** True when the panel was opened by → (keyboard): it then takes focus and
+   *  does NOT close on mouseleave — a deliberately opened panel outlives the
+   *  cursor wandering off it. */
+  const [pinned, setPinned] = useState(false);
   const timer = useRef<number | null>(null);
+  /** Set by Escape just before it hands focus back to the tile: the tile's own
+   *  onFocus would otherwise reopen the panel it just closed, and Escape would
+   *  be a key that does nothing you can see. Cleared by the next open() call. */
+  const swallowNextFocus = useRef(false);
 
   const clear = () => {
     if (timer.current != null) window.clearTimeout(timer.current);
@@ -43,23 +58,72 @@ export function useFlyout() {
 
   useEffect(() => clear, []);
 
+  // Escape closes whatever is open and hands focus back to its anchor.
+  useEffect(() => {
+    if (!openKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      clear();
+      setOpenKey(null);
+      setPinned(false);
+      // The anchor is the node's WRAPPER (so the panel can be positioned off the
+      // whole row); the thing that can take focus is the tile inside it.
+      const target = anchor?.matches("a,button") ? anchor : anchor?.querySelector<HTMLElement>("a,button");
+      swallowNextFocus.current = true;
+      target?.focus();
+      // A focus that never arrives (nothing to focus) must not leave the latch set.
+      window.setTimeout(() => { swallowNextFocus.current = false; }, 0);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openKey, anchor]);
+
   return {
     openKey,
     anchor,
+    pinned,
+    /** Hover intent: open after the delay unless the cursor leaves first. */
     open(key: string, el: HTMLElement | null) {
+      if (swallowNextFocus.current) {
+        swallowNextFocus.current = false;
+        return;
+      }
       clear();
       timer.current = window.setTimeout(() => {
         setAnchor(el);
         setOpenKey(key);
+        setPinned(false);
       }, OPEN_DELAY_MS);
     },
+    /**
+     * → on a tile: open now, keep open, focus the panel.
+     *
+     * ⚠️ → ON A HOVER-OPENED PANEL PINS IT, IT DOES NOT CLOSE IT. Focus opens the
+     * panel on the intent path, so a naive toggle would see "already open" and
+     * close it — the opposite of what the key promised. Only a panel that is
+     * already PINNED closes on a second →.
+     */
+    toggle(key: string, el: HTMLElement | null) {
+      clear();
+      if (openKey === key && pinned) {
+        setOpenKey(null);
+        setPinned(false);
+      } else {
+        setAnchor(el);
+        setOpenKey(key);
+        setPinned(true);
+      }
+    },
+    /** Hover leave: a pinned panel ignores it. */
     close(key: string) {
       clear();
-      setOpenKey((cur) => (cur === key ? null : cur));
+      setOpenKey((cur) => (cur === key && !pinned ? null : cur));
     },
     closeAll() {
       clear();
       setOpenKey(null);
+      setPinned(false);
     },
   };
 }
@@ -69,9 +133,12 @@ export function RailFlyout({
   ips,
   groups,
   anchor,
+  pinned = false,
   onClose,
 }: {
   node: RailNode;
+  /** Opened by → (keyboard): focus moves in, mouseleave does not close. */
+  pinned?: boolean;
   /** A category's members, so the collapsed rail can reach an IP directly. */
   ips?: RailNode[];
   /**
@@ -91,6 +158,13 @@ export function RailFlyout({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
 
+  // A panel opened by → takes focus on its first link, so Tab
+  // continues INTO the panel rather than past it down the rail.
+  useEffect(() => {
+    if (!pinned) return;
+    ref.current?.querySelector<HTMLElement>("a,button")?.focus();
+  }, [pinned]);
+
   // Measure AFTER paint, so the panel's own height is known before it is clamped.
   useEffect(() => {
     if (!anchor) return;
@@ -108,7 +182,8 @@ export function RailFlyout({
       role="tooltip"
       /* Keep it open while the cursor is inside — a flyout you cannot reach is a
          tooltip, and the IP list below has to be clickable. */
-      onMouseLeave={onClose}
+      onMouseLeave={pinned ? undefined : onClose}
+      data-pinned={pinned ? "" : undefined}
       style={{ top: pos?.top ?? -9999, left: pos?.left ?? -9999 }}
       className="fixed z-[60] w-[228px] rounded-xl border border-line-2 bg-bg-1 p-2.5 font-sans shadow-[0_16px_40px_rgba(0,0,0,0.55)]"
     >

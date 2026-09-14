@@ -27,6 +27,12 @@ export const RAIL_CODES = {
   watchlist: "★",
   status: "SY",
   gacha: "GC",
+  // The two SECTION landings (nav r3): the collapsed rail's "Categories" and
+  // "Platforms" headings become tiles that link, so icons mode keeps the path to
+  // /ips and /platforms. Two letters like every other tile — a section is not a
+  // different kind of thing at 36px.
+  categories: "CT",
+  platforms: "PL",
 } as const;
 
 /** Categories. Keyed by IPCategory so adding one is a compile error until named. */

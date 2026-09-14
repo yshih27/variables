@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { IPRow } from "@/lib/types";
 import { Section } from "./Section";
+import { categoryOf } from "@/lib/data/ipCatalog";
 import { IPIcon } from "./IPIcon";
 import { hasRealMcap } from "@/lib/ip/mcap";
 import { formatCompactUsd, formatCompactNumber, formatPct } from "@/lib/format";
@@ -315,6 +316,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
               <Link
                 key={t.key}
                 href={t.href}
+                data-category={categoryOf(t.key)}
                 aria-label={`${t.name} — ${formatCompactUsd(t.mcapUsd)}, ${pctLabel(t.share)} of total market cap`}
                 className={common}
                 style={style}
@@ -406,7 +408,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
             </>
           );
           return c.href ? (
-            <Link key={c.key} href={c.href} className="rounded-lg px-2 py-2 transition-colors hover:bg-bg-1">
+            <Link key={c.key} href={c.href} data-category={categoryOf(c.key)} className="rounded-lg px-2 py-2 transition-colors hover:bg-bg-1">
               {bar}
             </Link>
           ) : (
