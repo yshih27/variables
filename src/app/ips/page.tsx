@@ -89,7 +89,10 @@ function sumDaily(sources: Record<string, SeriesPoint[]>[]): SeriesPoint[] {
 export const revalidate = 1800;
 
 export const metadata = {
-  title: "Market Overview · VARIBLE",
+  // "Market Overview" is retired as a page title (nav r4): two surfaces called
+  // themselves the market. Only the homepage is the market; this page is the
+  // categories. The OG title follows `title` — there is no per-route override.
+  title: "Categories · VARIBLE",
   description:
     "The tokenized trading-card market at a glance — composite index vs benchmarks, 24h volume, cards traded, and market cap by IP.",
 };
@@ -263,7 +266,7 @@ export default async function AllIPsPage() {
           the app default (3 vs 4) and the zones share the same rhythm. */}
       <div className="px-8 pt-6 pb-20 font-sans">
         <Breadcrumbs />
-        <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">Market Overview</h1>
+        <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">Categories</h1>
         {/* Anchor targets for /ips#<category>: empty, zero-height, placed at the
             top so a hash scroll lands on the whole overview and CategoryLanding
             then scrolls to the category's own tiles. */}

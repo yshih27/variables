@@ -115,10 +115,21 @@ export function RailNav({ model }: Props) {
     navRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
   }, [pathname]);
 
-  const nodeProps = (href: string) => {
-    const active = isActive(pathname, href);
+  /**
+   * `exact` — a LANDING row is active only on its own page, never when a child
+   * is (nav r4). "All categories" on /ip/pokemon would otherwise light up beside
+   * the Pokémon row and the reader would see two current pages in one section.
+   * The section HEADING is what carries "you are in here" (see inCategories).
+   */
+  const nodeProps = (href: string, exact = false) => {
+    const active = exact ? pathname === href : isActive(pathname, href);
     return { "aria-current": active ? ("page" as const) : undefined, active };
   };
+  const L = model.landings;
+  // Which section the reader is standing in — drives the heading's text-ink.
+  const inMarket = pathname === "/" || isActive(pathname, "/stats") || isActive(pathname, "/economics");
+  const inCategories = pathname === "/ips" || pathname.startsWith("/ip/");
+  const inPlatforms = pathname === "/platforms" || pathname.startsWith("/platform/");
 
   /** Flyouts are REAL DOM with links in it, so they are gated on the pref rather
    *  than hidden by CSS — `display:none` would leave those links tabbable at 240px. */
@@ -190,20 +201,34 @@ export function RailNav({ model }: Props) {
             <RailRule />
           </div>
         )}
-        <RailLink node={model.market} collapsed={collapsed} {...nodeProps(model.market.href)} {...flyoutProps(model.market)} />
-        {/* Stats sits under Market: it is the same market, stated for citation.
-            No spark — it is a page, not a series. */}
+        {/* ── MARKET ──────────────────────────────────────────────────────
+            The rail's first rows used to float above the sections with no heading
+            — "Market", "Stats" — so a reader could not tell what they navigated
+            to. They are a section now, and its first row is the homepage under
+            the name it actually has on every other surface: Overview. */}
+        <RailSectionLabel collapsed={collapsed} active={inMarket} first>
+          Market
+        </RailSectionLabel>
         <RailLink
-          node={{ key: "stats", name: "Stats", short: "STA", railCode: RAIL_CODES.stats, href: "/stats", spark: null, deltaPct: null, deltaWindow: "24h" }}
-          nested
-          noStats
+          node={L.overview}
           collapsed={collapsed}
-          {...nodeProps("/stats")}
+          {...nodeProps(L.overview.href)}
+          {...flyoutProps(L.overview)}
         />
+        <RailLink node={L.stats} noStats collapsed={collapsed} {...nodeProps(L.stats.href)} />
+        {/* Economics is a market-wide page, not a sixth venue — it used to sit
+            under Platforms because it reads the same venues; it belongs with
+            the market it describes. */}
+        <RailLink node={L.economics} noStats collapsed={collapsed} {...nodeProps(L.economics.href)} />
 
-        <RailSectionLabel collapsed={collapsed} href="/ips" code={RAIL_CODES.categories} active={pathname === "/ips"}>
+        {/* ── CATEGORIES ─────────────────────────────────────────────────
+            Opens with the landing row (nav r4): a row that looks like every
+            other row is plainly clickable, where a heading — whatever its href —
+            reads as a label. The heading turns text-ink when any child is active. */}
+        <RailSectionLabel collapsed={collapsed} active={inCategories}>
           Categories
         </RailSectionLabel>
+        <RailLink node={L.categories} noStats collapsed={collapsed} {...nodeProps(L.categories.href, true)} />
         {model.categories.map((c) => {
           const open = isOpen(c.key);
           return (
@@ -231,24 +256,14 @@ export function RailNav({ model }: Props) {
           );
         })}
 
-        {model.platforms.length > 0 && (
-          <RailSectionLabel collapsed={collapsed} href="/platforms" code={RAIL_CODES.platforms} active={pathname === "/platforms"}>
-            Platforms
-          </RailSectionLabel>
-        )}
+        {/* ── PLATFORMS ──────────────────────────────────────────────────── */}
+        <RailSectionLabel collapsed={collapsed} active={inPlatforms}>
+          Platforms
+        </RailSectionLabel>
+        <RailLink node={L.platforms} noStats collapsed={collapsed} {...nodeProps(L.platforms.href, true)} />
         {model.platforms.map((p) => (
           <RailLink key={p.key} node={p} collapsed={collapsed} {...nodeProps(p.href)} {...flyoutProps(p)} />
         ))}
-        {/* Economics sits under Platforms because it is a cross-platform read of
-            the same venues — not a sixth venue. No spark: it is a page, not a
-            series, and a spark here would imply one. */}
-        <RailLink
-          node={{ key: "economics", name: "Economics", short: "ECO", railCode: RAIL_CODES.economics, href: "/economics", spark: null, deltaPct: null, deltaWindow: "24h" }}
-          nested
-          noStats
-          collapsed={collapsed}
-          {...nodeProps("/economics")}
-        />
 
         <RailSectionLabel collapsed={collapsed}>More</RailSectionLabel>
         {TAIL.filter((t) => !t.gated || GACHA_ENABLED).map((t) => (
@@ -282,48 +297,38 @@ export function RailNav({ model }: Props) {
 /**
  * A section break. Expanded it is a label; collapsed it is a 1px rule.
  *
- * ⚠️ WITH `href`, THE LABEL IS A LANDING LINK (nav r3). "Categories" and
- * "Platforms" were text a first-time reader clicked and nothing happened — the
- * only way to /ips was to know a category ROW went there. Now the heading is the
- * link, with the same active state a row gets. Collapsed, the rule is replaced by
- * a tile carrying the section's monogram (`code`) so icons mode keeps the path;
- * a section with no destination ("More") stays a label / a rule.
+ * ⚠️ TEXT, NEVER A LINK (nav r4, reverting r3). A 10px uppercase muted label
+ * reads as a label whatever its href — the product owner's own words were "those
+ * seem like headers and not buttons". The way into a section is its first ROW
+ * (the landing row), which looks like every other row. What the heading DOES
+ * carry is "you are in here": `active` turns it text-ink when any row of the
+ * section is the current page.
  */
 function RailSectionLabel({
   children,
   collapsed,
-  href,
-  code,
   active,
+  first,
 }: {
   children: React.ReactNode;
   collapsed?: boolean;
-  href?: string;
-  /** Two-character monogram for the collapsed tile. Required with `href`. */
-  code?: string;
+  /** A child of this section is the current page. */
   active?: boolean;
+  /** The column's first section: collapsed it draws NO rule — the expand tile's
+   *  own rule already sits above it at ≥1280, and below that a rule above the
+   *  first tile is a stray line with nothing to separate. Expanded, it drops the
+   *  top margin the other headings use to stand off the section before them. */
+  first?: boolean;
 }) {
-  if (collapsed) {
-    if (!href || !code) return <RailRule />;
-    return (
-      <>
-        <RailRule />
-        <RailTile as="link" href={href} code={code} label={String(children)} active={!!active} aria-current={active ? "page" : undefined} />
-      </>
-    );
-  }
-  const cls = "rail-label mt-3 block px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em]";
-  if (!href) return <div className={`${cls} text-ink-4`}>{children}</div>;
+  if (collapsed) return first ? null : <RailRule />;
   return (
-    <Link
-      href={href}
-      aria-current={active ? "page" : undefined}
-      className={`${cls} rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 ${
-        active ? "text-ink" : "text-ink-4 hover:text-ink"
+    <div
+      className={`rail-label ${first ? "mt-0" : "mt-3"} px-3 pb-1 pt-1 text-[10px] font-medium uppercase tracking-[0.12em] ${
+        active ? "text-ink" : "text-ink-4"
       }`}
     >
       {children}
-    </Link>
+    </div>
   );
 }
 
@@ -436,7 +441,10 @@ function RailLink({
         <RailTile
           as="link"
           href={node.href}
-          code={node.railCode ?? node.short ?? "??"}
+          /* A landing row's tile may differ from its expanded code — the two
+             "All …" rows share AL under their headings but need CT / PL at 56px,
+             where the headings are rules (railCode.ts). */
+          code={node.tileCode ?? node.railCode ?? node.short ?? "??"}
           label={node.name}
           active={active}
           onFocus={onFocus}
@@ -455,13 +463,19 @@ function RailLink({
         href={node.href}
         title={node.name}
         onFocus={onFocus}
-        className={`group mx-1 flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 ${
+        /* gap-1.5, not gap-2 (nav r4): the Overview row carries code + label +
+           spark + delta + the landing →, and at gap-2 "Overview" truncated to
+           "Overv…" in 240px. Six pixels across three gaps buys the label back. */
+        className={`group mx-1 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60 ${
           active ? "bg-bg-2 text-ink" : "text-ink-2 hover:bg-bg-1 hover:text-ink"
         } ${nested ? "rail-nested" : ""}`}
       >
         <span
           aria-hidden
-          className={`rail-code w-9 shrink-0 text-center font-mono text-[9.5px] uppercase tracking-[0.04em] ${
+          /* w-8 (nav r4, was w-9): two-character codes need ~13px; the 4px given
+             back is what lets "Overview" — the one row with code + label + spark
+             + delta + → — fit at 240px instead of reading "Overv…". */
+          className={`rail-code w-8 shrink-0 text-center font-mono text-[9.5px] uppercase tracking-[0.04em] ${
             active ? "text-yellow" : "text-ink-4"
           }`}
         >
@@ -471,6 +485,15 @@ function RailLink({
         {!noStats && (
           <span className="rail-stats">
             <RailSpark node={node} />
+          </span>
+        )}
+        {/* ⚠️ THE TRAILING → IS THE LANDING AFFORDANCE (nav r4) — the one glyph
+            the site already uses for "go somewhere" ("platforms →", "How this is
+            measured →"). Mono ink-4, so it reads as the same thing here. A row
+            that also carries stats (Overview) puts the arrow after them. */}
+        {node.landing && (
+          <span aria-hidden className="rail-label shrink-0 font-mono text-[10px] leading-none text-ink-4">
+            →
           </span>
         )}
       </Link>

@@ -46,7 +46,9 @@ const getData = unstable_cache(async () => fetchHomepage(), ["platforms-fulllist
 export const revalidate = 1800;
 
 export const metadata = {
-  title: "Platforms Overview · VARIBLE",
+  // One naming rule with /ips (nav r4): the page is the platforms, the homepage
+  // is the market. The OG title follows `title`.
+  title: "Platforms · VARIBLE",
   description:
     "Where the trading happens — tokenized-collectible platforms compared on 24h volume, the marketplace/gacha split, and market cap.",
 };
@@ -210,7 +212,7 @@ export default async function AllPlatformsPage() {
       <div className="px-8 pt-6 pb-20 font-sans">
         <Breadcrumbs />
         <h1 className="mb-3 text-[20px] font-bold leading-none tracking-[-0.01em]">
-          Platforms Overview
+          Platforms
         </h1>
 
         <div className="space-y-3">

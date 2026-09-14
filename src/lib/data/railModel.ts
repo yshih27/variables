@@ -2,7 +2,7 @@ import { unstable_cache } from "next/cache";
 import type { IPRow, PlatformRow, RailModel, RailNode } from "@/lib/types";
 import { GACHA_ENABLED } from "@/lib/flags";
 import { tickerOf } from "@/lib/indices/naming";
-import { railCodeOf } from "./railCode";
+import { railCodeOf, RAIL_CODES } from "./railCode";
 import { categoryOf, type IPCategory } from "./ipCatalog";
 import { fetchHomepage } from "./fetchHomepage";
 import { listGradeIndices, listSetIndices, type PublishedEntity } from "./gradeSetIndex";
@@ -220,18 +220,25 @@ async function build(): Promise<RailModel> {
   });
 
   return {
-    market: {
-      key: "market",
-      name: "Market",
-      short: shortOf("market", "total"),
-      railCode: railCodeOf("fixed", "market"),
-      href: "/",
-      spark: sparkOf(data.hero.volSpark),
-      // ⚠️ hero.mcapPct24h is a FRACTION (0.012 = +1.2%) while every other delta
-      // on the payload is already a percent. ×100 here is the conversion.
-      deltaPct: data.hero.mcapPct24h == null ? null : data.hero.mcapPct24h * 100,
-      deltaWindow: "24h",
-      deltaLabel: "market cap",
+    landings: {
+      // The homepage row: the old "Market" node, renamed "Overview" and filed
+      // under a MARKET heading (nav r4) so the top of the rail says what it is.
+      // It keeps the market spark and the market-cap delta.
+      overview: {
+        key: "overview",
+        name: "Overview",
+        short: shortOf("market", "total"),
+        railCode: RAIL_CODES.overview,
+        href: "/",
+        spark: sparkOf(data.hero.volSpark),
+        // ⚠️ hero.mcapPct24h is a FRACTION (0.012 = +1.2%) while every other delta
+        // on the payload is already a percent. ×100 here is the conversion.
+        deltaPct: data.hero.mcapPct24h == null ? null : data.hero.mcapPct24h * 100,
+        deltaWindow: "24h",
+        deltaLabel: "market cap",
+        landing: true,
+      },
+      ...STATIC_LANDINGS,
     },
     categories,
     platforms: data.platforms.map(platformNode),
@@ -242,10 +249,30 @@ async function build(): Promise<RailModel> {
   };
 }
 
+/**
+ * The static landing rows (nav r4). Pages, not series — no spark, no delta, no
+ * read. `overview` is built in `build()` because it carries the market spark;
+ * everything else is a fixed row and lives here once so the live model and the
+ * EMPTY fallback cannot disagree about what the sections open with.
+ *
+ * ⚠️ THE TWO "All …" ROWS SHARE `railCode` AL AND DIFFER IN `tileCode`. In the
+ * expanded rail the heading directly above says which "all" it is; at 56px the
+ * headings are rules, so the tiles keep CT / PL — the section, in the glyph.
+ */
+const STATIC_LANDINGS: Omit<RailModel["landings"], "overview"> = {
+  stats: { key: "stats", name: "Stats", short: "STA", railCode: RAIL_CODES.stats, href: "/stats", spark: null, deltaPct: null, deltaWindow: "24h", landing: true },
+  economics: { key: "economics", name: "Economics", short: "ECO", railCode: RAIL_CODES.economics, href: "/economics", spark: null, deltaPct: null, deltaWindow: "24h", landing: true },
+  categories: { key: "all-categories", name: "All categories", short: "ALL", railCode: RAIL_CODES.all, tileCode: RAIL_CODES.categories, href: "/ips", spark: null, deltaPct: null, deltaWindow: "24h", landing: true },
+  platforms: { key: "all-platforms", name: "All platforms", short: "ALL", railCode: RAIL_CODES.all, tileCode: RAIL_CODES.platforms, href: "/platforms", spark: null, deltaPct: null, deltaWindow: "24h", landing: true },
+};
+
 /** Empty model — what a failed read degrades to. The rail then renders its static
  *  links with no sparks rather than taking the whole shell down. */
 const EMPTY: RailModel = {
-  market: { key: "market", name: "Market", href: "/", spark: null, deltaPct: null, deltaWindow: "24h" },
+  landings: {
+    overview: { key: "overview", name: "Overview", railCode: RAIL_CODES.overview, href: "/", spark: null, deltaPct: null, deltaWindow: "24h", landing: true },
+    ...STATIC_LANDINGS,
+  },
   categories: [],
   platforms: [],
   grades: [],
