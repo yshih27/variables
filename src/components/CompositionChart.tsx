@@ -7,6 +7,7 @@ import { ChartActions } from "./ChartActions";
 import { MetricInfo } from "./MetricInfo";
 import type { MetricKey } from "@/lib/metrics/glossary";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
+import { brushGradient } from "@/lib/chart/brush";
 
 /**
  * CompositionChart — a stacked daily composition (the venue race / the treemap
@@ -55,6 +56,14 @@ const fmtDay = (ts: string) => {
 /** The boards' emphasis: a soft neutral bloom on the hovered band. */
 const BAND_GLOW = "0 0 12px 0 rgba(255,255,255,0.22)";
 const PLOT_H = 240;
+const GRID = [0, 0.25, 0.5, 0.75, 1];
+
+/** Up to `n` evenly spaced dates for the x axis — first and last always. */
+function xTicks(dates: string[], n: number): string[] {
+  if (dates.length <= n) return dates;
+  const last = dates.length - 1;
+  return Array.from({ length: n }, (_, i) => dates[Math.round((i * last) / (n - 1))]);
+}
 
 type Seg = { key: string; label: string; color: string; value: number };
 type Column = { ts: string; segments: Seg[]; total: number; rawTotal: number };
@@ -120,6 +129,8 @@ export function CompositionChart({
   fill,
   chartId,
   actions = true,
+  defaultMode = "stacked",
+  pinRight,
 }: {
   title: string;
   /** How to read it (see <ReadMe>) — sits above `subtitle`, never replaces it. */
@@ -149,9 +160,13 @@ export function CompositionChart({
    * still ignoring it.
    */
   actions?: boolean;
+  /** The mode the chart opens in; "share" for a composition whose question is rotation. */
+  defaultMode?: Mode;
+  /** Section's `pinRight`: keep the exports and mode toggles on the title line. */
+  pinRight?: boolean;
 }) {
   const MODES = flow ? ALL_MODES : LEVEL_MODES;
-  const [mode, setMode] = useState<Mode>("stacked");
+  const [mode, setMode] = useState<Mode>(defaultMode);
   const [hover, setHover] = useState<number | null>(null);
   const fmt = (n: number) => (unit === "usd" ? formatCompactUsd(n) : formatCompactNumber(n));
 
@@ -159,6 +174,16 @@ export function CompositionChart({
   const hasData = columns.some((c) => c.segments.length > 0);
   const gapCls = variant === "bars" ? "gap-[2px]" : "gap-0";
   const col = hover != null ? columns[hover] ?? null : null;
+  // The legend's number: each series' share of the latest day that has data —
+  // the same figure the tooltip shows for that day, in every mode.
+  const latest = [...columns].reverse().find((c) => c.segments.length) ?? null;
+  const latestShare = (key: string): number | null => {
+    const seg = latest?.segments.find((x) => x.key === key);
+    if (!latest || !seg) return null;
+    if (mode === "share") return seg.value;
+    return latest.rawTotal > 0 ? (seg.value / latest.rawTotal) * 100 : null;
+  };
+  const ticks = xTicks(dates, 5);
   // Clamp the tooltip so an edge column doesn't push it off the card.
   const leftPct = hover != null && columns.length ? Math.min(Math.max(((hover + 0.5) / columns.length) * 100, 16), 84) : 0;
 
@@ -203,6 +228,7 @@ export function CompositionChart({
       className="font-sans"
       flush
       fill={fill}
+      pinRight={pinRight}
     >
       <div className={`px-4 pb-4 pt-1 sm:px-5 sm:pb-5 ${fill ? "flex min-h-0 flex-1 flex-col" : ""}`}>
         {/* legend */}
@@ -211,6 +237,9 @@ export function CompositionChart({
             <span key={s.key} className="flex items-center gap-1.5 text-[11.5px]">
               <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
               <span className="text-ink-2">{s.label}</span>
+              {latestShare(s.key) != null && (
+                <span className="font-mono tabular text-[11px] text-ink-3">{latestShare(s.key)!.toFixed(1)}%</span>
+              )}
             </span>
           ))}
         </div>
@@ -227,18 +256,20 @@ export function CompositionChart({
               className={`relative ${fill ? "min-h-0 flex-1" : ""}`}
               style={fill ? { minHeight: PLOT_H } : { height: PLOT_H }}
             >
-              {/* gridlines + y labels (right) */}
-              {[0, 0.5, 1].map((f) => (
+              {/* gridlines + y labels — the labels live in a right gutter the
+                  bands never enter (a label under an 80% band is a label nobody
+                  reads; measured on the categories page, only 100% survived). */}
+              {GRID.map((f) => (
                 <div key={f} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ bottom: `${f * 100}%` }}>
-                  <span className="h-px w-full bg-line/40" />
-                  <span className="ml-1.5 shrink-0 font-mono text-[9.5px] leading-none text-ink-4">
+                  <span className="h-px flex-1 bg-line/40" />
+                  <span className="w-9 shrink-0 pl-1.5 text-right font-mono text-[9.5px] leading-none text-ink-4">
                     {mode === "share" ? `${Math.round(f * 100)}%` : fmt(maxTotal * f)}
                   </span>
                 </div>
               ))}
 
               {/* stacked columns — one per union day; a gap day draws nothing */}
-              <div className={`absolute inset-0 flex items-end ${gapCls}`}>
+              <div className={`absolute inset-y-0 left-0 right-9 flex items-end ${gapCls}`}>
                 {columns.map((c, i) => (
                   <div key={c.ts} className="flex h-full min-w-0 flex-1 items-end">
                     {c.segments.length ? (
@@ -252,7 +283,7 @@ export function CompositionChart({
                         }}
                       >
                         {c.segments.map((seg) => (
-                          <div key={seg.key} style={{ flexGrow: seg.value || 0.0001, background: seg.color }} />
+                          <div key={seg.key} style={{ flexGrow: seg.value || 0.0001, background: brushGradient(seg.color) }} />
                         ))}
                       </div>
                     ) : null}
@@ -262,7 +293,7 @@ export function CompositionChart({
 
               {/* hover bands — full height so a tiny stack is still reachable; an
                   empty day clears the hover rather than leaving the last one stuck */}
-              <div className={`absolute inset-0 flex ${gapCls}`} onMouseLeave={() => setHover(null)}>
+              <div className={`absolute inset-y-0 left-0 right-9 flex ${gapCls}`} onMouseLeave={() => setHover(null)}>
                 {columns.map((c, i) => (
                   <div
                     key={c.ts}
@@ -311,9 +342,10 @@ export function CompositionChart({
             </div>
 
             {/* x labels */}
-            <div className="mt-1.5 flex justify-between font-mono text-[9.5px] text-ink-4">
-              <span>{dates[0] ? fmtDay(dates[0]) : ""}</span>
-              <span>{dates[dates.length - 1] ? fmtDay(dates[dates.length - 1]) : ""}</span>
+            <div className="mt-1.5 flex justify-between pr-9 font-mono text-[9.5px] text-ink-4">
+              {ticks.map((d) => (
+                <span key={d}>{fmtDay(d)}</span>
+              ))}
             </div>
           </>
         )}

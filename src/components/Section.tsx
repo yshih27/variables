@@ -66,6 +66,7 @@ export function Section({
   badge,
   flush,
   fill,
+  pinRight,
   className,
   children,
 }: {
@@ -97,6 +98,10 @@ export function Section({
    *  becomes a blank band under the content. Opt-in, because a table or a tile grid
    *  should NOT stretch — only a plot that can honestly use the height. */
   fill?: boolean;
+  /** Keep the `right` slot on the title line: the title block yields width
+   *  (its read-me wraps) instead of pushing the controls under it. For cards
+   *  whose controls are the way in (mode toggles, exports) at half-row widths. */
+  pinRight?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -107,7 +112,7 @@ export function Section({
           disclosure ? "relative" : ""
         }`}
       >
-        <div className="min-w-0">
+        <div className={`min-w-0 ${pinRight ? "sm:flex-1" : ""}`}>
           {/* With a pinned chevron, only what shares ITS LINE keeps clear of it —
               the title row here and the right slot below (24px + an 8px gap).
               The read-me and the note run the full width underneath: at 375

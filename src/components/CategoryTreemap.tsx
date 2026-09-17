@@ -8,6 +8,15 @@ import { categoryOf } from "@/lib/data/ipCatalog";
 import { IPIcon } from "./IPIcon";
 import { hasRealMcap } from "@/lib/ip/mcap";
 import { formatCompactUsd, formatCompactNumber, formatPct } from "@/lib/format";
+import { brushGradient } from "@/lib/chart/brush";
+
+/** Every tile wears the market's own colour under the brush: area carries the
+ *  ranking, the label carries the identity, and the IP's brand colour stays on
+ *  its icon. A treemap in twelve brand colours competed with the composition
+ *  chart beside it and with the page's lime; one colour, twelve areas reads.
+ *  Text sits at the lit top of the tile, so the ink is dark. */
+const TILE_BRUSH = brushGradient("var(--color-yellow)");
+const TILE_INK = { strong: "rgba(10,10,12,0.92)", soft: "rgba(10,10,12,0.64)" };
 
 /**
  * Market-cap treemap for the Categories landing — tiles sized by market cap so
@@ -161,19 +170,6 @@ function squarify(cells: Cell[], rect: Rect): Array<Cell & Rect> {
 }
 
 /** Relative-luminance pick: dark ink on bright fills, light ink on dark fills. */
-function inkOn(hex: string): { strong: string; soft: string } {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return { strong: "rgba(255,255,255,0.96)", soft: "rgba(255,255,255,0.72)" };
-  const n = parseInt(m[1], 16);
-  const lin = (c: number) => {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return L > 0.4
-    ? { strong: "rgba(10,10,12,0.92)", soft: "rgba(10,10,12,0.64)" }
-    : { strong: "rgba(255,255,255,0.97)", soft: "rgba(255,255,255,0.74)" };
-}
 
 function pctLabel(share: number): string {
   const p = share * 100;
@@ -186,6 +182,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
   const built = useMemo(() => buildCells(rows), [rows]);
   const ref = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(0);
+  const [hObs, setHObs] = useState(0);
   const [hover, setHover] = useState<string | null>(null);
   // Cursor position within the container — the single tooltip follows it (R4-4).
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
@@ -195,6 +192,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       setW(entries[0]?.contentRect.width ?? 0);
+      setHObs(entries[0]?.contentRect.height ?? 0);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -208,7 +206,12 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
   // a billboard. The map grows toward w/ratio as more categories gain data.
   const ratio = w >= 1024 ? 2.5 : 2.05;
   const maxByCount = 200 + cells.length * 44;
-  const h = w > 0 ? Math.max(280, Math.min(540, maxByCount, w / ratio)) : 360;
+  // The intrinsic height (from width and tile count) is the FLOOR; when the
+  // grid row is taller — the composition chart beside it sets it — the tile
+  // area grows to the card and the squarify fills it, no dead band under the
+  // tiles. `fill` on the Section hands the body that height.
+  const hMin = w > 0 ? Math.max(280, Math.min(540, maxByCount, w / ratio)) : 360;
+  const h = Math.max(hMin, hObs);
   const laid = w > 0 ? squarify(cells, { x: 0, y: 0, w, h }) : [];
   const active = hover ? laid.find((t) => t.key === hover) : null;
 
@@ -225,13 +228,15 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
         </div>
       }
       className="font-sans"
+      pinRight
+      fill
     >
       {/* Treemap — tablet and up */}
-      <div className="hidden sm:block">
+      <div className="hidden min-h-0 flex-1 sm:flex sm:flex-col">
         <div
           ref={ref}
-          className="relative w-full select-none"
-          style={{ height: h }}
+          className="relative w-full flex-1 select-none"
+          style={{ minHeight: hMin }}
           onMouseMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
             setCursor({ x: e.clientX - r.left, y: e.clientY - r.top });
@@ -242,18 +247,20 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
           }}
         >
           {laid.map((t) => {
-            const ink = t.href ? inkOn(t.color) : { strong: "var(--color-ink-2)", soft: "var(--color-ink-3)" };
+            const ink = t.href ? TILE_INK : { strong: "var(--color-ink-2)", soft: "var(--color-ink-3)" };
             const dimmed = hover != null && hover !== t.key;
             const big = t.w >= 122 && t.h >= 80;
             const hero = t.w >= 340 && t.h >= 280;
+            // Three rows (name, value, share) need 64px; a 48px tile carries two.
             const med = !big && t.w >= 82 && t.h >= 48;
+            const medShare = med && t.h >= 64;
             const micro = !big && !med && t.w >= 46 && t.h >= 30;
 
             const body = (
               <div
                 className="flex h-full w-full flex-col items-start justify-start overflow-hidden p-2.5"
                 style={{
-                  background: t.href ? t.color : "var(--color-bg-2)",
+                  background: t.href ? TILE_BRUSH : "var(--color-bg-2)",
                   border: t.href ? "1.5px solid var(--color-bg)" : "1.5px dashed var(--color-line-2)",
                   color: ink.strong,
                 }}
@@ -288,9 +295,11 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
                     <span className="mt-1 tabular font-semibold leading-none" style={{ fontSize: 13 }}>
                       {formatCompactUsd(t.mcapUsd)}
                     </span>
-                    <span className="mt-0.5 tabular leading-none" style={{ fontSize: 10.5, color: ink.soft }}>
-                      {pctLabel(t.share)}
-                    </span>
+                    {medShare && (
+                      <span className="mt-0.5 tabular leading-none" style={{ fontSize: 10.5, color: ink.soft }}>
+                        {pctLabel(t.share)}
+                      </span>
+                    )}
                   </>
                 )}
                 {micro && (
@@ -402,7 +411,7 @@ export function CategoryTreemap({ rows }: { rows: IPRow[] }) {
               <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-none bg-bg-2">
                 <div
                   className="h-full rounded-none"
-                  style={{ width: `${Math.max(c.share * 100, 1.5)}%`, background: c.href ? c.color : "var(--color-line-2)" }}
+                  style={{ width: `${Math.max(c.share * 100, 1.5)}%`, background: c.href ? "var(--color-yellow)" : "var(--color-line-2)" }}
                 />
               </div>
             </>
