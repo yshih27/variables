@@ -61,6 +61,16 @@ export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
             ) : null}
           </div>
           <p className="mt-2 font-mono text-[11.5px] text-ink-3">{membershipLine(detail)}</p>
+          {/* The hand-up to the character: this identity is one card of a
+              character the reader named (the extractor on its own parts). */}
+          {detail.character && (
+            <Link
+              href={detail.character.href}
+              className="mt-1.5 inline-block font-mono text-[11.5px] text-ink-3 underline-offset-2 transition-colors hover:text-yellow hover:underline"
+            >
+              {detail.character.name} · every set and grade →
+            </Link>
+          )}
         </div>
       </div>
     </header>

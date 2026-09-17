@@ -108,13 +108,23 @@ export function CardDetailView({ card, salesHistory }: { card: CardDetail; sales
               page is where every slab, every venue and the monthly price live.
               Only when the reader named one — a token whose parts cannot form an
               identity gets no dead link. */}
-          {card.identitySlug && (
-            <Link
-              href={identityHref(card.identitySlug)}
-              className="mt-2 inline-block font-mono text-[12px] text-ink-3 underline-offset-2 transition-colors hover:text-yellow hover:underline"
-            >
-              this card, every slab →
-            </Link>
+          {(card.identitySlug || card.character) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[12px] text-ink-3">
+              {card.identitySlug && (
+                <Link
+                  href={identityHref(card.identitySlug)}
+                  className="underline-offset-2 transition-colors hover:text-yellow hover:underline"
+                >
+                  this card, every slab →
+                </Link>
+              )}
+              {/* …and the character it depicts, when the extractor names one. */}
+              {card.character && (
+                <Link href={card.character.href} className="underline-offset-2 transition-colors hover:text-yellow hover:underline">
+                  {card.character.name} · every set and grade →
+                </Link>
+              )}
+            </div>
           )}
 
           <div className="mt-6 flex flex-wrap items-end gap-x-10 gap-y-4">

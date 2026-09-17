@@ -7,6 +7,7 @@ import { IP_CATALOG, OTHER_IP } from "@/lib/data/ipCatalog";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { parseCardId } from "@/lib/card/ids";
 import { parseIdentitySlug } from "@/lib/card/identity";
+import { hasCharacterExtractor } from "@/lib/card/character";
 
 const IP_KEYS = new Set<string>([...IP_CATALOG.map((i) => i.key), OTHER_IP.key]);
 const PLATFORM_KEYS = new Set<string>(PLATFORM_SOURCES.map((s) => s.key));
@@ -34,4 +35,23 @@ export function isValidCardId(id: string): boolean {
  *  notFound() — existence needs the reader. */
 export function isValidIdentityPath(pathname: string): boolean {
   return parseIdentitySlug(pathname) !== null;
+}
+
+/**
+ * `/ip/<key>/characters[/<character>]` — the character pages exist only for an
+ * IP with a character extractor, and a character page is exactly ONE more
+ * segment in the rollup key's charset (`charizard`, `monkey-d-luffy`). Any
+ * other shape under `/characters` is a real 404 here; a well-formed key the
+ * snapshot does not hold still 404s via the page's own notFound().
+ */
+export function isValidCharacterPath(parts: string[]): boolean {
+  // parts = ["ip", <key>, "characters", ...rest]
+  const [, key, sub, ...rest] = parts;
+  if (sub !== "characters") return true;
+  if (!hasCharacterExtractor(key)) return false;
+  if (rest.length === 0) return true;
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rest[0])) return false;
+  // The character, alone — or followed by Next's own metadata image route
+  // (`…/charizard/opengraph-image`), which lives one segment deeper.
+  return rest.length === 1 || (rest.length === 2 && /^(opengraph|twitter)-image(-[a-z0-9]+)?$/.test(rest[1]));
 }
