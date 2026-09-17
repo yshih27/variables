@@ -1,0 +1,30 @@
+{
+  "kind": "tape",
+  "eyebrow": "The comp · Goldin vs on-chain · Sep 17, 2026",
+  "hero": {
+    "value": "$50,000",
+    "label": "2005 EX Deoxys Gold Star Rayquaza #107 CGC 10. Current bid at Goldin, closes Sep 21."
+  },
+  "image": "~/Desktop/varible-posts/rayquaza-art.jpg",
+  "notes": [
+    "Gold Stars are the chase cards of the EX era: a shiny Pokémon, a gold star by the name, roughly one per two boxes.",
+    "The same card is already on-chain. Collector Crypt holds a CGC 9 insured at $30,000 and a BGS 8 at $25,000, and the BGS 8 has been paid out by the $5,000 Celestial machine."
+  ],
+  "rows": [
+    {
+      "label": "Goldin, CGC 10, current bid",
+      "value": "$50,000"
+    },
+    {
+      "label": "on-chain, CGC 9, insured",
+      "value": "$30,000"
+    },
+    {
+      "label": "on-chain, BGS 8, insured",
+      "value": "$25,000"
+    }
+  ],
+  "source": "varible.rarible.com/platforms",
+  "footer": "insured values, not sales",
+  "asOf": "Sep 17, 2026"
+}
