@@ -20,7 +20,19 @@ import { askText, dayShort, slabCert, venueName } from "@/lib/card/identityView"
  */
 const TOP_ROWS = 15;
 
-export function SlabsTable({ tokens, number }: { tokens: IdentityToken[]; number: string | null }) {
+export function SlabsTable({
+  tokens,
+  number,
+  name,
+  grade,
+}: {
+  tokens: IdentityToken[];
+  number: string | null;
+  /** The identity's own name and grade — every slab here is that card, so
+   *  the preview captions each thumb with them. */
+  name: string;
+  grade: string;
+}) {
   const [all, setAll] = useState(false);
   const visible = all ? tokens : tokens.slice(0, TOP_ROWS);
   const truncated = visible.length < tokens.length;
@@ -50,7 +62,7 @@ export function SlabsTable({ tokens, number }: { tokens: IdentityToken[]; number
               <tr key={`${t.platform}:${t.tokenId}`} className="border-b border-line/60 transition-colors last:border-0 hover:bg-bg-2">
                 <th scope="row" className="py-2 pl-4 pr-3 text-left font-normal sm:pl-5">
                   <Link href={`/card/${t.cardId}`} className="flex min-w-0 items-center gap-2.5 hover:text-yellow">
-                    <CardThumb src={t.image} alt="" size={28} />
+                    <CardThumb src={t.image} variant="row" preview={{ name, grade }} />
                     <span className="min-w-0">
                       <span className="block truncate font-mono text-[12px] text-ink">
                         {slabCert(t.cert, number) ? `cert ${slabCert(t.cert, number)}` : shortId(t.tokenId)}

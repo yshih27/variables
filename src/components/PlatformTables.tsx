@@ -8,7 +8,8 @@ import type {
 import { IPIcon } from "./IPIcon";
 import { Section as SectionFrame } from "./Section";
 import { TableRowLink } from "./TableRowLink";
-import { proxyImg } from "@/lib/img";
+import { CardThumb } from "./CardThumb";
+import { parseGrade } from "@/lib/card/grade";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
@@ -229,17 +230,7 @@ export function PlatformTopCardsTable({
               <Td className="w-[44px] font-mono tabular text-ink-3">{String(r.rank).padStart(2, "0")}</Td>
               <Td>
                 <CardLink platform={r.platform} tokenId={r.tokenId}>
-                  {r.image ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={proxyImg(r.image)}
-                      alt={r.name}
-                      className="h-9 w-7 rounded-sm object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="h-9 w-7 rounded-sm bg-bg-2" />
-                  )}
+                  <CardThumb src={r.image} variant="cell" preview={{ name: r.name, grade: r.grade }} />
                   <span className="max-w-[280px] overflow-hidden text-ellipsis font-semibold group-hover:text-yellow">
                     {r.name}
                   </span>
@@ -349,17 +340,14 @@ export function RecentSalesTable({
               <Td className="font-mono tabular text-ink-3">{timeAgo(r.date)}</Td>
               <Td>
                 <CardLink platform={r.platform} tokenId={r.tokenId}>
-                  {r.image ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={proxyImg(r.image)}
-                      alt={r.cardName ?? "card"}
-                      className="h-9 w-7 rounded-sm object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="h-9 w-7 rounded-sm bg-bg-2" />
-                  )}
+                  {/* A recent-sale row carries no grade field — the grade is inline
+                      in the name, so the preview's chip comes from the grade
+                      SSOT's parser, as the Top Sales tile does. */}
+                  <CardThumb
+                    src={r.image}
+                    variant="cell"
+                    preview={{ name: r.cardName ?? r.tokenId.slice(0, 12), grade: parseGrade(r.cardName)?.label ?? null }}
+                  />
                   <span className="max-w-[280px] overflow-hidden text-ellipsis text-[12.5px] font-medium group-hover:text-yellow">
                     {r.cardName ?? r.tokenId.slice(0, 12)}
                   </span>
