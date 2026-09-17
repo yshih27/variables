@@ -2,7 +2,8 @@
  * Price-index warmer — builds the sale-price panel, computes the MONTHLY identity-
  * comparables index (v4) per IP, builds category + market indices over POOLED
  * identities, measures the selection premium, and stores it all in the
- * `price-index` snapshot blob.
+ * `price-index` snapshot blob. The same run persists the panel, the identity
+ * index (+ slabs) and the character rollups, so no reader builds any of them.
  *
  *   npx tsx --env-file=.env.local scripts/warm-sale-panel.ts
  *   npx tsx --env-file=.env.local scripts/warm-sale-panel.ts --out=/tmp/blob   # LOCAL: write
@@ -42,7 +43,8 @@ import type { IndexPoint } from "../src/lib/data/indices";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
 import { writeSnapshot } from "../src/lib/db/snapshots";
 import { holdingPeriodInvariance, INDEX_HARD_SKEW_PP } from "../src/lib/data/biasTests";
-import { buildIdentityIndex, packIdentityIndex, writeIdentityIndex, IDENTITY_INDEX_SNAPSHOT_KEY, IDENTITY_SLABS_SNAPSHOT_KEY } from "../src/lib/data/identityDetail";
+import { buildIdentityIndex, packIdentityIndex, writeIdentityIndex, cachedListingIndex, IDENTITY_INDEX_SNAPSHOT_KEY, IDENTITY_SLABS_SNAPSHOT_KEY } from "../src/lib/data/identityDetail";
+import { buildCharacterRollups, packCharacterRollups, writeCharacterRollups, CHARACTER_ROLLUPS_SNAPSHOT_KEY } from "../src/lib/data/characterRollups";
 import { canonicalGrade, gradePremiumSeries, PREMIUM_PAIRS } from "../src/lib/data/gradePremium";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
@@ -259,6 +261,32 @@ async function main() {
     console.log(`  wrote identity-index + identity-slabs snapshots (${identityIdx.bySlug.size.toLocaleString()} slugs, ${((Date.now() - tIdx) / 1000).toFixed(0)}s)`);
   }
 
+  // The character rollups — the identity index grouped by character
+  // (src/lib/card/character.ts), each group's KPIs, monthly series, set /
+  // venue splits, every identity row and the character index — from the SAME
+  // panel and index, in the same run, so the three snapshots agree. Listings
+  // are read once for the venue floors. The reader never builds this.
+  const tChar = Date.now();
+  const listingIdx = await cachedListingIndex().catch(() => null);
+  const rollups = buildCharacterRollups(panel, identityIdx, { listings: listingIdx, nowMs: Date.parse(now) });
+  const nChars = Object.keys(rollups.characters).length;
+  const nIndexed = Object.values(rollups.characters).filter((c) => c.index).length;
+  const covTxt = Object.entries(rollups.coverage)
+    .map(([ip, c]) => `${ip} ${c.mapped.toLocaleString()}/${c.identities.toLocaleString()} mapped (${c.identities ? ((c.mapped / c.identities) * 100).toFixed(1) : "0.0"}%), ${c.multiCharacter} multi-character`)
+    .join(" · ");
+  if (OUT_DIR) {
+    const packed = packCharacterRollups(rollups);
+    const f = join(OUT_DIR, `${CHARACTER_ROLLUPS_SNAPSHOT_KEY}.json`);
+    writeFileSync(f, JSON.stringify(packed));
+    console.log(
+      `  wrote LOCAL character-rollups → ${f} (${nChars.toLocaleString()} characters, ${nIndexed} with an index, ${(packed.__gz__.length / 1024).toFixed(0)}KB gz) ` +
+        `in ${((Date.now() - tChar) / 1000).toFixed(1)}s · ${covTxt}`,
+    );
+  } else {
+    await writeCharacterRollups(rollups);
+    console.log(`  wrote character-rollups snapshot (${nChars.toLocaleString()} characters, ${nIndexed} with an index, ${((Date.now() - tChar) / 1000).toFixed(1)}s) · ${covTxt}`);
+  }
+
   if (OUT_DIR) {
     mkdirSync(OUT_DIR, { recursive: true });
     const file = join(OUT_DIR, "price-index.json");
@@ -276,7 +304,11 @@ async function main() {
   return { rowsWritten: published.length };
 }
 
-runWarmer("price-index", main).catch((e) => {
+// ⚠️ `--out` is the executor's production-free mode: it must not stamp
+// production's `source_freshness` either, or /status reports a price-index run
+// that never reached the production blobs. Only the real run goes through
+// runWarmer; the local one is a bare call.
+(OUT_DIR ? main() : runWarmer("price-index", main)).catch((e) => {
   console.error(e);
   process.exit(1);
 });
