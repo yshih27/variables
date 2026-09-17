@@ -92,7 +92,7 @@ export function withNames(base: CrumbNames, extra?: Partial<CrumbNames> | null):
 }
 
 /** Sub-page nouns under an IP or a venue. Route segments, not copy. */
-const IP_LEAF: Record<string, string> = { cards: "Cards", grades: "Grades", sets: "Sets" };
+const IP_LEAF: Record<string, string> = { cards: "Cards", grades: "Grades", sets: "Sets", characters: "Characters" };
 const PLATFORM_LEAF: Record<string, string> = { ips: "IPs", sales: "Sales", cards: "Cards" };
 
 /**
@@ -124,6 +124,11 @@ export function crumbsFor(pathname: string, names: CrumbNames, leaf?: string | n
       trail.push({ label: IP_LEAF[sub], href: `/ip/${key}/${sub}` });
       if (sub === "sets" && rest) {
         trail.push({ label: names.sets[`${key}:${rest}`] ?? leafOr(leaf, rest), href: `/ip/${key}/sets/${rest}` });
+      }
+      // A character's name is the page's own (`leaf`, from its reader); the
+      // rail model has no character list to name it from.
+      if (sub === "characters" && rest) {
+        trail.push({ label: leafOr(leaf, rest), href: `/ip/${key}/characters/${rest}` });
       }
     }
     return finish(trail);

@@ -31,16 +31,26 @@ export function IPDominance({
   grades,
   setsSeeAllHref,
   gradesSeeAllHref,
+  third,
 }: {
   sets: DominanceSource;
   grades: DominanceSource;
   setsSeeAllHref?: string;
   gradesSeeAllHref?: string;
+  /** A third card in the same row and frame — the IP's top characters, when
+   *  it has any. Null keeps the pair exactly as it was. Rendered by the page
+   *  (a server component passed through), not built here. */
+  third?: React.ReactNode;
 }) {
+  // Three questions share the row from 1280 (composition by set, by grade,
+  // and by character); at 1024–1279 the third spans the pair's width rather
+  // than sitting alone at half width on a second row.
+  const cols = third ? "min-[1024px]:grid-cols-2 min-[1280px]:grid-cols-3" : "min-[1024px]:grid-cols-2";
   return (
-    <div className="mb-12 grid grid-cols-1 gap-6 font-sans min-[1024px]:grid-cols-2">
+    <div className={`mb-12 grid grid-cols-1 gap-6 font-sans ${cols}`}>
       <DominancePanel title="Set dominance" source={sets} defaultMetric="volume" seeAllHref={setsSeeAllHref} />
       <DominancePanel title="Grade dominance" source={grades} defaultMetric="cards" seeAllHref={gradesSeeAllHref} />
+      {third ? <div className="h-full min-[1024px]:col-span-2 min-[1280px]:col-span-1">{third}</div> : null}
     </div>
   );
 }
