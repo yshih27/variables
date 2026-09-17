@@ -44,7 +44,7 @@ import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
 import { writeSnapshot } from "../src/lib/db/snapshots";
 import { holdingPeriodInvariance, INDEX_HARD_SKEW_PP } from "../src/lib/data/biasTests";
 import { buildIdentityIndex, packIdentityIndex, writeIdentityIndex, cachedListingIndex, IDENTITY_INDEX_SNAPSHOT_KEY, IDENTITY_SLABS_SNAPSHOT_KEY } from "../src/lib/data/identityDetail";
-import { buildCharacterRollups, packCharacterRollups, writeCharacterRollups, CHARACTER_ROLLUPS_SNAPSHOT_KEY } from "../src/lib/data/characterRollups";
+import { buildCharacterRollups, packCharacterRollups, resolveCharacterArt, writeCharacterRollups, CHARACTER_ROLLUPS_SNAPSHOT_KEY } from "../src/lib/data/characterRollups";
 import { canonicalGrade, gradePremiumSeries, PREMIUM_PAIRS } from "../src/lib/data/gradePremium";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
@@ -269,6 +269,13 @@ async function main() {
   const tChar = Date.now();
   const listingIdx = await cachedListingIndex().catch(() => null);
   const rollups = buildCharacterRollups(panel, identityIdx, { listings: listingIdx, nowMs: Date.parse(now) });
+  // Card art for the page headers: one meta read per platform over the leading
+  // slabs (a READ of `cards`, the table the panel's dims come from). A failed
+  // read leaves every image null; the pages fall back to the IP icon.
+  const nArt = await resolveCharacterArt(rollups).catch((e: unknown) => {
+    console.warn(`  character art unresolved: ${e instanceof Error ? e.message : String(e)}`);
+    return 0;
+  });
   const nChars = Object.keys(rollups.characters).length;
   const nIndexed = Object.values(rollups.characters).filter((c) => c.index).length;
   const covTxt = Object.entries(rollups.coverage)
@@ -279,12 +286,12 @@ async function main() {
     const f = join(OUT_DIR, `${CHARACTER_ROLLUPS_SNAPSHOT_KEY}.json`);
     writeFileSync(f, JSON.stringify(packed));
     console.log(
-      `  wrote LOCAL character-rollups → ${f} (${nChars.toLocaleString()} characters, ${nIndexed} with an index, ${(packed.__gz__.length / 1024).toFixed(0)}KB gz) ` +
+      `  wrote LOCAL character-rollups → ${f} (${nChars.toLocaleString()} characters, ${nIndexed} with an index, ${nArt} with art, ${(packed.__gz__.length / 1024).toFixed(0)}KB gz) ` +
         `in ${((Date.now() - tChar) / 1000).toFixed(1)}s · ${covTxt}`,
     );
   } else {
     await writeCharacterRollups(rollups);
-    console.log(`  wrote character-rollups snapshot (${nChars.toLocaleString()} characters, ${nIndexed} with an index, ${((Date.now() - tChar) / 1000).toFixed(1)}s) · ${covTxt}`);
+    console.log(`  wrote character-rollups snapshot (${nChars.toLocaleString()} characters, ${nIndexed} with an index, ${nArt} with art, ${((Date.now() - tChar) / 1000).toFixed(1)}s) · ${covTxt}`);
   }
 
   if (OUT_DIR) {

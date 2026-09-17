@@ -35,7 +35,7 @@
 import { unstable_cache } from "next/cache";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type { SaleRow } from "./salePanel";
-import type { CardPlatform } from "./cards";
+import { readCardMeta, type CardPlatform } from "./cards";
 import { parseIdentityKey } from "./traits";
 import { identityIndex, monthlyIdentityPrices, MIN_IDENTITIES_BROAD, type IdentityIndexPoint } from "./identityIndex";
 import { canonicalGrade } from "./gradePremium";
@@ -99,9 +99,20 @@ export type CharacterVenueRow = {
   listings: number;
   /** Lowest live listing on this venue, or null. */
   floorUsd: number | null;
+  /** The cheapest clear at this venue inside the window, or null when it had no
+   *  30d sale. The page's floor gate reads against it: an ask under half of it
+   *  is a placeholder ($1.00 asks on 676 Charizard listings, measured
+   *  2026-09-17), not a floor, and the page says so instead of printing it. */
+  cheapestSale30dUsd: number | null;
   /** The identity page's rule: whose listings are complete. */
   coverage: "native" | "aggregator";
 };
+
+/** The card whose art fronts the character page: the first slab of the top
+ *  identity by 30d volume (deterministic), its image resolved from the cards
+ *  table by `resolveCharacterArt` at warm time. A null image means no slab of
+ *  the leading identities carries one; the page falls back to the IP's icon. */
+export type CharacterArt = { platform: CardPlatform; tokenId: string; image: string | null };
 
 export type CharacterIdentityRow = {
   /** The identity slug — `identityHref(slug)` is its page. */
@@ -144,12 +155,17 @@ export type CharacterRollup = {
   top: CharacterIdentityRow[];
   /** Identities on which this character shares the card with another. */
   multiCharacter: number;
+  art: CharacterArt | null;
+  /** Warm-time only: the next slabs to try when `art`'s carries no image.
+   *  Consumed and deleted by `resolveCharacterArt`; never packed. */
+  artFallbacks?: { platform: CardPlatform; tokenId: string }[];
 };
 
 export type CharacterLeaderboardRow = {
   key: string;
   name: string;
   identities: number;
+  slabs: number;
   sales30d: number;
   volume30d: number;
   shareOfIp30d: number;
@@ -349,6 +365,16 @@ export function buildCharacterRollups(
     });
     top.sort((a, b) => b.volume30d - a.volume30d || b.sales30d - a.sales30d || b.slabs - a.slabs || a.slug.localeCompare(b.slug));
 
+    // The page's art: one slab from each of the four leading identities, in
+    // rank order; the first with an image wins at warm time.
+    const memberBySlug = new Map(ms.map((m) => [m.slug, m]));
+    const artRefs = top.slice(0, 4).flatMap((t) => {
+      const m = memberBySlug.get(t.slug);
+      if (!m) return [];
+      const canonical = pickCanonicalKey(m.keys, (k) => statsOf(k).sales, slabsOf);
+      return (idx.slabsByKey.get(canonical) ?? []).slice(0, 1);
+    });
+
     // By set — from the identities' own set (the set-name SSOT).
     const setMap = new Map<string, CharacterSetRow>();
     for (const t of top) {
@@ -366,7 +392,7 @@ export function buildCharacterRollups(
     const venueMap = new Map<CardPlatform, CharacterVenueRow>();
     const venue = (p: CardPlatform) => {
       let v = venueMap.get(p);
-      if (!v) venueMap.set(p, (v = { platform: p, sales30d: 0, volume30d: 0, listings: 0, floorUsd: null, coverage: IDENTITY_LISTING_SOURCE[p] ?? "aggregator" }));
+      if (!v) venueMap.set(p, (v = { platform: p, sales30d: 0, volume30d: 0, listings: 0, floorUsd: null, cheapestSale30dUsd: null, coverage: IDENTITY_LISTING_SOURCE[p] ?? "aggregator" }));
       return v;
     };
     for (const r of rows) {
@@ -374,6 +400,7 @@ export function buildCharacterRollups(
       const v = venue(r.platform);
       v.sales30d += 1;
       v.volume30d += r.priceUsd;
+      if (v.cheapestSale30dUsd == null || r.priceUsd < v.cheapestSale30dUsd) v.cheapestSale30dUsd = r.priceUsd;
     }
     for (const k of allKeys) {
       for (const ref of idx.slabsByKey.get(k) ?? []) {
@@ -403,6 +430,8 @@ export function buildCharacterRollups(
       byVenue,
       top,
       multiCharacter: ms.filter((m) => m.match.partnerKeys.some((k) => !!k && k !== m.match.key)).length,
+      art: artRefs[0] ? { platform: artRefs[0].platform, tokenId: artRefs[0].tokenId, image: null } : null,
+      artFallbacks: artRefs.slice(1),
     };
   }
 
@@ -414,6 +443,7 @@ export function buildCharacterRollups(
       key: c.key,
       name: c.name,
       identities: c.identities,
+      slabs: c.slabs,
       sales30d: c.kpis.sales30d,
       volume30d: c.kpis.volume30d,
       shareOfIp30d: c.kpis.shareOfIp30d,
@@ -451,7 +481,45 @@ type Gz = { __gz__: string };
 
 /** The wrapped payload the warmer stores — `--out` writes these exact bytes. */
 export function packCharacterRollups(snap: CharacterRollupsSnapshot): Gz {
+  for (const c of Object.values(snap.characters)) delete c.artFallbacks;
   return { __gz__: gzipSync(Buffer.from(JSON.stringify(snap))).toString("base64") };
+}
+
+/**
+ * Fill `art.image` for every character from the cards table — one chunked read
+ * per platform over the leading identities' slabs, first with an image wins.
+ * Warm-time only: the reader never touches the cards table. Leaves `image`
+ * null when no candidate slab carries one, and clears the fallbacks either way.
+ * Returns how many characters resolved an image.
+ */
+export async function resolveCharacterArt(
+  snap: CharacterRollupsSnapshot,
+  readMeta: (platform: CardPlatform, ids: string[]) => Promise<Map<string, { image: string | null }>> = readCardMeta,
+): Promise<number> {
+  const refsOf = (c: CharacterRollup) => (c.art ? [c.art, ...(c.artFallbacks ?? [])] : []);
+  const byPlatform = new Map<CardPlatform, Set<string>>();
+  for (const c of Object.values(snap.characters)) {
+    for (const r of refsOf(c)) {
+      let ids = byPlatform.get(r.platform);
+      if (!ids) byPlatform.set(r.platform, (ids = new Set()));
+      ids.add(r.tokenId);
+    }
+  }
+  const images = new Map<string, string | null>();
+  for (const [p, ids] of byPlatform) {
+    const meta = await readMeta(p, [...ids]);
+    for (const [id, m] of meta) images.set(`${p}:${id}`, m.image ?? null);
+  }
+  let n = 0;
+  for (const c of Object.values(snap.characters)) {
+    const hit = refsOf(c).find((r) => !!images.get(`${r.platform}:${r.tokenId}`));
+    if (hit) {
+      c.art = { platform: hit.platform, tokenId: hit.tokenId, image: images.get(`${hit.platform}:${hit.tokenId}`) ?? null };
+      n += 1;
+    }
+    delete c.artFallbacks;
+  }
+  return n;
 }
 
 export async function writeCharacterRollups(snap: CharacterRollupsSnapshot): Promise<void> {
