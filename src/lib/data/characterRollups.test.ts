@@ -85,6 +85,13 @@ test("groups identities by character, computes KPIs, share, monthly, sets, venue
   assert.equal(chz.byVenue[0].coverage, "aggregator");
   assert.equal(chz.byVenue[1].platform, "collector-crypt");
   assert.equal(chz.byVenue[1].coverage, "native");
+  // the floor gate's reference — the cheapest 30d clear per venue (the 45-day-old $90 is outside the window)
+  assert.equal(chz.byVenue[0].cheapestSale30dUsd, 50);
+  assert.equal(chz.byVenue[1].cheapestSale30dUsd, 120);
+  // art: the top identity's first slab, image unresolved until warm time; the next identity's slab is the fallback
+  assert.equal(chz.art?.platform, "beezie");
+  assert.equal(chz.art?.image, null);
+  assert.equal(chz.artFallbacks?.length, 1);
   // rows — every identity, by 30d volume, with the extractor's facets
   assert.equal(chz.top.length, 2);
   assert.equal(chz.top[0].name, "Charizard Ex");
