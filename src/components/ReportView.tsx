@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CardThumb } from "./CardThumb";
+import { parseGrade } from "@/lib/card/grade";
 import { StatCard, StatCardRow } from "./StatCard";
 import { Section } from "./Section";
 import { ChartActions } from "./ChartActions";
@@ -281,7 +282,9 @@ function SaleRow({ sale }: { sale: ReportSale }) {
   const inner = (
     <>
       <span className="flex min-w-0 items-center gap-3">
-        <CardThumb src={sale.image} size={32} />
+        {/* The report's sale carries no grade field; the name has it inline,
+            so the preview's chip is the grade SSOT's parse of the name. */}
+        <CardThumb src={sale.image} variant="row" preview={{ name: sale.name, grade: parseGrade(sale.name)?.label ?? null }} />
         <span className="flex min-w-0 flex-col">
         <span className="truncate font-sans text-[13.5px] font-medium">{sale.name}</span>
         {/* Display names, not raw slugs ("one_piece · collector-crypt"). */}

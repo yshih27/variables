@@ -86,7 +86,7 @@ export function SetCardsTable({ sales, limit = 12 }: { sales: PanelSale[]; limit
             {shown.map((r) => {
               const label = (
                 <span className="flex min-w-0 items-center gap-2.5">
-                  <CardThumb src={r.image} alt={r.name ?? ""} size={28} />
+                  <CardThumb src={r.image} variant="row" preview={{ name: r.name ?? "—", grade: r.grade }} />
                   <span className="min-w-0">
                     <span className="block truncate text-[12.5px] text-ink">{r.name ?? "—"}</span>
                     <span className="block font-mono text-[10px] text-ink-4">{r.grade}</span>

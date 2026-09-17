@@ -32,7 +32,7 @@ export function SetTopSales({ sales, limit = 12 }: { sales: PanelSale[]; limit?:
         {top.map((s) => {
           const body = (
             <span className="flex min-w-0 flex-1 items-center gap-3">
-              <CardThumb src={s.image} alt={s.cardName ?? ""} size={36} />
+              <CardThumb src={s.image} variant="row" preview={{ name: s.cardName ?? "—", grade: s.grade }} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12.5px] text-ink">{s.cardName ?? "—"}</span>
                 <span className="mt-0.5 block font-mono text-[10px] text-ink-4">

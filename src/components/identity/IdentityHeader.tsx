@@ -33,11 +33,8 @@ export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
         }}
       />
       <div className="flex items-start gap-4">
-        {/* `relative`: CardThumb's fill mode is absolute inset-0 — the frame owns
-            the aspect ratio and the image fills it, whole (object-contain). */}
-        <div className="relative aspect-[5/7] w-[72px] shrink-0 overflow-hidden rounded-md border border-line bg-bg-1 sm:w-[88px]">
-          <CardThumb src={art} alt={name} fill className="p-0 [&>img]:p-1" />
-        </div>
+        {/* The hero frame: 144px wide (96 on phones), the slab trimmed whole. */}
+        <CardThumb src={art} alt={name} variant="hero" />
         <div className="min-w-0">
           <h1 className="text-[22px] font-bold leading-none tracking-[-0.02em]">{name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">

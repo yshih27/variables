@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { GradeChip } from "./GradeChip";
 import type { SetRow, GradeRow, CardRow } from "@/lib/data/fetchIP";
-import { proxyImg } from "@/lib/img";
+import { CardThumb } from "./CardThumb";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
@@ -138,25 +138,18 @@ function CardCell({
   tokenId,
   image,
   name,
+  grade,
 }: {
   platform: string;
   tokenId: string;
   image?: string;
   name: string;
+  /** The row's grade, for the preview's chip. */
+  grade?: string | null;
 }) {
   const inner = (
     <>
-      {image ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={proxyImg(image)}
-          alt={name}
-          className="h-9 w-7 rounded-sm object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <div className="h-9 w-7 rounded-sm bg-bg-2" />
-      )}
+      <CardThumb src={image} variant="cell" preview={{ name, grade }} />
       <span className="max-w-[280px] overflow-hidden text-ellipsis font-semibold group-hover:text-yellow">
         {name}
       </span>
@@ -214,6 +207,7 @@ export function TopCardsTable({
                   tokenId={r.tokenId}
                   image={r.image}
                   name={r.name}
+                  grade={r.grade}
                 />
               </Td>
               <Td className="max-w-[220px] overflow-hidden text-ellipsis text-[12px] text-ink-2">
