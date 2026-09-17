@@ -1,0 +1,30 @@
+{
+  "kind": "tape",
+  "eyebrow": "The pull · Collector Crypt · Sep 8, 2026",
+  "hero": {
+    "value": "$250K",
+    "label": "2011 Call of Legends Lugia SL7 Holo PSA 10. Declared value."
+  },
+  "image": "~/Desktop/varible-posts/lugia-art.jpg",
+  "notes": [
+    "Pulled from the Celestial Pokémon Gacha Pack, the $5,000 machine and the biggest on Collector Crypt by spend.",
+    "Same machine, same week: a 2003 Skyridge Charizard PSA 10 at $125K and a 2002 Legendary Collection Charizard PSA 10 at $102K."
+  ],
+  "rows": [
+    {
+      "label": "pull price",
+      "value": "$5,000"
+    },
+    {
+      "label": "declared value",
+      "value": "$250,000"
+    },
+    {
+      "label": "machine 30d spend",
+      "value": "$24.6M"
+    }
+  ],
+  "source": "varible.rarible.com/platforms",
+  "asOf": "Sep 17, 2026",
+  "footer": "declared values"
+}

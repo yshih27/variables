@@ -55,6 +55,8 @@ type Spec = {
   image?: string;
   /** Short explanatory lines (art layout): why the price, what the card is. */
   notes?: string[];
+  /** Footer qualifier on the right (default "settled sales only"; e.g. "declared values, not sales"). */
+  footer?: string;
 };
 
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -217,7 +219,7 @@ function html(spec: Spec): string {
   ${body(spec)}
   <div class="foot">
     <span>source · <b>${esc(source)}</b></span>
-    <span>${spec.kind === "quote" ? "as of" : "figures as of"} <b>${esc(asOf)}</b>${spec.kind === "quote" ? "" : " · settled sales only"}</span>
+    <span>${spec.kind === "quote" ? "as of" : "figures as of"} <b>${esc(asOf)}</b>${spec.kind === "quote" ? "" : ` · ${esc(spec.footer ?? "settled sales only")}`}</span>
   </div>
 </div>
 </body></html>`;

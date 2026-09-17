@@ -1,0 +1,14 @@
+{
+  "kind": "list",
+  "eyebrow": "Weekly report · week ending Sep 13",
+  "title": "The tokenized collectibles market, week over week.",
+  "rows": [
+    { "label": "Market cap", "value": "$62.8M" },
+    { "label": "Market cap, w/w", "value": "−0.4%" },
+    { "label": "Gacha + resale volume", "value": "$46.0M" },
+    { "label": "Gacha + resale volume, w/w", "value": "+32.0%" },
+    { "label": "Largest resale we track", "value": "$17.6K" }
+  ],
+  "source": "varible.rarible.com/report",
+  "asOf": "Sep 14, 2026"
+}

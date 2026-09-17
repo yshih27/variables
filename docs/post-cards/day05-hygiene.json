@@ -1,0 +1,8 @@
+{
+  "kind": "quote",
+  "eyebrow": "How we count",
+  "title": "Not every on-chain sale is a sale.",
+  "text": "A trade only counts here after a hygiene check. Self-dealing and round-trip patterns are dropped. Transfers with no real payment leg never enter the tape.\n\nWe publish the smaller number.",
+  "source": "varible.rarible.com/methodology",
+  "asOf": "Sep 17, 2026"
+}
