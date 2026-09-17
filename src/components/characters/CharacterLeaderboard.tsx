@@ -59,10 +59,14 @@ export function CharacterLeaderboard({ rows, ip }: { rows: CharacterLeaderboardR
                   <th scope="col" className="py-2 pl-4 pr-3 font-medium sm:pl-5">#</th>
                   <th scope="col" className="px-3 py-2 font-medium">Character</th>
                   <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">Cards</th>
+                  <th scope="col" className="hidden px-3 py-2 text-right font-medium lg:table-cell">Slabs</th>
                   <th scope="col" className="hidden px-3 py-2 text-right font-medium md:table-cell">30d sales</th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">30d volume</th>
                   <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">Share of IP</th>
-                  <th scope="col" className="py-2 pl-3 pr-4 text-right font-medium sm:pr-5">Index</th>
+                  {/* A column of dashes is a broken-looking column: the index
+                      column exists only once a character publishes one; until
+                      then the read-me and the stat card carry the fact. */}
+                  {withIndex > 0 && <th scope="col" className="py-2 pl-3 pr-4 text-right font-medium sm:pr-5">Index</th>}
                 </tr>
               </thead>
               <tbody>
@@ -75,9 +79,11 @@ export function CharacterLeaderboard({ rows, ip }: { rows: CharacterLeaderboardR
                       </Link>
                     </th>
                     <td className="hidden px-3 py-2 text-right tabular text-[12.5px] text-ink-2 sm:table-cell">{formatInt(r.identities)}</td>
+                    <td className="hidden px-3 py-2 text-right tabular text-[12.5px] text-ink-2 lg:table-cell">{formatInt(r.slabs)}</td>
                     <td className="hidden px-3 py-2 text-right tabular text-[12.5px] text-ink-2 md:table-cell">{formatInt(r.sales30d)}</td>
                     <td className="px-3 py-2 text-right tabular text-[12.5px] text-ink">{r.volume30d > 0 ? formatCompactUsd(r.volume30d) : <span className="text-ink-4">—</span>}</td>
                     <td className="hidden px-3 py-2 text-right tabular text-[12.5px] text-ink-2 sm:table-cell">{r.volume30d > 0 ? `${r.shareOfIp30d.toFixed(1)}%` : <span className="text-ink-4">—</span>}</td>
+                    {withIndex > 0 && (
                     <td className="py-2 pl-3 pr-4 text-right tabular text-[12.5px] sm:pr-5">
                       {r.indexLatest ? (
                         <>
@@ -91,6 +97,7 @@ export function CharacterLeaderboard({ rows, ip }: { rows: CharacterLeaderboardR
                         <span className="text-ink-4" title="no published index — under 20 priced cards in two months running">—</span>
                       )}
                     </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

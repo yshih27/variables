@@ -1,6 +1,40 @@
 import type { CharacterDetail, CharacterIndexGate, CharacterMonthly } from "@/lib/data/characterRollups";
 import type { IdentityIndexPoint } from "@/lib/data/identityIndex";
-import { monthShort } from "./identityView";
+import { FLOOR_VS_MONTHLY_MIN, monthShort } from "./identityView";
+import type { CharacterVenueRow } from "@/lib/data/characterRollups";
+
+export type VenueFloorReading =
+  /** A native venue's lowest ask, at or above half the cheapest 30d clear. */
+  | { kind: "floor"; priceUsd: number }
+  /** An aggregator-sourced ask (Beezie via Rarible): plausible, unverified. */
+  | { kind: "unverified"; priceUsd: number }
+  /** Under half the cheapest 30d clear — a placeholder ask, not a floor. */
+  | { kind: "placeholder"; priceUsd: number; referenceUsd: number }
+  /** No 30d clear anywhere on the character to read the ask against. */
+  | { kind: "unreferenced"; priceUsd: number };
+
+/**
+ * The character page's floor rule — the identity page's lower bound (an ask
+ * under half the cheapest realized price is a placeholder), read against the
+ * venue's own cheapest 30d clear, else the character's cheapest across venues.
+ * No upper bound here: a character spans $17 and $10K cards, so its lowest ask
+ * legitimately sits far under its top clears. Measured 2026-09-17: Charizard's
+ * Collector Crypt "floor" was $1.00 across 676 listings against a cheapest
+ * clear of $17.34; Pikachu and Luffy the same — printed as floors until this.
+ */
+export function venueFloor(v: CharacterVenueRow, characterCheapest: number | null): VenueFloorReading | null {
+  if (v.floorUsd == null) return null;
+  const ref = v.cheapestSale30dUsd ?? characterCheapest;
+  if (ref == null) return { kind: "unreferenced", priceUsd: v.floorUsd };
+  if (v.floorUsd < ref * FLOOR_VS_MONTHLY_MIN) return { kind: "placeholder", priceUsd: v.floorUsd, referenceUsd: ref };
+  return v.coverage === "native" ? { kind: "floor", priceUsd: v.floorUsd } : { kind: "unverified", priceUsd: v.floorUsd };
+}
+
+/** The cheapest 30d clear across the character's venues, or null. */
+export function characterCheapestClear(venues: CharacterVenueRow[]): number | null {
+  const xs = venues.map((v) => v.cheapestSale30dUsd).filter((x): x is number => x != null);
+  return xs.length ? Math.min(...xs) : null;
+}
 
 /**
  * The character page's READING rules — pure, shared by the header, the KPI
