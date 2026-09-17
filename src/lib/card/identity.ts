@@ -127,7 +127,10 @@ export function identityHref(slug: string): string {
  * keep, and a wrong guess there reads worse than a plain title case.
  */
 export function identityDisplayName(cardName: string): string {
-  return cardName.toLowerCase().replace(/(^|[\s\-\/'])(\w)/g, (m, sep: string, c: string) => sep + c.toUpperCase());
+  // An apostrophe is not a word boundary: "GIOVANNI'S PINSIR" is "Giovanni's
+  // Pinsir" and "FARFETCH'D" is "Farfetch'd" (measured on the character
+  // rollups: 2,000+ owner-prefixed identities printed "Giovanni'S").
+  return cardName.toLowerCase().replace(/(^|[\s\-\/])(\w)/g, (m, sep: string, c: string) => sep + c.toUpperCase());
 }
 
 export type ParsedIdentitySlug = {

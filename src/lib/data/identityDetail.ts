@@ -36,6 +36,7 @@ import { buildSalePanel, readSalePanel, type SaleRow } from "./salePanel";
 import { readAllCardDims, readCards, type CardPlatform } from "./cards";
 import { identityKey, parseIdentityKey, normalizeTraits, type CardIdentityParts } from "./traits";
 import { identitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
+import { characterOf, characterHref } from "@/lib/card/character";
 import { normalizeSetName } from "@/lib/card/setName";
 import { cardHref, parseCardId, PLATFORM_META } from "@/lib/card/ids";
 import { monthlyIdentityPrices, MIN_SALES_PER_IDENTITY } from "./identityIndex";
@@ -143,6 +144,14 @@ export type IdentityDetail = {
   fragments: { key: string; sales: number; slabs: number }[];
   /** Which path resolved the slug: the panel scan or the cards column. */
   resolvedVia: "panel" | "column";
+  /**
+   * The character this card depicts — "Charizard · every set and grade →".
+   * From `characterOf(ip, name)` at read time (pure, no snapshot dependency);
+   * null for trainers, energy, event cards and IPs without an extractor.
+   * `identities` is filled from the character-rollups snapshot when it is
+   * loaded, else 0 — the link is valid either way.
+   */
+  character: { key: string; name: string; href: string; identities: number } | null;
   generatedAt: string;
 };
 
@@ -429,25 +438,46 @@ export async function awaitColumnProbe(): Promise<"present" | "absent"> {
   return columnState?.known ?? "absent";
 }
 
-/** Most sales, then most slabs, then the lexicographically first key. */
+/**
+ * The canonical fragment of a slug: most sales, then most slabs, then the
+ * lexicographically first key. ONE rule, pure over its two counters, so the
+ * identity page and the character rollups (which precompute the counters
+ * over the whole panel once) pick the same key for the same slug.
+ */
+export function pickCanonicalKey(keys: string[], salesOf: (key: string) => number, slabsOf: (key: string) => number): string {
+  return [...keys].sort((a, b) => salesOf(b) - salesOf(a) || slabsOf(b) - slabsOf(a) || a.localeCompare(b))[0];
+}
+
 function canonicalKey(keys: string[], panel: SaleRow[], idx: SlugIndex): string {
   const sales = new Map<string, number>();
   for (const r of panel) if (r.identity && keys.includes(r.identity)) sales.set(r.identity, (sales.get(r.identity) ?? 0) + 1);
-  return [...keys].sort((a, b) => {
-    const d = (sales.get(b) ?? 0) - (sales.get(a) ?? 0);
-    if (d) return d;
-    const s = (idx.slabsByKey.get(b)?.length ?? 0) - (idx.slabsByKey.get(a)?.length ?? 0);
-    return s || a.localeCompare(b);
-  })[0];
+  return pickCanonicalKey(keys, (k) => sales.get(k) ?? 0, (k) => idx.slabsByKey.get(k)?.length ?? 0);
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Identities under a character, from the rollups snapshot (its own module
+ * memo). Imported lazily: characterRollups imports this module's coverage
+ * rule and canonical-key picker, so a static import would be a cycle.
+ * Degrades to 0 — the link on the page does not depend on it.
+ */
+async function characterIdentityCount(ip: string, key: string): Promise<number> {
+  try {
+    const { readCharacterLeaderboard } = await import("./characterRollups");
+    const board = await readCharacterLeaderboard(ip, Number.MAX_SAFE_INTEGER);
+    return board.find((r) => r.key === key)?.identities ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 const ipNameOf = (ip: string) => IP_CATALOG.find((i) => i.key === ip)?.name ?? ip;
 
 
-/** Whose listings are complete. Beezie's still arrive through the aggregator. */
-const LISTING_SOURCE: Record<string, "native" | "aggregator"> = {
+/** Whose listings are complete. Beezie's still arrive through the aggregator.
+ *  Exported as the ONE coverage rule: the character rollups' `byVenue` reads it. */
+export const IDENTITY_LISTING_SOURCE: Record<string, "native" | "aggregator"> = {
   "collector-crypt": "native",
   phygitals: "native",
   courtyard: "native",
@@ -478,9 +508,9 @@ function certOf(attributes: { trait_type?: string; value?: unknown }[] | undefin
  * by `platform:tokenId` once, so a 53-slab identity costs 53 map lookups rather
  * than 53 scans of ~59K entries (measured: 3.5s → sub-second).
  */
-type ListingIndex = Map<string, ListingEntry>;
+export type ListingIndex = Map<string, ListingEntry>;
 let listingsMemo: { at: number; p: Promise<ListingIndex> } | null = null;
-function cachedListingIndex(): Promise<ListingIndex> {
+export function cachedListingIndex(): Promise<ListingIndex> {
   if (!listingsMemo || Date.now() - listingsMemo.at > PANEL_TTL_MS) {
     listingsMemo = {
       at: Date.now(),
@@ -567,7 +597,7 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
           priceUsd: best.listing!.priceUsd,
           platform: best.listing!.platform,
           vsMonthly: latestCompleteMonthly && latestCompleteMonthly.value > 0 ? best.listing!.priceUsd / latestCompleteMonthly.value : null,
-          coverage: venuesPresent.map((p) => ({ platform: p, source: LISTING_SOURCE[p] ?? "aggregator" })),
+          coverage: venuesPresent.map((p) => ({ platform: p, source: IDENTITY_LISTING_SOURCE[p] ?? "aggregator" })),
         };
       })()
     : null;
@@ -645,9 +675,18 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
       if (n) { displayName = n; break; }
     }
   }
+  // The character hand-up: the link is pure over the identity's own parts;
+  // only the count comes from the rollups snapshot (its own 30-minute memo,
+  // one inflate per instance), and it degrades to 0 without changing the link.
+  const ch = characterOf(pk.ip, pk.parts.cardName);
+  const character: IdentityDetail["character"] = ch
+    ? { key: ch.key, name: ch.name, href: characterHref(pk.ip, ch.key), identities: await characterIdentityCount(pk.ip, ch.key) }
+    : null;
+
   return {
     slug,
     key,
+    character,
     parts: {
       ip: pk.ip,
       ipName: ipNameOf(pk.ip),
@@ -690,7 +729,7 @@ export async function readIdentityDetail(rawSlug: string): Promise<IdentityDetai
 
 export const getIdentityDetail: (slug: string) => Promise<IdentityDetail | null> = unstable_cache(
   readIdentityDetail,
-  ["identity-detail:v1"],
+  ["identity-detail:v2"], // v2: + `character` (a v1 entry would serve it undefined for up to 30 min)
   { revalidate: 1800, tags: ["platform-buckets"] },
 );
 
