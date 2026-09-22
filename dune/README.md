@@ -30,7 +30,7 @@ both:
 |---|---|---|---|---|
 | `gacha-live-all-platforms.sql` | 8252733 | 30d | daily | `runGachaWarm` → homepage rips, platform gacha panels |
 | `gacha-daily-all-platforms.sql` | 8252734 | 90d | daily | `warm-metric-snapshots` → spine `gacha_volume_usd` |
-| `buyback-all-platforms.sql` | 8252735 | 35d | daily (42.9 cr) | `warm-metric-snapshots` → `buyback_payout_usd` (R3) + `outflow_gross_usd`; `runGachaWarm` → buyback windows |
+| `buyback-all-platforms.sql` | 8252735 | 9d per recipient + 35d gross (two tiers) | every 2d | `warm-metric-snapshots` → `buyback_payout_usd` (R3) + `outflow_gross_usd`; `runGachaWarm` → buyback windows |
 | `cc-secondary.sql` | 7675297 | 30d | daily | `warm-core-dune` → CC secondary volume |
 | `courtyard-secondary.sql` | 7845248 | 30d | daily | `warm-core-dune` → Courtyard secondary volume |
 | `cc-big-hits.sql` | 7643571 | 7d | **weekly** | weekly report → Notable Pulls |

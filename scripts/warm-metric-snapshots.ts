@@ -31,7 +31,9 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { fetchCCSecondarySales, fetchCourtyardSecondarySales } from "../src/lib/data/warmers/core";
+import { fetchCCSecondaryScan, fetchCourtyardSecondaryScan } from "../src/lib/data/warmers/core";
+import { scannedCompleteDays } from "../src/lib/dune/scanWindow";
+import { foldBuybackRows } from "../src/lib/data/buybackFold";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { getResultsAutoRefresh, type DuneRow } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_ID, BUYBACK_QUERY_ID } from "../src/lib/dune/queryIds";
@@ -53,6 +55,7 @@ import { createHash } from "node:crypto";
 import { db } from "../src/lib/db/client";
 
 const DAY = 24 * 60 * 60 * 1000;
+const DRY_RUN = process.argv.includes("--dry-run");
 
 /** 8252735's one-character platform codes. Short because every byte of that
  *  result is billed — see dune/buyback-all-platforms.sql. */
@@ -102,20 +105,6 @@ function recipientKey(address: string): string {
 /** Re-derive a platform's per-day GROSS outflow from the raw rows. Used only by
  *  the classification sanity gate, to fall back to the pre-R3 definition for a
  *  platform whose spender join has evidently broken. */
-function grossDaysFor(rows: unknown[], platform: string): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const r of rows) {
-    const rec = r as Record<string, unknown>;
-    if (PLATFORM_BY_CODE[String(rec.p ?? "")] !== platform) continue;
-    const raw = String(rec.d ?? "");
-    const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
-    const usd = Number(rec.u);
-    if (!Number.isFinite(t) || !Number.isFinite(usd)) continue;
-    const day = dayStartUtc(t);
-    out.set(day, (out.get(day) ?? 0) + usd);
-  }
-  return out;
-}
 
 /**
  * The R3 spender set, built from our own pull spine rather than a second Dune
@@ -173,7 +162,8 @@ async function main() {
   ) => rows.push({ entity_type, entity_key, metric, value, ts });
 
   // ── Family 1a: Collector Crypt secondary daily flow (30d, Dune row-level) ──
-  const ccSales = await fetchCCSecondarySales({ cachedOnly: true });
+  const ccScan = await fetchCCSecondaryScan({ cachedOnly: true });
+  const ccSales = ccScan.sales;
   let ccWindowStart = Infinity;
   for (const s of ccSales) {
     const t = Date.parse(s.date);
@@ -202,6 +192,16 @@ async function main() {
     ccDays++;
     ccVolTotal += b.vol;
   }
+  // A complete day the scan covered and found no sale on is a measured zero,
+  // not a gap (src/lib/dune/scanWindow.ts). Written as 0 so the stream never
+  // reads as dead on a quiet day; days the execution had not reached stay blank.
+  const ccZeroDays = scannedCompleteDays(ccScan.executionEndedAt, ccScan.windowDays).filter((d) => !ccByDay.has(d));
+  for (const day of ccZeroDays) {
+    push("platform", "collector-crypt", "volume_usd", 0, day);
+    push("platform", "collector-crypt", "trades", 0, day);
+    push("platform", "collector-crypt", "active_wallets", 0, day);
+  }
+  if (ccZeroDays.length) console.log(`  collector-crypt secondary: ${ccZeroDays.length} scanned day(s) with no sale written as 0 (${ccZeroDays.map((d) => d.slice(0, 10)).join(", ")})`);
 
   // ── Native per-sale daily flow + dominance (CC Dune 30d + Beezie /activity 30d) ──
   // Tag each sale with its card's precomputed ip/set/grade (the `cards` table) and
@@ -335,7 +335,8 @@ async function main() {
   // Platform-level only: Courtyard's `cards` table is empty, so per-IP would all
   // fall to "other" (enable per-IP once the traded-mint enrichment lands).
   try {
-    const cySales = await fetchCourtyardSecondarySales({ cachedOnly: true });
+    const cyScan = await fetchCourtyardSecondaryScan({ cachedOnly: true });
+    const cySales = cyScan.sales;
     const cyOldest = oldestOf(cySales);
     const cyByDay = new Map<string, { vol: number; trades: number }>();
     for (const s of cySales) {
@@ -352,6 +353,17 @@ async function main() {
       push("platform", "courtyard", "volume_usd", acc.vol, day);
       push("platform", "courtyard", "trades", acc.trades, day);
     }
+    // ⚠️ Measured 2026-09-22: ~6 OpenSea trades a day; Sep 20 had none and the
+    // stream read as dead. A scanned, saleless complete day is written as 0.
+    const cyZeroDays = scannedCompleteDays(cyScan.executionEndedAt, cyScan.windowDays).filter((d) => !cyByDay.has(d));
+    for (const day of cyZeroDays) {
+      push("platform", "courtyard", "volume_usd", 0, day);
+      push("platform", "courtyard", "trades", 0, day);
+    }
+    console.log(
+      `  courtyard secondary: ${cyByDay.size} day(s) with sales, ${cyZeroDays.length} scanned day(s) written as 0` +
+        (cyScan.executionEndedAt ? ` · scan through ${cyScan.executionEndedAt.slice(0, 16)}` : " · execution time unknown, no zero-fill"),
+    );
   } catch (e) {
     console.warn(`  courtyard secondary (Dune) failed: ${(e as Error).message}`);
   }
@@ -450,185 +462,94 @@ async function main() {
     console.warn(`  buyback read failed: ${(e as Error).message} — spine rows stand`);
   }
   if (bbRows === null) {
-    // Reuse said our ingest is already current (or the read failed, logged
-    // above). Either way the idempotent spine rows stand — no re-export.
     console.log("  buyback: no new export this run — spine rows stand (2d cadence)");
   } else try {
+    // The fold (src/lib/data/buybackFold.ts) accepts the two-tier shape the
+    // query emits since 2026-09-22 (per-recipient rows for 9 days, one gross
+    // row a day for 35) AND the older per-recipient-only shape, so the loader
+    // can ship before the query is re-applied on Dune.
     const spenders = await loadSpenderKeys(now - 35 * DAY);
-    const byPlatformDay = new Map<string, Map<string, number>>();
-    const grossByPlatformDay = new Map<string, Map<string, number>>();
-    // Per-platform recipient tallies, for the sanity gate below.
-    const seenRecipients = new Map<string, Set<string>>();
-    const matchedRecipients = new Map<string, Set<string>>();
-    let classifiedRows = 0;
-    let legacyRows = 0;
-    for (const r of bbRows) {
-      const rec = r as Record<string, unknown>;
-      // New shape {p,d,w,n,u}; fall back to the pre-R3 {platform,day,payout_usd}
-      // so a rolled-back query still writes the gross series instead of nothing.
-      const isNew = rec.w != null;
-      const key = isNew ? PLATFORM_BY_CODE[String(rec.p ?? "")] : String(rec.platform ?? "");
-      if (!key) continue;
-      const raw = String((isNew ? rec.d : rec.day) ?? "");
-      const t = Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
-      const usd = Number(isNew ? rec.u : rec.payout_usd);
-      if (!Number.isFinite(t) || !Number.isFinite(usd)) continue;
-      const day = dayStartUtc(t);
-
-      if (!isNew) {
-        legacyRows++;
-        let days = byPlatformDay.get(key);
-        if (!days) byPlatformDay.set(key, (days = new Map()));
-        days.set(day, (days.get(day) ?? 0) + usd);
-        continue;
-      }
-
-      classifiedRows++;
-      // Gross, but ONLY for a platform we actually apply R3 to. This series is
-      // the basis marker: writing it for an untrusted platform would tell
-      // fetchPlatform that platform's payouts are R3-counted when they are not.
-      const trusted = R3_CLASSIFIED.has(key);
-      if (trusted) {
-        let gd = grossByPlatformDay.get(key);
-        if (!gd) grossByPlatformDay.set(key, (gd = new Map()));
-        gd.set(day, (gd.get(day) ?? 0) + usd);
-      }
-
-      // R3: does this recipient appear as a gacha spender on this platform? For a
-      // platform we do NOT trust the spender set for, fall through to gross —
-      // never to zero, which would print a 100% margin.
-      const w = String(rec.w).toLowerCase();
-      const isSpender = !trusted || (spenders.get(key)?.has(w) ?? false);
-      if (trusted) {
-        let seen = seenRecipients.get(key);
-        if (!seen) seenRecipients.set(key, (seen = new Set()));
-        seen.add(w);
-        if (isSpender) {
-          let hit = matchedRecipients.get(key);
-          if (!hit) matchedRecipients.set(key, (hit = new Set()));
-          hit.add(w);
-        }
-      }
-      if (!isSpender) continue;
-      let days = byPlatformDay.get(key);
-      if (!days) byPlatformDay.set(key, (days = new Map()));
-      days.set(day, (days.get(day) ?? 0) + usd);
+    const fold = foldBuybackRows(bbRows, { spenders, trusted: R3_CLASSIFIED, platformByCode: PLATFORM_BY_CODE, nowMs: now, dayStartUtc });
+    for (const w of fold.warnings) console.warn(`  ⚠ ${w}`);
+    for (const [key, m] of fold.match) {
+      if (m.rate >= 0.5) console.log(`  R3 match ${key}: ${m.hit.toLocaleString()}/${m.seen.toLocaleString()} recipients (${(m.rate * 100).toFixed(1)}%)`);
     }
-
-    // ── CLASSIFICATION SANITY GATE ────────────────────────────────────────────
-    // A join that silently stops matching does not fail loudly — it reports that
-    // almost nothing was a player payout, which makes net revenue ≈ gross spend
-    // and prints a ~100% margin. That is the most flattering possible lie and it
-    // is exactly what a key-format drift produces: the first end-to-end run of
-    // this path matched 7 recipients out of 10,961 because Trino hexes uppercase
-    // and Node hexes lowercase. Measured, the real overlap is ~86% of recipients,
-    // so anything under half means the join is broken, not that the players left.
-    // Such a platform is demoted to unclassified for this run: its payouts revert
-    // to gross and its basis marker is withheld, which holds net rather than
-    // publishing an invented one.
-    const MIN_MATCH_RATE = 0.5;
-    for (const key of [...grossByPlatformDay.keys()]) {
-      const seen = seenRecipients.get(key)?.size ?? 0;
-      const hit = matchedRecipients.get(key)?.size ?? 0;
-      const rate = seen > 0 ? hit / seen : 0;
-      if (seen > 0 && rate < MIN_MATCH_RATE) {
-        console.warn(
-          `  ⚠ R3 classification FAILED for ${key}: only ${hit.toLocaleString()}/${seen.toLocaleString()} recipients (${(rate * 100).toFixed(1)}%) matched a gacha_pulls buyer — expected ~86%. Treating this run as unclassified: payouts revert to gross, no basis marker, net stays held. Check the recipient key format on both sides.`,
-        );
-        grossByPlatformDay.delete(key);
-        byPlatformDay.set(key, grossDaysFor(bbRows, key));
-      } else if (seen > 0) {
-        console.log(
-          `  R3 match ${key}: ${hit.toLocaleString()}/${seen.toLocaleString()} recipients (${(rate * 100).toFixed(1)}%)`,
-        );
-      }
-    }
-    if (legacyRows > 0) {
+    if (fold.stats.legacyRows > 0) {
       console.warn(
-        `  ⚠ buyback: ${legacyRows} rows in the PRE-R3 shape — query ${BUYBACK_QUERY_ID} has been rolled back. Writing the gross series as payouts and NO basis marker, so net revenue stays held.`,
+        `  ⚠ buyback: ${fold.stats.legacyRows} rows in the PRE-R3 shape — query ${BUYBACK_QUERY_ID} has been rolled back. Writing the gross series as payouts and NO basis marker, so net revenue stays held.`,
       );
     }
     console.log(
-      classifiedRows > 0
-        ? `  buyback basis: R3 (${classifiedRows.toLocaleString()} per-recipient rows) · classified: ${[...R3_CLASSIFIED].join(", ")}`
+      fold.basis === "r3"
+        ? `  buyback basis: R3 (${fold.stats.recipientRows.toLocaleString()} per-recipient rows over ${fold.stats.recipientDays}d · ` +
+            (fold.stats.grossFromRecipients
+              ? "gross summed from them — the single-tier query is still live on Dune, apply dune/buyback-all-platforms.sql"
+              : `${fold.stats.grossRows.toLocaleString()} gross rows`) +
+            `) · classified: ${[...R3_CLASSIFIED].join(", ")}`
         : `  ⚠ buyback basis: PRE-R3 — query ${BUYBACK_QUERY_ID} returned no per-recipient rows, so payouts are gross-of-list and net revenue stays held. Apply dune/buyback-all-platforms.sql.`,
     );
-    for (const [key, byDay] of byPlatformDay) {
-      // Same partial-leading-edge drop as the gacha daily query: the window's
-      // oldest bucket is clipped by `now() - interval '35' day` and would
-      // overwrite a complete stored day with a smaller number.
-      const oldest = [...byDay.keys()].sort()[0];
+
+    for (const [key, byDay] of fold.payouts) {
+      const covered = fold.payoutDays.get(key) ?? new Set<string>();
       let pushed = 0;
-      let sum30 = 0;
+      let sumWin = 0;
       for (const [day, usd] of byDay) {
-        if (day === oldest) continue;
-        if (Date.parse(day) + DAY > now) continue; // exclude today (partial)
+        if (!covered.has(day)) continue;
         push("platform", key, "buyback_payout_usd", usd, day);
         pushed++;
-        if (Date.parse(day) >= now - 30 * DAY) sum30 += usd;
+        sumWin += usd;
       }
-
-      // Reconciliation: what we are about to write for the trailing 30 complete
-      // days vs what the spine already holds for those same days. Both sides are
-      // the SAME days on the SAME basis, so this is not a window artefact — a
-      // divergence means the source restated (late on-chain data) or an earlier
-      // write was wrong. Logged, not thrown: a restatement is legitimate, it just
-      // has to be visible.
+      // Reconcile over the SAME days the recipient tier covers — the spine is
+      // the record for anything older; a restatement shows up as drift here.
       const stored = await readMetricSeries("platform", key, "buyback_payout_usd").catch(() => []);
       const storedSum = stored
-        .filter((p) => {
-          const t = Date.parse(p.ts);
-          return t >= now - 30 * DAY && t + DAY <= now;
-        })
+        .filter((p) => covered.has(dayStartUtc(Date.parse(p.ts))))
         .reduce((s, p) => s + p.value, 0);
-      const drift = storedSum > 0 ? Math.abs(sum30 - storedSum) / storedSum : 0;
+      const drift = storedSum > 0 ? Math.abs(sumWin - storedSum) / storedSum : 0;
       if (storedSum > 0 && drift > 0.05) {
         console.warn(
-          `  ⚠ buyback reconciliation ${key}: 30d source Σ $${Math.round(sum30).toLocaleString()} vs spine Σ $${Math.round(storedSum).toLocaleString()} (${(drift * 100).toFixed(1)}%) — restated upstream, or a bad earlier write`,
+          `  ⚠ buyback reconciliation ${key}: ${covered.size}d source Σ $${Math.round(sumWin).toLocaleString()} vs spine Σ $${Math.round(storedSum).toLocaleString()} (${(drift * 100).toFixed(1)}%) — restated upstream, or a bad earlier write`,
         );
       }
       console.log(
-        `  buyback_payout_usd ${key}: ${pushed} days · 30d $${Math.round(sum30).toLocaleString()}` +
+        `  buyback_payout_usd ${key}: ${pushed} days · ${covered.size}d $${Math.round(sumWin).toLocaleString()}` +
           (storedSum > 0 ? ` (spine had $${Math.round(storedSum).toLocaleString()}, ${(drift * 100).toFixed(1)}% drift)` : " (first write)"),
       );
     }
 
-    // Gross outflow — the pre-R3 definition, kept as its own series so the panel
-    // can show the flow and the buyback-rate ⓘ can cite what share of it R3
-    // verifies. Same oldest-bucket and today-is-partial drops as above, so the
-    // two series cover exactly the same days and their ratio is never a window
-    // artefact.
-    for (const [key, byDay] of grossByPlatformDay) {
-      const oldest = [...byDay.keys()].sort()[0];
-      const payoutDays = byPlatformDay.get(key);
+    for (const [key, byDay] of fold.gross) {
+      const covered = fold.grossDays.get(key) ?? new Set<string>();
+      const payoutDays = fold.payouts.get(key);
+      const payoutCovered = fold.payoutDays.get(key) ?? new Set<string>();
       let pushed = 0;
       let sum30 = 0;
       for (const [day, usd] of byDay) {
-        if (day === oldest) continue;
-        if (Date.parse(day) + DAY > now) continue;
+        if (!covered.has(day)) continue;
         push("platform", key, "outflow_gross_usd", usd, day);
         pushed++;
         if (Date.parse(day) >= now - 30 * DAY) sum30 += usd;
       }
-      // R3 can only ever be a SUBSET of gross. If a day's payout exceeds its
-      // gross outflow the two columns are not describing the same rows, and the
-      // ⓘ would print an R3 share above 100% — louder than a silent bad write.
       let inverted = 0;
-      for (const [day, gross] of byDay) {
+      for (const [day, grossUsd] of byDay) {
         const pay = payoutDays?.get(day);
-        if (pay != null && pay > gross + 0.01) inverted++;
+        if (pay != null && pay > grossUsd + 0.01) inverted++;
       }
       if (inverted > 0) {
         console.warn(
           `  ⚠ outflow_gross_usd ${key}: ${inverted} day(s) where R3 payout EXCEEDS gross outflow — the two columns disagree on scope, do not publish a net figure off this run`,
         );
       }
-      const paid30 = [...(payoutDays ?? new Map())]
-        .filter(([d]) => Date.parse(d) >= now - 30 * DAY && Date.parse(d) + DAY <= now && d !== oldest)
-        .reduce((s, [, v]) => s + v, 0);
+      // The verified share is read over the days BOTH tiers cover.
+      let paidCovered = 0;
+      let grossCovered = 0;
+      for (const day of payoutCovered) {
+        if (!covered.has(day)) continue;
+        paidCovered += payoutDays?.get(day) ?? 0;
+        grossCovered += byDay.get(day) ?? 0;
+      }
       console.log(
         `  outflow_gross_usd ${key}: ${pushed} days · 30d $${Math.round(sum30).toLocaleString()}` +
-          (sum30 > 0 ? ` · R3 verifies ${((paid30 / sum30) * 100).toFixed(2)}% of it` : ""),
+          (grossCovered > 0 ? ` · R3 verifies ${((paidCovered / grossCovered) * 100).toFixed(2)}% over the ${payoutCovered.size} classified days` : ""),
       );
     }
   } catch (e) {
@@ -802,7 +723,15 @@ async function main() {
     }
   }
 
-  const written = await writeMetricSnapshots(rows);
+  let written = 0;
+  if (DRY_RUN) {
+    const byMetric = new Map<string, number>();
+    for (const r of rows) byMetric.set(`${r.entity_type}:${r.entity_key}:${r.metric}`, (byMetric.get(`${r.entity_type}:${r.entity_key}:${r.metric}`) ?? 0) + 1);
+    console.log(`DRY RUN — ${rows.length} rows NOT written:`);
+    for (const [k, n] of [...byMetric].sort()) if (k.startsWith("platform:")) console.log(`  ${k} × ${n}`);
+  } else {
+    written = await writeMetricSnapshots(rows);
+  }
   const bzVol30 = beezieSales.reduce((a, s) => a + s.priceUsd, 0);
   console.log(
     `Wrote ${written} metric_snapshots rows · CC ${ccDays}d ($${Math.round(ccVolTotal).toLocaleString()}/30d) · ` +
@@ -812,7 +741,8 @@ async function main() {
   return { rowsWritten: written };
 }
 
-runWarmer("metric-snapshots", main).catch((e) => {
+// --dry-run: every read, no write, no freshness stamp — for verifying a change to this writer.
+(DRY_RUN ? main() : runWarmer("metric-snapshots", main)).catch((e) => {
   console.error(e);
   process.exit(1);
 });
