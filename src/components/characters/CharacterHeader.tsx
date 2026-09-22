@@ -17,7 +17,8 @@ import { characterLine, indexSummary } from "@/lib/card/characterView";
  *
  * The mark is the leading identity's card art (`detail.art`, resolved at warm
  * time from one of the four top identities' slabs), in the identity page's
- * 5:7 slab frame through CardThumb; a character whose leading slabs carry no
+ * 5:7 slab frame through CardThumb's hero variant (the identity page's, 144px
+ * wide, 96 on phones); a character whose leading slabs carry no
  * image keeps the IP's catalog icon instead, so the header never reflows.
  */
 export function CharacterHeader({ detail }: { detail: CharacterDetail }) {
@@ -28,9 +29,7 @@ export function CharacterHeader({ detail }: { detail: CharacterDetail }) {
       <Breadcrumbs leaf={detail.name} names={{ ips: { [detail.ip]: detail.ipName } }} />
       <div className="flex items-start gap-3">
         {detail.art?.image ? (
-          <div className="relative aspect-[5/7] w-[72px] shrink-0 overflow-hidden rounded-md border border-line bg-bg-1 sm:w-[88px]">
-            <CardThumb src={detail.art.image} alt={detail.name} fill className="p-0 [&>img]:p-1" />
-          </div>
+          <CardThumb src={detail.art.image} alt={detail.name} variant="hero" />
         ) : (
           <span className="shrink-0" aria-hidden>
             {ip ? (
