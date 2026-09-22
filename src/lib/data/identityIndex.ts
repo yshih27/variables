@@ -149,6 +149,11 @@ export type IdentityIndexPoint = IndexPoint & {
  * `continue`: the reader saw a gap, `spansWeeks` said how wide it was, and
  * nothing said why. These are the same four gates the loop already applies, each
  * recording what it saw as it declines to publish.
+ *
+ * ⚠️ A MONTH RECORDS THE FIRST GATE THAT BINDS, IN THE LOOP'S OWN ORDER: floor,
+ * then the ±25% limit, then the running month. So a running month that is ALSO
+ * below the floor reports `below-floor` — which is the more useful answer, since
+ * it would not publish even once the month ends.
  */
 export type IndexHold = {
   /** Period-END ISO — the same stamp the point would have carried. */
