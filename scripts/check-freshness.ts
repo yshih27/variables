@@ -155,6 +155,31 @@ async function main() {
           `${usage.creditsIncluded.toLocaleString()} included (${pct.toFixed(0)}%)` +
           ` · period ${usage.periodStart ?? "?"} → ${usage.periodEnd ?? "?"}${over}`,
       );
+      // The projection: average burn since the period opened, carried to its
+      // end. Extra credits are billed, not blocked — the Analyst plan lists
+      // $0.016 per credit (dune.com/pricing, read 2026-09-22; override with
+      // DUNE_OVERAGE_USD_PER_CREDIT). Printed every run so the cost of the
+      // month is never a surprise at the invoice.
+      const DAY = 24 * 60 * 60 * 1000;
+      const start = usage.periodStart ? Date.parse(usage.periodStart) : NaN;
+      const end = usage.periodEnd ? Date.parse(usage.periodEnd) : NaN;
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+        const nowMs = Date.now();
+        const elapsedDays = Math.max(0.5, (nowMs - start) / DAY);
+        const remainingDays = Math.max(0, (end - nowMs) / DAY);
+        const burn = usage.creditsUsed / elapsedDays;
+        const projected = usage.creditsUsed + burn * remainingDays;
+        const overage = Math.max(0, projected - usage.creditsIncluded);
+        const rate = Number(process.env.DUNE_OVERAGE_USD_PER_CREDIT ?? 0.016);
+        const left = usage.creditsIncluded - usage.creditsUsed;
+        const runsOut =
+          left <= 0 ? "already past the included credits" : burn > 0 ? `included credits run out ${new Date(nowMs + (left / burn) * DAY).toISOString().slice(0, 10)}` : "no burn";
+        console.log(
+          `  burn ${burn.toFixed(0)} cr/day over ${elapsedDays.toFixed(1)}d · ${runsOut} · ` +
+            `projected ${Math.round(projected).toLocaleString()} by ${usage.periodEnd} → ` +
+            (overage > 0 ? `${Math.round(overage).toLocaleString()} extra credits ≈ $${(overage * rate).toFixed(0)} at $${rate}/cr` : "inside the plan"),
+        );
+      }
     }
   } catch (e) {
     console.log(`\nDUNE ACCOUNT CREDITS  unavailable (${(e as Error).message.slice(0, 60)})`);
