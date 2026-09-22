@@ -12,32 +12,38 @@
  * construction. A month with fewer sales is ABSENT — never interpolated, never
  * a single sale dressed as a price.
  *
- * ⚠️ FRAGMENTS, DISCLOSED. The index keys identities on the RAW set string, and
- * 1,103 of 55,737 identities (measured 2026-09-14) are the same card keyed
- * twice — "Pokemon Obf EN-Obsidian Flames" and "Obsidian Flames", or a name
- * with and without a hyphen. The slug is the correct identity, so one slug can
- * resolve to several keys. This page shows ONE of them — the canonical fragment,
- * most sales then most slabs — so that `sales` and `monthly` are exactly one
- * index identity, and lists the others in `fragments` with their counts so
- * nothing is hidden. `tokens` is the union (a slab is a slab whichever key it
- * was filed under). Re-keying the index on the slug-level identity would
- * remove the fragmentation; that is an estimator change and a separate PR.
+ * ⚠️ FRAGMENTS, DISCLOSED — AND MOSTLY GONE SINCE v4.2. The index used to key
+ * identities on the RAW set string and the RAW number, and 1,103 of 55,737
+ * identities (measured 2026-09-14) were the same card keyed twice — "Pokemon Obf
+ * EN-Obsidian Flames" and "Obsidian Flames", or "006/197" and "6". v4.2 keys on
+ * the canonical set and the normalised number (traits.ts `identityKey`), which
+ * removes that class. What CAN still fragment is a NAME that slugs two ways
+ * ("Charizard-EX" and "Charizard EX"): the slug is the correct identity, so one
+ * slug can still resolve to several keys. This page shows ONE of them — the
+ * canonical fragment, most sales then most slabs — so that `sales` and `monthly`
+ * are exactly one index identity, and lists the others in `fragments` with their
+ * counts so nothing is hidden. `tokens` is the union (a slab is a slab whichever
+ * key it was filed under).
  *
- * ⚠️ TWO RESOLUTION PATHS, ONE OUTPUT. While `cards.identity_slug` does not exist
- * (migration unapplied) the slug is resolved by scanning the cached panel's
- * identities; once the column exists it becomes a keyset read. Both paths yield
- * the same candidate key set and hand it to the same `buildDetail`, so their
- * output is identical by construction — the PR body carries the measured check.
+ * ⚠️ TWO RESOLUTION PATHS, ONE OUTPUT. The slug resolves either by scanning the
+ * cached panel's identities or, where `cards.identity_slug` is populated, by a
+ * keyset read on the column. Both paths yield the same candidate key set and
+ * hand it to the same `buildDetail`, so their output is identical by
+ * construction — in the STEADY STATE. They disagree in exactly one window: after
+ * a method change lands and before the backfill re-writes the column, the column
+ * still holds the previous method's keys. `readIdentityDetail` therefore only
+ * takes the column's answer when the current panel recognises at least one of
+ * its keys; otherwise the panel path, which is always current, wins.
  *
  * Never throws; null when the slug resolves to nothing.
  */
 import { unstable_cache } from "next/cache";
 import { buildSalePanel, readSalePanel, type SaleRow } from "./salePanel";
 import { readAllCardDims, readCards, type CardPlatform } from "./cards";
-import { identityKey, parseIdentityKey, normalizeTraits, type CardIdentityParts } from "./traits";
-import { identitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
+import { identityKey, legacyIdentityKey, parseIdentityKey, normalizeTraits, type CardIdentityParts } from "./traits";
+import { identitySlug, legacyIdentitySlug, canonicalIdentitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
 import { characterOf, characterHref } from "@/lib/card/character";
-import { normalizeSetName } from "@/lib/card/setName";
+import { setDisplayName } from "@/lib/card/setName";
 import { cardHref, parseCardId, PLATFORM_META } from "@/lib/card/ids";
 import { monthlyIdentityPrices, MIN_SALES_PER_IDENTITY } from "./identityIndex";
 import { canonicalGrade, PREMIUM_PAIRS } from "./gradePremium";
@@ -258,8 +264,18 @@ export type IdentitySlabsSnapshot = {
 export const IDENTITY_INDEX_SNAPSHOT_KEY = "identity-index";
 export const IDENTITY_SLABS_SNAPSHOT_KEY = "identity-slabs";
 
-/** Build the index from the panel + the dims scan. The warmer's path. */
-export async function buildIdentityIndex(panel: SaleRow[]): Promise<SlugIndex> {
+/**
+ * Build the index from the panel + the dims scan. The warmer's path.
+ *
+ * ⚠️ `keying: "v4.1"` IS THE SHADOW BUILD'S ONLY. It re-runs this builder under
+ * the previous identity rule so the re-key report can count fragments and
+ * character rollups before and after from one dims scan (which is memoised, so
+ * the second pass is CPU only). Nothing on a request path may pass it.
+ */
+export async function buildIdentityIndex(panel: SaleRow[], opts: { keying?: "v4.2" | "v4.1" } = {}): Promise<SlugIndex> {
+  const legacy = opts.keying === "v4.1";
+  const keyOf = legacy ? legacyIdentityKey : identityKey;
+  const slugOf = legacy ? legacyIdentitySlug : identitySlug;
   const bySlug = new Map<string, string[]>();
   const slabsByKey = new Map<string, { platform: CardPlatform; tokenId: string }[]>();
   const seenKey = new Set<string>();
@@ -270,18 +286,35 @@ export async function buildIdentityIndex(panel: SaleRow[]): Promise<SlugIndex> {
     else if (!a.includes(key)) a.push(key);
     seenKey.add(key);
   };
+  /**
+   * ⚠️ v4.1 URLs THE PROXY CANNOT RECOVER. A slug whose set segment was `-`
+   * (the normaliser judged the set string junk) now slugs as that string's own
+   * bucket, and nothing in the old path says which string it was — so the 301
+   * in proxy.ts cannot derive it and the page would 404 a URL that worked
+   * yesterday. The builder therefore registers the old slug as an ALIAS of the
+   * same keys, but ONLY when the proxy could not have handled it, so the index
+   * does not grow a second entry for every identity whose number normalised.
+   */
+  const alias = (ip: string, parts: CardIdentityParts, slug: string | null, key: string) => {
+    if (!slug) return;
+    const old = legacyIdentitySlug(ip, parts);
+    if (!old || old === slug || canonicalIdentitySlug(old) === slug) return;
+    add(old, key);
+  };
   for (const r of panel) {
     if (!r.identity) continue;
     const pk = parseIdentityKey(r.identity);
-    if (pk) add(identitySlug(pk.ip, pk.parts), r.identity);
+    if (pk) add(slugOf(pk.ip, pk.parts), r.identity);
   }
   const dims = await readAllCardDims();
   for (const [platform, m] of dims) {
     for (const [tokenId, d] of m) {
       if (!d.identity) continue;
-      const key = identityKey(d.ip, d.identity);
+      const key = keyOf(d.ip, d.identity);
       if (!key) continue;
-      add(identitySlug(d.ip, d.identity), key);
+      const slug = slugOf(d.ip, d.identity);
+      add(slug, key);
+      if (!legacy) alias(d.ip, d.identity, slug, key);
       const sl = slabsByKey.get(key);
       if (sl) sl.push({ platform: platform as CardPlatform, tokenId });
       else slabsByKey.set(key, [{ platform: platform as CardPlatform, tokenId }]);
@@ -656,7 +689,7 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
     `category:${categoryOf(pk.ip)}`,
     `ip:${pk.ip}`,
     `grade:${gradeSlug(myGrade)}`,
-    pk.parts.set ? `set:${pk.ip}:${normalizeSetName(pk.parts.set).key ?? ""}` : "",
+    pk.parts.set ? `set:${pk.ip}:${pk.parts.set}` : "",
   ].filter(Boolean);
   const indexMembership = pricedLatest && pk.ip !== "other" ? candidates.filter((c) => published.has(c)) : [];
 
@@ -664,7 +697,10 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
     .filter((k) => k !== key)
     .map((k) => ({ key: k, sales: panel.filter((r) => r.identity === k).length, slabs: idx.slabsByKey.get(k)?.length ?? 0 }));
 
-  const setId = pk.parts.set ? normalizeSetName(pk.parts.set) : null;
+  // ⚠️ THE KEY'S SET FIELD IS ALREADY THE CANONICAL KEY (v4.2), so the name is
+  //    read back from it rather than re-normalising a raw string that is no
+  //    longer there. A junk-set identity carries its own bucket's slug here.
+  const setKey = pk.parts.set;
   // The venue's own spelling of the name, from the first token that carries one.
   let displayName: string | null = null;
   for (const [platform, ids] of byPlatform) {
@@ -691,8 +727,8 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
       ip: pk.ip,
       ipName: ipNameOf(pk.ip),
       displayName: displayName ?? (pk.parts.cardName ?? slug.split("/")[3]),
-      setKey: setId?.key ?? null,
-      setName: setId?.name ?? null,
+      setKey,
+      setName: setDisplayName(setKey),
       number: pk.parts.number,
       name: pk.parts.cardName ?? slug.split("/")[3],
       grade: myGrade,
@@ -718,9 +754,39 @@ export async function readIdentityDetail(rawSlug: string): Promise<IdentityDetai
     const parsed = parseIdentitySlug(rawSlug);
     if (!parsed) return null;
     const panel = await cachedPanel();
-    const viaColumn = await resolveViaColumn(parsed.slug);
-    const keys = viaColumn ?? (await resolveViaPanel(parsed.slug, panel));
-    return buildDetail(parsed.slug, keys, panel, viaColumn ? "column" : "panel");
+    /**
+     * ⚠️ THE CANONICAL FORM IS TRIED TOO. The proxy 301s a v4.1 URL on the page
+     * routes, but the API routes are not behind it and a stored link may carry
+     * one, so an old-form slug resolves here as well — through the same two
+     * paths, against the same keys. The detail comes back stamped with the slug
+     * that resolved, and the API compares it to the identity's own slug to
+     * report `canonical`.
+     */
+    const canonical = canonicalIdentitySlug(parsed.slug);
+    for (const slug of canonical && canonical !== parsed.slug ? [parsed.slug, canonical] : [parsed.slug]) {
+      const viaPanel = await resolveViaPanel(slug, panel);
+      const viaColumn = await resolveViaColumn(slug);
+      /**
+       * ⚠️ THE COLUMN ONLY WINS WHEN THE CURRENT DATA RECOGNISES ITS KEYS.
+       * `cards.identity_key` is written by a backfill and the panel is written
+       * by the indices warmer, so between a method change landing and the
+       * backfill running, the column holds keys of the PREVIOUS method. Taking
+       * them on trust resolved the slug to a key no panel row carries and the
+       * page rendered a real card with zero sales, zero slabs and no price —
+       * measured on 2026-09-22 against the live column during the v4.2 shadow
+       * build, which is exactly the window the cutover runs in.
+       *
+       * So the panel path, which is always current, is the fallback whenever the
+       * column's answer is empty or unrecognised. The two paths agree in the
+       * steady state (that is the equivalence this module was built on); this
+       * only decides which one wins while they do not.
+       */
+      const known = new Set(viaPanel);
+      const keys = viaColumn?.length && viaColumn.some((k) => known.has(k)) ? viaColumn : viaPanel;
+      if (!keys.length) continue;
+      return buildDetail(parsed.slug, keys, panel, keys === viaColumn ? "column" : "panel");
+    }
+    return null;
   } catch (e) {
     console.warn(`[identity] ${rawSlug}: ${(e as Error).message}`);
     return null;

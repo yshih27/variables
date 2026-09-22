@@ -22,6 +22,8 @@
  */
 import type { CardIdentityParts } from "@/lib/data/traits";
 import { normalizeSetName } from "./setName";
+import { normalizeCardNumber } from "./cardNumber";
+import { canonicalIdentityParts } from "./identityParts";
 
 export const IDENTITY_PATH_PREFIX = "/i";
 /** The literal segment for an absent set or number. */
@@ -87,23 +89,50 @@ function numberSlug(number: string): string {
 /**
  * The path segments for an identity, or null when the parts cannot name one
  * (the same rule as `identityKey`: a name, a grade, and a set or a number).
+ *
+ * ⚠️ FROM v4.2 THE SET KEY, THE NUMBER AND THE LANGUAGE COME FROM
+ * `canonicalIdentityParts` — the same function `identityKey` calls. One identity
+ * therefore has exactly one key and exactly one URL, and the two cannot drift.
+ * (Language from the SET STRING as well as the name lives in that function; it
+ * is what keeps the Japanese and the English 151 Charizard apart once the
+ * canonical set key folds their set strings together.)
  */
 export function identitySlug(ip: string, p: CardIdentityParts): string | null {
   if (!p.cardName) return null;
+  const c = canonicalIdentityParts(p);
+  if (!c.setKey && !c.number) return null;
+  const segs = [
+    slugify(ip) || ABSENT,
+    c.setKey ?? ABSENT,
+    c.number ? numberSlug(c.number) : ABSENT,
+    nameSlug(p.cardName),
+    gradeSlug(p.grade),
+  ];
+  if (p.edition) segs.push(EDITION_SLUG[p.edition.toLowerCase()] ?? slugify(p.edition));
+  if (c.language) segs.push(LANGUAGE_CODE[c.language.toLowerCase()] ?? slugify(c.language));
+  return segs.join("/");
+}
+
+/**
+ * The v4.1 slug — canonical set key OR the ABSENT segment, and the RAW number.
+ *
+ * ⚠️ FROZEN, AND READ ONLY BY THE SLUG INDEX. Two classes of v4.1 URL do not
+ * survive the re-key: a number that normalises ("…/025~102/…" → "…/25/…") and a
+ * set the normaliser judged junk, which used to slug as `-` and now slugs as its
+ * own bucket. The first class is recoverable from the URL alone, so `proxy.ts`
+ * 301s it; the second is NOT (nothing in "…/-/…" says which junk set it was), so
+ * the builder registers the old slug as an alias of the same keys and the page
+ * keeps answering. The API then reports `canonical: false` with the canonical
+ * slug beside it.
+ */
+export function legacyIdentitySlug(ip: string, p: CardIdentityParts): string | null {
+  if (!p.cardName) return null;
   if (!p.set && !p.number) return null;
   const setId = p.set ? normalizeSetName(p.set) : null;
-  const setKey = setId?.key ?? ABSENT;
-  // ⚠️ Language from the SET STRING as well as the name. The identity parts
-  // only read language off the card name, so "Pokemon Japanese Sv2a-Pokemon 151"
-  // with a plain "Charizard ex" name carried language=null and its slug was
-  // indistinguishable from the English 151 Charizard. The set normaliser lifts
-  // the language out of the set string; use it, so the URL says /jp when the
-  // card is Japanese whichever field said so. (Measured 2026-09-14: the hero
-  // slug resolved to the Japanese card without this.)
   const language = p.language ?? (setId?.language ? LANGUAGE_BY_TAG[setId.language] ?? null : null);
   const segs = [
     slugify(ip) || ABSENT,
-    setKey,
+    setId?.key ?? ABSENT,
     p.number ? numberSlug(p.number) : ABSENT,
     nameSlug(p.cardName),
     gradeSlug(p.grade),
@@ -188,4 +217,40 @@ export function parseIdentitySlug(input: string): ParsedIdentitySlug | null {
     language,
     slug: segs.join("/"),
   };
+}
+
+/**
+ * The canonical form of an identity path — the ONE answer to "is this URL the
+ * card's URL, and if not, which is?".
+ *
+ * Total over anything `parseIdentitySlug` accepts, and IDEMPOTENT
+ * (`canonicalIdentitySlug(canonicalIdentitySlug(x)) === canonicalIdentitySlug(x)`),
+ * which is what makes it safe to 301 to: a proxy that redirected to a form this
+ * function would move again is a redirect loop. Null for anything that is not an
+ * identity path at all — the caller 404s those, it does not redirect them.
+ *
+ * It canonicalises exactly what a URL carries enough information to canonicalise:
+ *   • the NUMBER segment, through `normalizeCardNumber` (`025~102` → `25`);
+ *   • the trailing optional segments, re-emitted edition-then-language, so
+ *     `/jp/1st` and `/1st/jp` are one URL;
+ *   • case and percent-encoding, via the parser.
+ * It does NOT touch the set segment: a `-` there says only that v4.1 could not
+ * place the set string, and nothing in the path says which string it was. Those
+ * URLs keep working through the slug index's aliases instead (see
+ * `legacyIdentitySlug`).
+ */
+export function canonicalIdentitySlug(input: string): string | null {
+  const p = parseIdentitySlug(input);
+  if (!p) return null;
+  const number = p.number ? normalizeCardNumber(p.number.replace(/~/g, "/")) : null;
+  const segs = [
+    p.ip,
+    p.setKey ?? ABSENT,
+    number ? numberSlug(number) : ABSENT,
+    p.nameSlug,
+    p.gradeSlug,
+  ];
+  if (p.edition) segs.push(EDITION_SLUG[p.edition.toLowerCase()] ?? slugify(p.edition));
+  if (p.language) segs.push(LANGUAGE_CODE[p.language.toLowerCase()] ?? slugify(p.language));
+  return segs.join("/");
 }

@@ -4,6 +4,7 @@
  * CC keys:     Set      | Grading Company | The Grade / GradeNum | Card Name | Year | Insured Value
  */
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
+import { canonicalIdentityParts } from "@/lib/card/identityParts";
 
 export type NormalizedTraits = {
   cardNumber: string | null;
@@ -174,13 +175,47 @@ export function extractCardIdentity(row: {
 }
 
 /**
- * The identity KEY, or null when the row is too thin to be a comparable.
+ * The identity KEY (v4.2), or null when the row is too thin to be a comparable.
  *
  * Requires a card name, a grade, and at least one of set / number: without one of
  * those, "Charizard | PSA 10" would pool every Charizard ever printed into a single
  * "price", which is the mix error v1 died of, re-introduced through the back door.
+ *
+ * ⚠️ v4.2 KEYS ON THE CANONICAL SET AND THE NORMALISED NUMBER, through
+ * `canonicalIdentityParts` — the SAME function `identitySlug` calls, so one card
+ * has one key and one URL by construction. Until v4.1 this keyed on the raw
+ * strings, and "Pokemon Obf EN-Obsidian Flames" / "Obsidian Flames" and
+ * "006/165" / "6" were separate identities: measured 1,129 fragments, each one a
+ * card whose sales were split across two keys and therefore often below
+ * MIN_SALES_PER_IDENTITY in both. See the re-key report in the v4.2 PR for the
+ * level-by-level before/after this moved.
  */
 export function identityKey(ip: string, p: CardIdentityParts): string | null {
+  if (!p.cardName) return null;
+  const c = canonicalIdentityParts(p);
+  if (!c.setKey && !c.number) return null;
+  return [
+    ip,
+    c.setKey ?? "",
+    c.number ?? "",
+    p.cardName.toUpperCase(),
+    p.grade,
+    p.edition ?? "",
+    c.language ?? "",
+  ].join("|");
+}
+
+/**
+ * The v4.1 identity key — RAW set string, RAW number, name-only language.
+ *
+ * ⚠️ FROZEN. It exists for exactly one purpose: the shadow build
+ * (`warm-sale-panel --shadow-rekey`) re-computes the published index under the
+ * old keying from the same panel, so the re-key's effect on every level can be
+ * measured instead of asserted, and the `method-changes` snapshot can carry the
+ * before/after the methodology page renders. Nothing on a request path may call
+ * it, and no new caller should be added.
+ */
+export function legacyIdentityKey(ip: string, p: CardIdentityParts): string | null {
   if (!p.cardName) return null;
   if (!p.set && !p.number) return null;
   return [
