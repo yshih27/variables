@@ -16,10 +16,18 @@ import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../../dune/
 import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
 import { readSecondarySalesSnapshot, writeSecondarySales } from "../secondarySalesCache";
 
-// Self-heal a cached Dune secondary result older than this. Kept below 24h so the
-// headline 24h window can never silently collapse to $0 while a scheduled fresh
-// run is failing — the next 6h cached warm re-runs it fresh.
-const CC_SECONDARY_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
+// Self-heal a cached Dune secondary result older than this.
+//
+// ⚠️ MEASURED 2026-09-22 (billing period Sep 10 → Oct 10): at 12h this fired on
+// EVERY ~04:00 core run — the daily batch's fresh executions land ~10:00 UTC
+// (the 05:30 cron drifts), so by 04:00 the cache was 17–18h old, both
+// secondary queries (7675297, 7845248) re-executed "stale", and the daily run
+// executed them AGAIN six hours later. Two executions a day bought nothing and
+// cost ~55–60 credits a day, a fifth of the whole burn (~290 cr/day against
+// 4,000 included). 26h clears every cached run between one daily execution and
+// the next; the safety it was there for survives: if the daily batch fails, the
+// first cached run past 26h still self-heals, one day late instead of six hours.
+const CC_SECONDARY_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
 import { type CollectionStats, type NormalizedSale } from "../../rarible/queries";
 import { fetchBeezieSales } from "../../beezie/market";
 import { fetchDyliLaneWindows } from "../../dyli/sales";
