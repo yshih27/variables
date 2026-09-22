@@ -1,18 +1,28 @@
 /**
- * Core secondary-volume warmer — all native/Dune, no Rarible → Postgres.
+ * Core secondary-volume warmer — native feeds and Dune → Postgres.
  *
  * Produces the `core-volume` snapshot buckets.ts reads, so page renders make ZERO
  * request-time network calls. Per-platform secondary source:
  *   • collector-crypt → Dune CC_SECONDARY_QUERY_ID (on-chain; replaces Helius-429)
  *   • beezie          → its own /activity feed (api.beezie.com)
- *   • courtyard       → Dune COURTYARD_SECONDARY_QUERY_ID (nft.trades; replaces Rarible)
+ *   • courtyard       → Rarible's activity index for the Courtyard collection
+ *                       (OpenSea trades on Polygon). ⚠️ Measured 2026-09-22: the
+ *                       Dune nft.trades query it replaced returned EXACTLY the
+ *                       OpenSea rows Rarible indexes (194 in 30d, every row
+ *                       `project = opensea`) at ~30 credits per execution and a
+ *                       day of lag; Rarible returns them free, same-day. The
+ *                       6/30 "no Rarible" directive was about Beezie, where the
+ *                       aggregator inflated volume; for Courtyard it IS the
+ *                       whole on-chain secondary picture. api.courtyard.io stays
+ *                       WAF-blocked to servers.
  *   • dyli            → its own public /sales feed (marketplace lane only)
  *
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
  * last cached results (0 credits) instead of forcing a fresh execution.
  */
 import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
-import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../../dune/queryIds";
+import { CC_SECONDARY_QUERY_ID } from "../../dune/queryIds";
+import { PLATFORM_SOURCES } from "../sources";
 import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
 import { readSecondarySalesSnapshot, writeSecondarySales } from "../secondarySalesCache";
 
@@ -21,14 +31,14 @@ import { readSecondarySalesSnapshot, writeSecondarySales } from "../secondarySal
 // ⚠️ MEASURED 2026-09-22 (billing period Sep 10 → Oct 10): at 12h this fired on
 // EVERY ~04:00 core run — the daily batch's fresh executions land ~10:00 UTC
 // (the 05:30 cron drifts), so by 04:00 the cache was 17–18h old, both
-// secondary queries (7675297, 7845248) re-executed "stale", and the daily run
+// secondary query (7675297) re-executed "stale", and the daily run
 // executed them AGAIN six hours later. Two executions a day bought nothing and
 // cost ~55–60 credits a day, a fifth of the whole burn (~290 cr/day against
 // 4,000 included). 26h clears every cached run between one daily execution and
 // the next; the safety it was there for survives: if the daily batch fails, the
 // first cached run past 26h still self-heals, one day late instead of six hours.
 const CC_SECONDARY_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
-import { type CollectionStats, type NormalizedSale } from "../../rarible/queries";
+import { collectSales, type CollectionStats, type NormalizedSale } from "../../rarible/queries";
 import { fetchBeezieSales } from "../../beezie/market";
 import { fetchDyliLaneWindows } from "../../dyli/sales";
 import {
@@ -100,7 +110,7 @@ function buildPlatform(
  * cached read (a stale cache triggers a fresh run). Both feeds are windowed to 30d
  * on the Dune side; `maxRows` stays generous purely as a headroom guard.
  */
-/** Both secondary queries (7675297, 7845248) scan `block_time > now() - interval '30' day`. */
+/** The secondary window: Dune 7675297 scans `block_time > now() - interval '30' day`; the Courtyard Rarible read uses the same 30 days. */
 export const SECONDARY_WINDOW_DAYS = 30;
 
 export type SecondaryScan = {
@@ -187,11 +197,25 @@ export async function fetchCCSecondaryScan(
   return mustHaveScan(fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
 }
 
-/** Courtyard secondary sales with the scan's coverage — the spine writer's read. */
+const COURTYARD_COLLECTION = (() => {
+  const src = PLATFORM_SOURCES.find((p) => p.key === "courtyard");
+  return src && "collectionId" in src ? src.collectionId : "POLYGON:0x251be3a17af4892035c37ebf5890f4a4d889dcad";
+})();
+
+/**
+ * Courtyard secondary sales with the scan's coverage — the spine writer's read.
+ * A live Rarible read: free, no cache to be stale, so `cachedOnly` is accepted
+ * and ignored and the scan is covered through now. The same hygiene pass as the
+ * Dune feeds (wash, self-trades, sweeps).
+ */
 export async function fetchCourtyardSecondaryScan(
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
 ): Promise<SecondaryScan> {
-  return mustHaveScan(fetchDuneSecondaryScan(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", opts));
+  const raw = await collectSales(COURTYARD_COLLECTION, SECONDARY_WINDOW_DAYS * DAY);
+  const { sales, stats } = cleanSecondarySales(raw);
+  const line = formatHygiene("courtyard-secondary", stats);
+  if (line) (opts.log ?? console.log)(line);
+  return { sales, executionEndedAt: new Date().toISOString(), windowDays: SECONDARY_WINDOW_DAYS };
 }
 
 /**
@@ -212,11 +236,11 @@ export async function fetchCCSecondarySales(
   return mustHaveRows(fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
 }
 
-/** Courtyard secondary sales (Dune nft.trades, 30d window). Replaces Rarible. */
+/** Courtyard secondary sales (Rarible activity index, 30d). Shared by the core warmer, the spine, and backfill. */
 export async function fetchCourtyardSecondarySales(
   opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
-  return mustHaveRows(fetchDuneSecondarySales(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", opts));
+  return (await fetchCourtyardSecondaryScan(opts)).sales;
 }
 
 export type CoreWarmResult = {
@@ -286,24 +310,22 @@ export async function runCoreWarm(
     log(`→ beezie (Beezie /activity) FAILED: ${(err as Error).message}`);
   }
 
-  // ── Courtyard: Dune nft.trades (30d window) — replaces Rarible. Its own
-  //    api.courtyard.io is WAF-blocked to servers, so Dune is the off-Rarible path. ──
+  // ── Courtyard: Rarible's activity index (OpenSea trades of the collection on
+  //    Polygon), 30d, live and free — see the header. A failed read leaves the
+  //    previous snapshot's entry in place through `carryForward`. ──
   try {
     const t0 = Date.now();
-    const sales = await fetchDuneSecondarySales(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", { ...opts, reuseIfUnchanged: true });
-    if (sales === null) {
-      carryForward("courtyard", "courtyard (Dune)");
-    } else {
-      courtyardRowsForStore = sales;
-      platforms["courtyard"] = buildPlatform("courtyard", "dune", sales, 30);
-      log(
-        `→ courtyard (Dune) ${sales.length} sales · 24h $${Math.round(
-          platforms["courtyard"].stats24h.volumeUsd,
-        ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
-      );
-    }
+    const sales = await fetchCourtyardSecondarySales({ log });
+    courtyardRowsForStore = sales;
+    platforms["courtyard"] = buildPlatform("courtyard", "rarible", sales, 30);
+    log(
+      `→ courtyard (Rarible activity) ${sales.length} sales · 24h $${Math.round(
+        platforms["courtyard"].stats24h.volumeUsd,
+      ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+    );
   } catch (err) {
-    log(`→ courtyard (Dune) FAILED: ${(err as Error).message}`);
+    log(`→ courtyard (Rarible activity) FAILED: ${(err as Error).message}`);
+    carryForward("courtyard", "courtyard (Rarible activity)");
   }
 
   // ── Persist the row-level Dune feeds for APP-SIDE readers ──────────────────
