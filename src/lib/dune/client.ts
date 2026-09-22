@@ -123,7 +123,7 @@ function meter(label: string, md: DuneResultMetadata | undefined, ms?: number): 
     console.warn(
       `[dune] ⚠ credit budget exceeded this run: ${datapointsUsed.toLocaleString()} > ` +
         `${DATAPOINT_BUDGET.toLocaleString()} datapoints. A query is scanning too much — ` +
-        `window it (see COURTYARD_SECONDARY_QUERY_ID) or raise DUNE_DATAPOINT_BUDGET.`,
+        `window it (see dune/README.md, cost model) or raise DUNE_DATAPOINT_BUDGET.`,
     );
   }
 }

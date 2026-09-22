@@ -24,7 +24,6 @@ import type { HeliusCreditsSnapshot, DuneSpendSnapshot } from "../src/lib/db/run
 import { queryArchivedStatus } from "../src/lib/dune/client";
 import {
   CC_SECONDARY_QUERY_ID,
-  COURTYARD_SECONDARY_QUERY_ID,
   GACHA_LIVE_QUERY_ID,
   GACHA_DAILY_QUERY_ID,
   BUYBACK_QUERY_ID,
@@ -194,7 +193,6 @@ async function main() {
   //    pressure canary. Probe errors (no key / network) degrade to a note.
   const FLEET: { id: number; name: string; pausedOk?: boolean }[] = [
     { id: CC_SECONDARY_QUERY_ID, name: "cc-secondary" },
-    { id: COURTYARD_SECONDARY_QUERY_ID, name: "courtyard-secondary" },
     { id: GACHA_LIVE_QUERY_ID, name: "gacha-live" },
     { id: GACHA_DAILY_QUERY_ID, name: "gacha-daily (spine)" },
     { id: BUYBACK_QUERY_ID, name: "buyback" },

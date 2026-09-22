@@ -6,7 +6,7 @@
  * Writes one row per (entity, metric, UTC-day) into `metric_snapshots`:
  *   • flow  (volume_usd, trades, active_wallets, cards_traded) — COMPLETE-day
  *     aggregates from authoritative per-sale feeds: CC (Dune) + Beezie
- *     (api.beezie.com/activity) + Courtyard (Dune nft.trades, 30d window).
+ *     (api.beezie.com/activity) + Courtyard (Rarible activity index, 30d).
  *   • buyback (buyback_payout_usd per platform) — the other half of net gacha
  *     revenue; same 35d window + complete-day gating as gacha_volume_usd.
  *   • gacha (gacha_volume_usd per platform) — daily primary/gacha volume from the
@@ -21,7 +21,7 @@
  *     platform level; no backfill exists, so it accumulates forward.
  *
  * NOTE: all secondary volume is native/Dune now (no Rarible — it inflated Beezie
- * ~20-90×). Courtyard secondary = Dune nft.trades (30d window); per-IP for
+ * ~20-90×). Courtyard secondary = Rarible activity index (30d); per-IP for
  * Courtyard awaits the traded-mint `cards` enrichment, so it's platform-level only.
  *
  * Runs in the DAILY batch AFTER warm-core-dune (fresh) + warm-marketcap +
@@ -329,7 +329,7 @@ async function main() {
     }
   }
 
-  // ── Courtyard secondary daily flow — Dune nft.trades (30d window; off Rarible) ──
+  // ── Courtyard secondary daily flow — Rarible activity index (30d, live) ──
   // The 30d window is not a history loss: these pushes are idempotent upserts, so
   // days already in the spine stay put and only the trailing 30d get rewritten.
   // Platform-level only: Courtyard's `cards` table is empty, so per-IP would all

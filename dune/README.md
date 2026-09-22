@@ -32,7 +32,6 @@ both:
 | `gacha-daily-all-platforms.sql` | 8252734 | 90d | daily | `warm-metric-snapshots` → spine `gacha_volume_usd` |
 | `buyback-all-platforms.sql` | 8252735 | 9d per recipient + 35d gross (two tiers) | every 2d | `warm-metric-snapshots` → `buyback_payout_usd` (R3) + `outflow_gross_usd`; `runGachaWarm` → buyback windows |
 | `cc-secondary.sql` | 7675297 | 30d | daily | `warm-core-dune` → CC secondary volume |
-| `courtyard-secondary.sql` | 7845248 | 30d | daily | `warm-core-dune` → Courtyard secondary volume |
 | `cc-big-hits.sql` | 7643571 | 7d | **weekly** | weekly report → Notable Pulls |
 | `cc-odds.sql` | 7643215 | 30d | **paused** | `/gacha` page only (gated by `GACHA_ENABLED`) |
 
@@ -55,6 +54,7 @@ weeks.
 | `gacha-live-all-platforms.sql` | `gacha-live-{cc,beezie,phygitals,courtyard}` (7642633 / 7642705 / 7642707 / 7642710) |
 | `gacha-daily-all-platforms.sql` | `gacha-daily-{cc,beezie,phygitals,courtyard}` (7845475 / 7845392 / 7845484 / 7845479) |
 | `buyback-all-platforms.sql` | `buyback-{cc,phygitals}` (7644128 / 7644129) — ⚠️ **both IDs RECLAIMED**, see below |
+| Rarible activity index (`src/lib/data/warmers/core.ts`, no Dune) | `courtyard-secondary` (7845248) — retired 2026-09-22: every row it decoded was an OpenSea trade Rarible already indexes, free and same-day; the query stays on Dune unexecuted |
 
 ## One-shot / diagnostic
 

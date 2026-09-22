@@ -4,7 +4,7 @@
  * Row-level sales (tokenId × ts × priceUsd) tagged with {ip, set, grade} from the
  * `cards` table, drawn from every platform's row-level feed:
  *   • Collector Crypt — Dune 7675297 (30d)
- *   • Courtyard       — Dune 7845248 (full history; but `cards` is empty for it →
+ *   • Courtyard       — Rarible activity index, 30d (was Dune 7845248 until 2026-09-22; `cards` is empty for it →
  *                       ip/set/grade fall to "other"/null, so it can't be stratified
  *                       per-IP yet — lands in "other" until traded-mint enrichment)
  *   • Beezie          — its own /activity feed (full history)

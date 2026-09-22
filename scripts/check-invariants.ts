@@ -22,7 +22,8 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { getLatestResults } from "../src/lib/dune/client";
-import { CC_SECONDARY_QUERY_ID, COURTYARD_SECONDARY_QUERY_ID } from "../src/lib/dune/queryIds";
+import { CC_SECONDARY_QUERY_ID } from "../src/lib/dune/queryIds";
+import { readSecondarySales } from "../src/lib/data/secondarySalesCache";
 import { cleanSecondarySales } from "../src/lib/data/secondaryHygiene";
 import { readSnapshot } from "../src/lib/db/snapshots";
 import { weekStartUtc } from "../src/lib/data/priceIndex";
@@ -69,7 +70,22 @@ async function checkDuneFeed(label: string, queryId: number): Promise<Result[]> 
   } catch (e) {
     return [skip(`dupe-rate:${label}`, "hard", `feed unreadable: ${(e as Error).message.slice(0, 80)}`)];
   }
-  const sales = mapDune(raw);
+  return checkFeedRows(label, mapDune(raw));
+}
+
+/** The same INV-1/INV-2 over the secondary-sales store — for a feed the core
+ *  warmer writes from a live source (Courtyard via Rarible since 2026-09-22). */
+async function checkStoredFeed(label: string, platform: string): Promise<Result[]> {
+  let sales: NormalizedSale[];
+  try {
+    sales = await readSecondarySales(platform);
+  } catch (e) {
+    return [skip(`dupe-rate:${label}`, "hard", `store unreadable: ${(e as Error).message.slice(0, 80)}`)];
+  }
+  return checkFeedRows(label, sales);
+}
+
+function checkFeedRows(label: string, sales: NormalizedSale[]): Result[] {
   const results: Result[] = [];
 
   // INV-1: fan-out — rows ÷ unique natural-key (no tx signature in the feed).
@@ -78,7 +94,7 @@ async function checkDuneFeed(label: string, queryId: number): Promise<Result[]> 
   results.push(
     ratio > DUPE_MAX_RATIO
       ? bad(`dupe-rate:${label}`, "hard", `rows/unique = ${ratio.toFixed(3)} > ${DUPE_MAX_RATIO}`, [
-          `${sales.length} rows vs ${keys.size} unique natural-keys — Dune SQL fan-out?`,
+          `${sales.length} rows vs ${keys.size} unique natural-keys — feed fan-out?`,
         ])
       : ok(`dupe-rate:${label}`, "hard", `rows/unique = ${ratio.toFixed(3)} (${sales.length} rows)`),
   );
@@ -500,7 +516,7 @@ async function main() {
   // Dune feeds (0-credit reads; independent of Supabase).
   if (!noDune) {
     results.push(...(await checkDuneFeed("cc", CC_SECONDARY_QUERY_ID)));
-    results.push(...(await checkDuneFeed("courtyard", COURTYARD_SECONDARY_QUERY_ID)));
+    results.push(...(await checkStoredFeed("courtyard", "courtyard")));
   }
 
   // Snapshot-backed invariants — skip cleanly if the homepage blob is unreadable.

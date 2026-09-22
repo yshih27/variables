@@ -126,6 +126,11 @@ export const CC_SECONDARY_QUERY_ID = 7675297;
  * feed and the spine persists daily history in Postgres (upserts, never
  * re-derived), so nothing downstream wants more than 30d.
  */
+/** ⚠️ RETIRED 2026-09-22 — Courtyard secondary now comes from Rarible's activity
+ *  index (src/lib/data/warmers/core.ts), which carries exactly the OpenSea rows
+ *  this query decoded, free and same-day. Nothing executes it; the SQL is kept
+ *  at dune/superseded/courtyard-secondary.7845248.sql and the id here so the
+ *  provenance of pre-2026-09-22 spine points stays readable. */
 export const COURTYARD_SECONDARY_QUERY_ID = 7845248;
 
 /**
