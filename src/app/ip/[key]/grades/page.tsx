@@ -7,6 +7,7 @@ import { GradeShareChart } from "@/components/grades/GradeShareChart";
 import { GradeTable } from "@/components/grades/GradeTable";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { getIPDetail } from "@/lib/data/fetchIP";
 import { getGradeSetPanel, gradeRows, gradeShareDaily, WINDOW_DAYS } from "@/lib/data/gradeSetPanel";
 import { listGradeIndices, readPremiumSeries } from "@/lib/data/gradeSetIndex";
@@ -22,12 +23,13 @@ const SHARE_BANDS = 5;
 
 export default async function IPGradesPage({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  const [detail, ticker, panel, indices, premiums] = await Promise.all([
+  const [detail, ticker, panel, indices, premiums, ledger] = await Promise.all([
     getIPDetail(key),
     buildMarketTicker(),
     getGradeSetPanel(),
     listGradeIndices(),
     readPremiumSeries(),
+    readMethodChanges(),
   ]);
   if (!detail) notFound();
 
@@ -141,7 +143,8 @@ export default async function IPGradesPage({ params }: { params: Promise<{ key: 
               subtitle="Market-wide identity comparables, monthly · rebased to the shared base month"
               emptyNote="No grade clears the identity floor for a published index yet."
               fill
-            />
+              ledger={ledger}
+          />
             <GradeShareChart days={shareDays} grades={bands} colors={shareColors} />
           </div>
 

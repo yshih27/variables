@@ -3,7 +3,8 @@ import { Breadcrumbs } from "../shell/Breadcrumbs";
 import { CardThumb } from "../CardThumb";
 import { GradeChip } from "../GradeChip";
 import type { IdentityDetail } from "@/lib/data/identityDetail";
-import { identityName, membershipLine } from "@/lib/card/identityView";
+import { identityName, membershipParts } from "@/lib/card/identityView";
+import { receiptsHref } from "@/lib/indices/receiptRoute";
 
 /**
  * Who this card is — the identity strip for /i/[...slug], in the venue page's
@@ -57,7 +58,10 @@ export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
               <span className="rounded-md border border-line bg-bg-1 px-2 py-1 text-ink-2">{p.language}</span>
             ) : null}
           </div>
-          <p className="mt-2 font-mono text-[11.5px] text-ink-3">{membershipLine(detail)}</p>
+          {/* ⚠️ EVERY INDEX NAMED HERE LINKS TO ITS RECEIPT for the month this
+              card was counted in — the sample, the weights and the step. An
+              index membership a reader cannot open is a claim with no receipt. */}
+          <MembershipLine detail={detail} />
           {/* The hand-up to the character: this identity is one card of a
               character the reader named (the extractor on its own parts). */}
           {detail.character && (
@@ -71,5 +75,36 @@ export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function MembershipLine({ detail }: { detail: IdentityDetail }) {
+  const { head, month, entities } = membershipParts(detail);
+  if (!entities.length) {
+    return <p className="mt-2 font-mono text-[11.5px] text-ink-3">{head} · in no published index this month</p>;
+  }
+  return (
+    <p className="mt-2 font-mono text-[11.5px] text-ink-3">
+      {head} · in the{" "}
+      {entities.map((e, i) => (
+        <span key={e.id}>
+          {i > 0 ? (i === entities.length - 1 ? " and " : ", ") : ""}
+          <Link
+            href={receiptsHref(e.id, month)}
+            title={`${e.name} index · the cards behind this month's step`}
+            className="text-ink-2 underline-offset-2 transition-colors hover:text-yellow hover:underline"
+          >
+            {e.name}
+          </Link>
+        </span>
+      ))}{" "}
+      {entities.length === 1 ? "index" : "indices"} this month{" "}
+      <Link
+        href={receiptsHref(entities[0].id, month)}
+        className="text-ink-3 underline-offset-2 transition-colors hover:text-yellow hover:underline"
+      >
+        receipts →
+      </Link>
+    </p>
   );
 }

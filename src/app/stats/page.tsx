@@ -1,4 +1,5 @@
 import { NavBar } from "@/components/NavBar";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
 import { CompositionChart } from "@/components/CompositionChart";
@@ -23,10 +24,11 @@ export const metadata = {
 };
 
 export default async function StatsPage() {
-  const [board, ticker, seed] = await Promise.all([
+  const [board, ticker, seed, ledger] = await Promise.all([
     buildStatsBoard(),
     buildMarketTicker(),
     readStudioSeed(),
+    readMethodChanges(),
   ]);
 
   const asOf = board.asOf ? board.asOf.slice(0, 10) : null;
@@ -128,7 +130,7 @@ export default async function StatsPage() {
               </Section>
             )}
             <div className={holdReason ? "mt-3" : undefined}>
-              <IndexStudio seed={seed} />
+              <IndexStudio seed={seed}  ledger={ledger}/>
             </div>
           </div>
 

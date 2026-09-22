@@ -9,7 +9,8 @@ import { GradeLadder } from "@/components/identity/GradeLadder";
 import { WhereItTrades } from "@/components/identity/WhereItTrades";
 import { SlabsTable } from "@/components/identity/SlabsTable";
 import { identityTitle } from "@/lib/card/identityView";
-import { identityDisplayName } from "@/lib/card/identity";
+import { identityDisplayName, identitySlug } from "@/lib/card/identity";
+import { parseIdentityKey } from "@/lib/data/traits";
 
 /**
  * /i/<ip>/<set>/<number>/<name>/<grade>[/<edition>][/<lang>] — one card
@@ -33,6 +34,12 @@ export default async function IdentityPage({ params }: { params: Promise<{ slug:
   const detail = await getIdentityDetail(slugOf(slug));
   if (!detail) notFound();
 
+  // The card's ONE url, from the key the page was built on — the same
+  // derivation the price payload and the proxy's 301 use, so the embed
+  // snippets cannot pin a superseded form.
+  const pk = parseIdentityKey(detail.key);
+  const canonicalSlug = (pk ? identitySlug(pk.ip, pk.parts) : null) ?? detail.slug;
+
   return (
     <>
       <NavBar ticker={await buildMarketTicker()} />
@@ -47,6 +54,7 @@ export default async function IdentityPage({ params }: { params: Promise<{ slug:
             monthly={detail.monthly}
             title={identityTitle(detail.parts)}
             slug={detail.slug}
+            canonicalSlug={canonicalSlug}
           />
 
           {/* §7 pair — two different questions (what each grade is worth ‖ where

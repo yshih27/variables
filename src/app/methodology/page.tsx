@@ -5,6 +5,10 @@ import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/i
 import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { readMethodChanges, type MethodLedger } from "@/lib/data/methodChanges";
+import { labelFor } from "@/lib/indices/entityLabels";
+import { receiptsHref } from "@/lib/indices/receiptRoute";
+import Link from "next/link";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (F8-4).
@@ -17,6 +21,9 @@ export const metadata = {
 };
 
 export default async function MethodologyPage() {
+  // The method ledger, for the "Method changes" section below. Absent when the
+  // snapshot has no records — see MethodChangesSection.
+  const ledger = await readMethodChanges();
   return (
     <>
       <NavBar ticker={await buildMarketTicker()} />
@@ -126,6 +133,8 @@ export default async function MethodologyPage() {
           </p>
           <IndexBiasReceipt />
         </Section>
+
+        <MethodChangesSection ledger={ledger} />
 
         <Section title="Market Cap">
           <p>
@@ -380,5 +389,90 @@ async function IndexBiasReceipt() {
     <p className="mt-3 border-l-2 border-line pl-3 font-mono text-[11.5px] leading-snug text-ink-3">
       V-MKT {latest.value.toFixed(1)} · {line}
     </p>
+  );
+}
+
+/**
+ * Method changes — what a re-key did to the published levels, from the ledger.
+ *
+ * ⚠️ EVERY NUMBER IS MEASURED, NOT TYPED. The `method-changes` snapshot is
+ * written by the SHADOW build (the only run that holds both keyings), so the
+ * before/after here is what the two methods actually produced on the same
+ * panel — and each month links to its own receipt so a reader can go from
+ * "the level moved 0.3" to the cards that moved it.
+ *
+ * ⚠️ NO RECORDS, NO SECTION. Not a placeholder, not "no changes yet": until a
+ * cutover run writes the snapshot, this page says nothing about method changes,
+ * which is the honest state for a site whose index has had one method.
+ */
+function MethodChangesSection({ ledger }: { ledger: MethodLedger }) {
+  if (!ledger.changes.length) return null;
+  return (
+    <Section title="Method changes" id="method-changes">
+      {ledger.changes.map((c) => {
+        const moved = c.entities.filter(
+          (e) => e.levelBefore != null && e.levelAfter != null && Math.abs(e.levelAfter - e.levelBefore) >= 0.05,
+        );
+        return (
+          <div key={`${c.version}:${c.date}`} className="flex flex-col gap-2">
+            <p>
+              <span className="font-mono text-ink">{c.version}</span>
+              <span className="text-ink-3"> · {c.date.slice(0, 10)}</span>
+            </p>
+            <p>{c.summary}</p>
+            {c.entities.length === 0 ? (
+              <p className="text-ink-3">No published month changed level under this method.</p>
+            ) : (
+              <>
+                <div className="scroll-x mt-1 rounded-xl border border-line bg-bg-1">
+                  <table className="w-full min-w-[520px] border-collapse text-left text-[12.5px]">
+                    <thead>
+                      <tr className="border-b border-line text-[10.5px] uppercase tracking-[0.07em] text-ink-4">
+                        <th scope="col" className="py-2 pl-4 pr-3 font-medium">Index</th>
+                        <th scope="col" className="px-3 py-2 font-medium">Month</th>
+                        <th scope="col" className="px-3 py-2 text-right font-medium">Level</th>
+                        <th scope="col" className="py-2 pl-3 pr-4 text-right font-medium">Identities</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(moved.length ? moved : c.entities).slice(0, 24).map((e) => {
+                        const label = labelFor(e.id);
+                        const month = e.month.slice(0, 7);
+                        return (
+                          <tr key={`${e.id}:${e.month}`} className="border-b border-line/60 last:border-0">
+                            <th scope="row" className="py-2 pl-4 pr-3 text-left font-normal text-ink">
+                              {label.name}
+                            </th>
+                            <td className="px-3 py-2 tabular text-ink-2">
+                              <Link href={receiptsHref(e.id, month)} className="underline-offset-2 hover:text-yellow hover:underline">
+                                {month}
+                              </Link>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular">
+                              <span className="text-ink-3">{e.levelBefore?.toFixed(1) ?? "—"}</span>
+                              <span className="text-ink-4"> → </span>
+                              <span className="text-ink">{e.levelAfter?.toFixed(1) ?? "—"}</span>
+                            </td>
+                            <td className="py-2 pl-3 pr-4 text-right tabular text-ink-2">
+                              {e.identitiesBefore ?? "—"} → {e.identitiesAfter ?? "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="font-mono text-[11px] text-ink-4">
+                  {moved.length
+                    ? `${moved.length} of ${c.entities.length} published months moved by 0.05 or more; the rest are unchanged.`
+                    : `no published month moved by 0.05 or more — ${c.entities.length} months compared.`}{" "}
+                  Every month links to the cards behind its step.
+                </p>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </Section>
   );
 }

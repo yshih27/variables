@@ -3,6 +3,9 @@
 import { useMemo, useRef } from "react";
 import { Section } from "../Section";
 import { ChartActions } from "../ChartActions";
+import { ReceiptsLink } from "./ReceiptsLink";
+import { MethodLine } from "./MethodLine";
+import type { MethodLedger } from "@/lib/data/methodChanges";
 
 /**
  * Published index levels for a family of entities — the grade indices, or one
@@ -57,6 +60,7 @@ export function IndexLevelsChart({
   subtitle,
   emptyNote,
   fill,
+  ledger,
 }: {
   series: LevelSeries[];
   title: string;
@@ -64,6 +68,8 @@ export function IndexLevelsChart({
   subtitle?: string;
   emptyNote: string;
   fill?: boolean;
+  /** The method ledger — the line under the foot. Omit and no line renders. */
+  ledger?: MethodLedger;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -184,6 +190,19 @@ export function IndexLevelsChart({
             <span className="text-ink-3">100 = {shaped.base ? monthLabel(shaped.base) : "first month"}</span>
             <span>as of {monthLabel(shaped.times[shaped.times.length - 1])}</span>
           </div>
+
+          {/* ⚠️ ONE RECEIPTS LINK PER SERIES, at its OWN latest published month —
+              two lines on this chart can end in different months, and a single
+              link would send a reader to a month the other line never had. */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {shaped.rebased.map((s) => (
+              <span key={s.id} className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="h-0.5 w-3" style={{ background: s.color }} />
+                <ReceiptsLink entityId={s.id} ts={s.points.at(-1)?.ts ?? null} label={`${s.name} receipts`} />
+              </span>
+            ))}
+          </div>
+          {ledger ? <MethodLine ledger={ledger} className="mt-1" /> : null}
         </div>
       )}
     </Section>

@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { PRICE_INDEX_HOLD } from "@/lib/indices/hold";
 import { NavBar } from "@/components/NavBar";
 import { MarketHeader } from "@/components/MarketHeader";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { CardsSection } from "@/components/CardsSection";
 import { IPTable } from "@/components/IPTable";
 import { PlatformTable } from "@/components/PlatformTable";
@@ -72,7 +73,7 @@ export const revalidate = 1800;
 
 
 export default async function Home() {
-  const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries] =
+  const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries, ledger] =
     await Promise.all([
       getHomepageData(),
       getGachaData(),
@@ -81,6 +82,7 @@ export default async function Home() {
       getTrendingCards({ limit: 8 }),
       getPlatformSeries("volume_usd"),
       getPlatformSeries("gacha_volume_usd"),
+      readMethodChanges(),
     ]);
 
   // X6 — a thin 24h window on 1-of-1 slabs ties whole tables at "2 trades", so
@@ -234,6 +236,7 @@ export default async function Home() {
           gacha={gachaKpi}
           topIP={topIP}
           mcapAsOfLabel={mcapAsOfLabel}
+          ledger={ledger}
         />
 
         <div className="space-y-6">

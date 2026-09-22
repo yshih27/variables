@@ -5,6 +5,7 @@ import { StatCard, StatCardRow } from "@/components/StatCard";
 import { SetLeaderboard } from "@/components/sets/SetLeaderboard";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { getIPDetail } from "@/lib/data/fetchIP";
 import { getGradeSetPanel, setRows, WINDOW_DAYS } from "@/lib/data/gradeSetPanel";
 import { setIndicesFor } from "@/lib/data/gradeSetIndex";
@@ -16,11 +17,12 @@ export const revalidate = 1800;
 
 export default async function IPSetsPage({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  const [detail, ticker, panel, indices] = await Promise.all([
+  const [detail, ticker, panel, indices, ledger] = await Promise.all([
     getIPDetail(key),
     buildMarketTicker(),
     getGradeSetPanel(),
     setIndicesFor(key),
+    readMethodChanges(),
   ]);
   if (!detail) notFound();
 
@@ -93,6 +95,7 @@ export default async function IPSetsPage({ params }: { params: Promise<{ key: st
             readMe="what a set's cards are worth, month over month"
             subtitle="Identity comparables, monthly · rebased to the shared base month"
             emptyNote="No set clears the identity floor for a published index yet — the leaderboard below still has volume and sales for every set that traded."
+            ledger={ledger}
           />
 
           <SetLeaderboard rows={rows} indices={indices} ip={key} windowLabel={windowLabel} />

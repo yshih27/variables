@@ -115,6 +115,25 @@ export function identityName(parts: IdentityDetail["parts"]): string {
  * — from `tokens`, the venues that hold them, and `indexMembership` named by the
  * index naming SSOT. "this month" is the index's month: the latest complete one.
  */
+/**
+ * The membership line, in parts, so a surface can link each index it names to
+ * that index's receipt for the month the card was counted in.
+ *
+ * ⚠️ THE MONTH IS THE INDEX'S, NOT TODAY'S. `indexMembership` is the latest
+ * COMPLETE month's membership (identityDetail.ts), so that is the month the
+ * receipts link must open — a link to the running month would land on a hold.
+ */
+export function membershipParts(d: IdentityDetail): { head: string; month: string; entities: { id: string; name: string }[] } {
+  const venues = new Set(d.tokens.map((t) => t.platform)).size;
+  const ran = new Date(d.generatedAt);
+  const latestComplete = new Date(Date.UTC(ran.getUTCFullYear(), ran.getUTCMonth(), 0)).toISOString().slice(0, 7);
+  return {
+    head: `${d.tokens.length} slab${d.tokens.length === 1 ? "" : "s"} · ${venues} venue${venues === 1 ? "" : "s"}`,
+    month: latestComplete,
+    entities: d.indexMembership.map((id) => ({ id, name: id === "market:total" ? "market" : labelFor(id).name })),
+  };
+}
+
 export function membershipLine(d: IdentityDetail): string {
   const venues = new Set(d.tokens.map((t) => t.platform)).size;
   const head = `${d.tokens.length} slab${d.tokens.length === 1 ? "" : "s"} · ${venues} venue${venues === 1 ? "" : "s"}`;

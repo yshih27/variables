@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Section } from "../Section";
 import { ChartActions } from "../ChartActions";
+import { GetTheChip } from "../price/GetTheChip";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "../ChartTooltip";
 import type { IdentityMonthly, IdentitySale } from "@/lib/data/identityDetail";
 import { formatCompactUsd } from "@/lib/format";
@@ -55,12 +56,17 @@ export function IdentitySalesChart({
   monthly,
   title,
   slug,
+  canonicalSlug,
 }: {
   sales: IdentitySale[];
   monthly: IdentityMonthly[];
   /** "Charizard Ex · PSA 10" — names the export. */
   title: string;
   slug: string;
+  /** The card's ONE url, for the embed snippets (never the slug the reader
+   *  happens to be on — a v4.1 form would outlive this page on someone
+   *  else's site). */
+  canonicalSlug: string;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -176,6 +182,7 @@ export function IdentitySalesChart({
       readMe={READ_ME}
       subtitle={`${model.pts.length} sale${model.pts.length === 1 ? "" : "s"} · ${model.venues.length} venue${model.venues.length === 1 ? "" : "s"} · ${nMonths} priced month${nMonths === 1 ? "" : "s"} · since ${monthLong(model.pts[0].ts)}`}
       right={
+        <>
         <ChartActions
           meta={{
             title: `${title} — realized sales`,
@@ -190,6 +197,9 @@ export function IdentitySalesChart({
           plotHeight={H}
           legend={legend}
         />
+        {/* The fourth action: the price of THIS card, on someone else's page. */}
+        <GetTheChip slug={canonicalSlug} name={title} />
+        </>
       }
     >
       <div ref={wrapRef} className="relative w-full" style={{ height: H }} onMouseLeave={() => setHover(null)}>

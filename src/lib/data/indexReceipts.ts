@@ -114,6 +114,21 @@ const HOLD_DETAIL: Record<IndexHoldRecord["reason"], (h: IndexHoldRecord) => str
 };
 
 /**
+ * Every month this entity has a record for — published points and withheld
+ * months together, oldest first — so the receipts page can offer its neighbours
+ * without a second reader or a second idea of what a month is.
+ */
+export async function readIndexMonths(entityId: string): Promise<{ month: string; published: boolean }[]> {
+  const snap = await readSnapshot<PriceIndexReceiptBlob>("price-index");
+  const series = snap?.series?.[entityId];
+  if (!series) return [];
+  const months = new Map<string, boolean>();
+  for (const p of series) months.set(monthOf(p.ts), true);
+  for (const h of snap?.holds?.[entityId] ?? []) if (!months.has(monthOf(h.ts))) months.set(monthOf(h.ts), false);
+  return [...months.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([month, published]) => ({ month, published }));
+}
+
+/**
  * The receipt for one entity-month. Null when the entity publishes no series at
  * all (nothing to explain) — a month that exists but did not publish comes back
  * with `held`, which is the point.

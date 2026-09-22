@@ -1,4 +1,5 @@
 import { unstable_cache } from "next/cache";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { NavBar } from "@/components/NavBar";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
@@ -99,7 +100,7 @@ export const metadata = {
 };
 
 export default async function AllIPsPage() {
-  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries, studioSeed] =
+  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries, studioSeed, ledger] =
     await Promise.all([
       getData(),
       getIpSeries("volume_usd"),
@@ -113,6 +114,7 @@ export default async function AllIPsPage() {
       // (readStudioSeed never throws), and the component then builds itself from
       // the API as it always did.
       readStudioSeed(),
+      readMethodChanges(),
     ]);
 
   const categories = rollupByCategory(data.ips, volSeries);
@@ -284,7 +286,7 @@ export default async function AllIPsPage() {
           {/* §7: items-stretch (default). The rail is sized by the studio beside it. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)]">
             <OverviewMetricColumn rows={overviewRows} />
-            <IndexStudio seed={studioSeed} />
+            <IndexStudio seed={studioSeed}  ledger={ledger}/>
           </div>
 
           {/* ZONE 2 — three daily cards, each with its own D|W|M grain. Volume and cards traded are flows
