@@ -40,7 +40,10 @@
     "warm-dyli-boxes": "tsx scripts/warm-dyli-boxes.ts",
     "check-dyli-lanes": "tsx scripts/check-dyli-lanes.ts",
     "warm-player-analytics": "tsx scripts/warm-player-analytics.ts",
-    "post-card": "tsx scripts/post-card.ts"
+    "post-card": "tsx scripts/post-card.ts",
+    "test:character": "tsx --test src/lib/card/character.test.ts src/lib/data/characterRollups.test.ts",
+    "gen-pokemon-species": "tsx scripts/dev/gen-pokemon-species.ts",
+    "probe-character-rollups": "tsx scripts/dev/probe-character-rollups.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

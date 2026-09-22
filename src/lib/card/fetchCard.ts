@@ -15,6 +15,7 @@ import { getCCMetadata } from "@/lib/data/ccTraits";
 import { getBeezieMetadata } from "@/lib/data/beezieTraits";
 import { readCards, readCardMeta } from "@/lib/data/cards";
 import { identitySlug } from "@/lib/card/identity";
+import { characterOf, characterHref } from "@/lib/card/character";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "@/lib/data/traits";
 import { proxyImg } from "@/lib/img";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
@@ -45,6 +46,10 @@ export type CardDetail = {
    *  the token's parts cannot name an identity. From the same extractor + SSOT
    *  the index and the identity reader use. */
   identitySlug: string | null;
+  /** The character page ("Charizard · every set and grade →"), from the same
+   *  identity parts through the character extractor (src/lib/card/character.ts);
+   *  null for trainers, energy and IPs without an extractor. Pure — no snapshot. */
+  character: { key: string; name: string; href: string } | null;
 };
 
 function explorerUrlFor(platform: CardPlatform, tokenId: string): string | null {
@@ -104,10 +109,15 @@ export async function getCardDetail(id: string): Promise<CardDetail | null> {
   // one row and derives the same parts with the same extractor.
   const metaRow = (await readCardMeta(platform, [tokenId]).catch(() => new Map())).get(tokenId) ?? null;
   const identity = metaRow?.identity ? identitySlug(metaRow.ip ?? "other", metaRow.identity) : null;
+  // The token's own trait name is the fallback: a card whose parts cannot name
+  // an identity (no set and no number) can still depict a character.
+  const ch = characterOf(metaRow?.ip ?? "other", metaRow?.identity?.cardName ?? traits.cardName);
+  const character: CardDetail["character"] = ch ? { key: ch.key, name: ch.name, href: characterHref(metaRow?.ip ?? "other", ch.key) } : null;
 
   return {
     id,
     identitySlug: identity,
+    character,
     platform,
     platformLabel: pm.label,
     chain: pm.chain,
