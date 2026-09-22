@@ -3,7 +3,7 @@ import { GradeChip } from "./GradeChip";
 import type { CardRow, SetRow } from "@/lib/data/fetchIP";
 import { Section } from "./Section";
 import { TableRowLink } from "./TableRowLink";
-import { proxyImg } from "@/lib/img";
+import { CardThumb } from "./CardThumb";
 import { formatCompactUsd, formatCompactNumber, formatInt } from "@/lib/format";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
@@ -51,17 +51,7 @@ export function IPTopCards({
               const sub = r.set ?? PLATFORM_LABEL[r.platform] ?? r.platform;
               const card = (
                 <span className="flex items-center gap-3">
-                  {r.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={proxyImg(r.image)}
-                      alt=""
-                      className="h-[42px] w-[30px] shrink-0 rounded-md bg-bg-2 object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="h-[42px] w-[30px] shrink-0 rounded-md bg-bg-2" />
-                  )}
+                  <CardThumb src={r.image} variant="cell" preview={{ name: r.name, grade: r.grade }} />
                   <span className="min-w-0">
                     <span title={r.name} className="block truncate font-semibold group-hover:text-yellow">{r.name}</span>
                     <span className="block truncate font-mono text-[11px] text-ink-4">{sub}</span>

@@ -1,0 +1,287 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { proxyImg } from "@/lib/img";
+
+/**
+ * ONE way to load card art legibly — the Top Sales tiles' trim and load
+ * escalation, lifted out of TopSalesPanel so every card-art surface (the row
+ * and cell thumbs, the identity and character headers, the hover preview)
+ * shows the same whole slab at the same size.
+ *
+ * Sources frame the slab at wildly different scales (Beezie centres it on a
+ * 2160² near-black field; others ship tight crops). No CSS fit normalises that
+ * because it can't tell the slab from its padding. So once the photo loads we
+ * read its pixels, detect the slab's bounding box (autoTrim), and swap in a
+ * tightly-cropped version rendered with object-contain — every slab then shows
+ * WHOLE at the same size.
+ *
+ * ⚠️ The trim needs READABLE pixels, and that's where the Beezie Pikachu slipped
+ * through: its asset load refused the cross-origin read, so the OLD code reloaded
+ * the SAME url without `crossOrigin` — which displays but taints the canvas, so
+ * autoTrim could never run and the slab rendered small inside its padded field
+ * via object-contain. Now a refused read escalates through the SAME-ORIGIN
+ * `/api/img` proxy first (same-origin pixels are always readable → trim works →
+ * true normalisation); only if even that fails do we fall to a plain,
+ * un-trimmable load. What a caller draws for that last resort is its own rule:
+ * the Top Sales tile renders it object-cover so the subject still fills the
+ * tile height rather than floating tiny in its padding; a portrait thumb keeps
+ * object-contain so a slab is never shown cut.
+ *
+ * ⚠️ TRIMMED ONCE PER URL. The crop is cached in a module map keyed by the
+ * display URL, so a table of a hundred rows reads a hundred canvases once as
+ * they load — not again on every hover, and the preview panel beside a thumb
+ * gets the thumb's own crop without a second read.
+ */
+
+/** How an image is loading, in escalation order. */
+export type Attempt = "direct" | "proxied" | "plain";
+
+/**
+ * display URL → the trimmed crop, or null when the trim ran and found no
+ * confident crop (so it is not attempted again for that URL).
+ */
+const trimCache = new Map<string, string | null>();
+/** Bounded: a crop is a ~50–100KB data URL, and the app is a long-lived SPA.
+ *  Past the cap the oldest entry goes (Map keeps insertion order). */
+const TRIM_CACHE_MAX = 400;
+function rememberTrim(url: string, crop: string | null): void {
+  if (trimCache.size >= TRIM_CACHE_MAX) {
+    const oldest = trimCache.keys().next().value;
+    if (oldest !== undefined) trimCache.delete(oldest);
+  }
+  trimCache.set(url, crop);
+}
+
+/** For tests and probes: what the cache holds for a URL (undefined = never tried). */
+export function cachedTrim(url: string): string | null | undefined {
+  return trimCache.get(url);
+}
+
+export type TrimmedArt = {
+  /** What the <img> should load right now (proxied when escalated). */
+  displaySrc: string | undefined;
+  /** The tight crop as a data URL, once the pixels have been read. */
+  trimmed: string | null;
+  /** The URL to DRAW — the crop when there is one, else the display source. */
+  src: string | undefined;
+  /** direct + proxied both aim for a readable (trimmable) canvas; plain does not. */
+  canTrim: boolean;
+  loaded: boolean;
+  /** Every source, every attempt, failed — draw the placeholder. */
+  failed: boolean;
+  imgRef: React.RefObject<HTMLImageElement | null>;
+  onLoad: () => void;
+  onError: () => void;
+  /** Spread onto the <img>: src, the CORS flag for trimmable attempts, and the
+   *  two handlers. `ref` must be passed separately (`ref={imgRef}`). */
+  imgProps: {
+    src: string | undefined;
+    crossOrigin?: "anonymous";
+    onLoad: () => void;
+    onError: () => void;
+  };
+};
+
+/**
+ * Load `sources` (in order — a primary and its fallback) through the
+ * escalation, trimming when the pixels can be read.
+ *
+ * `sources` are RAW metadata URLs; `proxyImg` is applied here, once, so every
+ * caller inherits the app's one set of image rules.
+ */
+export function useTrimmedArt(...rawSources: (string | null | undefined)[]): TrimmedArt {
+  const sources = rawSources.map((s) => proxyImg(s ?? undefined)).filter((s): s is string => Boolean(s));
+  const key = sources.join("\u0000");
+  const [srcIdx, setSrcIdx] = useState(0);
+  const [failed, setFailed] = useState(sources.length === 0);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [trimmed, setTrimmed] = useState<string | null>(null);
+  // How we're loading the CURRENT source. "direct": as proxyImg gave it, with a
+  // CORS read. "proxied": routed through /api/img so pixels are same-origin.
+  // "plain": no CORS — displays but can't be trimmed (last resort).
+  const [attempt, setAttempt] = useState<Attempt>("direct");
+  const [loaded, setLoaded] = useState(false);
+
+  // A new source list (a row re-used for another card) starts the escalation
+  // over. Keyed on the joined list so a re-render with the same URLs is a no-op.
+  const keyRef = useRef(key);
+  useEffect(() => {
+    if (keyRef.current === key) return;
+    keyRef.current = key;
+    setSrcIdx(0);
+    setFailed(sources.length === 0);
+    setTrimmed(null);
+    setAttempt("direct");
+    setLoaded(false);
+  }, [key, sources.length]);
+
+  const rawSrc = sources[srcIdx];
+  // Same-origin already (a `/api/img?…` or `/…` path) → the proxy step is a no-op,
+  // so a failed direct read jumps straight to the next source.
+  const sameOrigin = !!rawSrc && rawSrc.startsWith("/");
+  const displaySrc =
+    attempt === "proxied" && !sameOrigin && rawSrc
+      ? `/api/img?url=${encodeURIComponent(rawSrc)}`
+      : rawSrc;
+  // direct + proxied both aim for a readable (trimmable) canvas; plain does not.
+  const canTrim = attempt !== "plain";
+
+  const analyze = useCallback(() => {
+    const el = imgRef.current;
+    if (!el || !el.complete || el.naturalWidth === 0) return;
+    setLoaded(true);
+    if (!displaySrc) return;
+    const known = trimCache.get(displaySrc);
+    if (known !== undefined) {
+      // Trimmed (or measured un-trimmable) once already for this URL.
+      if (known) setTrimmed(known);
+      return;
+    }
+    const cropped = autoTrim(el);
+    rememberTrim(displaySrc, cropped);
+    if (cropped) setTrimmed(cropped);
+  }, [displaySrc]);
+
+  // Escalate one step when a load fails: direct → proxied → plain → next source.
+  const onError = useCallback(() => {
+    if (attempt === "direct" && !sameOrigin) {
+      setAttempt("proxied");
+    } else if (attempt !== "plain") {
+      setAttempt("plain"); // display-only; cannot be trimmed
+    } else if (srcIdx + 1 < sources.length) {
+      setSrcIdx(srcIdx + 1);
+      setAttempt("direct");
+      setLoaded(false);
+    } else {
+      setFailed(true);
+    }
+  }, [attempt, sameOrigin, srcIdx, sources.length]);
+
+  const onLoad = useCallback(() => {
+    if (canTrim) analyze();
+    else setLoaded(true);
+  }, [canTrim, analyze]);
+
+  // Catch images that finished loading before React attached onLoad (cache hit),
+  // and hand a URL its cached crop without touching a canvas.
+  useEffect(() => {
+    if (!displaySrc) return;
+    const known = trimCache.get(displaySrc);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the cache is client-only; restoring a crop must land after mount
+    if (known) setTrimmed(known);
+    if (canTrim) analyze();
+  }, [displaySrc, canTrim, analyze]);
+
+  return {
+    displaySrc,
+    trimmed,
+    src: trimmed ?? displaySrc,
+    canTrim,
+    loaded,
+    failed,
+    imgRef,
+    onLoad,
+    onError,
+    imgProps: {
+      src: displaySrc,
+      ...(canTrim ? { crossOrigin: "anonymous" as const } : {}),
+      onLoad,
+      onError,
+    },
+  };
+}
+
+/**
+ * Detect the slab/card inside a photo and return a tightly-cropped JPEG data
+ * URL, so every tile can render the WHOLE subject at the same size with
+ * object-contain. Sources frame slabs at inconsistent scales and CSS can't tell
+ * the subject from its padding — so we trim the uniform background by scanning a
+ * downscaled copy for the subject's bounding box. Returns the trimmed crop, or
+ * null when there's no confident crop to make — no clear subject, or the pixels
+ * can't be read (cross-origin taint). Null is the caller's cue to draw the
+ * photo as it is.
+ */
+export function autoTrim(img: HTMLImageElement): string | null {
+  const W = img.naturalWidth;
+  const H = img.naturalHeight;
+  if (!W || !H) return null;
+
+  // Downscale for a cheap bounding-box scan.
+  const aw = Math.min(W, 160);
+  const scale = aw / W;
+  const ah = Math.max(1, Math.round(H * scale));
+  const scan = document.createElement("canvas");
+  scan.width = aw;
+  scan.height = ah;
+  const sctx = scan.getContext("2d", { willReadFrequently: true });
+  if (!sctx) return null;
+  sctx.drawImage(img, 0, 0, aw, ah);
+
+  let px: Uint8ClampedArray;
+  try {
+    px = sctx.getImageData(0, 0, aw, ah).data;
+  } catch {
+    return null; // cross-origin tainted — pixels unreadable
+  }
+
+  // Background ≈ average of the four corners.
+  const corner = (x: number, y: number) => {
+    const i = (y * aw + x) * 4;
+    return [px[i], px[i + 1], px[i + 2]];
+  };
+  const corners = [corner(0, 0), corner(aw - 1, 0), corner(0, ah - 1), corner(aw - 1, ah - 1)];
+  const bg = [0, 1, 2].map((k) => corners.reduce((sum, c) => sum + c[k], 0) / corners.length);
+
+  // Bounding box of everything that differs from the background.
+  const THRESH = 42; // sum of per-channel deltas
+  let minX = aw, minY = ah, maxX = -1, maxY = -1;
+  for (let y = 0; y < ah; y++) {
+    for (let x = 0; x < aw; x++) {
+      const i = (y * aw + x) * 4;
+      const delta =
+        Math.abs(px[i] - bg[0]) + Math.abs(px[i + 1] - bg[1]) + Math.abs(px[i + 2] - bg[2]);
+      if (delta > THRESH) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  // A subject has to clearly stand out from the background, and clearly be
+  // SMALLER than the frame, or there's nothing to trim.
+  //
+  // ⚠️ Return null — don't fall back to re-drawing the full frame. A full-frame
+  // "crop" is indistinguishable from a real one to the caller, so a padded slab
+  // (Beezie's near-black field) would be handed back untrimmed and rendered
+  // object-contain — small. Null tells the caller "couldn't normalise this one",
+  // and it draws the photo by its own last-resort rule.
+  if (maxX < minX || maxY < minY) return null; // nothing differed from the background
+  const bw = (maxX - minX) / scale;
+  const bh = (maxY - minY) / scale;
+  const meaningful = bw > W * 0.15 && bh > H * 0.15 && (bw < W * 0.97 || bh < H * 0.97);
+  if (!meaningful) return null; // subject fills the frame (or is too tiny to trust)
+  const padX = (maxX - minX) * 0.03 + 1;
+  const padY = (maxY - minY) * 0.03 + 1;
+  const sx = Math.max(0, minX - padX) / scale;
+  const sy = Math.max(0, minY - padY) / scale;
+  const sw = Math.min(aw, maxX + padX) / scale - sx;
+  const sh = Math.min(ah, maxY + padY) / scale - sy;
+
+  // Re-draw the chosen region, capped to a sane resolution.
+  const outH = Math.min(sh, 720);
+  const k = outH / sh;
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, Math.round(sw * k));
+  out.height = Math.max(1, Math.round(outH));
+  const octx = out.getContext("2d");
+  if (!octx) return null;
+  octx.drawImage(img, sx, sy, sw, sh, 0, 0, out.width, out.height);
+  try {
+    return out.toDataURL("image/jpeg", 0.92);
+  } catch {
+    return null;
+  }
+}

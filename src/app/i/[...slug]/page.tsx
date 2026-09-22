@@ -9,6 +9,7 @@ import { GradeLadder } from "@/components/identity/GradeLadder";
 import { WhereItTrades } from "@/components/identity/WhereItTrades";
 import { SlabsTable } from "@/components/identity/SlabsTable";
 import { identityTitle } from "@/lib/card/identityView";
+import { identityDisplayName } from "@/lib/card/identity";
 
 /**
  * /i/<ip>/<set>/<number>/<name>/<grade>[/<edition>][/<lang>] — one card
@@ -57,7 +58,12 @@ export default async function IdentityPage({ params }: { params: Promise<{ slug:
             <WhereItTrades detail={detail} />
           </div>
 
-          <SlabsTable tokens={detail.tokens} number={detail.parts.number} />
+          <SlabsTable
+            tokens={detail.tokens}
+            number={detail.parts.number}
+            name={identityDisplayName(detail.parts.name)}
+            grade={detail.parts.grade}
+          />
         </div>
       </div>
     </>
