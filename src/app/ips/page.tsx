@@ -16,6 +16,7 @@ import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { fetchHomepage } from "@/lib/data/fetchHomepage";
 import { readMetricSeries, readMetricSeriesBulk, lastNDays, dropIncompleteTail, type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { rollupByCategory } from "@/lib/category/rollup";
+import { leaderColor } from "@/lib/chart/brush";
 
 // BUMP on ANY change to fetchHomepage's payload shape (a stale cache would serve
 // the old shape). v9: added hero mcapAsOf for the >36h market-cap stale-guard. v8:
@@ -94,7 +95,7 @@ export const metadata = {
   // categories. The OG title follows `title` — there is no per-route override.
   title: "Categories · VARIBLE",
   description:
-    "The tokenized trading-card market at a glance — composite index vs benchmarks, 24h volume, cards traded, and market cap by IP.",
+    "The tokenized collectibles market at a glance — composite index vs benchmarks, 24h volume, cards traded, and market cap by IP.",
 };
 
 export default async function AllIPsPage() {
@@ -241,10 +242,11 @@ export default async function AllIPsPage() {
   const mcapTop = data.ips.filter((r) => Number.isFinite(r.mcapUsd) && r.mcapUsd > 0).slice(0, 5);
   const mcapTopKeys = new Set(mcapTop.map((r) => r.key));
   const mcapComposition = [
-    ...mcapTop.map((r) => ({
+    ...mcapTop.map((r, i) => ({
       key: r.key,
       label: r.name,
-      color: r.color,
+      // Accent the leaders, brand the rest (src/lib/chart/brush.ts).
+      color: leaderColor(i, r.color),
       points: lastNDays(mcapSeries[r.key] ?? [], MCAP_COMP_DAYS),
     })),
     {
@@ -326,6 +328,10 @@ export default async function AllIPsPage() {
                 // grid row; `fill` hands that height to the PLOT instead of leaving
                 // a blank band under it.
                 fill
+                // Opens in share mode (the question is rotation) with the exports and
+                // toggles pinned to the title line, like the metric cards above it.
+                defaultMode="share"
+                pinRight
               />
             )}
           </div>
