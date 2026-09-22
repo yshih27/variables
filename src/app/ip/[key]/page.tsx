@@ -11,6 +11,9 @@ import {
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
 import { IPDominance, type DominanceSource } from "@/components/IPDominance";
 import { IPTopCards, IPSets } from "@/components/IPTables";
+import { TopCharacters } from "@/components/characters/TopCharacters";
+import { readCharacterLeaderboard } from "@/lib/data/characterRollups";
+import { hasCharacterExtractor } from "@/lib/card/character";
 import { getIPDetail, getIPActivitySeries } from "@/lib/data/fetchIP";
 import { readMarketCap } from "@/lib/data/marketcap";
 import { tickerOf } from "@/lib/indices/naming";
@@ -65,11 +68,14 @@ export default async function IPDetailPage({
   const { key } = await params;
   // getIPDetail + getIPActivitySeries are both cached (unstable_cache) — one memoized
   // call each instead of 6 uncached readMetricSeries round-trips per request (R2-B1).
-  const [detail, mcapSnap, holdersSnap, series] = await Promise.all([
+  const [detail, mcapSnap, holdersSnap, series, topCharacters] = await Promise.all([
     getIPDetail(key),
     readMarketCap(),
     readHolders(),
     getIPActivitySeries(key),
+    // The character board's first five (one snapshot read, memoised); [] for
+    // an IP with no character extractor, so the row keeps its pair.
+    hasCharacterExtractor(key) ? readCharacterLeaderboard(key, 5) : Promise.resolve([]),
   ]);
   if (!detail) notFound();
   const { volume: volS, mcap: mcapS, wallets: walletsS, trades: tradesS, cards: cardsS, marketMcap: marketMcapS } = series;
@@ -199,6 +205,10 @@ export default async function IPDetailPage({
           grades={gradeSource}
           setsSeeAllHref={`/ip/${key}/sets`}
           gradesSeeAllHref={`/ip/${key}/grades`}
+          // Top characters (30d) — the character leaderboard's first five, in
+          // the row the set and grade panels share. Only for an IP with a
+          // character extractor, and only when the board has rows.
+          third={topCharacters.length ? <TopCharacters rows={topCharacters} ip={key} /> : null}
         />
       )}
       {platformRows.length > 0 && <IPByPlatform rows={platformRows} hrefBase="/platform/" />}

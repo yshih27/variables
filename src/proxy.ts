@@ -4,6 +4,7 @@ import {
   isValidPlatformKey,
   isValidCardId,
   isValidIdentityPath,
+  isValidCharacterPath,
 } from "@/lib/data/validKeys";
 import { isEmbedChartId } from "@/lib/chart/embeds";
 
@@ -32,13 +33,16 @@ import { isEmbedChartId } from "@/lib/chart/embeds";
 const NOT_FOUND_PATH = "/_not-found-fallback";
 
 function isInvalidDetailPath(pathname: string): boolean {
-  const [root, key] = pathname.split("/").filter(Boolean);
+  const parts = pathname.split("/").filter(Boolean);
+  const [root, key] = parts;
   if (!key) return false; // bare /ip, /platform, /card — let routing decide
   switch (root) {
     case "card":
       return !isValidCardId(key);
     case "ip":
-      return !isValidIpKey(key);
+      // The key, then the character sub-tree's shape (an IP without a
+      // character extractor has no /characters; a character is one segment).
+      return !isValidIpKey(key) || !isValidCharacterPath(parts);
     case "platform":
       return !isValidPlatformKey(key);
     case "embed":
