@@ -37,6 +37,7 @@ import {
   weightedMedian,
   weightedMedianDegeneracy,
 } from "../src/lib/data/identityIndex";
+import { decodeStepObs, type StepObsTuple } from "../src/lib/data/indexReceipts";
 import { HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { readHolders } from "../src/lib/data/holders";
 import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
@@ -354,7 +355,10 @@ async function checkHoldingPeriodInvariance(): Promise<Result> {
 async function checkStepNotSingleIdentity(): Promise<Result> {
   const snap = await readSnapshot<{
     series: Record<string, { ts: string; value: number; n?: number }[]>;
-    stepObs?: Record<string, Record<string, [number, number][]>>;
+    // v4.1 stored [logReturn, weight]; v4.2 stores the seven-field receipt
+    // tuple. `decodeStepObs` is the ONE decoder for both, so this gate reads
+    // whichever blob is live without a second copy of the shape.
+    stepObs?: Record<string, Record<string, StepObsTuple[] | [number, number][]>>;
   }>("price-index");
   if (!snap?.series || !snap.stepObs) {
     return skip("step-not-single-identity", "hard", "price-index snapshot carries no stepObs block (pre-v4.1 rebuild)");
@@ -369,7 +373,7 @@ async function checkStepNotSingleIdentity(): Promise<Result> {
       const a = pts[i - 1], b = pts[i];
       const raw = obsByTs[b.ts];
       if (!raw || !(a.value > 0) || !(b.value > 0)) continue;
-      const obs = raw.map(([v, w]) => ({ v, w }));
+      const obs = decodeStepObs(raw).map((o) => ({ v: o.logReturn, w: o.weight }));
       const stepRet = Math.log(b.value / a.value);
       const derived = weightedMedian(obs);
       checked += 1;

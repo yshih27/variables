@@ -104,17 +104,62 @@ export const THIN_MONTH_IDENTITIES = 50;
 /** INV-11's magnitude limit: a step beyond this needs THIN_MONTH_IDENTITIES. */
 export const STEP_LIMIT_PCT = 25;
 
+/**
+ * ONE identity's contribution to ONE step — the receipt line.
+ *
+ * ⚠️ IT CARRIES THE PRICES, NOT JUST THE RETURN. Until v4.2 a step's sample was
+ * anonymous pairs of [logReturn, weight]: enough for INV-13 to re-derive the
+ * estimator, not enough for anyone to check it. "$2,400 → $2,650 on 3 and 4
+ * sales" is a claim a reader can take to the venue; "+0.0998" is not. The extra
+ * five fields per observation are what `readIndexReceipts` turns into the
+ * receipt behind a published month.
+ */
+export type StepObs = {
+  /** The identity key (the warmer rewrites it to the identity's slug). */
+  id: string;
+  /** ln(priceTo / priceFrom). */
+  v: number;
+  /** min(nTo, nFrom) — the weight the estimator uses. */
+  w: number;
+  priceFrom: number;
+  priceTo: number;
+  nFrom: number;
+  nTo: number;
+};
+
 export type IdentityIndexPoint = IndexPoint & {
   /** Weeks since the previously published point (1 = no gap). Withheld steps make
    *  this > 1, and the reader must not treat the move as a single week's. */
   spansWeeks?: number;
   /**
-   * The per-identity observations behind this point's step, [logReturn, weight].
-   * Carried so INV-13 can re-derive the estimator from the raw sample and prove
-   * the step never rests on one identity. The warmer strips it into the blob's
-   * `stepObs` block; it is not part of the published `series` shape.
+   * The per-identity observations behind this point's step. Carried so INV-13
+   * can re-derive the estimator from the raw sample and prove the step never
+   * rests on one identity, and so the receipts reader can show the sample. The
+   * warmer strips it into the blob's `stepObs` block; it is not part of the
+   * published `series` shape.
    */
-  obs?: [number, number][];
+  obs?: StepObs[];
+};
+
+/**
+ * A month that did NOT publish, and the gate that held it — so a gap in the
+ * line can explain itself from data rather than from typed copy.
+ *
+ * ⚠️ EVERY GATE IN THE CHAIN WRITES ONE. A withheld month used to be a silent
+ * `continue`: the reader saw a gap, `spansWeeks` said how wide it was, and
+ * nothing said why. These are the same four gates the loop already applies, each
+ * recording what it saw as it declines to publish.
+ */
+export type IndexHold = {
+  /** Period-END ISO — the same stamp the point would have carried. */
+  ts: string;
+  reason: "below-floor" | "step-limit" | "running-month" | "no-comparables";
+  /** Identities priced in BOTH months; 0 when there was no adjacent pair at all. */
+  overlap: number;
+  /** The floor this entity had to clear. */
+  floor: number;
+  /** The step that was not published, %. Null when there was none to compute. */
+  stepPct: number | null;
 };
 
 /** Weighted median — the weight-aware 50th percentile. */
@@ -246,8 +291,8 @@ export type WeeklyStep = {
   logReturn: number;
   /** Identities present in both periods — the liquidity measure the floor uses. */
   overlap: number;
-  /** Per-identity log returns behind this step — the bootstrap resamples these. */
-  obs: { v: number; w: number }[];
+  /** Per-identity observations behind this step — the bootstrap resamples these. */
+  obs: StepObs[];
 };
 
 /** Adjacent-week steps. Only weeks that both have identity prices produce one. */
@@ -273,11 +318,19 @@ export function periodSteps(prices: PeriodIdentityPrices, grain: Grain): WeeklyS
     // hole, and a step across it would silently be a multi-period return labelled
     // as one period.
     if (G.index(weeks[i]) - G.index(weeks[i - 1]) !== 1) continue;
-    const obs: { v: number; w: number }[] = [];
+    const obs: StepObs[] = [];
     for (const [id, c] of cur) {
       const p = prev.get(id);
       if (!p || !(p.price > 0) || !(c.price > 0)) continue;
-      obs.push({ v: Math.log(c.price / p.price), w: Math.min(c.n, p.n) });
+      obs.push({
+        id,
+        v: Math.log(c.price / p.price),
+        w: Math.min(c.n, p.n),
+        priceFrom: p.price,
+        priceTo: c.price,
+        nFrom: p.n,
+        nTo: c.n,
+      });
     }
     if (!obs.length) continue;
     out.push({ week: weeks[i], logReturn: weightedMedian(obs), overlap: obs.length, obs });
@@ -325,17 +378,33 @@ function bootstrapSd(obs: { v: number; w: number }[], seed: number): number {
  * band widens with distance from the base — which is the truth about a chained
  * index and something the old k/√n band hid.
  */
-export function identityIndex(
+export type IdentityIndexOptions = {
+  minIdentities?: number;
+  nowMs?: number;
+  minWeeks?: number;
+  grain?: Grain;
+  /** z for the band; 1.96 ≈ 95%. */
+  z?: number;
+};
+
+/** The published chain, exactly as every caller has always taken it. */
+export function identityIndex(sales: SaleRow[], opts: IdentityIndexOptions = {}): IdentityIndexPoint[] {
+  return chainIdentityIndex(sales, opts).points;
+}
+
+/**
+ * The chain AND the months it withheld, with the gate that withheld each one.
+ *
+ * ⚠️ ONE IMPLEMENTATION, TWO VIEWS. `identityIndex` is this function's `points`
+ * and nothing else — the gates are not re-applied anywhere, because a second
+ * copy of "why a month was held" would be free to drift from the copy that
+ * actually holds it. The warmer takes the whole thing so the blob can carry the
+ * holds; every other caller keeps the array it always had.
+ */
+export function chainIdentityIndex(
   sales: SaleRow[],
-  opts: {
-    minIdentities?: number;
-    nowMs?: number;
-    minWeeks?: number;
-    grain?: Grain;
-    /** z for the band; 1.96 ≈ 95%. */
-    z?: number;
-  } = {},
-): IdentityIndexPoint[] {
+  opts: IdentityIndexOptions = {},
+): { points: IdentityIndexPoint[]; holds: IndexHold[] } {
   const grain = opts.grain ?? "month";
   const G = GRAINS[grain];
   const floor = opts.minIdentities ?? MIN_IDENTITIES_IP;
@@ -344,17 +413,19 @@ export function identityIndex(
 
   const prices = identityPrices(sales, grain);
   const steps = periodSteps(prices, grain);
-  if (!steps.length) return [];
+  if (!steps.length) return { points: [], holds: [] };
 
   // Never publish the running period (mirrors completeWeeksOnly/completeMonthsOnly).
   const runningIdx = G.index(G.start(opts.nowMs ?? Date.now()));
 
   const qualifying = steps.filter((s) => s.overlap >= floor);
-  if (!qualifying.length) return [];
+  if (!qualifying.length) return { points: [], holds: [] };
   const baseIdx = G.index(qualifying[0].week) - 1;
   const baseStart = G.fromIndex(baseIdx);
 
   const out: IdentityIndexPoint[] = [];
+  const holds: IndexHold[] = [];
+  const stepPctOf = (st: WeeklyStep) => (Math.exp(st.logReturn) - 1) * 100;
   let logLevel = 0;
   let cumVar = 0;
   let lastPublishedIdx = baseIdx;
@@ -373,7 +444,10 @@ export function identityIndex(
     if (idx <= baseIdx) continue;
     // Below the floor the step is UNKNOWN: do not advance the chain, do not
     // publish, and do not treat it as zero.
-    if (st.overlap < floor) continue;
+    if (st.overlap < floor) {
+      holds.push({ ts: G.end(Date.parse(st.week)), reason: "below-floor", overlap: st.overlap, floor, stepPct: stepPctOf(st) });
+      continue;
+    }
     /**
      * INV-11, ENFORCED HERE AND NOT ONLY CHECKED. A step beyond ±25% resting on
      * fewer than THIN_MONTH_IDENTITIES identities is withheld the same way a
@@ -387,13 +461,17 @@ export function identityIndex(
      * fail but never be satisfied by construction; `set:pokemon:black-star-promo`
      * 2026-05-31 (+27.5% on 12 identities) is the step that exposed it.
      */
-    if (Math.abs(Math.exp(st.logReturn) - 1) * 100 > STEP_LIMIT_PCT && st.overlap < THIN_MONTH_IDENTITIES) {
+    if (Math.abs(stepPctOf(st)) > STEP_LIMIT_PCT && st.overlap < THIN_MONTH_IDENTITIES) {
+      holds.push({ ts: G.end(Date.parse(st.week)), reason: "step-limit", overlap: st.overlap, floor, stepPct: stepPctOf(st) });
       continue;
     }
     logLevel += st.logReturn;
     const sd = bootstrapSd(st.obs, 1000003 + idx * 7919);
     if (Number.isFinite(sd)) cumVar += sd * sd;
-    if (idx >= runningIdx) continue;
+    if (idx >= runningIdx) {
+      holds.push({ ts: G.end(Date.parse(st.week)), reason: "running-month", overlap: st.overlap, floor, stepPct: stepPctOf(st) });
+      continue;
+    }
     const spans = idx - lastPublishedIdx;
     lastPublishedIdx = idx;
     const value = 100 * Math.exp(logLevel);
@@ -411,11 +489,21 @@ export function identityIndex(
       // identities" rather than presenting it with the same confidence as a
       // month with 200.
       thin: st.overlap < THIN_MONTH_IDENTITIES,
-      obs: st.obs.map((o) => [o.v, o.w] as [number, number]),
+      obs: st.obs,
     });
   }
 
-  if (out.length < minPeriods) return [];
+  // Months inside the chain's span that produced no adjacent pair at all — a
+  // calendar hole, or a month nothing sold twice in. The gates above never saw
+  // them, so without this they would be the one kind of gap with no reason.
+  const seen = new Set([...out.map((pt) => pt.ts), ...holds.map((h) => h.ts)]);
+  for (let i = baseIdx + 1; i < runningIdx; i++) {
+    const ts = G.end(Date.parse(G.fromIndex(i)));
+    if (!seen.has(ts)) holds.push({ ts, reason: "no-comparables", overlap: 0, floor, stepPct: null });
+  }
+  holds.sort((a, b) => a.ts.localeCompare(b.ts));
+
+  if (out.length < minPeriods) return { points: [], holds: [] };
   const base0 = out[0].value;
   if (base0 > 0 && Math.abs(base0 - 100) > 1e-9) {
     const f = 100 / base0;
@@ -425,5 +513,5 @@ export function identityIndex(
       if (p.hi != null) p.hi *= f;
     }
   }
-  return out;
+  return { points: out, holds };
 }

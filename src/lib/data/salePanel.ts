@@ -17,7 +17,7 @@
 import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
 import { readCardDims, type CardPlatform } from "./cards";
-import { identityKey } from "./traits";
+import { identityKey, legacyIdentityKey } from "./traits";
 import type { NormalizedSale } from "../rarible/queries";
 
 export type SaleRow = {
@@ -30,9 +30,16 @@ export type SaleRow = {
   /** Canonical set key — the grouping key for `set:<ip>:<key>` entities. */
   setKey: string | null;
   grade: string;
-  /** v3 comparable key — `ip|set|number|name|grade|edition|language`, or null when
-   *  the row is too thin to be a comparable (see traits.ts `identityKey`). */
+  /** v4.2 comparable key — `ip|setKey|number|name|grade|edition|language`, or null
+   *  when the row is too thin to be a comparable (see traits.ts `identityKey`). */
   identity: string | null;
+  /**
+   * The v4.1 key for the same row — present ONLY in a shadow build
+   * (`buildSalePanel({ legacyIdentity: true })`), so the re-key's effect on every
+   * published level can be measured from one panel instead of two. Stripped by
+   * `packSalePanel`, so it never reaches a snapshot.
+   */
+  legacyIdentity?: string | null;
 };
 
 /**
@@ -97,7 +104,7 @@ export async function readSaleFeed(opts: { sinceMs?: number } = {}): Promise<Unt
 const DAY_MS = 86_400_000;
 
 /** Tag one platform's cleaned sales with cards-table dims. */
-async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[]): Promise<SaleRow[]> {
+async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[], legacy: boolean): Promise<SaleRow[]> {
   const dims = await readCardDims(platform);
   return sales.map((s) => {
     const d = dims.get(s.tokenId);
@@ -111,6 +118,7 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[]): Promi
       setKey: d?.setKey ?? null,
       grade: d?.grade ?? "Ungraded",
       identity: d?.identity ? identityKey(d.ip ?? "other", d.identity) : null,
+      ...(legacy ? { legacyIdentity: d?.identity ? legacyIdentityKey(d.ip ?? "other", d.identity) : null } : {}),
     };
   });
 }
@@ -120,7 +128,7 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[]): Promi
  * empty contribution (logged by the caller via the returned counts) rather than
  * sinking the whole panel.
  */
-export async function buildSalePanel(): Promise<SaleRow[]> {
+export async function buildSalePanel(opts: { legacyIdentity?: boolean } = {}): Promise<SaleRow[]> {
   // CC + Courtyard come from the secondary-sales store runCoreWarm writes — the
   // same cleaned rows the old direct Dune reads returned, without re-buying the
   // export (~5.6 cr each). Only warmers/core touches Dune for these feeds now.
@@ -132,7 +140,7 @@ export async function buildSalePanel(): Promise<SaleRow[]> {
     else byPlatform.set(s.platform, [s]);
   }
   const tagged = await Promise.all(
-    [...byPlatform].map(([platform, sales]) => tagPlatform(platform, sales)),
+    [...byPlatform].map(([platform, sales]) => tagPlatform(platform, sales, opts.legacyIdentity === true)),
   );
   return tagged.flat();
 }
@@ -170,7 +178,16 @@ function isGz(p: unknown): p is GzWrapper {
 /** The wrapped payload the warmer stores — exported so `--out` writes the exact
  *  bytes `readSalePanel` expects (SNAPSHOT_LOCAL_DIR serves them verbatim). */
 export function packSalePanel(snap: SalePanelSnapshot): GzWrapper {
-  return { __gz__: gzipSync(Buffer.from(JSON.stringify(snap))).toString("base64") };
+  // ⚠️ THE SHADOW KEY NEVER REACHES A SNAPSHOT. `legacyIdentity` exists for the
+  // duration of one re-key report; persisted, it would be a second identity
+  // scheme sitting in the panel every reader inflates.
+  const rows = snap.rows.map((r) => {
+    if (r.legacyIdentity === undefined) return r;
+    const copy = { ...r };
+    delete copy.legacyIdentity;
+    return copy;
+  });
+  return { __gz__: gzipSync(Buffer.from(JSON.stringify({ ...snap, rows }))).toString("base64") };
 }
 
 /** The persisted panel, or null when none has been written yet. Never throws. */
