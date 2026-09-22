@@ -52,6 +52,54 @@ export type BuybackFold = {
   warnings: string[];
 };
 
+export type DayReconciliation = {
+  /** Days present in BOTH the source and the spine (a day the spine has not written yet is not drift). */
+  sharedDays: number;
+  /** Shared days at least `settleDays` old — Dune's Solana transfer feed back-fills for a few days, so only these can show a bad write or a genuine restatement. */
+  settledDays: number;
+  settledSource: number;
+  settledStored: number;
+  /** |source − stored| / stored over the settled days (0 when nothing is stored). */
+  settledDrift: number;
+  freshDays: number;
+  freshSource: number;
+  freshStored: number;
+  perDay: { day: string; source: number; stored: number }[];
+};
+
+/**
+ * Source-vs-spine comparison that only counts what can actually disagree.
+ * Measured 2026-09-22 on the first two-tier run: comparing 8 source days
+ * against a spine that had 7 of them, with the newest still filling upstream,
+ * printed "27.8% drift" for CC and "94.6%" for Phygitals — construction, not a
+ * finding. Shared days only; settled days carry the alarm; fresh days are
+ * reported as the restatement they are expected to be.
+ */
+export function reconcileDays(
+  source: Map<string, number>,
+  stored: Map<string, number>,
+  days: Iterable<string>,
+  nowMs: number,
+  settleDays = 3,
+): DayReconciliation {
+  const perDay: { day: string; source: number; stored: number }[] = [];
+  let settledSource = 0, settledStored = 0, settledDays = 0, freshSource = 0, freshStored = 0, freshDays = 0;
+  for (const day of [...new Set(days)].sort()) {
+    if (!stored.has(day)) continue;
+    const s = source.get(day) ?? 0;
+    const t = stored.get(day) ?? 0;
+    perDay.push({ day, source: s, stored: t });
+    if (Date.parse(day) + settleDays * DAY <= nowMs) { settledDays++; settledSource += s; settledStored += t; }
+    else { freshDays++; freshSource += s; freshStored += t; }
+  }
+  return {
+    sharedDays: perDay.length,
+    settledDays, settledSource, settledStored,
+    settledDrift: settledStored > 0 ? Math.abs(settledSource - settledStored) / settledStored : 0,
+    freshDays, freshSource, freshStored, perDay,
+  };
+}
+
 function parseDay(raw: string): number {
   return Date.parse(raw.includes("T") ? raw : raw.replace(" UTC", "Z").replace(" ", "T"));
 }

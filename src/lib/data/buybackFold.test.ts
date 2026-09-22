@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { foldBuybackRows } from "./buybackFold";
+import { foldBuybackRows, reconcileDays } from "./buybackFold";
 
 const dayStartUtc = (ms: number) => new Date(Math.floor(ms / 86400000) * 86400000).toISOString();
 const NOW = Date.parse("2026-09-22T04:00:00Z");
@@ -74,4 +74,20 @@ test("pre-R3 rows fold gross-of-list with no basis", () => {
   assert.equal(f.basis, "pre-r3");
   assert.equal(f.stats.legacyRows, 1);
   assert.equal(f.payouts.get("collector-crypt")!.get(dayStartUtc(NOW - 1 * 86400000)), 55);
+});
+
+test("reconciliation counts only shared days, alarms on settled days, reports fresh days as restatement", () => {
+  const D = 86400000;
+  const day = (n: number) => dayStartUtc(NOW - n * D);
+  const source = new Map([[day(8), 100], [day(5), 100], [day(4), 100], [day(2), 150], [day(1), 200]]);
+  const stored = new Map([[day(5), 100], [day(4), 90], [day(2), 100]]); // day(8) and day(1) not in the spine
+  const r = reconcileDays(source, stored, source.keys(), NOW, 3);
+  assert.equal(r.sharedDays, 3);
+  assert.equal(r.settledDays, 2); // day(5), day(4)
+  assert.equal(r.settledSource, 200);
+  assert.equal(r.settledStored, 190);
+  assert.ok(Math.abs(r.settledDrift - 10 / 190) < 1e-12);
+  assert.equal(r.freshDays, 1); // day(2)
+  assert.equal(r.freshSource, 150);
+  assert.equal(r.freshStored, 100);
 });
