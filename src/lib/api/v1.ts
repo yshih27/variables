@@ -6,7 +6,7 @@
  * The free tier is attribution-required, so the terms ride along in-band on
  * every payload — a consumer can't miss them.
  */
-import { isSameOrigin, rateLimitByIp, rateLimitInMemory, type ApiKeyResult, type RateLimitResult } from "./auth";
+import { rateLimitInMemory, type ApiKeyResult, type RateLimitResult } from "./auth";
 import { SITE_ORIGIN } from "@/lib/site";
 
 const SITE_URL = SITE_ORIGIN;
