@@ -298,6 +298,11 @@ export type AutoRefreshResult = {
    * these rows. The caller must reuse what it persisted last run.
    */
   unchanged?: boolean;
+  /** When Dune computed the rows returned — a fresh execution: now; a cached
+   *  result: its `execution_ended_at`. Null only when Dune omitted it. The spine
+   *  writer reads it to know which days a windowed scan actually covered, so a
+   *  quiet day inside the scan is written as an honest zero, not left blank. */
+  executionEndedAt: string | null;
 };
 
 /** Probe request budget. Dune under load has answered the results endpoint in
@@ -453,7 +458,7 @@ export async function getResultsAutoRefresh(
     if (e instanceof DuneError && e.status === 404) {
       console.warn(`[dune] query ${queryId} has no cached result (404) — executing fresh`);
       const rows = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
-      return { rows, refreshed: true, cachedAgeMs: null };
+      return { rows, refreshed: true, cachedAgeMs: null, executionEndedAt: new Date().toISOString() };
     }
     const ageMs = opts.freshnessSource ? await snapshotAgeMs(opts.freshnessSource) : null;
     const fresh = ageMs !== null && ageMs <= opts.maxAgeMs;
@@ -461,17 +466,17 @@ export async function getResultsAutoRefresh(
       console.warn(
         `[dune] query ${queryId} probe unavailable — snapshot fresh (${(ageMs / 3.6e6).toFixed(1)}h), serving cached: ${(e as Error).message.slice(0, 100)}`,
       );
-      const { rows } = await getLatestResultsMeta(queryId, {
+      const { rows, executionEndedAt } = await getLatestResultsMeta(queryId, {
         params: opts.params,
         maxRows: opts.maxRows,
       });
-      return { rows, refreshed: false, cachedAgeMs: null };
+      return { rows, refreshed: false, cachedAgeMs: null, executionEndedAt };
     }
     console.warn(
       `[dune] query ${queryId} probe unavailable — snapshot ${ageMs === null ? "age unknown" : `stale (${(ageMs / 3.6e6).toFixed(1)}h)`}, executing fresh: ${(e as Error).message.slice(0, 100)}`,
     );
     const rows = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
-    return { rows, refreshed: true, cachedAgeMs: null };
+    return { rows, refreshed: true, cachedAgeMs: null, executionEndedAt: new Date().toISOString() };
   }
 
   const parsed = probe.executionEndedAt ? Date.parse(probe.executionEndedAt) : NaN;
@@ -494,19 +499,19 @@ export async function getResultsAutoRefresh(
           `(executed ${new Date(executedAtMs).toISOString().slice(0, 16)}, ingested ` +
           `${new Date(ingestedAtMs).toISOString().slice(0, 16)}) — skipping download`,
       );
-      return { rows: null, refreshed: false, cachedAgeMs, unchanged: true };
+      return { rows: null, refreshed: false, cachedAgeMs, unchanged: true, executionEndedAt: probe.executionEndedAt };
     }
   }
 
   if (stale) {
     const fresh = await runQuery(queryId, { params: opts.params, ...opts.runOpts });
-    return { rows: fresh, refreshed: true, cachedAgeMs };
+    return { rows: fresh, refreshed: true, cachedAgeMs, executionEndedAt: new Date().toISOString() };
   }
-  const { rows } = await getLatestResultsMeta(queryId, {
+  const { rows, executionEndedAt } = await getLatestResultsMeta(queryId, {
     params: opts.params,
     maxRows: opts.maxRows,
   });
-  return { rows, refreshed: false, cachedAgeMs };
+  return { rows, refreshed: false, cachedAgeMs, executionEndedAt: executionEndedAt ?? probe.executionEndedAt };
 }
 
 export type DuneUsage = {

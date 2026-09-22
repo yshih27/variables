@@ -92,12 +92,30 @@ function buildPlatform(
  * cached read (a stale cache triggers a fresh run). Both feeds are windowed to 30d
  * on the Dune side; `maxRows` stays generous purely as a headroom guard.
  */
-async function fetchDuneSecondarySales(
+/** Both secondary queries (7675297, 7845248) scan `block_time > now() - interval '30' day`. */
+export const SECONDARY_WINDOW_DAYS = 30;
+
+export type SecondaryScan = {
+  sales: NormalizedSale[];
+  /** When Dune computed the rows (AutoRefreshResult.executionEndedAt; a fresh
+   *  execution reports now). Null only when Dune omitted it — then a caller
+   *  must not infer that a day with no rows was scanned. */
+  executionEndedAt: string | null;
+  windowDays: number;
+};
+
+/**
+ * The scan behind `fetchDuneSecondarySales`, with its coverage. A windowed query
+ * that returns no row for a day has MEASURED that day as zero — the spine writer
+ * needs the execution time to tell that zero from "not scanned yet".
+ */
+async function fetchDuneSecondaryScan(
   queryId: number,
   label: string,
   opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
-): Promise<NormalizedSale[] | null> {
+): Promise<SecondaryScan | null> {
   let rows: DuneRow[];
+  let executionEndedAt: string | null = null;
   if (opts.cachedOnly) {
     const r = await getResultsAutoRefresh(queryId, {
       maxAgeMs: CC_SECONDARY_MAX_CACHE_AGE_MS,
@@ -112,12 +130,14 @@ async function fetchDuneSecondarySales(
     // platform entry it wrote last run rather than re-deriving identical output.
     if (r.rows === null) return null; // only reachable when reuseIfUnchanged was set
     rows = r.rows;
+    executionEndedAt = r.executionEndedAt;
     if (r.refreshed) {
       const ageH = r.cachedAgeMs != null ? (r.cachedAgeMs / 3.6e6).toFixed(1) : "?";
       (opts.log ?? console.log)(`  ↻ ${label} cache stale (${ageH}h old) — self-healed with a fresh Dune run`);
     }
   } else {
     rows = await runQuery(queryId, { maxWaitMs: 480_000, maxRows: 250_000 });
+    executionEndedAt = new Date().toISOString();
   }
   const mapped = rows
     .map((r) => ({
@@ -134,7 +154,36 @@ async function fetchDuneSecondarySales(
   const { sales, stats } = cleanSecondarySales(mapped);
   const line = formatHygiene(label, stats);
   if (line) (opts.log ?? console.log)(line);
-  return sales;
+  return { sales, executionEndedAt, windowDays: SECONDARY_WINDOW_DAYS };
+}
+
+async function fetchDuneSecondarySales(
+  queryId: number,
+  label: string,
+  opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
+): Promise<NormalizedSale[] | null> {
+  const scan = await fetchDuneSecondaryScan(queryId, label, opts);
+  return scan ? scan.sales : null;
+}
+
+async function mustHaveScan(p: Promise<SecondaryScan | null>): Promise<SecondaryScan> {
+  const scan = await p;
+  if (scan === null) throw new Error("dune secondary feed returned an unrequested reuse signal");
+  return scan;
+}
+
+/** CC secondary sales with the scan's coverage — the spine writer's read. */
+export async function fetchCCSecondaryScan(
+  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+): Promise<SecondaryScan> {
+  return mustHaveScan(fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
+}
+
+/** Courtyard secondary sales with the scan's coverage — the spine writer's read. */
+export async function fetchCourtyardSecondaryScan(
+  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+): Promise<SecondaryScan> {
+  return mustHaveScan(fetchDuneSecondaryScan(COURTYARD_SECONDARY_QUERY_ID, "courtyard-secondary", opts));
 }
 
 /**
