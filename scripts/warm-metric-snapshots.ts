@@ -33,7 +33,7 @@ config({ path: ".env.local" });
 
 import { fetchCCSecondaryScan, fetchCourtyardSecondaryScan } from "../src/lib/data/warmers/core";
 import { scannedCompleteDays } from "../src/lib/dune/scanWindow";
-import { foldBuybackRows } from "../src/lib/data/buybackFold";
+import { foldBuybackRows, reconcileDays } from "../src/lib/data/buybackFold";
 import { fetchBeezieSales } from "../src/lib/beezie/market";
 import { getResultsAutoRefresh, type DuneRow } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_ID, BUYBACK_QUERY_ID } from "../src/lib/dune/queryIds";
@@ -499,21 +499,24 @@ async function main() {
         pushed++;
         sumWin += usd;
       }
-      // Reconcile over the SAME days the recipient tier covers — the spine is
-      // the record for anything older; a restatement shows up as drift here.
+      // Reconcile over the days the recipient tier covers AND the spine has —
+      // settled days (≥3d old) carry the alarm; the newest days are still
+      // filling upstream and are reported as the restatement they are.
       const stored = await readMetricSeries("platform", key, "buyback_payout_usd").catch(() => []);
-      const storedSum = stored
-        .filter((p) => covered.has(dayStartUtc(Date.parse(p.ts))))
-        .reduce((s, p) => s + p.value, 0);
-      const drift = storedSum > 0 ? Math.abs(sumWin - storedSum) / storedSum : 0;
-      if (storedSum > 0 && drift > 0.05) {
+      const storedByDay = new Map(stored.map((p) => [dayStartUtc(Date.parse(p.ts)), p.value] as const));
+      const rec = reconcileDays(byDay, storedByDay, covered, now);
+      if (rec.settledStored > 0 && rec.settledDrift > 0.05) {
         console.warn(
-          `  ⚠ buyback reconciliation ${key}: ${covered.size}d source Σ $${Math.round(sumWin).toLocaleString()} vs spine Σ $${Math.round(storedSum).toLocaleString()} (${(drift * 100).toFixed(1)}%) — restated upstream, or a bad earlier write`,
+          `  ⚠ buyback reconciliation ${key}: ${rec.settledDays} settled day(s) source Σ $${Math.round(rec.settledSource).toLocaleString()} vs spine Σ $${Math.round(rec.settledStored).toLocaleString()} (${(rec.settledDrift * 100).toFixed(1)}%) — restated upstream, or a bad earlier write`,
         );
+        for (const p of rec.perDay) if (Date.parse(p.day) + 3 * DAY <= now && Math.abs(p.source - p.stored) > 0.05 * Math.max(1, p.stored)) console.warn(`      ${p.day.slice(0, 10)}  source $${Math.round(p.source).toLocaleString()} · spine $${Math.round(p.stored).toLocaleString()}`);
       }
       console.log(
         `  buyback_payout_usd ${key}: ${pushed} days · ${covered.size}d $${Math.round(sumWin).toLocaleString()}` +
-          (storedSum > 0 ? ` (spine had $${Math.round(storedSum).toLocaleString()}, ${(drift * 100).toFixed(1)}% drift)` : " (first write)"),
+          (rec.sharedDays === 0
+            ? " (first write)"
+            : ` · settled ${rec.settledDays}d ${(rec.settledDrift * 100).toFixed(1)}% drift` +
+              (rec.freshDays ? ` · fresh ${rec.freshDays}d $${Math.round(rec.freshSource).toLocaleString()} vs spine $${Math.round(rec.freshStored).toLocaleString()} (upstream still filling)` : "")),
       );
     }
 
