@@ -341,12 +341,16 @@ async function reportNames(): Promise<void> {
     else if ([...outs].filter(Boolean).length > 1) keySplit++;
     else keyRenamed++;
   }
-  let newKeys = 0, newKeysFromNothing = 0, newKeysMerging = 0;
+  // Keys that RECEIVE re-keyed rows: brand new ones, and existing identities
+  // a renamed row lands on (the same card, already keyed under its real name).
+  let receiving = 0, brandNew = 0, existingJoined = 0, fromNothing = 0, merging = 0;
   for (const [k, ins] of origin) {
     if (ins.size === 1 && ins.has(k)) continue;
-    newKeys++;
-    if (ins.size === 1 && ins.has(null)) newKeysFromNothing++;
-    if ([...ins].filter(Boolean).length > 1) newKeysMerging++;
+    receiving++;
+    if (fate.has(k)) existingJoined++;
+    else brandNew++;
+    if (ins.size === 1 && ins.has(null)) fromNothing++;
+    if ([...ins].filter(Boolean).length > 1) merging++;
   }
 
   // ── the grade-named rows ──
@@ -428,7 +432,8 @@ async function reportNames(): Promise<void> {
   out(`Rows: ${rowCounts.unchanged.toLocaleString()} unchanged · ${rowCounts.rekeyed.toLocaleString()} re-keyed · ${rowCounts.gained.toLocaleString()} gain an identity · ${rowCounts.lost.toLocaleString()} lose one · ${rowCounts.neither.toLocaleString()} had none and still have none.`);
   out();
   out(`Identities (stored keys): ${fate.size.toLocaleString()} — ${keyUnchanged.toLocaleString()} unchanged · ${keyRenamed.toLocaleString()} re-keyed to one new key · ${keySplit.toLocaleString()} split across several · ${keyDropped.toLocaleString()} left with no identity. ` +
-    `New keys that did not exist: ${newKeys.toLocaleString()} (${newKeysFromNothing.toLocaleString()} from rows that had no identity, ${newKeysMerging.toLocaleString()} gathering more than one old key).`);
+    `Keys receiving re-keyed rows: ${receiving.toLocaleString()} — ${brandNew.toLocaleString()} brand new, ${existingJoined.toLocaleString()} existing identities that absorb renamed rows; ` +
+    `${fromNothing.toLocaleString()} built from rows that had no identity, ${merging.toLocaleString()} gathering more than one stored key.`);
   out();
   out(`Re-keyed rows whose stored name did NOT begin with a grade label: ${otherChanges.length}${otherChanges.length >= 60 ? "+" : ""}.`);
   if (otherChanges.length) {
@@ -456,7 +461,7 @@ async function reportNames(): Promise<void> {
     writeFileSync(join(OUT, "names-report.md"), text);
     writeFileSync(
       join(OUT, "names-report.json"),
-      JSON.stringify({ rowCounts, identities: { stored: fate.size, unchanged: keyUnchanged, renamed: keyRenamed, split: keySplit, dropped: keyDropped, newKeys, newKeysFromNothing, newKeysMerging }, graded, otherChanges, gained: Object.fromEntries(gained) }, null, 2),
+      JSON.stringify({ rowCounts, identities: { stored: fate.size, unchanged: keyUnchanged, renamed: keyRenamed, split: keySplit, dropped: keyDropped, receiving, brandNew, existingJoined, fromNothing, merging }, graded, otherChanges, gained: Object.fromEntries(gained) }, null, 2),
     );
     console.log(`\nwrote ${join(OUT, "names-report.md")} + names-report.json`);
   }
