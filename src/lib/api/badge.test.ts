@@ -42,9 +42,10 @@ test("a floor is never a badge price", () => {
   assert.ok(!/\$/.test(c.value));
 });
 
-test("badgeUsd keeps cents under $100 and is the site's compact rule above it", () => {
-  assert.equal(badgeUsd(1.84), "$1.84");
-  assert.equal(badgeUsd(99.5), "$99.50");
+test("badgeUsd is the site's compact rule: cents only under a dollar, whole dollars up to $1K", () => {
+  assert.equal(badgeUsd(0.84), "$0.84");
+  assert.equal(badgeUsd(1.84), "$2");
+  assert.equal(badgeUsd(43), "$43");
   assert.equal(badgeUsd(323), formatCompactUsd(323));
   assert.equal(badgeUsd(323), "$323");
   assert.equal(badgeUsd(12_450), formatCompactUsd(12_450));
