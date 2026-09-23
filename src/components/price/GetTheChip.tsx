@@ -42,18 +42,23 @@ export function GetTheChip({ slug, name }: { slug: string; name: string }) {
 function ChipSheet({ slug, name, onClose }: { slug: string; name: string; onClose: () => void }) {
   const [size, setSize] = useState<ChipSize>("md");
   const [theme, setTheme] = useState<ChipTheme>("dark");
+  // `<id>` after a successful write, `<id>:failed` when the clipboard refused
+  // it — a button that says "Copied" over a write that failed is a lie the
+  // reader only discovers on paste.
   const [copied, setCopied] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
   const snippets = chipSnippets(slug, size, theme);
   const box = CHIP_BOX[size];
 
   const copy = useCallback((id: string, text: string) => {
-    const done = () => {
-      setCopied(id);
+    const done = (ok: boolean) => {
+      setCopied(ok ? id : `${id}:failed`);
       if (timer.current != null) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => setCopied(null), 1800);
+      timer.current = window.setTimeout(() => setCopied(null), ok ? 1800 : 3000);
     };
-    navigator.clipboard?.writeText(text).then(done, done);
+    const clip = navigator.clipboard;
+    if (!clip) { done(false); return; }
+    clip.writeText(text).then(() => done(true), () => done(false));
   }, []);
   useEffect(() => () => { if (timer.current != null) window.clearTimeout(timer.current); }, []);
 
@@ -94,7 +99,7 @@ function ChipSheet({ slug, name, onClose }: { slug: string; name: string; onClos
           title="Chip · iframe"
           note={`${box.w}×${box.h}`}
           code={snippets.iframe}
-          copied={copied === "iframe"}
+          copied={copied === "iframe" ? true : copied === "iframe:failed" ? "failed" : false}
           onCopy={() => copy("iframe", snippets.iframe)}
         >
           <iframe
@@ -113,7 +118,7 @@ function ChipSheet({ slug, name, onClose }: { slug: string; name: string; onClos
           title="Badge · image"
           note="both sizes"
           code={snippets.badge}
-          copied={copied === "badge"}
+          copied={copied === "badge" ? true : copied === "badge:failed" ? "failed" : false}
           onCopy={() => copy("badge", snippets.badge)}
         >
           <span className="flex flex-wrap items-center gap-3">
@@ -128,7 +133,7 @@ function ChipSheet({ slug, name, onClose }: { slug: string; name: string; onClos
           title="API · no key"
           note="JSON · CORS open"
           code={snippets.api}
-          copied={copied === "api"}
+          copied={copied === "api" ? true : copied === "api:failed" ? "failed" : false}
           onCopy={() => copy("api", snippets.api)}
         >
           <span className="font-mono text-[10.5px] text-ink-4">
@@ -172,7 +177,7 @@ function Block({
   title: string;
   note: string;
   code: string;
-  copied: boolean;
+  copied: boolean | "failed";
   onCopy: () => void;
   children: React.ReactNode;
 }) {
@@ -197,7 +202,7 @@ function Block({
             copied ? "bg-bg-2 text-ink-2" : "bg-yellow text-black hover:bg-yellow-2"
           }`}
         >
-          {copied ? "Copied" : "Copy"}
+          {copied === "failed" ? "Copy failed" : copied ? "Copied" : "Copy"}
         </button>
       </div>
     </section>

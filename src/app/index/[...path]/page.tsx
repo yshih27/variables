@@ -3,6 +3,7 @@ import Link from "next/link";
 import { NavBar } from "@/components/NavBar";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { StatCard, StatCardRow } from "@/components/StatCard";
+import { THIN_MONTH_IDENTITIES } from "@/lib/data/identityIndex";
 import { ReceiptsTable } from "@/components/indices/ReceiptsTable";
 import { MethodLine } from "@/components/indices/MethodLine";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
@@ -130,9 +131,9 @@ export default async function IndexReceiptsPage({ params }: { params: Promise<{ 
               sub={receipts.identities.length ? "priced in both months" : held ? "the gate below says why" : "the sample was not recorded"}
             />
             <StatCard
-              label="Estimator"
-              value={receipts.thin ? "thin" : "standard"}
-              sub={receipts.estimator}
+              label="Sample"
+              value={receipts.held ? "—" : receipts.thin ? "thin" : "full"}
+              sub={`${receipts.estimator} · thin under ${THIN_MONTH_IDENTITIES} identities`}
             />
           </StatCardRow>
 
