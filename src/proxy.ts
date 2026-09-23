@@ -5,9 +5,14 @@ import {
   isValidCardId,
   isValidIdentityPath,
   isValidCharacterPath,
+  isValidReceiptPath,
 } from "@/lib/data/validKeys";
 import { isEmbedChartId } from "@/lib/chart/embeds";
 import { canonicalIdentitySlug, IDENTITY_PATH_PREFIX } from "@/lib/card/identity";
+
+/** `/embed/price/<slug>` — the chip's own prefix under the embed route. */
+const PRICE_CHIP_SEGMENT = "price";
+export const PRICE_CHIP_PREFIX = `/embed/${PRICE_CHIP_SEGMENT}`;
 
 /**
  * Why this file exists — fixing soft 404s.
@@ -47,10 +52,17 @@ function isInvalidDetailPath(pathname: string): boolean {
     case "platform":
       return !isValidPlatformKey(key);
     case "embed":
+      // `/embed/price/<slug>` is the price chip — an identity path, not a chart
+      // id, and it validates as one (five to seven well-formed segments).
+      if (key === PRICE_CHIP_SEGMENT) return !isValidIdentityPath(parts.slice(2).join("/"));
       return !isEmbedChartId(key);
     case "i":
       // The whole path: an identity is five to seven segments, not one key.
       return !isValidIdentityPath(pathname);
+    case "index":
+      // `/index/<entity>/<month>` — the receipts page. Shape and month only;
+      // whether that entity published that month needs the blob.
+      return !isValidReceiptPath(parts);
     default:
       return false;
   }
@@ -77,10 +89,18 @@ function isInvalidDetailPath(pathname: string): boolean {
  */
 function canonicalIdentityRedirect(request: NextRequest): NextResponse | null {
   const { pathname } = request.nextUrl;
-  if (!pathname.startsWith(`${IDENTITY_PATH_PREFIX}/`)) return null;
-  const canonical = canonicalIdentitySlug(pathname);
+  // Both surfaces that carry an identity slug in their path: the page, and the
+  // price chip a venue iframes. One rule, so a chip cannot sit on a URL the
+  // page has already left behind.
+  const prefix = pathname.startsWith(`${IDENTITY_PATH_PREFIX}/`)
+    ? IDENTITY_PATH_PREFIX
+    : pathname.startsWith(`${PRICE_CHIP_PREFIX}/`)
+      ? PRICE_CHIP_PREFIX
+      : null;
+  if (!prefix) return null;
+  const canonical = canonicalIdentitySlug(pathname.slice(prefix.length));
   if (!canonical) return null;
-  const target = `${IDENTITY_PATH_PREFIX}/${canonical}`;
+  const target = `${prefix}/${canonical}`;
   if (target === pathname) return null;
   const url = new URL(target, request.url);
   url.search = request.nextUrl.search;
@@ -97,5 +117,5 @@ export function proxy(request: NextRequest): NextResponse {
 export const config = {
   // Only the dynamic detail routes (and their sub-pages). Note `/ip/:path+`
   // does NOT match the list pages `/ips` or `/platforms`.
-  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+"],
+  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+", "/index/:path+"],
 };

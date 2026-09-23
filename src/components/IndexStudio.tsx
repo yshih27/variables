@@ -40,6 +40,9 @@ import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 import { resampleToPeriod, type Period } from "@/lib/chart/period";
 import { useWindowPref } from "@/lib/windowPref";
 import { chartFocusProps, useChartFocus } from "./shell/ChartFocus";
+import { ReceiptsLink } from "./indices/ReceiptsLink";
+import { MethodLine } from "./indices/MethodLine";
+import type { MethodLedger } from "@/lib/data/methodChanges";
 
 type Mode = "rebase" | "abs";
 
@@ -275,7 +278,16 @@ export type { StudioScope } from "@/lib/studio/catalog";
  * before the warmer ran — the component falls back to building itself from the
  * API exactly as it always did, just slowly.
  */
-export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?: StudioScope } = {}) {
+export function IndexStudio({
+  seed,
+  scope,
+  ledger,
+}: {
+  seed?: StudioSeed | null;
+  scope?: StudioScope;
+  /** The method ledger — the line under the foot. Omit and no line renders. */
+  ledger?: MethodLedger;
+} = {}) {
   // ⚠️ SEEDED STATE IS THE WHOLE FIX. These four used to start empty and the
   // component held "Loading market data…" behind ~30 same-origin requests. Now
   // the first render already has the default view's catalog and points, so
@@ -992,6 +1004,27 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
   const endpointDate = (lastMs: number): string | null =>
     model && model.e - lastMs > 1.5 * DAY ? fmtDate(lastMs) : null;
 
+  /**
+   * Which index month the foot's `receipts →` opens: the PRIMARY index series
+   * (the first line — the one the area fill and the endpoint label already
+   * belong to), at the hovered point when the crosshair is on one, else its
+   * latest published point.
+   *
+   * ⚠️ INDEX SERIES ONLY. A benchmark (`bench:BTC`) and a flow (volume) have no
+   * identity sample behind them — the studio id says which is which, and
+   * anything but `idx:` gets no link rather than a link to nothing.
+   */
+  const receiptsFor = useMemo(() => {
+    const primary = model?.lines.find((L) => L.id.startsWith("idx:"));
+    if (!primary) return null;
+    const entityId = primary.id.slice("idx:".length);
+    const finite = primary.pathPts.filter((p) => Number.isFinite(p.v));
+    if (!finite.length) return null;
+    const at = hoverTs != null ? snapped.get(primary.id) : null;
+    const ms = at?.ms ?? finite[finite.length - 1].ms;
+    return { entityId, ticker: primary.item.ticker, ts: new Date(ms).toISOString() };
+  }, [model, snapped, hoverTs]);
+
   // ── export ────────────────────────────────────────────────────────────────
   const shareUrl = () => {
     navigator.clipboard?.writeText(window.location.href).then(
@@ -1634,6 +1667,23 @@ export function IndexStudio({ seed, scope }: { seed?: StudioSeed | null; scope?:
           onChange={setWin}
         />
       )}
+
+      {/* ⚠️ THE RECEIPTS LINK LIVES IN THE FOOT, NOT THE TOOLTIP. The crosshair
+          readout is `pointer-events-none` by design (it must never eat a drag on
+          the plot), so a link inside it could not be clicked. This one follows
+          the crosshair instead: it names the hovered month of the primary index
+          series, and falls back to that series' latest published point. */}
+      {receiptsFor && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pb-1 pt-1 sm:px-5">
+          <ReceiptsLink entityId={receiptsFor.entityId} ts={receiptsFor.ts} label={`${receiptsFor.ticker} receipts`} />
+          {ledger ? <MethodLine ledger={ledger} /> : null}
+        </div>
+      )}
+      {!receiptsFor && ledger ? (
+        <div className="px-4 pb-1 pt-1 sm:px-5">
+          <MethodLine ledger={ledger} />
+        </div>
+      ) : null}
 
       {/* Legend note */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 pb-4 pt-1 text-[11.5px] text-ink-3 sm:px-5">

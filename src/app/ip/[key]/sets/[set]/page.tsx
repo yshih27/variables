@@ -6,6 +6,7 @@ import { SetTopSales } from "@/components/sets/SetTopSales";
 import { SetCardsTable } from "@/components/sets/SetCardsTable";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { getIPDetail } from "@/lib/data/fetchIP";
 import { getGradeSetPanel, setSales, WINDOW_DAYS } from "@/lib/data/gradeSetPanel";
 import { setIndicesFor } from "@/lib/data/gradeSetIndex";
@@ -20,11 +21,12 @@ export default async function IPSetDetailPage({
   params: Promise<{ key: string; set: string }>;
 }) {
   const { key, set } = await params;
-  const [detail, ticker, panel, indices] = await Promise.all([
+  const [detail, ticker, panel, indices, ledger] = await Promise.all([
     getIPDetail(key),
     buildMarketTicker(),
     getGradeSetPanel(),
     setIndicesFor(key),
+    readMethodChanges(),
   ]);
   if (!detail) notFound();
 
@@ -100,6 +102,7 @@ export default async function IPSetDetailPage({
             readMe="the same cards, priced month after month"
             subtitle="Identity comparables, monthly · month-end stamps"
             emptyNote="This set has volume but no index: an index needs the same card priced in consecutive months, and not enough of these cards resell."
+            ledger={ledger}
           />
 
           {/* ── The side pair (different questions, §7) ─────────────────────

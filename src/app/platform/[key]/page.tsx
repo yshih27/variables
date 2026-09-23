@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { MCAP_BASIS, MCAP_BASIS_LABEL } from "@/lib/data/marketcap";
 import { NavBar } from "@/components/NavBar";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
@@ -53,7 +54,7 @@ export default async function PlatformDetailPage({
   const { key } = await params;
   // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
   // round-trips per request (R2-B1).
-  const [detail, series, playersSnap, studioSeed] = await Promise.all([
+  const [detail, series, playersSnap, studioSeed, ledger] = await Promise.all([
     getPlatformDetail(key),
     getPlatformActivitySeries(key),
     // Snapshot read; degrades to null (readSnapshot never throws), so a missing
@@ -62,6 +63,7 @@ export default async function PlatformDetailPage({
     // The studio's precomputed default view for THIS platform — embedded so the
     // chart paints with no client fetch. Null degrades to the old API path.
     readStudioSeed({ entity: "platform", key }),
+    readMethodChanges(),
   ]);
   if (!detail) notFound();
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
@@ -357,7 +359,7 @@ export default async function PlatformDetailPage({
               shares a top AND a bottom edge, so the rail is sized by the studio
               beside it and its three cards divide that height between them. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <IndexStudio seed={studioSeed} scope={{ entity: "platform", key }} />
+            <IndexStudio seed={studioSeed} scope={{ entity: "platform", key }}  ledger={ledger}/>
             {/* grid-rows-3 of 1fr from lg up: the rail fills the studio's height
                 and each card gets an equal share, rather than three natural-height
                 cards stacking to whatever they happen to total. */}

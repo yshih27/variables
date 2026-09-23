@@ -8,6 +8,7 @@ import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { parseCardId } from "@/lib/card/ids";
 import { parseIdentitySlug } from "@/lib/card/identity";
 import { hasCharacterExtractor } from "@/lib/card/character";
+import { entityIdFromPath, isReceiptMonth } from "@/lib/indices/receiptRoute";
 
 const IP_KEYS = new Set<string>([...IP_CATALOG.map((i) => i.key), OTHER_IP.key]);
 const PLATFORM_KEYS = new Set<string>(PLATFORM_SOURCES.map((s) => s.key));
@@ -54,4 +55,23 @@ export function isValidCharacterPath(parts: string[]): boolean {
   // The character, alone — or followed by Next's own metadata image route
   // (`…/charizard/opengraph-image`), which lives one segment deeper.
   return rest.length === 1 || (rest.length === 2 && /^(opengraph|twitter)-image(-[a-z0-9]+)?$/.test(rest[1]));
+}
+
+/**
+ * `/index/<entity>/<month>` — the receipts page's shape, checked without a read.
+ *
+ * The month must be a real `YYYY-MM`, the entity segments must map to a blob
+ * entity id, and an IP form must name an IP the catalog knows. A well-formed
+ * entity the blob happens not to publish still 404s through the page's own
+ * `notFound()` — that one needs the snapshot, which the proxy cannot have.
+ */
+export function isValidReceiptPath(parts: string[]): boolean {
+  const [, ...rest] = parts; // ["index", ...]
+  if (rest.length < 2) return false;
+  const month = rest[rest.length - 1];
+  if (!isReceiptMonth(month)) return false;
+  const entityId = entityIdFromPath(rest.slice(0, -1));
+  if (!entityId) return false;
+  const [entity, key] = [entityId.slice(0, entityId.indexOf(":")), entityId.slice(entityId.indexOf(":") + 1)];
+  return entity === "ip" ? isValidIpKey(key) : true;
 }

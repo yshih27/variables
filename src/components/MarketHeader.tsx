@@ -1,6 +1,9 @@
 import Link from "next/link";
 import type { HeroStats, IPRow } from "@/lib/types";
 import { SectionShell, ReadMe } from "./Section";
+import { ReceiptsLink } from "./indices/ReceiptsLink";
+import { MethodLine } from "./indices/MethodLine";
+import type { MethodLedger } from "@/lib/data/methodChanges";
 import { IPIcon } from "./IPIcon";
 import { Sparkline } from "./Sparkline";
 import { MarketIndexChart } from "./MarketIndexChart";
@@ -67,6 +70,7 @@ export function MarketHeader({
   gacha,
   topIP,
   mcapAsOfLabel,
+  ledger,
 }: {
   hero: HeroStats;
   index: MarketIndex;
@@ -76,6 +80,8 @@ export function MarketHeader({
   /** "as of <Mon DD>" when the market-cap source is stale (>36h); null when live.
    *  Rendered muted beside the hero value so a stale headline can't read as live. */
   mcapAsOfLabel?: string | null;
+  /** The method ledger — the line under the index's receipt. Omit, no line. */
+  ledger?: MethodLedger;
 }) {
   const sinceInception = index.value != null ? index.value - 100 : null;
   // QA-7 — only ever show change / benchmark rows that have a real value; a lone
@@ -176,7 +182,7 @@ export function MarketHeader({
             {/* THE RECEIPT — one mono line, every clause from the blob, none typed.
                 The ⓘ opens the methodology anchor that explains the skew. */}
             {(index.receipt || latestMonthEnd) && (
-              <div className="mt-1 flex items-center gap-1 font-mono text-[10.5px] leading-snug text-ink-4">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] leading-snug text-ink-4">
                 <span>{index.receipt ?? `monthly · latest month ended ${latestMonthEnd}`}</span>
                 <a
                   href="/methodology#index-bias"
@@ -185,8 +191,12 @@ export function MarketHeader({
                 >
                   i
                 </a>
+                {/* The market index's own latest published month — one click
+                    from the headline level to the cards that moved it. */}
+                <ReceiptsLink entityId="market:total" ts={index.series?.at(-1)?.ts ?? null} />
               </div>
             )}
+            {ledger ? <MethodLine ledger={ledger} className="mt-1" /> : null}
           </div>
         )}
 

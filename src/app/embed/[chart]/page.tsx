@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { readMethodChanges } from "@/lib/data/methodChanges";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
 import { CompositionChart } from "@/components/CompositionChart";
 import { MetricBarCard } from "@/components/MetricBarCard";
@@ -49,11 +50,11 @@ export default async function EmbedPage({ params }: { params: Promise<{ chart: s
   if (chart === "studio") {
     // The studio reads its series from its seed and the chart bundle; the stats
     // board is not needed for it. Its state (series, window, grain) rides the hash.
-    const seed = await readStudioSeed();
+    const [seed, ledger] = await Promise.all([readStudioSeed(), readMethodChanges()]);
     return (
       <div className="flex min-h-screen flex-col bg-bg px-3 py-3 font-sans">
         <div className="min-h-0 flex-1">
-          <IndexStudio seed={seed} />
+          <IndexStudio seed={seed}  ledger={ledger}/>
         </div>
         <a
           href="https://varible.rarible.com/ips"
