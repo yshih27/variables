@@ -24,6 +24,7 @@ import type { CardIdentityParts } from "@/lib/data/traits";
 import { normalizeSetName } from "./setName";
 import { normalizeCardNumber } from "./cardNumber";
 import { canonicalIdentityParts } from "./identityParts";
+import { startsWithGradeLabel } from "./grade";
 
 export const IDENTITY_PATH_PREFIX = "/i";
 /** The literal segment for an absent set or number. */
@@ -98,6 +99,14 @@ function numberSlug(number: string): string {
  * canonical set key folds their set strings together.)
  */
 export function identitySlug(ip: string, p: CardIdentityParts): string | null {
+  // A name never begins with a grade label — the same refusal as
+  // `identityKey`, so a card cannot have a URL without a key or a key without a URL.
+  if (startsWithGradeLabel(p.cardName)) return null;
+  return slugOfParts(ip, p);
+}
+
+/** The v4.2 slug from parts, without the name guard. Private but for the one export below. */
+function slugOfParts(ip: string, p: CardIdentityParts): string | null {
   if (!p.cardName) return null;
   const c = canonicalIdentityParts(p);
   if (!c.setKey && !c.number) return null;
@@ -111,6 +120,25 @@ export function identitySlug(ip: string, p: CardIdentityParts): string | null {
   if (p.edition) segs.push(EDITION_SLUG[p.edition.toLowerCase()] ?? slugify(p.edition));
   if (c.language) segs.push(LANGUAGE_CODE[c.language.toLowerCase()] ?? slugify(c.language));
   return segs.join("/");
+}
+
+/**
+ * The URL an identity answered at under a SUPERSEDED name — the v4.2 slug built
+ * without the grade-name guard.
+ *
+ * ⚠️ FROZEN, AND READ ONLY BY THE SLUG INDEX (and the name-fix probe, which
+ * must find the URL of a pre-fix identity to count it). Until 2026-09-23 the name
+ * fallback cut titles at the wrong segment and 587 identities were named after
+ * their grade, so their pages lived at "…/eb01-061/psa-10/psa-10".
+ * The fix gives them their real names and therefore new URLs; nothing in the
+ * old path says what the name should have been, so the proxy cannot 301 it.
+ * The builder registers this slug as an ALIAS of the identity's new key (the
+ * `legacyIdentitySlug` mechanism) and the old link keeps answering, with the
+ * API reporting `canonical: false`. Nothing else may build a URL from a
+ * grade-label name.
+ */
+export function supersededIdentitySlug(ip: string, p: CardIdentityParts): string | null {
+  return slugOfParts(ip, p);
 }
 
 /**

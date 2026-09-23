@@ -44,7 +44,7 @@ import { readSnapshot, writeSnapshot } from "@/lib/db/snapshots";
 import { normalizeSetName } from "@/lib/card/setName";
 import { identityDisplayName } from "@/lib/card/identity";
 import { characterOf, characterHref, hasCharacterExtractor, CHARACTER_IPS, type CharacterMatch } from "@/lib/card/character";
-import { IDENTITY_LISTING_SOURCE, pickCanonicalKey, type IdentityIndex, type ListingIndex } from "./identityDetail";
+import { IDENTITY_LISTING_SOURCE, canonicalKeysOf, pickCanonicalKey, type IdentityIndex, type ListingIndex } from "./identityDetail";
 import { monthStartUtc, monthEndUtc } from "@/lib/chart/period";
 import { formatCompactUsd } from "@/lib/format";
 
@@ -256,13 +256,16 @@ export function buildCharacterRollups(
   const statsOf = (k: string): KeyStats => byKey.get(k) ?? { sales: 0, sales30d: 0, volume30d: 0, last: null, rows: [] };
   const slabsOf = (k: string) => idx.slabsByKey.get(k)?.length ?? 0;
 
-  // Group every slug the index knows by character. A slug with several
+  // Group every identity the index knows by character. A slug with several
   // fragment keys is ONE identity (the identity page's rule); all its keys
-  // ride along so sales, slabs and the index see every row.
+  // ride along so sales, slabs and the index see every row. An ALIAS slug (an
+  // old URL kept answering) is skipped: its identity is counted at its own URL.
   const members = new Map<string, Member[]>();
   const coverage: Record<string, CharacterCoverage & { unmapped: Map<string, { identities: number; sales30d: number }> }> = {};
   for (const ip of CHARACTER_IPS) coverage[ip] = { identities: 0, mapped: 0, multiCharacter: 0, unmappedTop: [], unmapped: new Map() };
-  for (const [slug, keys] of idx.bySlug) {
+  for (const [slug, allKeysOfSlug] of idx.bySlug) {
+    const keys = canonicalKeysOf(slug, allKeysOfSlug);
+    if (!keys.length) continue;
     const pk = parseIdentityKey(keys[0]);
     if (!pk || !hasCharacterExtractor(pk.ip)) continue;
     const cov = coverage[pk.ip];

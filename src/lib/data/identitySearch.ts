@@ -9,7 +9,7 @@
  * hit and the page it opens agree on what the identity is. Ranked by 30d sales,
  * then slab count. Cached 30 minutes with the panel.
  */
-import { listIdentityIndex, cachedPanel } from "./identityDetail";
+import { listIdentityIndex, cachedPanel, canonicalKeysOf } from "./identityDetail";
 import { parseIdentityKey } from "./traits";
 import { normalizeSetName } from "@/lib/card/setName";
 import { identityHref, identityDisplayName } from "@/lib/card/identity";
@@ -46,7 +46,12 @@ export async function buildIdentitySearchRows(): Promise<IdentitySearchRow[]> {
   }
 
   const rows: IdentitySearchRow[] = [];
-  for (const [slug, keys] of idx.bySlug) {
+  for (const [slug, allKeysOfSlug] of idx.bySlug) {
+    // An alias slug (an old URL kept answering) is the same card as its own
+    // URL's row — offering both would list the card twice, once at a URL it
+    // no longer lives at.
+    const keys = canonicalKeysOf(slug, allKeysOfSlug);
+    if (!keys.length) continue;
     // The same card can be keyed twice (set-string fragments); sum across keys
     // for the search row so the card's true activity ranks it.
     const s30 = keys.reduce((a, k) => a + (sales30.get(k) ?? 0), 0);

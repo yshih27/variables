@@ -5,6 +5,8 @@
  */
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 import { canonicalIdentityParts } from "@/lib/card/identityParts";
+import { cardNameFromTokenName, legacyCardNameFromTokenName } from "@/lib/card/nameFromTokenName";
+import { startsWithGradeLabel } from "@/lib/card/grade";
 
 export type NormalizedTraits = {
   cardNumber: string | null;
@@ -99,7 +101,12 @@ export function normalizeTraits(meta: TokenMetadata): NormalizedTraits {
  *
  *  • Beezie   `name` is the full display string, e.g.
  *             "2023 Japanese Scarlet ex Klawf #88 CGC 10", and `card_name`,
- *             `set_name`, `grade_label` are already populated columns.
+ *             `set_name`, `grade_label` are already populated columns — EXCEPT
+ *             on its One Piece, sports and other non-Pokémon tokens, whose
+ *             metadata carries no name attribute at all (measured 2026-09-23:
+ *             every grade-named Beezie identity): `card_name` is null there
+ *             and the name exists only in the title, in the shape
+ *             `<year> <set> <name> #<number> <grade>`.
  *  • CC       `name` is TRUNCATED TO 32 CHARS, e.g. "2010 #96 Magnezone-Holo PSA 8 He"
  *             (the set name is cut off mid-word). Year and number lead the string so
  *             they survive the truncation; the tail never can be trusted. `card_name`
@@ -107,7 +114,8 @@ export function normalizeTraits(meta: TokenMetadata): NormalizedTraits {
  *  • Courtyard / DYLI  have NO rows in `cards` at all, so they yield no identity.
  *
  * Hence: year and number are parsed from `name`, while set / cardName / grade are
- * taken from their columns when present and only fall back to the name pattern.
+ * taken from their columns when present and only fall back to the name pattern
+ * — for the card name, `cardNameFromTokenName`, which reads both title shapes.
  */
 export type CardIdentityParts = {
   year: number | null;
@@ -153,15 +161,10 @@ export function extractCardIdentity(row: {
   const language = LANGUAGES.find((l) => name.includes(l)) ?? null;
   const edition = EDITIONS.find((e) => name.includes(e)) ?? null;
 
-  // cardName: the column is cleaner than the truncated CC name, so prefer it.
-  let cardName = row.cardName?.trim() || null;
-  if (!cardName && numFromName) {
-    // "2010 #96 Magnezone-Holo PSA 8 He" → everything between the number and the
-    // grade. CC truncation can eat the tail, so this is a fallback, not the rule.
-    const after = name.slice(name.indexOf(numFromName[0]) + numFromName[0].length);
-    const cut = after.match(/^\s*(.+?)(\s+(?:PSA|BGS|CGC|SGC|AGS|Beckett|TAG)\b.*)?$/);
-    cardName = cut?.[1]?.trim() || null;
-  }
+  // cardName: the column is cleaner than the title (CC's is truncated), so it
+  // wins whenever it is present. Otherwise the title, read shape-aware: CC's
+  // name sits AFTER the #number, Beezie's BEFORE it, and a grade is never a name.
+  const cardName = row.cardName?.trim() || cardNameFromTokenName({ name, set: row.set, number: row.cardNumber });
 
   return {
     year,
@@ -172,6 +175,22 @@ export function extractCardIdentity(row: {
     edition,
     language,
   };
+}
+
+/**
+ * The name the PRE-2026-09-23 fallback gave this row, when it differs from the
+ * name `extractCardIdentity` gives it now; null otherwise (the column named the
+ * card, or the two readings agree).
+ *
+ * ⚠️ READ ONLY BY THE SLUG INDEX. A row whose name
+ * changed answered at a different URL until the fix deployed —
+ * "…/eb01-061/psa-10/psa-10" — and the index registers that URL as an alias of
+ * the row's new identity, the way it keeps v4.1 URLs alive. It never names a card.
+ */
+export function supersededCardName(row: { name?: string | null; cardName?: string | null }, parts: CardIdentityParts): string | null {
+  if (row.cardName?.trim()) return null;
+  const was = legacyCardNameFromTokenName(row.name);
+  return was && was !== parts.cardName ? was : null;
 }
 
 /**
@@ -191,7 +210,12 @@ export function extractCardIdentity(row: {
  * level-by-level before/after this moved.
  */
 export function identityKey(ip: string, p: CardIdentityParts): string | null {
-  if (!p.cardName) return null;
+  // ⚠️ A GRADE IS NEVER A NAME. A card name that is — or begins with — a grade
+  // label ("PSA 10", "PSA 10 POKEMO") is a title cut at the wrong segment (587
+  // identities until 2026-09-23), not a card: refused here, at the one key, so
+  // no feed can reintroduce it on any surface. The row is unpooled, exactly as
+  // a nameless row is. `identitySlug` refuses it too.
+  if (!p.cardName || startsWithGradeLabel(p.cardName)) return null;
   const c = canonicalIdentityParts(p);
   if (!c.setKey && !c.number) return null;
   return [
