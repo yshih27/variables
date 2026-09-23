@@ -81,7 +81,10 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
  */
 export function badgeUsd(v: number): string {
   if (!Number.isFinite(v) || v <= 0) return "$0";
-  return v < 100 ? `$${v.toFixed(2)}` : formatCompactUsd(v);
+  // The site's one compact rule (cents only under a dollar): the badge sits
+  // beside the chip and the identity page, which print "$43" — a "$43.00"
+  // beside them read as a different number (measured on the sheet, Sep 23).
+  return formatCompactUsd(v);
 }
 
 /** "Aug" from a "2026-08" month. */

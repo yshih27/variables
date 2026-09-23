@@ -334,6 +334,10 @@ async function writeShadowRekey(ctx: {
   const beforeBlob = { generatedAt: ctx.now, cadence: "monthly" as const, method: PREVIOUS_METHOD, series: before.series, holds: before.holds };
   writeFileSync(join(ctx.dir, `price-index.${PREVIOUS_METHOD}.json`), JSON.stringify(beforeBlob));
 
+  const movedMonths = diffs
+    .flatMap((d) => d.months)
+    .filter((m) => m.levelBefore != null && m.levelAfter != null && Math.abs(m.levelAfter - m.levelBefore) >= 0.05);
+  const maxMove = Math.max(0, ...movedMonths.map((m) => Math.abs((m.levelAfter as number) - (m.levelBefore as number))));
   const changes: MethodChange[] = [
     {
       version: METHOD,
@@ -343,7 +347,11 @@ async function writeShadowRekey(ctx: {
         `${rules.merged.both.toLocaleString()} of ${rules.keys.before.toLocaleString()} traded identities were the same card keyed more than once and are now one ` +
         `(${rules.merged.number.toLocaleString()} by the number rule alone, ${rules.merged.set.toLocaleString()} by the set rule alone); ` +
         `${fragBefore.fragmentKeys.toLocaleString()} fragmented identity pages fall to ${fragAfter.fragmentKeys.toLocaleString()}. ` +
-        `A card with more of its own sales clears the two-sale floor more often, so months that were withheld now publish.`,
+        // The outcome sentence is measured, never asserted: on this panel the
+        // re-key moved levels by fractions of a point and unlocked no month.
+        (onlyAfter.length || onlyBefore.length
+          ? `${onlyAfter.length} month${onlyAfter.length === 1 ? "" : "s"} that were withheld now publish and ${onlyBefore.length} that published are now withheld.`
+          : `No month gained or lost publication; ${movedMonths.length} published level${movedMonths.length === 1 ? "" : "s"} moved, by at most ${maxMove.toFixed(1)} points.`),
       entities: diffs.flatMap((d) =>
         d.months.map((m) => ({ id: d.id, month: m.month, levelBefore: m.levelBefore, levelAfter: m.levelAfter, identitiesBefore: m.identitiesBefore, identitiesAfter: m.identitiesAfter })),
       ),
