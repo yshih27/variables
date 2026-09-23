@@ -11,7 +11,7 @@ import { db } from "../db/client";
 import type { TokenMetadata } from "../onchain/tokenUri";
 import { normalizeTraits, gradeLabel } from "./traits";
 import { classifyIP } from "./ipCatalog";
-import { extractCardIdentity, type CardIdentityParts } from "./traits";
+import { extractCardIdentity, supersededCardName, type CardIdentityParts } from "./traits";
 import { normalizeSetName } from "../card/setName";
 
 export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard";
@@ -210,6 +210,10 @@ export type CardDims = {
   /** Identity parts for the v3 price index — see traits.ts `extractCardIdentity`.
    *  Null on platforms with no `cards` rows (Courtyard, DYLI). */
   identity: CardIdentityParts | null;
+  /** The name the pre-2026-09-23 title fallback gave this row, when the fixed
+   *  one reads it differently (traits.ts `supersededCardName`); absent
+   *  otherwise. Read ONLY by the slug index, to keep the old URL answering. */
+  supersededName?: string | null;
 };
 
 // ── Full-table cards streaming (the shared path warm-marketcap / warm-metric-
@@ -287,6 +291,16 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
       const p = r.platform as string;
       let m = map.get(p);
       if (!m) map.set(p, (m = new Map<string, CardDims>()));
+      const tokenRow = {
+        name: r.name as string | null,
+        cardName: r.card_name as string | null,
+        set: r.set_name as string | null,
+        grade: r.grade_label as string | null,
+        year: r.year as number | null,
+        cardNumber: r.card_number as string | null,
+      };
+      const identity = extractCardIdentity(tokenRow);
+      const supersededName = supersededCardName(tokenRow, identity);
       m.set(r.token_id as string, {
         ip: (r.ip_key as string) ?? "other",
         set: (r.set_name as string | null) ?? null,
@@ -301,14 +315,8 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
          */
         setKey: normalizeSetName(r.set_name as string | null).key,
         grade: (r.grade_label as string) ?? "Ungraded",
-        identity: extractCardIdentity({
-          name: r.name as string | null,
-          cardName: r.card_name as string | null,
-          set: r.set_name as string | null,
-          grade: r.grade_label as string | null,
-          year: r.year as number | null,
-          cardNumber: r.card_number as string | null,
-        }),
+        identity,
+        ...(supersededName ? { supersededName } : {}),
       });
     }
     if (rows.length < PAGE) break;

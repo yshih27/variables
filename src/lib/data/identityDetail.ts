@@ -41,7 +41,8 @@ import { unstable_cache } from "next/cache";
 import { buildSalePanel, readSalePanel, type SaleRow } from "./salePanel";
 import { readAllCardDims, readCards, type CardPlatform } from "./cards";
 import { identityKey, legacyIdentityKey, parseIdentityKey, normalizeTraits, type CardIdentityParts } from "./traits";
-import { identitySlug, legacyIdentitySlug, canonicalIdentitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
+import { cardNameFromTokenName } from "@/lib/card/nameFromTokenName";
+import { identitySlug, legacyIdentitySlug, supersededIdentitySlug, canonicalIdentitySlug, parseIdentitySlug, gradeSlug } from "@/lib/card/identity";
 import { characterOf, characterHref } from "@/lib/card/character";
 import { setDisplayName } from "@/lib/card/setName";
 import { cardHref, parseCardId, PLATFORM_META } from "@/lib/card/ids";
@@ -220,6 +221,9 @@ type SlugIndex = {
   slabsByKey: Map<string, { platform: CardPlatform; tokenId: string }[]>;
   /** base identity (everything but the grade) → every key sharing it, for the grade ladder. */
   siblingsOf: Map<string, string[]>;
+  /** The alias slugs a BUILD registered, by why they exist — for the warmer's
+   *  log and the re-key report. Not persisted: a reader has no use for it. */
+  aliases?: { v41: Set<string>; nameFix: Set<string> };
 };
 
 /** The key with its grade field blanked — the grade ladder's join. */
@@ -295,11 +299,41 @@ export async function buildIdentityIndex(panel: SaleRow[], opts: { keying?: "v4.
    * same keys, but ONLY when the proxy could not have handled it, so the index
    * does not grow a second entry for every identity whose number normalised.
    */
+  const aliases = { v41: new Set<string>(), nameFix: new Set<string>() };
   const alias = (ip: string, parts: CardIdentityParts, slug: string | null, key: string) => {
     if (!slug) return;
     const old = legacyIdentitySlug(ip, parts);
     if (!old || old === slug || canonicalIdentitySlug(old) === slug) return;
     add(old, key);
+    aliases.v41.add(old);
+  };
+  /**
+   * ⚠️ URLs THE NAME FIX MOVED (2026-09-23). Until then the title fallback cut
+   * titles at the wrong segment (Beezie's `<year> <set> <name> #<number>
+   * <grade>`, read as Collector Crypt's) and named 587 identities after their
+   * grade, so their pages lived at
+   * "…/eb01-061/psa-10/psa-10". The row now carries its real name and a new URL;
+   * the old one says nothing about the name it should have had, so the proxy
+   * cannot 301 it. Same remedy as the v4.1 URLs: the URL the SUPERSEDED name
+   * produced — and its v4.1 form, under `alias`'s own rule — is registered as an
+   * alias of the new key. For these rows the v4.1 alias is built from the old
+   * name, the one it was actually published under; built from the new name it
+   * would name a URL that never existed.
+   */
+  const nameAlias = (ip: string, parts: CardIdentityParts, formerName: string, slug: string | null, key: string) => {
+    if (!slug) return;
+    const was: CardIdentityParts = { ...parts, cardName: formerName };
+    const old = supersededIdentitySlug(ip, was);
+    if (old && old !== slug) {
+      add(old, key);
+      aliases.nameFix.add(old);
+    }
+    const old41 = legacyIdentitySlug(ip, was);
+    if (!old41 || old41 === slug || old41 === old) return;
+    const canon = canonicalIdentitySlug(old41);
+    if (canon === slug || canon === old) return; // the proxy 301s it onto a URL that answers
+    add(old41, key);
+    aliases.v41.add(old41);
   };
   for (const r of panel) {
     if (!r.identity) continue;
@@ -314,13 +348,41 @@ export async function buildIdentityIndex(panel: SaleRow[], opts: { keying?: "v4.
       if (!key) continue;
       const slug = slugOf(d.ip, d.identity);
       add(slug, key);
-      if (!legacy) alias(d.ip, d.identity, slug, key);
+      if (!legacy) {
+        if (d.supersededName) nameAlias(d.ip, d.identity, d.supersededName, slug, key);
+        else alias(d.ip, d.identity, slug, key);
+      }
       const sl = slabsByKey.get(key);
       if (sl) sl.push({ platform: platform as CardPlatform, tokenId });
       else slabsByKey.set(key, [{ platform: platform as CardPlatform, tokenId }]);
     }
   }
-  return { bySlug, slabsByKey, siblingsOf: siblingsFrom(seenKey) };
+  return { bySlug, slabsByKey, siblingsOf: siblingsFrom(seenKey), ...(legacy ? {} : { aliases }) };
+}
+
+/**
+ * The keys a slug is the CANONICAL URL of — empty for a pure alias.
+ *
+ * ⚠️ AN ALIAS IS NOT A SECOND IDENTITY. The index keeps old URLs answering by
+ * pointing them at current keys (v4.1 URLs; URLs a superseded name produced),
+ * so iterating `bySlug` visits those identities twice. Anything that COUNTS
+ * or LISTS identities — the character rollups, the palette's Cards group —
+ * goes through this and skips a slug with no canonical keys. Per key, not per
+ * slug, so a slug that is one identity's URL and another's alias keeps only
+ * the identity it belongs to.
+ */
+export function canonicalKeysOf(slug: string, keys: string[]): string[] {
+  return keys.filter((k) => slugOfKeyMemo(k) === slug);
+}
+const slugOfKeyCache = new Map<string, string | null>();
+function slugOfKeyMemo(key: string): string | null {
+  const hit = slugOfKeyCache.get(key);
+  if (hit !== undefined) return hit;
+  if (slugOfKeyCache.size > 250_000) slugOfKeyCache.clear();
+  const pk = parseIdentityKey(key);
+  const slug = pk ? identitySlug(pk.ip, pk.parts) : null;
+  slugOfKeyCache.set(key, slug);
+  return slug;
 }
 
 /** `siblingsOf` from a key set — the grade ladder's join, rebuilt on read. */
@@ -702,12 +764,17 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
   //    longer there. A junk-set identity carries its own bucket's slug here.
   const setKey = pk.parts.set;
   // The venue's own spelling of the name, from the first token that carries one.
+  // A venue with no name trait at all (Beezie's One Piece and sports tokens)
+  // still spells it in the token's TITLE — read with the same fallback the
+  // identity extractor uses, so the page says "Mr. 2 Bon Clay", not the key's
+  // upper-cased "MR. 2 BON CLAY".
   let displayName: string | null = null;
   for (const [platform, ids] of byPlatform) {
     if (displayName) break;
     const meta = await readCards(platform, ids.slice(0, 3)).catch(() => new Map());
     for (const m of meta.values()) {
-      const n = normalizeTraits(m as Parameters<typeof normalizeTraits>[0])?.cardName?.trim();
+      const t = normalizeTraits(m as Parameters<typeof normalizeTraits>[0]);
+      const n = t?.cardName?.trim() || cardNameFromTokenName({ name: t?.fullName, set: t?.set, number: t?.cardNumber });
       if (n) { displayName = n; break; }
     }
   }

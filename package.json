@@ -46,7 +46,8 @@
     "gen-pokemon-species": "tsx scripts/dev/gen-pokemon-species.ts",
     "probe-character-rollups": "tsx scripts/dev/probe-character-rollups.ts",
     "test:identity": "tsx --test src/lib/card/identity.test.ts",
-    "test:price": "tsx --test src/lib/api/badge.test.ts"
+    "test:price": "tsx --test src/lib/api/badge.test.ts",
+    "test:names": "tsx --test src/lib/data/traits.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

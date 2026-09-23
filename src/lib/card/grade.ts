@@ -55,12 +55,16 @@ export type ParsedGrade = {
  *  so "BECKETT 9.5" and "BGS 9.5" can't render as two different chips. */
 const GRADER_ALIAS: Record<string, string> = { BECKETT: "BGS" };
 
+/** A grade label found in a string, with where it sits: `[start, end)`. */
+export type LocatedGrade = ParsedGrade & { start: number; end: number };
+
 /**
- * Pull a grade out of a card name. Returns null for anything ungraded (sealed
- * boxes, bare names like "Snom") — the caller then omits the chip rather than
- * inventing one.
+ * The first grade label in a string AND its span — the one match `parseGrade`
+ * makes, with the offsets a caller needs to cut a name at it. `parseGrade` is
+ * this minus the span, so there is still exactly one regex deciding what a
+ * grade label is.
  */
-export function parseGrade(name: string | null | undefined): ParsedGrade | null {
+export function locateGrade(name: string | null | undefined): LocatedGrade | null {
   if (!name) return null;
   const m = GRADE_RE.exec(name);
   if (!m) return null;
@@ -70,7 +74,40 @@ export function parseGrade(name: string | null | undefined): ParsedGrade | null 
   if (!Number.isFinite(grade) || grade < 1 || grade > 10) return null;
   const raw = m[1].toUpperCase();
   const grader = GRADER_ALIAS[raw] ?? raw;
-  return { grader, grade, label: `${grader} ${grade}` };
+  return { grader, grade, label: `${grader} ${grade}`, start: m.index, end: m.index + m[0].length };
+}
+
+/**
+ * Pull a grade out of a card name. Returns null for anything ungraded (sealed
+ * boxes, bare names like "Snom") — the caller then omits the chip rather than
+ * inventing one.
+ */
+export function parseGrade(name: string | null | undefined): ParsedGrade | null {
+  const g = locateGrade(name);
+  return g ? { grader: g.grader, grade: g.grade, label: g.label } : null;
+}
+
+/**
+ * True when a string BEGINS with a grade label — "PSA 10", "BGS 10 BLACK
+ * LABEL", "PSA 8 AUTO 9", "PSA 10 POKEMO" — i.e. `parseGrade`'s own match sits
+ * at its start, with nothing but separators before it.
+ *
+ * ⚠️ THIS IS THE "A NAME IS NEVER A GRADE" TEST. No card's name starts with its
+ * grade; a "name" that does is a title cut at the wrong segment — Beezie's
+ * `<year> <set> <name> #<number> <grade>` read as Collector Crypt's `<year>
+ * #<number> <name> <grade>` ("PSA 10"), or a Collector Crypt title with the
+ * name before the number and a truncated tail after the grade ("PSA 10
+ * POKEMO"). Measured on the identity index, 2026-09-23: 578 identities named
+ * exactly a grade label (qualifiers and autograph grades included) and 9 more
+ * named a grade plus a truncated tail — and not one real name that begins with
+ * a grade label. `identityKey` and `identitySlug` refuse such a name, and the
+ * title fallback never returns one. "Pikachu PSA 10" does not begin with a
+ * grade; "PSA" alone is not a grade label (`parseGrade` needs the number).
+ */
+export function startsWithGradeLabel(s: string | null | undefined): boolean {
+  if (!s) return false;
+  const g = locateGrade(s);
+  return !!g && /^[\s:_·.,-]*$/.test(s.slice(0, g.start));
 }
 
 /**

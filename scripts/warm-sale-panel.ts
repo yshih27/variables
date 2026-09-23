@@ -277,7 +277,10 @@ async function writeShadowRekey(ctx: {
   // How many v4.1 URLs the index keeps alive that the proxy's 301 cannot derive
   // (a set the normaliser judged junk slugged as `-` and now slugs as its own
   // bucket). Reported, because it is the size of the compatibility surface.
-  const aliasSlugs = ctx.identityIdx.bySlug.size - new Set([...keysOf(ctx.identityIdx)].map(slugOfKey).filter(Boolean)).size;
+  // The name-fix aliases (URLs a grade-label name produced) are the same kind of
+  // surface but not this re-key's, so they are counted apart.
+  const nameFixAliases = ctx.identityIdx.aliases?.nameFix.size ?? 0;
+  const aliasSlugs = ctx.identityIdx.bySlug.size - new Set([...keysOf(ctx.identityIdx)].map(slugOfKey).filter(Boolean)).size - nameFixAliases;
 
   const charsBefore = buildCharacterRollups(legacyPanel, legacyIdx, { nowMs: Date.parse(ctx.now) });
 
@@ -368,7 +371,8 @@ async function writeShadowRekey(ctx: {
     ``,
     `Fragments (several keys, one canonical URL): ${fragBefore.fragmentKeys.toLocaleString()} extra keys over ${fragBefore.fragmentedSlugs.toLocaleString()} slugs → ` +
       `${fragAfter.fragmentKeys.toLocaleString()} over ${fragAfter.fragmentedSlugs.toLocaleString()}. ` +
-      `Slug index: ${legacyIdx.bySlug.size.toLocaleString()} → ${ctx.identityIdx.bySlug.size.toLocaleString()} entries, of which ${aliasSlugs.toLocaleString()} are v4.1 URLs kept alive as aliases.`,
+      `Slug index: ${legacyIdx.bySlug.size.toLocaleString()} → ${ctx.identityIdx.bySlug.size.toLocaleString()} entries, of which ${aliasSlugs.toLocaleString()} are v4.1 URLs kept alive as aliases` +
+        (nameFixAliases ? ` and ${nameFixAliases.toLocaleString()} are URLs a grade-label name produced before the name fix.` : "."),
     ``,
     `Published index entities: ${ids.filter((id) => before.series[id]).length} → ${ids.filter((id) => ctx.after[id]).length} ` +
       `(premium ratios are counted separately below, and are not index entities)` +
@@ -512,6 +516,12 @@ async function main() {
   // snapshots agree.
   const tIdx = Date.now();
   const identityIdx = await buildIdentityIndex(panel);
+  // The compatibility surface this build keeps alive — old URLs that resolve to
+  // a current identity because nothing in the old path could be 301'd.
+  console.log(
+    `  identity aliases: ${identityIdx.aliases?.v41.size.toLocaleString() ?? 0} v4.1 URLs · ` +
+      `${identityIdx.aliases?.nameFix.size.toLocaleString() ?? 0} URLs a grade-label name produced before the name fix`,
+  );
   if (OUT_DIR) {
     const packed = packIdentityIndex(identityIdx, panel.length, now);
     const f1 = join(OUT_DIR, `${IDENTITY_INDEX_SNAPSHOT_KEY}.json`);
