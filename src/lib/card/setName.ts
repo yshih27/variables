@@ -24,16 +24,31 @@
  * an over-fragmented set publishes no index, which is honest; a wrongly merged
  * one publishes a wrong number.
  *
- * ⚠️ THIS DOES NOT FEED `identityKey`. The card identity still keys on the RAW
- * set string (src/lib/data/traits.ts), because changing it would silently move
- * every published index level. Set normalisation is used to GROUP sales into set
- * entities and to fill `cards.set_key`. Re-keying identities on `set_key` is a
- * separate change with its own before/after.
+ * ⚠️ THIS FEEDS `identityKey` FROM v4.2 (2026-09-22). Until then the card
+ * identity keyed on the RAW set string, because changing it moves every
+ * published index level; the re-key shipped with the before/after that header
+ * asked for (the shadow build in scripts/warm-sale-panel.ts --shadow-rekey, and
+ * the table in the PR body). Identity keys and identity URLs both read the
+ * canonical key through src/lib/card/identityParts.ts; set entities and
+ * `cards.set_key` are unchanged.
  */
 
 export type SetIdentity = {
   /** Canonical slug, e.g. "crown-zenith". Null when the raw value is junk. */
   key: string | null;
+  /**
+   * The mechanically normalised slug, JUNK OR NOT — what `key` would have been
+   * had the junk list not caught it ("game", "sv", "unknown"), and "" for a
+   * string nothing survives.
+   *
+   * ⚠️ THE IDENTITY KEY'S FALLBACK, AND ONLY THAT. A junk set is not a set we
+   * can place, but it is still a bucket: keying those identities as set-ABSENT
+   * would pool "Game" (1,777 cards, several 1999 print runs) with "SV" (995) and
+   * price them as one card. `identityParts.ts` falls back to this so no identity
+   * is lost and none is silently merged. The set LEADERBOARD still ignores them
+   * — `key` is null and that is what `cards.set_key` and `set:<ip>:<key>` read.
+   */
+  slug: string;
   /** Display name, e.g. "Crown Zenith". Null when the key is null. */
   name: string | null;
   /** ISO-ish language tag lifted out of the string ("ja", "en", "zh", "ko"). */
@@ -178,10 +193,9 @@ function titleize(slug: string): string {
  * unrecognised string still yields a key (its own), and only genuine junk
  * yields null.
  */
-export function normalizeSetName(raw: string | null | undefined): SetIdentity {
-  if (raw == null) return { key: null, name: null, language: null };
-  let s = fixMojibake(String(raw)).replace(/\s+/g, " ").trim();
-  if (!s) return { key: null, name: null, language: null };
+function computeSetName(raw: string): SetIdentity {
+  let s = fixMojibake(raw).replace(/\s+/g, " ").trim();
+  if (!s) return { key: null, name: null, language: null, slug: "" };
 
   // 1. Language out to its own part, removed from the name.
   let language: string | null = null;
@@ -216,8 +230,43 @@ export function normalizeSetName(raw: string | null | undefined): SetIdentity {
 
   const slug0 = slugify(s);
   const key = ALIASES[slug0] ?? slug0;
-  if (!key || JUNK.has(key)) return { key: null, name: null, language };
-  return { key, name: titleize(key), language };
+  if (!key || JUNK.has(key)) return { key: null, name: null, language, slug: key };
+  return { key, name: titleize(key), language, slug: key };
+}
+
+/**
+ * Raw `set_name` → canonical key, display name and language. Total: an
+ * unrecognised string still yields a key (its own), and only genuine junk
+ * yields null (with `slug` still naming its bucket).
+ *
+ * ⚠️ MEMOISED, BECAUSE IT IS NOW ON EVERY IDENTITY PATH. The dims scan calls it
+ * once per card (152K), and from v4.2 `identityKey` and `identitySlug` each call
+ * it again per identity — three normalisations of the same few thousand distinct
+ * strings. The function is pure, so the cache is a pure win; it is bounded so a
+ * long-lived server instance seeing junk cannot grow it without limit.
+ */
+const MEMO_MAX = 50_000;
+const memo = new Map<string, SetIdentity>();
+
+export function normalizeSetName(raw: string | null | undefined): SetIdentity {
+  if (raw == null) return { key: null, name: null, language: null, slug: "" };
+  const k = String(raw);
+  const hit = memo.get(k);
+  if (hit) return hit;
+  const out = computeSetName(k);
+  if (memo.size >= MEMO_MAX) memo.clear();
+  memo.set(k, out);
+  return out;
+}
+
+/**
+ * Display name for a canonical set key — the inverse of the key, for a surface
+ * that holds the key and not the raw string (from v4.2 the identity key carries
+ * the canonical key, so the identity page reads its set name from here).
+ */
+export function setDisplayName(key: string | null | undefined): string | null {
+  if (!key) return null;
+  return titleize(key) || null;
 }
 
 /** The set part of a studio/blob entity id: `set:<ip>:<key>`. */

@@ -7,6 +7,7 @@ import {
   isValidCharacterPath,
 } from "@/lib/data/validKeys";
 import { isEmbedChartId } from "@/lib/chart/embeds";
+import { canonicalIdentitySlug, IDENTITY_PATH_PREFIX } from "@/lib/card/identity";
 
 /**
  * Why this file exists — fixing soft 404s.
@@ -55,11 +56,42 @@ function isInvalidDetailPath(pathname: string): boolean {
   }
 }
 
+/**
+ * ONE URL PER CARD (v4.2). The re-key moved some identity URLs — a number that
+ * normalises ("/025~102/" → "/25/"), and edition/language written in the other
+ * order. Those old forms are still valid paths, so nothing 404s them; they are
+ * simply not the card's URL any more, and a second URL for one card is what an
+ * index (and bet 4's search) must never see. `canonicalIdentitySlug` is total and
+ * idempotent over anything `parseIdentitySlug` accepts, so this cannot loop.
+ *
+ * ⚠️ 301, NOT 307/308. A permanent redirect is the one a crawler folds into the
+ * target; the METHOD-preserving 308 is for form posts, and an identity page is a
+ * GET. The query string is carried over so an `?utm_…` or `?ref=` on a shared
+ * link survives the hop.
+ *
+ * ⚠️ NOT EVERY OLD FORM IS RECOVERABLE HERE. A v4.1 slug whose set segment is
+ * `-` (the normaliser judged the set string junk) cannot be canonicalised from
+ * the path alone — the path does not say which junk set it was. Those keep
+ * working through the slug index's aliases (src/lib/card/identity.ts
+ * `legacyIdentitySlug`), and the API answers them with `canonical: false`.
+ */
+function canonicalIdentityRedirect(request: NextRequest): NextResponse | null {
+  const { pathname } = request.nextUrl;
+  if (!pathname.startsWith(`${IDENTITY_PATH_PREFIX}/`)) return null;
+  const canonical = canonicalIdentitySlug(pathname);
+  if (!canonical) return null;
+  const target = `${IDENTITY_PATH_PREFIX}/${canonical}`;
+  if (target === pathname) return null;
+  const url = new URL(target, request.url);
+  url.search = request.nextUrl.search;
+  return NextResponse.redirect(url, 301);
+}
+
 export function proxy(request: NextRequest): NextResponse {
   if (isInvalidDetailPath(request.nextUrl.pathname)) {
     return NextResponse.rewrite(new URL(NOT_FOUND_PATH, request.url));
   }
-  return NextResponse.next();
+  return canonicalIdentityRedirect(request) ?? NextResponse.next();
 }
 
 export const config = {

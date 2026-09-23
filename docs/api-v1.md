@@ -128,3 +128,87 @@ Notes: `weekly` resamples per ISO week (Monday) — **sum** for flow metrics
 (volume/trades/wallets/cards), **last** for stock (mcap/floor/holders). `rebase`
 uses the index rebase (daily, forward-filled, drops non-positive) — best for
 stock/positive metrics. `unit` is `usd` or `count`.
+
+### GET /api/v1/price/&lt;slug&gt;
+
+**The reference price for one card.** The path IS the identity slug
+(`<ip>/<set>/<number>/<name>/<grade>[/<edition>][/<lang>]`), the same one
+`/i/<slug>` renders and `/api/v1/identity/<slug>` returns in full. This endpoint
+is the price alone, in the shape a chip or a badge needs.
+
+```
+curl -H "Authorization: Bearer <key>" \
+  "https://<site>/api/v1/price/pokemon/151/6/charizard-ex/psa-10"
+```
+
+```json
+{
+  "slug": "pokemon/151/6/charizard-ex/psa-10",
+  "canonical": true,
+  "canonicalSlug": "pokemon/151/6/charizard-ex/psa-10",
+  "name": "Charizard ex", "ip": "pokemon", "ipName": "Pokémon",
+  "set": "151", "setName": "151", "number": "6", "grade": "PSA 10",
+  "edition": null, "language": null,
+  "price": { "month": "2026-08", "priceUsd": 323, "n": 5, "thin": false },
+  "lastSale": { "ts": "…", "priceUsd": 340, "venue": "collector-crypt", "cardId": "cc-…" },
+  "floor": { "priceUsd": 355, "venue": "beezie", "plausible": true, "reference": "monthly" },
+  "receipts": [ { "ts": "…", "priceUsd": 340, "venue": "…", "cardId": "…" } ],
+  "slabs": 14,
+  "method": "v4.2",
+  "asOf": "…",
+  "attribution": { "text": "Varible price", "url": "https://<site>/i/pokemon/151/6/charizard-ex/psa-10" }
+}
+```
+
+What the fields mean, and what they refuse to do:
+
+- **`price`** is the index's own monthly median for that identity, for the latest
+  **complete** month (`monthlyIdentityPrices`, n ≥ 2 sales). It is `null` when no
+  month clears that floor — never an average of two random sales, never
+  interpolated, never the running month. `thin: true` means the price rests on
+  exactly the two-sale minimum.
+- **`floor`** is the lowest live ask with `plausible` — the identity page's rule:
+  an ask headlines only within 0.5x–3x of a reference (the monthly price, else the
+  last sale). **Do not print a floor whose `plausible` is `false`**; a $1.84
+  placeholder on a $53 card is a real listing and not a floor.
+- **`canonical`** is about the URL, not the data: a pre-v4.2 slug still resolves
+  and answers with `canonical: false` plus the `canonicalSlug` to link to.
+- **`method`** names the identity keying the price was built under (`v4.2`: the
+  canonical set key and the normalised card number).
+
+Unknown slug → `404` in the envelope.
+
+### GET /api/public/price/&lt;slug&gt; — no key
+
+The same payload, **key-free, CORS-open and CDN-cached** (`s-maxage=1800`), so a
+venue can read one card's price from the browser. Per-IP rate limited. Narrow on
+purpose: one identity per request, no enumeration, no bulk — anything wider needs
+a key.
+
+```
+curl "https://<site>/api/public/price/pokemon/151/6/charizard-ex/psa-10"
+```
+
+### GET /api/public/price/&lt;slug&gt;/badge.svg — the embed
+
+```html
+<img src="https://<site>/api/public/price/pokemon/151/6/charizard-ex/psa-10/badge.svg?size=md"
+     alt="Varible price">
+```
+
+`size` is `sm` (20px tall) or `md` (28px). Black ground, lime `VARIBLE`, then the
+figure:
+
+| state | badge reads |
+|---|---|
+| a monthly price | `$323 · Aug · 5 sales` |
+| no monthly price, a sale | `last sale $255 · Sep 9` |
+| no sale at all | `no sale yet · 14 slabs` |
+| unknown slug | **404** — an embed never shows an invented number |
+
+System fonts only (an `<img>`-loaded SVG cannot fetch one), `Cache-Control:
+public, s-maxage=1800`, `Access-Control-Allow-Origin: *`. A floor is never
+printed on a badge: an ask is not a price.
+
+**Attribution** is required on the key-free tier exactly as on the keyed one —
+link the badge or the price to `attribution.url`.

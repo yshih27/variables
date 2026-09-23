@@ -44,7 +44,9 @@
     "test:character": "tsx --test src/lib/card/character.test.ts src/lib/data/characterRollups.test.ts",
     "test:spine": "tsx --test src/lib/dune/scanWindow.test.ts src/lib/data/buybackFold.test.ts",
     "gen-pokemon-species": "tsx scripts/dev/gen-pokemon-species.ts",
-    "probe-character-rollups": "tsx scripts/dev/probe-character-rollups.ts"
+    "probe-character-rollups": "tsx scripts/dev/probe-character-rollups.ts",
+    "test:identity": "tsx --test src/lib/card/identity.test.ts",
+    "test:price": "tsx --test src/lib/api/badge.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",
