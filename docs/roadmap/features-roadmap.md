@@ -1,12 +1,14 @@
 # Varible feature roadmap
 
-*Maintained by the orchestrator. Features, not tickets. Dates are stages, not promises: everything ships when it passes audit against the world-class bar. Last revised Sep 22, 2026.*
+*Maintained by the orchestrator. Features, not tickets. Dates are stages, not promises: everything ships when it passes audit against the world-class bar. Last revised Sep 24, 2026.*
 
 ## Shipped since Sep 9
+- **The reference price (bet 1)**: v4.2 identity re-key on canonical set and normalised number (fragments 1,174 → 23, 0 false merges in the 198 reviewed); receipts under every published index point at `/index/<entity>/<month>`; the method ledger on `/methodology`, rendered from data; `/api/v1/price/<slug>`, the key-free `/api/public/price/<slug>`, the badge and the chip at `/embed/price/<slug>` with "Get the chip" on every identity page.
+- **A name is never a grade**: 587 grade-named identities recovered to real names (One Piece, sports), a key guard so it cannot recur, 563 alias URLs kept.
 - **The Varible Index, monthly**: v4.1 (interpolated weighted median, thin months flagged, no step rests on one identity). September publishes Oct 1.
 - **The shell, live**: rail with live sparks, tape, `⌘K` search, flyouts; nav r4 where rows are links and headings are headings; breadcrumbs everywhere.
 - **Identity pages** (`/i/<slug>`): every card at every grade with its realized sales, monthly price, floor rule, grade ladder and slabs. 55K identities; the palette's Cards group; token pages hand up.
-- **Character pages** (`/ip/<ip>/characters/<key>`): 1,117 characters across Pokémon and One Piece from a lexicon extractor; leaderboards, by-set, where it trades, slab art. The character index waits on depth: none clears the 20-identity floor yet, and the page says so.
+- **Character pages** (`/ip/<ip>/characters/<key>`): 1,144 characters across Pokémon and One Piece from a lexicon extractor; leaderboards, by-set, where it trades, slab art. The character index waits on depth: none clears the 20-identity floor yet, and the page says so.
 - **Card art you can read**: one thumbnail component, trimmed slabs, a preview on hover and tap on every row; hero art on subject pages.
 - **Categories page**: lime treemap and share-mode composition under one brush, controls pinned to the title line.
 - **Machines table folds**; partner labels Solflare, ComicBook, One Arena.
@@ -19,16 +21,17 @@
 | Renaiss venue and Renaiss Index | A sixth platform and the first tokenized-versus-physical spread chart | partner key and feeds |
 | Courtyard primary revenue | The Etherscan leg back | an API key in Actions secrets (theirs) |
 | Alerts and email | The weekly report in inboxes, double opt-in | parked PRs #58 and #56 |
+| Methodology Sources | The trust page says what actually reads each venue, leg by leg, keyed on the platform registry so it cannot drift silently | PR #154 in review |
 
 ## Next: the five bets that beat the incumbents
 The giants of collectibles data (price guides, ladders, portfolio apps) scrape auction listings and ask collectors to type in what they own. Varible reads the chain. Each bet turns that into something they cannot copy quickly.
 
 | Bet | What the reader gets | Why it wins | Depends on |
 |---|---|---|---|
-| 1 · The reference price | A "Varible price" per identity (monthly median, n, receipts) and the monthly index close, published with receipts; a price chip and API venues can embed on their own card pages | Realized, on-chain, cross-venue, receipted; a price guide cannot say where its number came from | v4.2 identity re-key (1,129 fragments), character and set depth, the partner API tier |
-| 2 · Your vault, valued | Paste or connect a wallet on Solana, Polygon or Base and see the holdings valued by identity price, with the spread, by venue, IP and grade, exportable | Portfolio apps make people type their collection; we read it | Identity prices (have), card-to-identity join (have), wallet indexers |
+| 1 · The reference price | A "Varible price" per identity (monthly median, n, receipts) and the monthly index close, published with receipts; a price chip and API venues can embed on their own card pages | Realized, on-chain, cross-venue, receipted; a price guide cannot say where its number came from | **Shipped Sep 23** (#151, #152, #153); character and set depth and the partner API tier continue under bet 5 |
+| 2 · Your vault, valued | Paste a wallet on Solana, Polygon or Base and see every slab priced by the same rule as its identity page: the reference price with its n, the last sale, the floor when plausible, the spread; totals by venue, IP and grade, every one with its n; CSV | Portfolio apps make people type their collection; we read it | **Briefed Sep 24**: `brief-backend-vault.md`, `brief-frontend-vault.md`. Identity prices (have), card-to-identity join (have), owner enumeration (DAS by owner; Rarible items by owner). Paste only in v1; wallet adapters after. Courtyard slabs list unpriced until bet 5's mints-to-cards |
 | 3 · Alerts that bring people back | Watchlist alerts for floor, volume, a large clear and a new listing, by email and Telegram; the weekly report in inboxes | Retention the incumbents buy with apps; ours rides the data we already have | Email PRs unblocked, one notifier |
-| 4 · The long tail | Sitemaps, titles that are the questions people search, structured data on 55K identity, 1,117 character, set and grade pages; the physical index beside ours where Renaiss lands | Search is where the price guides live; our answer is a realized sale with a receipt, theirs is a listing | Nothing for the SEO pass; Renaiss for the spread |
+| 4 · The long tail | Sitemaps, titles that are the questions people search, structured data on 55K identity, 1,144 character, set and grade pages; the physical index beside ours where Renaiss lands | Search is where the price guides live; our answer is a realized sale with a receipt, theirs is a listing | Nothing for the SEO pass; Renaiss for the spread |
 | 5 · The whole on-chain market | Beezie's true book, Courtyard's in-app marketplace through partnership, Phygitals secondary, Courtyard mints enriched to cards (per-IP), sports and comics extractors, the One Piece grade-as-name backfill; Monster, Deadstock, rip.fun | Coverage is the moat; a venue's own dashboard shows one venue | Partner feeds, two Dune queries, extractor briefs |
 
 ## Later (this quarter)
@@ -41,7 +44,7 @@ The giants of collectibles data (price guides, ladders, portfolio apps) scrape a
 | The weekly thread, resumed | Monthly close, movers and receipts every Monday | the Oct 1 publish |
 
 ## Hygiene (table stakes for looking like a company)
-The daily batch drifts four hours past its cron; the spender scan takes eighteen minutes; Dune credits run about $60 over this period even after the fixes, with four fresh executions a day left to question; the Etherscan key is missing. None is a feature; all of them show.
+The daily batch drifts four hours past its cron; the spender scan takes eighteen minutes; Dune credits run about $74 over this period (Sep 10 to Oct 10) even after the fixes, with four fresh executions a day left to question; the Etherscan key is missing. None is a feature; all of them show.
 
 ## How features get here
-Every feature is a brief in `docs/roadmap/`, built by an executor on a fresh branch, audited against the live preview and, for layout, a headless render, then merged on the product owner's word. Nothing skips the audit. Numbers are never typed into copy; they come from the data layer with their window and source.
+Every feature is a brief in `docs/roadmap/` (`brief-<lane>-<feature>.md`; the briefs for shipped bets stay beside the roadmap as the record of what was asked), built by an executor on a fresh branch, audited against the live preview and, for layout, a headless render, then merged on the product owner's word. Nothing skips the audit. Numbers are never typed into copy; they come from the data layer with their window and source.
