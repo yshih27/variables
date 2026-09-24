@@ -39,6 +39,7 @@ import { enumerateHoldings, VAULT_LIMITS, type HoldingsResult, type RawHolding }
 import { readCardRowsByIds, cardRowFromMeta, type CardIdentityRow } from "./cards";
 import { extractCardIdentity, identityKey, identityKeyRefusal, parseIdentityKey } from "./traits";
 import { identitySlug, identityHref, identityDisplayName } from "@/lib/card/identity";
+import { FLOOR_VS_MONTHLY_MIN, FLOOR_VS_MONTHLY_MAX } from "@/lib/card/identityView";
 import { cardHref, PLATFORM_META, type CardPlatform } from "@/lib/card/ids";
 import { setDisplayName, normalizeSetName } from "@/lib/card/setName";
 import { canonicalGrade } from "./gradePremium";
@@ -76,8 +77,12 @@ export type VaultHolding = {
   lastSale: PriceSaleRef | null;
   /** The identity's lowest live ask, with the page's plausibility rule. */
   floor: { priceUsd: number; venue: string; plausible: boolean } | null;
-  /** THIS token's own live listing. */
-  yourAsk: { priceUsd: number; source: string } | null;
+  /** THIS token's own live listing, judged by the page's band against the
+   *  holding's reference (else its last sale), exactly as the floor is. An
+   *  aggregator placeholder — a $1.00 "ask" on a $445 card — is listed and
+   *  marked not plausible, never printed as what the holder asks. With nothing
+   *  to judge it against it is not plausible either. */
+  yourAsk: { priceUsd: number; source: string; plausible: boolean } | null;
   /** The reference when it exists, else the last sale. Never a floor. */
   value: { usd: number; basis: "reference" | "last-sale" } | null;
   unvalued?: "no-identity" | "no-sale";
@@ -212,10 +217,19 @@ export function resolveHolding(
 export function priceHoldings(resolved: ResolvedHolding[], valuations: Map<string, IdentityValuation>, listings: ListingIndex): VaultHolding[] {
   return resolved.map((r) => {
     const ask = listings.get(`${r.platform}:${r.tokenId}`);
-    const yourAsk = ask && ask.priceUsd > 0 ? { priceUsd: ask.priceUsd, source: ask.source } : null;
+    // The same band the floor is judged by (identityView.ts `readFloor`), against
+    // the same reference: the monthly price, else the last sale, else nothing.
+    const askOf = (ref: number | null): VaultHolding["yourAsk"] =>
+      ask && ask.priceUsd > 0
+        ? {
+            priceUsd: ask.priceUsd,
+            source: ask.source,
+            plausible: ref != null && ref > 0 && ask.priceUsd / ref >= FLOOR_VS_MONTHLY_MIN && ask.priceUsd / ref <= FLOOR_VS_MONTHLY_MAX,
+          }
+        : null;
     const v = r.identity ? valuations.get(r.identity.key) : undefined;
     if (!r.identity || !v) {
-      return { ...r, reference: null, lastSale: null, floor: null, yourAsk, value: null, unvalued: r.identity ? "no-sale" : "no-identity" };
+      return { ...r, reference: null, lastSale: null, floor: null, yourAsk: askOf(null), value: null, unvalued: r.identity ? "no-sale" : "no-identity" };
     }
     const f = priceFieldsOf(v);
     const value: VaultHolding["value"] = f.price
@@ -228,7 +242,7 @@ export function priceHoldings(resolved: ResolvedHolding[], valuations: Map<strin
       reference: f.price,
       lastSale: f.lastSale,
       floor: f.floor ? { priceUsd: f.floor.priceUsd, venue: f.floor.venue, plausible: f.floor.plausible } : null,
-      yourAsk,
+      yourAsk: askOf(f.price?.priceUsd ?? f.lastSale?.priceUsd ?? null),
       value,
       ...(value ? {} : { unvalued: "no-sale" as const }),
     };
