@@ -5,7 +5,8 @@ import Link from "next/link";
 import type { IPRow, PlatformRow } from "@/lib/types";
 import { IPTable } from "./IPTable";
 import { PlatformTable } from "./PlatformTable";
-import { readWatchlistRaw, subscribeWatchlist } from "@/lib/watchlist";
+import { WatchedIdentities } from "./WatchedIdentities";
+import { parseWatchId, readWatchlistRaw, subscribeWatchlist } from "@/lib/watchlist";
 
 /**
  * /watchlist body — filters the (server-provided) IP + platform tables down to
@@ -35,18 +36,22 @@ export function WatchlistView({ ips, platforms }: { ips: IPRow[]; platforms: Pla
     () => false,
   );
 
+  // Identities are priced by their own read (WatchedIdentities); the IP and
+  // platform rows come from the server-rendered tables as before.
+  const savedIdentities = [...saved].map(parseWatchId).filter((w) => w?.kind === "identity").map((w) => w!.key);
   const savedIps = ips.filter((r) => saved.has(`ip:${r.key}`));
   const savedPlatforms = platforms.filter((r) => saved.has(`platform:${r.key}`));
   // Saved ids whose entity isn't in the tracked tables anymore (renamed/dropped).
   const orphans = [...saved].filter(
     (id) =>
+      parseWatchId(id)?.kind !== "identity" &&
       !savedIps.some((r) => id === `ip:${r.key}`) &&
       !savedPlatforms.some((r) => id === `platform:${r.key}`),
   );
 
   if (!hydrated) return null;
 
-  if (savedIps.length === 0 && savedPlatforms.length === 0) {
+  if (savedIps.length === 0 && savedPlatforms.length === 0 && savedIdentities.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-line px-8 py-16 text-center">
         <div className="text-[15px] font-semibold">No watchlisted items yet.</div>
@@ -59,7 +64,7 @@ export function WatchlistView({ ips, platforms }: { ips: IPRow[]; platforms: Pla
           <Link href="/platforms" className="text-ink-2 underline decoration-line underline-offset-2 hover:text-yellow">
             Platforms
           </Link>{" "}
-          page and click <span className="text-ink-2">☆ Watchlist</span> to add them here.
+          page, or any card&apos;s page, and click <span className="text-ink-2">☆ Watchlist</span> to add it here.
         </p>
       </div>
     );
@@ -67,6 +72,7 @@ export function WatchlistView({ ips, platforms }: { ips: IPRow[]; platforms: Pla
 
   return (
     <div className="space-y-6">
+      {savedIdentities.length > 0 && <WatchedIdentities slugs={savedIdentities} />}
       {savedIps.length > 0 && <IPTable rows={savedIps} seeAllHref="/ips" teaser title="IPs" />}
       {savedPlatforms.length > 0 && <PlatformTable rows={savedPlatforms} seeAllHref="/platforms" title="Platforms" />}
       {orphans.length > 0 && (

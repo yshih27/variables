@@ -12,6 +12,8 @@ import { unsubscribeUrl, confirmUrl, manageUrl } from "./resend";
 import { SITE_ORIGIN } from "../site";
 import { digestSubject, eventLine, digestText } from "../alerts/render";
 import type { Digest, FiredEvent } from "../alerts/signals";
+import { cardHref } from "../card/ids";
+import { receiptsHref } from "../indices/receiptRoute";
 
 export type RenderedEmail = { subject: string; html: string; text: string };
 
@@ -36,11 +38,24 @@ function pct(n: number | null | undefined): string {
 const WRAP_OPEN = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111;line-height:1.55">`;
 const WRAP_CLOSE = `</div>`;
 
-function footer(unsubUrl: string): string {
+/** The brand pair: ink on white, and the lime the site's primary actions use. */
+const INK = "#111";
+const LIME = "#bfef01";
+
+/**
+ * Why this email arrived — said for the email it is. An alert email names the
+ * alerts (and that the weekly comes with them, one unsubscribe for both); only
+ * the weekly says "the weekly report".
+ */
+function footer(unsubUrl: string, why: "weekly" | "alerts" = "weekly"): string {
+  const reason =
+    why === "alerts"
+      ? "You're receiving this because you set an alert on Varible. Unsubscribing stops your alerts and the weekly report."
+      : "You're receiving this because you subscribed to the Varible weekly report.";
   return (
     `<hr style="border:0;border-top:1px solid #eee;margin:28px 0 14px">` +
     `<p style="font-size:12px;color:#888;margin:0">` +
-    `You're receiving this because you subscribed to the Varible weekly report. ` +
+    `${reason} ` +
     `<a href="${esc(unsubUrl)}" style="color:#888">Unsubscribe</a>.` +
     `</p>`
   );
@@ -115,34 +130,41 @@ export function weeklyReportEmail(report: WeeklyReport, unsubscribeToken: string
   const moverRows = topGainers
     .map(
       (m) =>
+        // Ink with the sign, not a green: the email keeps the brand pair, and a
+        // "+" says up in every client, including the ones that strip colour.
         `<tr><td style="padding:4px 0;font-family:ui-monospace,monospace;font-size:13px">${esc(m.ticker ?? "")}</td>` +
-        `<td style="padding:4px 0;color:#444">${esc(m.name)}</td>` +
-        `<td style="padding:4px 0;text-align:right;color:#0a7d33;font-weight:600">${pct(m.pct)}</td></tr>`,
+        `<td style="padding:4px 0"><a href="${esc(siteUrl(`/ip/${m.key}`))}" style="color:#444">${esc(m.name)}</a></td>` +
+        `<td style="padding:4px 0;text-align:right;color:${INK};font-weight:600">${pct(m.pct)}</td></tr>`,
     )
     .join("");
 
   const topSale = report.biggestSales[0];
   const saleDay = topSale ? topSale.date.slice(0, 10) : "";
+  const saleHref = topSale ? cardHref(topSale.platform, topSale.tokenId) : "#";
+  // The index level links to the month's receipts — the cards behind it.
+  const indexHref = idx.asOf ? siteUrl(receiptsHref("market:total", idx.asOf)) : reportUrl;
 
   const html =
     WRAP_OPEN +
     `<p style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#888;margin:0 0 4px">The Varible Weekly · week of ${esc(week)}</p>` +
     (indexLine
-      ? `<h1 style="font-size:22px;font-weight:700;margin:0 0 4px">${esc(indexLine)}</h1>` +
+      ? `<h1 style="font-size:22px;font-weight:700;margin:0 0 4px"><a href="${esc(indexHref)}" style="color:${INK};text-decoration:none">${esc(indexLine)}</a></h1>` +
         `<p style="font-size:12px;color:#888;margin:0 0 16px">${esc(idx.name)}, rebased to 100 at inception${idx.note ? `. ${esc(idx.note)}` : ""}</p>`
       : "") +
     `<table style="width:100%;border-collapse:collapse;margin:0 0 20px">` +
-    `<tr><td style="padding:6px 0;color:#444">Gacha + resale volume, this week</td><td style="padding:6px 0;text-align:right;font-weight:600">${usd(report.volume.weekUsd)} <span style="color:#888;font-weight:400">(${pct(report.volume.wowPct)} week over week)</span></td></tr>` +
-    `<tr><td style="padding:6px 0;color:#444">Market cap, end of week</td><td style="padding:6px 0;text-align:right;font-weight:600">${usd(report.mcap.totalUsd)} <span style="color:#888;font-weight:400">(${pct(report.mcap.wowPct)} week over week)</span></td></tr>` +
+    // The change sits on its own line under the figure: on a phone the old
+    // inline "(−30.6% week over week)" broke mid-phrase across two lines.
+    `<tr><td style="padding:6px 12px 6px 0;color:#444;vertical-align:top">Gacha + resale volume, this week</td><td style="padding:6px 0;text-align:right;font-weight:600;white-space:nowrap;vertical-align:top">${usd(report.volume.weekUsd)}<span style="display:block;color:#888;font-weight:400;font-size:12px">${pct(report.volume.wowPct)} week over week</span></td></tr>` +
+    `<tr><td style="padding:6px 12px 6px 0;color:#444;vertical-align:top">Market cap, end of week</td><td style="padding:6px 0;text-align:right;font-weight:600;white-space:nowrap;vertical-align:top">${usd(report.mcap.totalUsd)}<span style="display:block;color:#888;font-weight:400;font-size:12px">${pct(report.mcap.wowPct)} week over week</span></td></tr>` +
     `</table>` +
     (moverRows
       ? `<h2 style="font-size:14px;font-weight:700;margin:0 0 6px">Resale volume by IP, week over week</h2>` +
         `<table style="width:100%;border-collapse:collapse;margin:0 0 20px">${moverRows}</table>`
       : "") +
     (topSale
-      ? `<p style="margin:0 0 20px;color:#444"><strong>Largest resale we track this week:</strong> ${esc(topSale.name)}, ${usd(topSale.priceUsd)} seller-received on ${esc(topSale.platformName)}, ${esc(saleDay)}</p>`
+      ? `<p style="margin:0 0 20px;color:#444"><strong>Largest resale we track this week:</strong> <a href="${esc(siteUrl(saleHref))}" style="color:#444">${esc(topSale.name)}</a>, ${usd(topSale.priceUsd)} seller-received on ${esc(topSale.platformName)}, ${esc(saleDay)}</p>`
       : "") +
-    `<p style="margin:0 0 8px"><a href="${esc(reportUrl)}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px">Read the full report</a></p>` +
+    `<p style="margin:0 0 8px"><a href="${esc(reportUrl)}" style="display:inline-block;background:${LIME};color:${INK};text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px">Read the full report</a></p>` +
     footer(uUrl) +
     WRAP_CLOSE;
 
@@ -163,7 +185,7 @@ export function weeklyReportEmail(report: WeeklyReport, unsubscribeToken: string
 
 function manageFooter(manage: string, unsubUrl: string): string {
   return (
-    `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(manage)}" style="color:#111">Manage alerts →</a></p>` + footer(unsubUrl)
+    `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(manage)}" style="color:${INK}">Manage alerts →</a></p>` + footer(unsubUrl, "alerts")
   );
 }
 
@@ -203,7 +225,10 @@ export function alertDigestEmail(
   const abs = (href: string) => (href.startsWith("http") ? href : `${SITE_ORIGIN}${href}`);
   const html =
     WRAP_OPEN +
-    `<p style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#888;margin:0 0 12px">Varible alerts</p>` +
+    `<p style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#888;margin:0 0 4px">Varible alerts</p>` +
+    // The subject as the heading: a reader who opens the email sees the count
+    // and the biggest move before the lines, as the inbox showed them.
+    `<h1 style="font-size:18px;font-weight:700;margin:0 0 14px">${esc(subject)}</h1>` +
     digest.events
       .map(
         (e) =>

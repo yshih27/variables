@@ -44,7 +44,7 @@ export default async function IdentityPage({ params }: { params: Promise<{ slug:
     <>
       <NavBar ticker={await buildMarketTicker()} />
       <div className="px-8 pt-6 pb-20 font-sans">
-        <IdentityHeader detail={detail} />
+        <IdentityHeader detail={detail} canonicalSlug={canonicalSlug} />
 
         <div className="space-y-3">
           <IdentityKpis detail={detail} />
