@@ -22,7 +22,7 @@
 | Beezie partner API | Complete listings and floors, true holders, claw odds | agreed on the Sep 10 call; feeds pending |
 | Renaiss venue and Renaiss Index | A sixth platform and the first tokenized-versus-physical spread chart | partner key and feeds |
 | Courtyard primary revenue | The Etherscan leg back | an API key in Actions secrets (theirs) |
-| Alerts and email | The weekly report in inboxes, double opt-in | parked PRs #58 and #56; bet 3 starts here |
+| Alerts and email | The weekly report in inboxes, double opt-in; watches that write | bet 3 briefed Sep 24; the parked #58 and #56 land through it |
 
 ## Next: the five bets that beat the incumbents
 The giants of collectibles data (price guides, ladders, portfolio apps) scrape auction listings and ask collectors to type in what they own. Varible reads the chain. Each bet turns that into something they cannot copy quickly.
