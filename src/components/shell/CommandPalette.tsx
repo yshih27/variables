@@ -25,7 +25,9 @@ import type { RailModel } from "@/lib/types";
  */
 
 type PaletteGroup = { key: string; label: string; items: PaletteItem[] };
-type PaletteItem = { label: string; sub?: string; href: string };
+/** `focus` — the id of a field to focus once the page is there ("Value a wallet"
+ *  lands on the vault door's input, whether or not the door was already open). */
+type PaletteItem = { label: string; sub?: string; href: string; focus?: string };
 
 /** The route answers in the internal v1 envelope around the backend's grouped shape
  *  (src/lib/types.ts GroupedSearchResponse): one entry per group that has hits. */
@@ -51,6 +53,8 @@ const STATIC_PAGES: PaletteItem[] = [
   { label: "Stats", sub: "the market in citable numbers", href: "/stats" },
   { label: "Weekly Report", href: "/report" },
   { label: "Watchlist", href: "/watchlist" },
+  { label: "Vault", sub: "a wallet's slabs, valued", href: "/vault" },
+  { label: "Value a wallet", sub: "paste a Solana, Polygon or Base address", href: "/vault", focus: "vault-address" },
   { label: "Data status", sub: "freshness of every source", href: "/status" },
   { label: "Methodology", href: "/methodology" },
   ...(GACHA_ENABLED ? [{ label: "Gacha", href: "/gacha" }] : []),
@@ -171,6 +175,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       pushRecent({ label: item.label, href: item.href });
       onClose();
       router.push(item.href);
+      if (item.focus) focusWhenMounted(item.focus);
     },
     [onClose, router],
   );
@@ -291,4 +296,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       </div>
     </div>
   );
+}
+
+/**
+ * Focus a field that may not exist yet — the push above is a client navigation,
+ * so the target page mounts a few frames later (or is already mounted, when the
+ * reader was on it). Gives up after ~2 s rather than holding a loop open.
+ */
+function focusWhenMounted(id: string, tries = 120): void {
+  const el = document.getElementById(id);
+  if (el) {
+    el.focus();
+    return;
+  }
+  if (tries > 0) requestAnimationFrame(() => focusWhenMounted(id, tries - 1));
 }

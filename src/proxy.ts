@@ -9,6 +9,7 @@ import {
 } from "@/lib/data/validKeys";
 import { isEmbedChartId } from "@/lib/chart/embeds";
 import { canonicalIdentitySlug, IDENTITY_PATH_PREFIX } from "@/lib/card/identity";
+import { parseWalletAddress } from "@/lib/vault/address";
 
 /** `/embed/price/<slug>` — the chip's own prefix under the embed route. */
 const PRICE_CHIP_SEGMENT = "price";
@@ -107,15 +108,47 @@ function canonicalIdentityRedirect(request: NextRequest): NextResponse | null {
   return NextResponse.redirect(url, 301);
 }
 
+const VAULT_PREFIX = "/vault";
+
+/**
+ * ONE URL PER WALLET. `/vault/<address>` reads an EVM address lower-cased, so a
+ * checksummed (EIP-55) paste and the plain form name one page and one cache
+ * entry. The page cannot make that hop itself: it sits behind its own
+ * `loading.tsx`, so a `redirect()` there streams a 200 shell first and the
+ * redirect happens client-side — a crawler, a curl or a link-unfurler never
+ * arrives (the same contract that put the soft-404 fix here). A real 301 from
+ * the proxy is the hop. `parseWalletAddress` is the judge, so a mixed-case
+ * address that fails its checksum is NOT lower-cased into a stranger's wallet:
+ * it is left to the page, which renders the door with the reason.
+ */
+function canonicalVaultRedirect(request: NextRequest): NextResponse | null {
+  const { pathname } = request.nextUrl;
+  if (!pathname.startsWith(`${VAULT_PREFIX}/`)) return null;
+  const segment = pathname.slice(VAULT_PREFIX.length + 1);
+  if (!segment || segment.includes("/")) return null;
+  let raw: string;
+  try {
+    raw = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  const parsed = parseWalletAddress(raw);
+  if (!parsed || parsed.address === segment) return null;
+  const url = new URL(`${VAULT_PREFIX}/${parsed.address}`, request.url);
+  url.search = request.nextUrl.search;
+  return NextResponse.redirect(url, 301);
+}
+
 export function proxy(request: NextRequest): NextResponse {
   if (isInvalidDetailPath(request.nextUrl.pathname)) {
     return NextResponse.rewrite(new URL(NOT_FOUND_PATH, request.url));
   }
-  return canonicalIdentityRedirect(request) ?? NextResponse.next();
+  return canonicalIdentityRedirect(request) ?? canonicalVaultRedirect(request) ?? NextResponse.next();
 }
 
 export const config = {
   // Only the dynamic detail routes (and their sub-pages). Note `/ip/:path+`
-  // does NOT match the list pages `/ips` or `/platforms`.
-  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+", "/index/:path+"],
+  // does NOT match the list pages `/ips` or `/platforms`, and `/vault/:path+`
+  // does not match the door at `/vault`.
+  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+", "/index/:path+", "/vault/:path+"],
 };
