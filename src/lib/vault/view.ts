@@ -165,7 +165,7 @@ export function vaultCsv(v: VaultValuation): string {
     "reference_usd", "reference_month", "reference_n", "reference_thin",
     "last_sale_usd", "last_sale_date", "last_sale_venue",
     "floor_usd", "floor_venue", "floor_plausible",
-    "your_ask_usd",
+    "your_ask_usd", "your_ask_plausible",
     "value_usd", "value_basis", "unvalued_reason",
   ];
   const esc = (x: unknown) => {
@@ -179,7 +179,7 @@ export function vaultCsv(v: VaultValuation): string {
     h.reference?.priceUsd, h.reference?.month, h.reference?.n, h.reference ? (h.reference.thin ? "thin" : "") : "",
     h.lastSale?.priceUsd, h.lastSale?.ts.slice(0, 10), h.lastSale?.venue,
     h.floor?.priceUsd, h.floor?.venue, h.floor ? String(h.floor.plausible) : "",
-    h.yourAsk?.priceUsd,
+    h.yourAsk?.priceUsd, h.yourAsk ? String(h.yourAsk.plausible) : "",
     h.value?.usd, h.value?.basis, h.value ? "" : h.unvalued,
   ].map(esc).join(",");
   return [cols.join(","), ...v.holdings.map(row)].join("\n");

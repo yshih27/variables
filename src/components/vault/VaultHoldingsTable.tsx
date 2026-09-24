@@ -251,7 +251,19 @@ function Row({ h }: { h: VaultHolding }) {
         )}
       </td>
       <td className="whitespace-nowrap px-3 py-2 text-right tabular text-[12.5px]">
-        {h.yourAsk ? <span className="text-ink-2">{askText(h.yourAsk.priceUsd)}</span> : <span className="text-ink-4">—</span>}
+        {h.yourAsk ? (
+          h.yourAsk.plausible ? (
+            <span className="text-ink-2">{askText(h.yourAsk.priceUsd)}</span>
+          ) : (
+            // The same words as the Floor column: an aggregator placeholder on
+            // this very token is not what the holder asks.
+            <span className="font-mono text-[11px] text-ink-3" title="this token's own listing sits outside the plausible band of its price">
+              unverified ask {askText(h.yourAsk.priceUsd)}
+            </span>
+          )
+        ) : (
+          <span className="text-ink-4">—</span>
+        )}
       </td>
       <td className="whitespace-nowrap py-2 pl-3 pr-4 text-right tabular text-[12.5px] sm:pr-5">
         {h.value ? (
