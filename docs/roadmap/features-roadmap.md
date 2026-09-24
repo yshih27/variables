@@ -3,6 +3,8 @@
 *Maintained by the orchestrator. Features, not tickets. Dates are stages, not promises: everything ships when it passes audit against the world-class bar. Last revised Sep 24, 2026.*
 
 ## Shipped since Sep 9
+- **Your vault, valued (bet 2)**: `/vault` and `/vault/<address>`; a Solana, Polygon or Base address in, every tracked slab priced by the identity page's own rule (`valueIdentities`, shared with the page, parity 25/25) with the basis and the n behind every total; ownership confirmed on chain (`ownerOf` via Multicall3; an index only proposes candidates, after Rarible's Base index measured 1/65 recall); partial reads say why; CSV; keyed `/api/v1/vault/<address>`. Paste only; wallet adapters later; Courtyard slabs listed unpriced until bet 5.
+- **The methodology page's Sources**: what actually reads each venue, leg by leg, keyed on the platform registry so the copy cannot drift from the code silently; the pull ladder read from the registry; the render-date footer gone.
 - **The reference price (bet 1)**: v4.2 identity re-key on canonical set and normalised number (fragments 1,174 → 23, 0 false merges in the 198 reviewed); receipts under every published index point at `/index/<entity>/<month>`; the method ledger on `/methodology`, rendered from data; `/api/v1/price/<slug>`, the key-free `/api/public/price/<slug>`, the badge and the chip at `/embed/price/<slug>` with "Get the chip" on every identity page.
 - **A name is never a grade**: 587 grade-named identities recovered to real names (One Piece, sports), a key guard so it cannot recur, 563 alias URLs kept.
 - **The Varible Index, monthly**: v4.1 (interpolated weighted median, thin months flagged, no step rests on one identity). September publishes Oct 1.
@@ -20,8 +22,7 @@
 | Beezie partner API | Complete listings and floors, true holders, claw odds | agreed on the Sep 10 call; feeds pending |
 | Renaiss venue and Renaiss Index | A sixth platform and the first tokenized-versus-physical spread chart | partner key and feeds |
 | Courtyard primary revenue | The Etherscan leg back | an API key in Actions secrets (theirs) |
-| Alerts and email | The weekly report in inboxes, double opt-in | parked PRs #58 and #56 |
-| Methodology Sources | The trust page says what actually reads each venue, leg by leg, keyed on the platform registry so it cannot drift silently | PR #154 in review |
+| Alerts and email | The weekly report in inboxes, double opt-in | parked PRs #58 and #56; bet 3 starts here |
 
 ## Next: the five bets that beat the incumbents
 The giants of collectibles data (price guides, ladders, portfolio apps) scrape auction listings and ask collectors to type in what they own. Varible reads the chain. Each bet turns that into something they cannot copy quickly.
@@ -29,8 +30,8 @@ The giants of collectibles data (price guides, ladders, portfolio apps) scrape a
 | Bet | What the reader gets | Why it wins | Depends on |
 |---|---|---|---|
 | 1 · The reference price | A "Varible price" per identity (monthly median, n, receipts) and the monthly index close, published with receipts; a price chip and API venues can embed on their own card pages | Realized, on-chain, cross-venue, receipted; a price guide cannot say where its number came from | **Shipped Sep 23** (#151, #152, #153); character and set depth and the partner API tier continue under bet 5 |
-| 2 · Your vault, valued | Paste a wallet on Solana, Polygon or Base and see every slab priced by the same rule as its identity page: the reference price with its n, the last sale, the floor when plausible, the spread; totals by venue, IP and grade, every one with its n; CSV | Portfolio apps make people type their collection; we read it | **Briefed Sep 24**: `brief-backend-vault.md`, `brief-frontend-vault.md`. Identity prices (have), card-to-identity join (have), owner enumeration (DAS by owner; Rarible items by owner). Paste only in v1; wallet adapters after. Courtyard slabs list unpriced until bet 5's mints-to-cards |
-| 3 · Alerts that bring people back | Watchlist alerts for floor, volume, a large clear and a new listing, by email and Telegram; the weekly report in inboxes | Retention the incumbents buy with apps; ours rides the data we already have | Email PRs unblocked, one notifier |
+| 2 · Your vault, valued | Paste a wallet on Solana, Polygon or Base and see every slab priced by the same rule as its identity page: the reference price with its n, the last sale, the floor when plausible, the spread; totals by venue, IP and grade, every one with its n; CSV | Portfolio apps make people type their collection; we read it | **Shipped Sep 24** (#156, #157; briefs `brief-backend-vault.md`, `brief-frontend-vault.md`). Paste only; wallet adapters after. Courtyard slabs list unpriced until bet 5's mints-to-cards |
+| 3 · Alerts that bring people back | Watchlist alerts for floor, volume, a large clear and a new listing, by email and Telegram; the weekly report in inboxes | Retention the incumbents buy with apps; ours rides the data we already have | **Next.** Email PRs unblocked (#58, #56), one notifier |
 | 4 · The long tail | Sitemaps, titles that are the questions people search, structured data on 55K identity, 1,144 character, set and grade pages; the physical index beside ours where Renaiss lands | Search is where the price guides live; our answer is a realized sale with a receipt, theirs is a listing | Nothing for the SEO pass; Renaiss for the spread |
 | 5 · The whole on-chain market | Beezie's true book, Courtyard's in-app marketplace through partnership, Phygitals secondary, Courtyard mints enriched to cards (per-IP), sports and comics extractors, the One Piece grade-as-name backfill; Monster, Deadstock, rip.fun | Coverage is the moat; a venue's own dashboard shows one venue | Partner feeds, two Dune queries, extractor briefs |
 
