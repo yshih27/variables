@@ -4,7 +4,7 @@ import { Section } from "@/components/Section";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { getVaultValuation, type VaultValuation } from "@/lib/data/vault";
 import { parseWalletAddress } from "@/lib/vault/address";
-import { shortAddress, venuesReadFor } from "@/lib/vault/view";
+import { partialText, shortAddress, venuesReadFor } from "@/lib/vault/view";
 import { VaultDoor } from "@/components/vault/VaultDoor";
 import { VaultHeader } from "@/components/vault/VaultHeader";
 import { VaultKpis } from "@/components/vault/VaultKpis";
@@ -117,7 +117,13 @@ function EmptyVault({ chain, venues: read, partial }: { chain: VaultValuation["c
   // The read's own list when it names one; the chain's registry list otherwise.
   const venues = read.length ? all.filter((x) => read.includes(x.platform)) : all;
   return (
-    <Section title="Holdings" readMe="no slabs from tracked venues in this wallet" subtitle={partial ? "the read stopped early; see below" : undefined}>
+    // ⚠️ "NOTHING HERE" IS ONLY SAID OF A READ THAT FINISHED. A read that stopped
+    // early (a budget, the clock) found nothing *before it stopped*, which is not
+    // the same claim, so the headline changes and the reason is printed.
+    <Section
+      title="Holdings"
+      readMe={partial ? "no slabs found before the read stopped" : "no slabs from tracked venues in this wallet"}
+    >
       <div data-vault-empty>
         <p className="font-mono text-[11.5px] text-ink-3">venues read at this address</p>
         <ul className="mt-2 flex flex-wrap gap-2">
@@ -127,10 +133,8 @@ function EmptyVault({ chain, venues: read, partial }: { chain: VaultValuation["c
             </li>
           ))}
         </ul>
-        <p className="mt-3 font-mono text-[10.5px] text-ink-4">
-          {partial
-            ? `partial · the read stopped (${partial.reason.replace(/-/g, " ")}) before any slab was found`
-            : "a slab held on another venue, or in another wallet, will not show here"}
+        <p className="mt-3 font-mono text-[10.5px] text-ink-4" data-vault-partial={partial ? "" : undefined}>
+          {partial ? partialText(partial) : "a slab held on another venue, or in another wallet, will not show here"}
         </p>
       </div>
     </Section>

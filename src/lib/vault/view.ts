@@ -93,11 +93,17 @@ export function partialText(p: NonNullable<VaultValuation["partial"]>): string {
     case "helius-budget":
       return `partial · stopped at the Solana read budget · ${reached} · totals cover these only`;
     case "rarible-budget":
-      return `partial · stopped at the Polygon and Base read budget · ${reached} · totals cover these only`;
+      return `partial · stopped at the Polygon read budget · ${reached} · totals cover these only`;
+    case "blockscout-budget":
+      return `partial · stopped at the Base read budget · ${reached} · totals cover these only`;
     case "timeout":
       return `partial · the chain read ran past 20 s · ${reached} · totals cover these only`;
     case "cap":
       return `partial · capped at ${reached} · totals cover these only`;
+    case "owner-unverified":
+      return `partial · ownership not confirmed on chain · ${reached} from the index · totals cover these only`;
+    case "incomplete":
+      return `partial · a venue's read did not finish · ${reached} · totals cover these only`;
     default:
       return `partial · ${p.reason.replace(/-/g, " ")} · ${reached} · totals cover these only`;
   }
@@ -108,6 +114,15 @@ export function unkeyedText(reason: string | undefined): string {
   switch (reason) {
     case "courtyard-no-card-row":
       return "Courtyard mints are not matched to cards yet";
+    case "no-name":
+      return "the token carries no card name";
+    case "grade-as-name":
+      return "its name on the venue is a grade, not a card";
+    case "no-set-or-number":
+      return "no set or card number on the token";
+    case "beezie-metadata-cap":
+    case "beezie-metadata-timeout":
+      return "Beezie metadata not read on this look";
     case "no-identity-parts":
       return "its set, number or grade could not be read";
     case "no-metadata":

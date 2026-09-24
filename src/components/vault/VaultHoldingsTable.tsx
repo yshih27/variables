@@ -127,7 +127,7 @@ export function VaultHoldingsTable({ v }: { v: VaultValuation }) {
         </p>
       ) : null}
       <div className="scroll-x">
-        <table className="w-full min-w-[1020px] border-collapse text-left" data-vault-holdings={v.totals.holdings}>
+        <table className="w-full min-w-[960px] border-collapse text-left" data-vault-holdings={v.totals.holdings}>
           <thead>
             <tr className="border-b border-line text-[10.5px] uppercase tracking-[0.07em] text-ink-4">
               <SortTh {...sp("name")} align="left" first>Slab</SortTh>
@@ -187,22 +187,22 @@ function Row({ h }: { h: VaultHolding }) {
               <Link
                 href={h.identity.href}
                 data-identity-link
-                className="block max-w-[300px] truncate text-[12.5px] font-semibold text-ink transition-colors hover:text-yellow"
+                className="block max-w-[240px] truncate text-[12.5px] font-semibold text-ink transition-colors hover:text-yellow"
               >
                 {name}
               </Link>
             ) : (
-              <span className="block max-w-[300px] truncate text-[12.5px] font-semibold text-ink-2">{name}</span>
+              <span className="block max-w-[240px] truncate text-[12.5px] font-semibold text-ink-2">{name}</span>
             )}
             <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 font-mono text-[10.5px] text-ink-4">
               {h.identity ? (
-                <span className="max-w-[300px] truncate">
+                <span className="max-w-[240px] truncate">
                   {[h.set, h.number ? `#${h.number}` : null].filter(Boolean).join(" · ") || "no set on the card"}
                 </span>
               ) : (
                 <>
                   <Chip>no identity yet</Chip>
-                  <span className="max-w-[340px] truncate">{unkeyedText(h.unkeyed)}</span>
+                  <span className="max-w-[280px] truncate">{unkeyedText(h.unkeyed)}</span>
                 </>
               )}
             </span>
