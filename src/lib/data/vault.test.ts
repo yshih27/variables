@@ -119,7 +119,8 @@ test("spread counts only holdings with BOTH a reference and a plausible floor", 
 });
 
 test("yourAsk is THIS token's listing; nothing is dropped; the unkeyed say why", () => {
-  assert.deepEqual(get("czA").yourAsk, { priceUsd: 999, source: "NATIVE" });
+  // 999 against a $110 reference is 9× the price: the holder's own ask is listed, and marked not plausible.
+  assert.deepEqual(get("czA").yourAsk, { priceUsd: 999, source: "NATIVE", plausible: false });
   assert.equal(get("blA").yourAsk, null);
   const cy = get("123");
   assert.equal(cy.identity, null);
