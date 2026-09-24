@@ -56,8 +56,9 @@ export async function sendEmail(input: SendEmailInput): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     // No key → log-only. Loud, so a misconfigured PROD is obvious in the logs.
+    // ⚠️ No address in the line: a log is not a place for PII.
     console.warn(
-      `[email] RESEND_API_KEY not set — NOT sending. to=${input.to} subject="${input.subject}"` +
+      `[email] RESEND_API_KEY not set — NOT sending. subject="${input.subject}"` +
         (input.unsubscribeToken ? ` (List-Unsubscribe set)` : ""),
     );
     return { ok: true, delivered: false };

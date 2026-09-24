@@ -49,7 +49,8 @@
     "test:price": "tsx --test src/lib/api/badge.test.ts",
     "test:names": "tsx --test src/lib/data/traits.test.ts",
     "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts",
-    "send-weekly-report": "tsx scripts/send-weekly-report.ts"
+    "send-weekly-report": "tsx scripts/send-weekly-report.ts",
+    "test:email": "tsx --test src/lib/email/weeklySendLedger.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

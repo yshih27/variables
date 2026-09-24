@@ -18,6 +18,7 @@ import { rateLimitByIp } from "@/lib/api/auth";
 import { subscribeEmail } from "@/lib/subscribe/subscribers";
 import { sendEmail } from "@/lib/email/resend";
 import { confirmationEmail } from "@/lib/email/templates";
+import { SUBSCRIBE_SUCCESS_MESSAGE } from "@/lib/subscribe/messages";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export const dynamic = "force-dynamic";
 // full RFC-5322 regex. Deliverability is enforced by the confirmation step.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Double opt-in: the CTA is "check your email", not "you're on the list".
-const GENERIC_SUCCESS = { ok: true, message: "Almost there — check your email to confirm." };
+const GENERIC_SUCCESS = { ok: true, message: SUBSCRIBE_SUCCESS_MESSAGE };
 
 export async function POST(req: Request) {
   // Throttle first (cheap; shields the DB from a flood).

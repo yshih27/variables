@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { Section } from "./Section";
+import { SUBSCRIBE_SUCCESS_MESSAGE } from "@/lib/subscribe/messages";
 
 /** Client-side shape check only — the API does the authoritative validation. */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -31,6 +32,9 @@ export function SubscribeForm({
   const [website, setWebsite] = useState(""); // honeypot
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+  // What the API said on success. Double opt-in: "check your email", never
+  // "you're on the list" (the reader is not on it until they confirm).
+  const [message, setMessage] = useState(SUBSCRIBE_SUCCESS_MESSAGE);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -59,6 +63,8 @@ export function SubscribeForm({
         body: JSON.stringify({ email: value, source, website }),
       });
       if (!res.ok) throw new Error(String(res.status));
+      const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+      if (typeof body?.message === "string" && body.message.trim()) setMessage(body.message);
       setStatus("success");
     } catch {
       setError("Couldn't sign you up. Please try again.");
@@ -100,7 +106,7 @@ export function SubscribeForm({
 
   const successNode = (
     <p aria-live="polite" className={`font-sans font-medium text-ink ${slim ? "text-[13px]" : "text-[15px]"}`}>
-      <span className="text-yellow">✓</span> You&apos;re on the list.
+      <span className="text-yellow">✓</span> {message}
     </p>
   );
 

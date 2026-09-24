@@ -159,7 +159,12 @@ export async function unsubscribeByToken(token: string): Promise<UnsubscribeResu
   return row ? "unsubscribed" : "not_found";
 }
 
-export type ConfirmedSubscriber = { email: string; unsubscribeToken: string };
+export type ConfirmedSubscriber = {
+  /** The row id — what the weekly send ledger records (never the address). */
+  id: string;
+  email: string;
+  unsubscribeToken: string;
+};
 
 /**
  * All ACTIVE recipients for the weekly broadcast: confirmed AND not unsubscribed.
@@ -171,7 +176,7 @@ export async function listConfirmedSubscribers(): Promise<ConfirmedSubscriber[]>
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db()
       .from("report_subscribers")
-      .select("email, unsubscribe_token")
+      .select("id, email, unsubscribe_token")
       .not("confirmed_at", "is", null)
       .is("unsubscribed_at", null)
       .order("created_at", { ascending: true })
@@ -179,7 +184,7 @@ export async function listConfirmedSubscribers(): Promise<ConfirmedSubscriber[]>
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`[subscribers] list confirmed failed: ${error.message}`);
     const rows = data ?? [];
-    for (const r of rows) out.push({ email: r.email as string, unsubscribeToken: r.unsubscribe_token as string });
+    for (const r of rows) out.push({ id: String(r.id), email: r.email as string, unsubscribeToken: r.unsubscribe_token as string });
     if (rows.length < PAGE) break;
   }
   return out;
