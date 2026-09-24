@@ -40,12 +40,18 @@ export function unsubscribeUrl(token: string): string {
   return `${SITE_ORIGIN}/api/unsubscribe?token=${encodeURIComponent(token)}`;
 }
 
+/** Absolute manage-alerts URL for a manage token (the `/alerts` page). */
+export function manageUrl(token: string): string {
+  return `${SITE_ORIGIN}/alerts?token=${encodeURIComponent(token)}`;
+}
+
 /** Absolute confirmation URL for a token. */
 export function confirmUrl(token: string): string {
   return `${SITE_ORIGIN}/api/confirm?token=${encodeURIComponent(token)}`;
 }
 
-export async function sendEmail(input: SendEmailInput): Promise<SendResult> {
+export async function sendEmail(input: SendEmailInput, deps: { fetchImpl?: typeof fetch } = {}): Promise<SendResult> {
+  const f = deps.fetchImpl ?? fetch;
   const from = process.env.EMAIL_FROM || "Varible <onboarding@resend.dev>";
   const headers: Record<string, string> = {};
   if (input.unsubscribeToken) {
@@ -65,7 +71,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendResult> {
   }
 
   try {
-    const res = await fetch(RESEND_ENDPOINT, {
+    const res = await f(RESEND_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

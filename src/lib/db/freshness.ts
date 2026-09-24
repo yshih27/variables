@@ -116,6 +116,9 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   // Mondays, right after the composer, once RESEND_API_KEY is set. rows = the
   // week's recipients (scripts/send-weekly-report.ts). Untracked until then.
   "weekly-report-send": 7 * DAY_MS,
+  // The alert run (scripts/run-alerts.ts --send), in the 6-hourly core batch
+  // once RESEND_API_KEY is set; rows = events fired. Untracked until then.
+  alerts: 6 * HOUR_MS,
 };
 
 /**

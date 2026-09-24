@@ -69,6 +69,18 @@ export function readFloor(floor: IdentityFloor, lastSaleUsd: number | null = nul
   };
 }
 
+/**
+ * Whether an ask sits inside the page's band of a reference price (the monthly
+ * price, else the last sale). The floor rule above, for ONE ask: the vault's
+ * "your ask" and the alerts' "new listing" both read it, so an aggregator
+ * placeholder is never reported as a real ask anywhere. No reference → false.
+ */
+export function askInBand(askUsd: number, referenceUsd: number | null | undefined): boolean {
+  if (!(askUsd > 0) || referenceUsd == null || !(referenceUsd > 0)) return false;
+  const r = askUsd / referenceUsd;
+  return r >= FLOOR_VS_MONTHLY_MIN && r <= FLOOR_VS_MONTHLY_MAX;
+}
+
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "Jun" — the month a month-end stamp belongs to. */

@@ -22,9 +22,9 @@ function generateToken(): string {
 
 export type SubscribeResult =
   /** A confirmation email should be sent with these tokens (confirm CTA + unsubscribe header). */
-  | { action: "confirm"; confirmToken: string; unsubscribeToken: string }
+  | { action: "confirm"; confirmToken: string; unsubscribeToken: string; subscriberId: string }
   /** Already confirmed + active — no email, no change (idempotent). */
-  | { action: "already_active" };
+  | { action: "already_active"; subscriberId: string; unsubscribeToken: string };
 
 async function reissue(email: string, source: string, confirmToken: string): Promise<void> {
   const { error } = await db()
@@ -47,47 +47,56 @@ export async function subscribeEmail(input: { email: string; source: string }): 
   const { email, source } = input;
   const existing = await db()
     .from("report_subscribers")
-    .select("confirmed_at, unsubscribed_at, unsubscribe_token")
+    .select("id, confirmed_at, unsubscribed_at, unsubscribe_token")
     .eq("email", email)
     .maybeSingle();
   if (existing.error) throw new Error(`[subscribers] lookup failed: ${existing.error.message}`);
 
   const row = existing.data as
-    | { confirmed_at: string | null; unsubscribed_at: string | null; unsubscribe_token: string }
+    | { id: string; confirmed_at: string | null; unsubscribed_at: string | null; unsubscribe_token: string }
     | null;
   if (row && row.confirmed_at && !row.unsubscribed_at) {
-    return { action: "already_active" }; // already subscribed — send nothing
+    return { action: "already_active", subscriberId: String(row.id), unsubscribeToken: row.unsubscribe_token }; // already subscribed — send nothing
   }
 
   const confirmToken = generateToken();
   if (!row) {
     const unsubscribeToken = generateToken();
-    const { error } = await db().from("report_subscribers").insert({
-      email,
-      source,
-      unsubscribe_token: unsubscribeToken,
-      confirm_token: confirmToken,
-      confirmed_at: null,
-      unsubscribed_at: null,
-    });
-    if (!error) return { action: "confirm", confirmToken, unsubscribeToken };
+    const { data: inserted, error } = await db()
+      .from("report_subscribers")
+      .insert({
+        email,
+        source,
+        unsubscribe_token: unsubscribeToken,
+        confirm_token: confirmToken,
+        confirmed_at: null,
+        unsubscribed_at: null,
+      })
+      .select("id")
+      .maybeSingle();
+    if (!error) return { action: "confirm", confirmToken, unsubscribeToken, subscriberId: String(inserted?.id) };
     if (error.code !== "23505") throw new Error(`[subscribers] insert failed: ${error.message}`);
     // race: someone inserted between our read and write → re-read its token + update.
     // Must NOT fall back to our unsubscribeToken — it was never persisted, so an
     // email built with it would carry a dead unsubscribe link.
     const reread = await db()
       .from("report_subscribers")
-      .select("unsubscribe_token")
+      .select("id, unsubscribe_token")
       .eq("email", email)
       .maybeSingle();
     if (reread.error) throw new Error(`[subscribers] race re-read failed: ${reread.error.message}`);
     await reissue(email, source, confirmToken);
-    return { action: "confirm", confirmToken, unsubscribeToken: (reread.data?.unsubscribe_token as string) ?? unsubscribeToken };
+    return {
+      action: "confirm",
+      confirmToken,
+      unsubscribeToken: (reread.data?.unsubscribe_token as string) ?? unsubscribeToken,
+      subscriberId: String(reread.data?.id),
+    };
   }
 
   // Existing pending / unsubscribed → re-issue confirmation, keep its unsubscribe_token.
   await reissue(email, source, confirmToken);
-  return { action: "confirm", confirmToken, unsubscribeToken: row.unsubscribe_token };
+  return { action: "confirm", confirmToken, unsubscribeToken: row.unsubscribe_token, subscriberId: String(row.id) };
 }
 
 export type ConfirmResult = "confirmed" | "already_confirmed" | "not_found";
@@ -148,7 +157,13 @@ export async function unsubscribeByToken(token: string): Promise<UnsubscribeResu
     .is("unsubscribed_at", null)
     .select("id");
   if (error) throw new Error(`[subscribers] unsubscribe failed: ${error.message}`);
-  if (data && data.length > 0) return "unsubscribed";
+  if (data && data.length > 0) {
+    // The watches go with the reader, in the same call: paused here (mark mode);
+    // in delete mode the foreign keys cascade them away with the row.
+    const { pauseAllWatches } = await import("../alerts/store");
+    await pauseAllWatches(String(data[0].id));
+    return "unsubscribed";
+  }
 
   const { data: row, error: selErr } = await db()
     .from("report_subscribers")
@@ -186,6 +201,104 @@ export async function listConfirmedSubscribers(): Promise<ConfirmedSubscriber[]>
     const rows = data ?? [];
     for (const r of rows) out.push({ id: String(r.id), email: r.email as string, unsubscribeToken: r.unsubscribe_token as string });
     if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+// ── alerts: the manage token and the recipients (bet 3) ──────────────────────
+
+/** Where a manage token is read and written — the seam the idempotency test drives. */
+export type ManageTokenRepo = {
+  get(subscriberId: string): Promise<string | null>;
+  /** Set the token ONLY if the row has none; true when this call set it. */
+  setIfAbsent(subscriberId: string, token: string): Promise<boolean>;
+};
+
+/**
+ * The reader's manage token: issued on their first watch, then the same one
+ * forever (a link in an old email keeps working). Idempotent and race-safe:
+ * two concurrent first watches both write-if-absent, one wins, both return it.
+ */
+export async function issueManageToken(repo: ManageTokenRepo, subscriberId: string, mint: () => string = generateToken): Promise<string> {
+  const have = await repo.get(subscriberId);
+  if (have) return have;
+  const token = mint();
+  if (await repo.setIfAbsent(subscriberId, token)) return token;
+  const won = await repo.get(subscriberId);
+  if (!won) throw new Error("[subscribers] manage token neither set nor readable");
+  return won;
+}
+
+const manageTokenRepo: ManageTokenRepo = {
+  async get(id) {
+    const { data, error } = await db().from("report_subscribers").select("manage_token").eq("id", id).maybeSingle();
+    if (error) throw new Error(`[subscribers] manage token read failed: ${error.message}`);
+    return (data?.manage_token as string | null) ?? null;
+  },
+  async setIfAbsent(id, token) {
+    const { data, error } = await db()
+      .from("report_subscribers")
+      .update({ manage_token: token })
+      .eq("id", id)
+      .is("manage_token", null)
+      .select("id");
+    if (error) throw new Error(`[subscribers] manage token write failed: ${error.message}`);
+    return !!data?.length;
+  },
+};
+
+export function ensureManageToken(subscriberId: string): Promise<string> {
+  return issueManageToken(manageTokenRepo, subscriberId);
+}
+
+export type ManagedSubscriber = { id: string; unsubscribeToken: string; active: boolean };
+
+/** The reader a manage token belongs to, or null. Never returns the address. */
+export async function subscriberByManageToken(token: string): Promise<ManagedSubscriber | null> {
+  if (!token || token.length < 32) return null;
+  const { data, error } = await db()
+    .from("report_subscribers")
+    .select("id, unsubscribe_token, confirmed_at, unsubscribed_at")
+    .eq("manage_token", token)
+    .maybeSingle();
+  if (error) throw new Error(`[subscribers] manage lookup failed: ${error.message}`);
+  if (!data) return null;
+  return { id: String(data.id), unsubscribeToken: data.unsubscribe_token as string, active: !!data.confirmed_at && !data.unsubscribed_at };
+}
+
+/** The subscriber a confirm token belongs to (after `confirmSubscriber`) — the
+ *  confirm route's alert hand-off. The address stays inside the route. */
+export async function subscriberByConfirmToken(token: string): Promise<{ id: string; email: string; unsubscribeToken: string } | null> {
+  const { data, error } = await db().from("report_subscribers").select("id, email, unsubscribe_token").eq("confirm_token", token).maybeSingle();
+  if (error) throw new Error(`[subscribers] confirm-token lookup failed: ${error.message}`);
+  return data ? { id: String(data.id), email: data.email as string, unsubscribeToken: data.unsubscribe_token as string } : null;
+}
+
+export type AlertRecipient = { subscriberId: string; email: string; unsubscribeToken: string; manageToken: string | null };
+
+/**
+ * Alert recipients among `ids`: CONFIRMED and NOT unsubscribed only, so a
+ * watch stored before its reader confirmed stays silent until they do.
+ * Chunked like every IN() read here.
+ */
+export async function listAlertRecipients(ids: string[]): Promise<Map<string, AlertRecipient>> {
+  const out = new Map<string, AlertRecipient>();
+  const uniq = [...new Set(ids)];
+  for (let i = 0; i < uniq.length; i += 300) {
+    const { data, error } = await db()
+      .from("report_subscribers")
+      .select("id, email, unsubscribe_token, manage_token")
+      .in("id", uniq.slice(i, i + 300))
+      .not("confirmed_at", "is", null)
+      .is("unsubscribed_at", null);
+    if (error) throw new Error(`[subscribers] alert recipients read failed: ${error.message}`);
+    for (const r of data ?? [])
+      out.set(String(r.id), {
+        subscriberId: String(r.id),
+        email: r.email as string,
+        unsubscribeToken: r.unsubscribe_token as string,
+        manageToken: (r.manage_token as string | null) ?? null,
+      });
   }
   return out;
 }

@@ -39,7 +39,7 @@ import { enumerateHoldings, VAULT_LIMITS, type HoldingsResult, type RawHolding }
 import { readCardRowsByIds, cardRowFromMeta, type CardIdentityRow } from "./cards";
 import { extractCardIdentity, identityKey, identityKeyRefusal, parseIdentityKey } from "./traits";
 import { identitySlug, identityHref, identityDisplayName } from "@/lib/card/identity";
-import { FLOOR_VS_MONTHLY_MIN, FLOOR_VS_MONTHLY_MAX } from "@/lib/card/identityView";
+import { askInBand } from "@/lib/card/identityView";
 import { cardHref, PLATFORM_META, type CardPlatform } from "@/lib/card/ids";
 import { setDisplayName, normalizeSetName } from "@/lib/card/setName";
 import { canonicalGrade } from "./gradePremium";
@@ -224,7 +224,7 @@ export function priceHoldings(resolved: ResolvedHolding[], valuations: Map<strin
         ? {
             priceUsd: ask.priceUsd,
             source: ask.source,
-            plausible: ref != null && ref > 0 && ask.priceUsd / ref >= FLOOR_VS_MONTHLY_MIN && ask.priceUsd / ref <= FLOOR_VS_MONTHLY_MAX,
+            plausible: askInBand(ask.priceUsd, ref),
           }
         : null;
     const v = r.identity ? valuations.get(r.identity.key) : undefined;

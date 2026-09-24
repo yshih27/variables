@@ -53,6 +53,11 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'core')
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    # Lifted to job env so the alert step can test it (Actions forbids secrets in
+    # a step `if:`). Empty until the sending domain is verified.
+    env:
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -69,6 +74,18 @@ jobs:
       - name: Core volume (cached Dune + Rarible)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts --cached
+      # Alerts: after the listings (floors, new asks) and the core feed (the
+      # secondary-sales store's clears) are fresh. One digest per reader per run;
+      # dedupe by fingerprint makes a re-dispatch safe. A no-op until
+      # RESEND_API_KEY exists; Telegram joins when its three secrets do.
+      - name: Alerts (watches → digests)
+        if: env.RESEND_API_KEY != ''
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_BOT_USERNAME: ${{ secrets.TELEGRAM_BOT_USERNAME }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+        run: npx tsx scripts/run-alerts.ts --send
       - name: Courtyard primary
         continue-on-error: true
         run: npx tsx scripts/warm-courtyard-primary.ts

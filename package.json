@@ -50,7 +50,9 @@
     "test:names": "tsx --test src/lib/data/traits.test.ts",
     "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts",
     "send-weekly-report": "tsx scripts/send-weekly-report.ts",
-    "test:email": "tsx --test src/lib/email/weeklySendLedger.test.ts"
+    "test:email": "tsx --test src/lib/email/weeklySendLedger.test.ts",
+    "run-alerts": "tsx scripts/run-alerts.ts",
+    "test:alerts": "tsx --test src/lib/alerts/signals.test.ts src/lib/alerts/run.test.ts src/lib/alerts/render.test.ts src/lib/alerts/api.test.ts src/lib/notify/notify.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",
