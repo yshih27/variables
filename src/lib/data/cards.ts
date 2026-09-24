@@ -429,3 +429,67 @@ export async function readCards(
   }
   return out;
 }
+
+/** A `cards` row with the columns the identity is derived from, and the
+ *  derived identity columns themselves (null before the backfill reaches it). */
+export type CardIdentityRow = {
+  tokenId: string;
+  name: string | null;
+  cardName: string | null;
+  ip: string;
+  set: string | null;
+  gradeLabel: string | null;
+  year: number | null;
+  cardNumber: string | null;
+  image: string | null;
+  identityKey: string | null;
+  identitySlug: string | null;
+};
+
+/**
+ * Rows for many tokenIds of one platform, WITH the derived identity columns
+ * (`identity_key` / `identity_slug`, migration 20260914) and the source columns
+ * the backfill derives them from — the vault's join. Chunked like `readCards`.
+ *
+ * ⚠️ DEGRADES WHEN THE COLUMNS ARE ABSENT. Selecting a column PostgREST does
+ * not know fails the whole request; on that error the chunk is re-read without
+ * them and every row comes back with null identity columns, so the caller
+ * derives instead (the same answer, from the same extractor).
+ */
+export async function readCardRowsByIds(platform: CardPlatform, tokenIds: string[]): Promise<Map<string, CardIdentityRow>> {
+  const out = new Map<string, CardIdentityRow>();
+  const ids = [...new Set(tokenIds)].filter(Boolean);
+  const base = "token_id,name,card_name,ip_key,set_name,grade_label,year,card_number,image";
+  const CHUNK = 300;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    let res: { data: unknown[] | null; error: { message: string } | null } = await db()
+      .from("cards")
+      .select(`${base},identity_key,identity_slug`)
+      .eq("platform", platform)
+      .in("token_id", slice);
+    if (res.error && /identity_key|identity_slug/.test(res.error.message)) {
+      res = await db().from("cards").select(base).eq("platform", platform).in("token_id", slice);
+    }
+    if (res.error) {
+      console.warn(`[cards] identity-row read failed: ${res.error.message}`);
+      continue;
+    }
+    for (const r of (res.data ?? []) as unknown as Record<string, unknown>[]) {
+      out.set(r.token_id as string, {
+        tokenId: r.token_id as string,
+        name: (r.name as string | null) ?? null,
+        cardName: (r.card_name as string | null) ?? null,
+        ip: (r.ip_key as string | null) ?? "other",
+        set: (r.set_name as string | null) ?? null,
+        gradeLabel: (r.grade_label as string | null) ?? null,
+        year: (r.year as number | null) ?? null,
+        cardNumber: (r.card_number as string | null) ?? null,
+        image: (r.image as string | null) ?? null,
+        identityKey: (r.identity_key as string | null | undefined) ?? null,
+        identitySlug: (r.identity_slug as string | null | undefined) ?? null,
+      });
+    }
+  }
+  return out;
+}

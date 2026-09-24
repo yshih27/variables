@@ -27,12 +27,20 @@ function apiKey(): string {
  */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-async function fetchWithRetry(url: string, init: RequestInit, path: string): Promise<Response> {
+/**
+ * Per-call overrides for a caller on a request path. The defaults (5 attempts,
+ * 30 s each, backoff to 8 s) suit a warmer; a page that has promised an answer
+ * inside a wall clock cannot spend 2.5 minutes on one retried request.
+ */
+export type RaribleCallOpts = { maxAttempts?: number; timeoutMs?: number };
+
+async function fetchWithRetry(url: string, init: RequestInit, path: string, opts: RaribleCallOpts = {}): Promise<Response> {
   let attempt = 0;
-  const maxAttempts = 5;
+  const maxAttempts = opts.maxAttempts ?? 5;
+  const timeoutMs = opts.timeoutMs ?? REQUEST_TIMEOUT_MS;
   while (true) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const res = await fetch(url, { ...init, signal: ctrl.signal });
       clearTimeout(timer);
@@ -58,7 +66,7 @@ async function fetchWithRetry(url: string, init: RequestInit, path: string): Pro
         );
       if (!isTransient || attempt >= maxAttempts - 1) {
         throw isTimeout
-          ? new RaribleError(408, `request exceeded ${REQUEST_TIMEOUT_MS}ms`, path)
+          ? new RaribleError(408, `request exceeded ${timeoutMs}ms`, path)
           : err;
       }
       await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
@@ -103,6 +111,26 @@ export async function raribleGetBatch<T>(
     url.toString(),
     { headers: { "x-api-key": apiKey() }, cache: "no-store" },
     path,
+  );
+  if (!res.ok) throw new RaribleError(res.status, await res.text(), path);
+  return (await res.json()) as T;
+}
+
+/**
+ * POST with a JSON body (the `/items/search` family, whose filters do not fit a
+ * query string). Same key, same retry, same error type as `raribleGet`.
+ */
+export async function rariblePost<T>(path: string, body: unknown, opts: RaribleCallOpts = {}): Promise<T> {
+  const res = await fetchWithRetry(
+    `${BASE_URL}${path}`,
+    {
+      method: "POST",
+      headers: { "x-api-key": apiKey(), "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    },
+    path,
+    opts,
   );
   if (!res.ok) throw new RaribleError(res.status, await res.text(), path);
   return (await res.json()) as T;

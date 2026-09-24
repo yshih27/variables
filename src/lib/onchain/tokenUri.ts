@@ -5,7 +5,8 @@
 
 const SELECTOR_TOKEN_URI = "c87b56dd";
 
-const RPCS: Record<"polygon" | "base", string[]> = {
+/** Public JSON-RPC endpoints per chain, tried in order. Shared with ownerOf.ts. */
+export const RPCS: Record<"polygon" | "base", string[]> = {
   polygon: [
     "https://polygon-bor-rpc.publicnode.com",
     "https://polygon.drpc.org",

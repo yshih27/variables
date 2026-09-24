@@ -27,7 +27,7 @@
  * slug index keeps the old forms it cannot 301), and it gets the SAME payload
  * with `canonical: false` and `canonicalSlug` naming the card's one URL.
  */
-import { getIdentityDetail } from "./identityDetail";
+import { getIdentityDetail, type IdentityMonthly, type IdentitySale, type IdentityFloor } from "./identityDetail";
 import { parseIdentityKey } from "./traits";
 import { identitySlug, identityHref } from "@/lib/card/identity";
 import { identityName, readFloor, latestCompleteMonthly } from "@/lib/card/identityView";
@@ -90,6 +90,47 @@ const saleRef = (s: { ts: string; priceUsd: number; platform: string; tokenId: s
 });
 
 /**
+ * The three priced fields — `price`, `lastSale`, `floor` — from an identity's
+ * monthly series, sales and floor. ONE function behind the reference price
+ * and every vault line, so a holding is valued at exactly what
+ * `/api/public/price/<slug>` prints, to the cent.
+ */
+export function priceFieldsOf(v: {
+  monthly: IdentityMonthly[];
+  sales: IdentitySale[];
+  floor: IdentityFloor;
+}): Pick<ReferencePrice, "price" | "lastSale" | "floor"> & { sorted: IdentitySale[] } {
+  const monthly = latestCompleteMonthly(v.monthly);
+  const sorted = [...v.sales].sort((a, b) => b.ts.localeCompare(a.ts));
+  const last = sorted[0] ?? null;
+  const floorRead = readFloor(v.floor, last?.priceUsd ?? null);
+  return {
+    price: monthly
+      ? {
+          month: monthly.ts.slice(0, 7),
+          priceUsd: monthly.value,
+          n: monthly.n,
+          // A price built from exactly the minimum number of sales is a price,
+          // and it is the thinnest one we publish. Saying so is the difference
+          // between a figure and a figure with its own error bar.
+          thin: monthly.n <= MIN_SALES_PER_IDENTITY,
+        }
+      : null,
+    lastSale: last ? saleRef(last) : null,
+    floor:
+      v.floor && floorRead
+        ? {
+            priceUsd: v.floor.priceUsd,
+            venue: v.floor.platform,
+            plausible: floorRead.headline,
+            reference: floorRead.reference,
+          }
+        : null,
+    sorted,
+  };
+}
+
+/**
  * The payload for one identity slug, or null when the slug names no identity.
  *
  * Adds no read of its own: `getIdentityDetail` is the cached reader every
@@ -105,10 +146,7 @@ export async function getReferencePrice(rawSlug: string): Promise<ReferencePrice
   const pk = parseIdentityKey(detail.key);
   const canonicalSlug = (pk ? identitySlug(pk.ip, pk.parts) : null) ?? detail.slug;
 
-  const monthly = latestCompleteMonthly(detail.monthly);
-  const sales = [...detail.sales].sort((a, b) => b.ts.localeCompare(a.ts));
-  const last = sales[0] ?? null;
-  const floorRead = readFloor(detail.floor, last?.priceUsd ?? null);
+  const { price, lastSale, floor, sorted: sales } = priceFieldsOf(detail);
 
   return {
     slug: detail.slug,
@@ -123,27 +161,9 @@ export async function getReferencePrice(rawSlug: string): Promise<ReferencePrice
     grade: detail.parts.grade,
     edition: detail.parts.edition,
     language: detail.parts.language,
-    price: monthly
-      ? {
-          month: monthly.ts.slice(0, 7),
-          priceUsd: monthly.value,
-          n: monthly.n,
-          // A price built from exactly the minimum number of sales is a price,
-          // and it is the thinnest one we publish. Saying so is the difference
-          // between a figure and a figure with its own error bar.
-          thin: monthly.n <= MIN_SALES_PER_IDENTITY,
-        }
-      : null,
-    lastSale: last ? saleRef(last) : null,
-    floor:
-      detail.floor && floorRead
-        ? {
-            priceUsd: detail.floor.priceUsd,
-            venue: detail.floor.platform,
-            plausible: floorRead.headline,
-            reference: floorRead.reference,
-          }
-        : null,
+    price,
+    lastSale,
+    floor,
     receipts: sales.slice(0, RECEIPT_SALES).map(saleRef),
     slabs: detail.tokens.length,
     method: PRICE_METHOD,
