@@ -184,11 +184,22 @@ const PANEL_TTL_MS = 30 * 60_000;
  */
 async function loadPanel(): Promise<SaleRow[]> {
   const snap = await readSalePanel();
-  if (snap) return snap.rows;
+  if (snap) {
+    panelStamp = { rows: snap.rows, generatedAt: snap.generatedAt };
+    return snap.rows;
+  }
   console.warn(
     "[identity] no sale-panel snapshot — building the panel on the request path (90–220 s). Run warm-sale-panel.",
   );
-  return buildSalePanel();
+  const rows = await buildSalePanel();
+  panelStamp = { rows, generatedAt: new Date().toISOString() };
+  return rows;
+}
+/** When the panel in the memo was built — the `asOf` of anything priced from it. */
+let panelStamp: { rows: SaleRow[]; generatedAt: string } | null = null;
+export async function cachedPanelAsOf(): Promise<{ rows: SaleRow[]; generatedAt: string }> {
+  const rows = await cachedPanel();
+  return { rows, generatedAt: panelStamp?.rows === rows ? panelStamp.generatedAt : new Date().toISOString() };
 }
 /**
  * ⚠️ AN IN-PROCESS MEMO, NOT `unstable_cache`. The inflated panel is ~5.3 MB and
@@ -543,11 +554,6 @@ export function pickCanonicalKey(keys: string[], salesOf: (key: string) => numbe
   return [...keys].sort((a, b) => salesOf(b) - salesOf(a) || slabsOf(b) - slabsOf(a) || a.localeCompare(b))[0];
 }
 
-function canonicalKey(keys: string[], panel: SaleRow[], idx: SlugIndex): string {
-  const sales = new Map<string, number>();
-  for (const r of panel) if (r.identity && keys.includes(r.identity)) sales.set(r.identity, (sales.get(r.identity) ?? 0) + 1);
-  return pickCanonicalKey(keys, (k) => sales.get(k) ?? 0, (k) => idx.slabsByKey.get(k)?.length ?? 0);
-}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -627,6 +633,171 @@ export function cachedListingIndex(): Promise<ListingIndex> {
   return listingsMemo.p;
 }
 
+// ── the per-identity price: ONE rule for the page and the vault ─────────────
+
+/**
+ * What an identity is worth, and on what evidence — the pieces of the identity
+ * page that PRICE the card, factored out so the page and the vault cannot
+ * disagree: the canonical key, its sales, its monthly price (latest complete
+ * month = the Varible price), and the floor with `vsMonthly` + `coverage`.
+ *
+ * `slabs` is every slab of the group in the PAGE's token order (last sale
+ * newest first, then venue, then token id) with its last sale and live ask,
+ * because the floor's tie-break between two equal asks is that order.
+ */
+export type IdentityValuation = {
+  /** The canonical key — the page's `key`. */
+  key: string;
+  /** The group this was valued over (the slug's keys), sorted. */
+  keys: string[];
+  /** The canonical key's panel rows, oldest first (the page's `mine`). */
+  rows: SaleRow[];
+  sales: IdentitySale[];
+  monthly: IdentityMonthly[];
+  floor: IdentityFloor;
+  slabs: { platform: CardPlatform; tokenId: string; lastSale: { ts: string; priceUsd: number } | null; listing: ListingEntry | null }[];
+};
+
+export type ValuationInputs = {
+  panel: SaleRow[];
+  slabsByKey: Map<string, { platform: CardPlatform; tokenId: string }[]>;
+  listings: ListingIndex;
+  /** The clock that decides which month is still running. */
+  now?: number;
+};
+
+/**
+ * Value many identity GROUPS in one walk of the panel. A group is the key set
+ * one slug resolves to (usually one key; a name that slugs two ways is two).
+ * Pure over its inputs — the unit tests run it on a fixture panel.
+ *
+ * ⚠️ THIS IS `buildDetail`'s CODE, MOVED, NOT A SECOND COPY. `buildDetail`
+ * calls it with the page's one group; the vault calls it through
+ * `valueIdentities` with every holding's group. Same canonical-key rule
+ * (`pickCanonicalKey`), same `monthlyIdentityPrices`, same floor, same order.
+ */
+export function valueIdentityGroups(groups: string[][], inp: ValuationInputs): IdentityValuation[] {
+  const norm = groups.map((g) => [...new Set(g)].sort());
+  const want = new Set(norm.flat());
+  // ONE walk: every wanted key's rows, and every token's last sale per key.
+  const rowsByKey = new Map<string, SaleRow[]>();
+  const lastByKeyToken = new Map<string, Map<string, { ts: string; priceUsd: number }>>();
+  for (const r of inp.panel) {
+    const id = r.identity;
+    if (!id || !want.has(id)) continue;
+    const rows = rowsByKey.get(id);
+    if (rows) rows.push(r);
+    else rowsByKey.set(id, [r]);
+    let last = lastByKeyToken.get(id);
+    if (!last) lastByKeyToken.set(id, (last = new Map()));
+    const k = `${r.platform}:${r.tokenId}`;
+    const cur = last.get(k);
+    if (!cur || r.ts > cur.ts) last.set(k, { ts: r.ts, priceUsd: r.priceUsd });
+  }
+  const runningMonth = monthStartUtc(inp.now ?? Date.now());
+
+  return norm.map((keys) => {
+    const key = pickCanonicalKey(keys, (k) => rowsByKey.get(k)?.length ?? 0, (k) => inp.slabsByKey.get(k)?.length ?? 0);
+    const mine = [...(rowsByKey.get(key) ?? [])].sort((a, b) => a.ts.localeCompare(b.ts));
+    const sales: IdentitySale[] = mine.map((r) => ({ ts: r.ts, priceUsd: r.priceUsd, platform: r.platform, tokenId: r.tokenId }));
+
+    // The identity's own monthly price — the index's per-identity median.
+    const mp = monthlyIdentityPrices(mine);
+    const monthly: IdentityMonthly[] = [...mp]
+      .map(([m, byId]) => ({ m, v: byId.get(key) }))
+      .filter((x): x is { m: string; v: { price: number; n: number } } => !!x.v)
+      .map(({ m, v }) => ({ ts: monthEndUtc(Date.parse(m)), value: v.price, n: v.n, partial: m === runningMonth }))
+      .sort((a, b) => a.ts.localeCompare(b.ts));
+    const latestCompleteMonthly = [...monthly].reverse().find((m) => !m.partial) ?? null;
+
+    // Slabs — the union across fragments; a slab is a slab.
+    const lastSaleOf = (platform: string, tokenId: string) => {
+      let best: { ts: string; priceUsd: number } | null = null;
+      for (const k of keys) {
+        const hit = lastByKeyToken.get(k)?.get(`${platform}:${tokenId}`);
+        if (hit && (!best || hit.ts > best.ts)) best = hit;
+      }
+      return best;
+    };
+    const slabs = keys
+      .flatMap((k) => inp.slabsByKey.get(k) ?? [])
+      .map((s) => ({
+        platform: s.platform,
+        tokenId: s.tokenId,
+        lastSale: lastSaleOf(s.platform, s.tokenId),
+        listing: inp.listings.get(`${s.platform}:${s.tokenId}`) ?? null,
+      }))
+      .sort((a, b) => (b.lastSale?.ts ?? "").localeCompare(a.lastSale?.ts ?? "") || a.platform.localeCompare(b.platform) || a.tokenId.localeCompare(b.tokenId));
+
+    // Floor — lowest live listing, with coverage stated per venue present.
+    const listed = slabs.filter((t) => t.listing && t.listing.priceUsd > 0);
+    const venuesPresent = [...new Set(slabs.map((t) => t.platform))];
+    const floor: IdentityFloor = listed.length
+      ? (() => {
+          const best = listed.reduce((a, b) => (b.listing!.priceUsd < a.listing!.priceUsd ? b : a));
+          return {
+            priceUsd: best.listing!.priceUsd,
+            platform: best.listing!.platform,
+            vsMonthly: latestCompleteMonthly && latestCompleteMonthly.value > 0 ? best.listing!.priceUsd / latestCompleteMonthly.value : null,
+            coverage: venuesPresent.map((p) => ({ platform: p, source: IDENTITY_LISTING_SOURCE[p] ?? "aggregator" })),
+          };
+        })()
+      : null;
+
+    return { key, keys, rows: mine, sales, monthly, floor, slabs };
+  });
+}
+
+/**
+ * The slug a key's page lives at, and the key set that page resolves — the
+ * group `valueIdentities` prices a key over, so a vault line is the price the
+ * page at `slug` prints. A key the index does not know (a slab newer than the
+ * last warm) is its own group.
+ */
+function groupOf(key: string, idx: SlugIndex): { slug: string | null; keys: string[] } {
+  const slug = slugOfKeyMemo(key);
+  const keys = slug ? idx.bySlug.get(slug) : undefined;
+  return { slug, keys: keys?.length ? keys : [key] };
+}
+
+/**
+ * Value many identity keys in ONE walk of the cached panel — the vault's door.
+ * Each key is valued over the key set its canonical slug resolves to, exactly
+ * as the identity page at that slug is, so the two agree to the cent. Keyed by
+ * the input key; a key that does not parse is absent.
+ */
+export async function valueIdentities(keys: string[]): Promise<Map<string, IdentityValuation & { slug: string | null }>> {
+  const out = new Map<string, IdentityValuation & { slug: string | null }>();
+  const uniq = [...new Set(keys)].filter((k) => parseIdentityKey(k));
+  if (!uniq.length) return out;
+  const panel = await cachedPanel();
+  const [idx, listings] = await Promise.all([slugIndex(panel), cachedListingIndex()]);
+  const groups = uniq.map((k) => groupOf(k, idx));
+  // Two holdings of one card are one group; value it once.
+  const byGroup = new Map<string, number>();
+  const distinct: string[][] = [];
+  const slot = groups.map((g) => {
+    const id = [...new Set(g.keys)].sort().join("\n");
+    let i = byGroup.get(id);
+    if (i === undefined) {
+      byGroup.set(id, (i = distinct.length));
+      distinct.push(g.keys);
+    }
+    return i;
+  });
+  const valued = valueIdentityGroups(distinct, { panel, slabsByKey: idx.slabsByKey, listings });
+  uniq.forEach((k, i) => out.set(k, { ...valued[slot[i]], slug: groups[i].slug }));
+  return out;
+}
+
+/** Whether the current index knows a key (the column-staleness guard's test). */
+export async function identityKeyKnown(key: string): Promise<boolean> {
+  const idx = await slugIndex(await cachedPanel());
+  if (idx.slabsByKey.has(key)) return true;
+  const slug = slugOfKeyMemo(key);
+  return !!slug && (idx.bySlug.get(slug)?.includes(key) ?? false);
+}
+
 async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], via: "panel" | "column"): Promise<IdentityDetail | null> {
   if (!rawKeys.length) return null;
   // Deterministic input order: the panel path and the column path hand over the
@@ -634,35 +805,25 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
   // keys (tokens, fragments) must not let that order leak into the output.
   const keys = [...new Set(rawKeys)].sort();
   const idx = await slugIndex(panel);
-  const key = canonicalKey(keys, panel, idx);
+  const listingIdx = await cachedListingIndex();
+  // The price — canonical key, sales, monthly, floor — from the one rule the
+  // vault shares (valueIdentityGroups).
+  const [valuation] = valueIdentityGroups([keys], { panel, slabsByKey: idx.slabsByKey, listings: listingIdx });
+  const key = valuation.key;
   const pk = parseIdentityKey(key);
   if (!pk) return null;
 
-  const mine = panel.filter((r) => r.identity === key).sort((a, b) => a.ts.localeCompare(b.ts));
-  const sales: IdentitySale[] = mine.map((r) => ({ ts: r.ts, priceUsd: r.priceUsd, platform: r.platform, tokenId: r.tokenId }));
-
-  // The identity's own monthly price — the index's per-identity median.
+  const mine = valuation.rows;
+  const sales = valuation.sales;
   const mp = monthlyIdentityPrices(mine);
   const runningMonth = monthStartUtc(Date.now());
-  const monthly: IdentityMonthly[] = [...mp]
-    .map(([m, byId]) => ({ m, v: byId.get(key) }))
-    .filter((x): x is { m: string; v: { price: number; n: number } } => !!x.v)
-    .map(({ m, v }) => ({ ts: monthEndUtc(Date.parse(m)), value: v.price, n: v.n, partial: m === runningMonth }))
-    .sort((a, b) => a.ts.localeCompare(b.ts));
-  const latestCompleteMonthly = [...monthly].reverse().find((m) => !m.partial) ?? null;
+  const monthly = valuation.monthly;
 
   // Tokens — the union across fragments; a slab is a slab.
   const slabRefs = keys.flatMap((k) => idx.slabsByKey.get(k) ?? []);
   const byPlatform = new Map<CardPlatform, string[]>();
   for (const s of slabRefs) (byPlatform.get(s.platform) ?? byPlatform.set(s.platform, []).get(s.platform)!).push(s.tokenId);
-  const listingIdx = await cachedListingIndex();
-  const lastSaleByToken = new Map<string, { ts: string; priceUsd: number }>();
-  for (const r of panel) {
-    if (!keys.includes(r.identity ?? "")) continue;
-    const k = `${r.platform}:${r.tokenId}`;
-    const cur = lastSaleByToken.get(k);
-    if (!cur || r.ts > cur.ts) lastSaleByToken.set(k, { ts: r.ts, priceUsd: r.priceUsd });
-  }
+  const lastSaleByToken = new Map(valuation.slabs.map((s) => [`${s.platform}:${s.tokenId}`, s.lastSale] as const));
   const tokens: IdentityToken[] = [];
   for (const [platform, ids] of byPlatform) {
     const meta = await readCards(platform, ids).catch(() => new Map());
@@ -682,20 +843,11 @@ async function buildDetail(slug: string, rawKeys: string[], panel: SaleRow[], vi
   }
   tokens.sort((a, b) => (b.lastSale?.ts ?? "").localeCompare(a.lastSale?.ts ?? "") || a.platform.localeCompare(b.platform) || a.tokenId.localeCompare(b.tokenId));
 
-  // Floor — lowest live listing, with coverage stated per venue present.
+  // Floor — from the shared valuation; `listed` / `venuesPresent` still feed
+  // the venue table below.
   const listed = tokens.filter((t) => t.listing && t.listing.priceUsd > 0);
   const venuesPresent = [...new Set(tokens.map((t) => t.platform))];
-  const floor: IdentityFloor = listed.length
-    ? (() => {
-        const best = listed.reduce((a, b) => (b.listing!.priceUsd < a.listing!.priceUsd ? b : a));
-        return {
-          priceUsd: best.listing!.priceUsd,
-          platform: best.listing!.platform,
-          vsMonthly: latestCompleteMonthly && latestCompleteMonthly.value > 0 ? best.listing!.priceUsd / latestCompleteMonthly.value : null,
-          coverage: venuesPresent.map((p) => ({ platform: p, source: IDENTITY_LISTING_SOURCE[p] ?? "aggregator" })),
-        };
-      })()
-    : null;
+  const floor: IdentityFloor = valuation.floor;
 
   // Venues — 30d sales/volume, live listings, share of 30d sales.
   const d30 = Date.now() - 30 * 86_400_000;

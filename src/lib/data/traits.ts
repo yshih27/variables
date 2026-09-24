@@ -230,6 +230,19 @@ export function identityKey(ip: string, p: CardIdentityParts): string | null {
 }
 
 /**
+ * WHY `identityKey` refused a row — null when it did not. Beside the rule so
+ * the two cannot drift: the same three checks, in the same order. Surfaces
+ * that list an unkeyed item (the vault) say which one, rather than "unkeyed".
+ */
+export function identityKeyRefusal(p: CardIdentityParts): "no-name" | "grade-as-name" | "no-set-or-number" | null {
+  if (!p.cardName) return "no-name";
+  if (startsWithGradeLabel(p.cardName)) return "grade-as-name";
+  const c = canonicalIdentityParts(p);
+  if (!c.setKey && !c.number) return "no-set-or-number";
+  return null;
+}
+
+/**
  * The v4.1 identity key — RAW set string, RAW number, name-only language.
  *
  * ⚠️ FROZEN. It exists for exactly one purpose: the shadow build
