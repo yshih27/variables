@@ -8,7 +8,36 @@
  * GET is fine here (unlike unsubscribe): a link-prefetch that confirms only
  * activates a subscription the user explicitly requested — not a destructive act.
  */
-import { confirmSubscriber } from "@/lib/subscribe/subscribers";
+import { confirmSubscriber, subscriberByConfirmToken, ensureManageToken } from "@/lib/subscribe/subscribers";
+import { listWatches } from "@/lib/alerts/store";
+import { resolveEntity } from "@/lib/alerts/entities";
+import { sendEmail } from "@/lib/email/resend";
+import { alertOnEmail } from "@/lib/email/templates";
+
+/**
+ * A reader who signed up from an "Alert me" sheet confirms into their watches:
+ * on the FIRST confirmation their manage link goes out ("your alerts are on")
+ * and the landing is /report?alerts=1. Best effort: a failure here is logged
+ * (counts only) and never un-confirms anyone.
+ */
+async function alertsOnConfirm(token: string, first: boolean): Promise<boolean> {
+  try {
+    const sub = await subscriberByConfirmToken(token);
+    if (!sub) return false;
+    const watches = (await listWatches(sub.id)).filter((w) => !w.pausedAt);
+    if (!watches.length) return false;
+    if (first) {
+      const labels = watches.map((w) => resolveEntity(w.entityType, w.entityKey)?.label ?? w.entityKey);
+      const mail = alertOnEmail({ labels, manageToken: await ensureManageToken(sub.id), unsubscribeToken: sub.unsubscribeToken });
+      const sent = await sendEmail({ to: sub.email, subject: mail.subject, html: mail.html, text: mail.text, unsubscribeToken: sub.unsubscribeToken });
+      if (!sent.ok) console.warn(`[confirm] alerts-on email failed (${watches.length} watches)`);
+    }
+    return true;
+  } catch (e) {
+    console.warn(`[confirm] alerts hand-off failed: ${(e as Error).message}`);
+    return false;
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +59,8 @@ export async function GET(req: Request) {
   }
 
   if (result === "confirmed" || result === "already_confirmed") {
-    return Response.redirect(new URL("/report?confirmed=1", req.url), 303);
+    const alerts = await alertsOnConfirm(token, result === "confirmed");
+    return Response.redirect(new URL(alerts ? "/report?alerts=1" : "/report?confirmed=1", req.url), 303);
   }
   return page("This confirmation link isn’t recognized — it may have expired. Try subscribing again.", 404);
 }

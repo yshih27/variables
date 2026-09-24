@@ -611,12 +611,19 @@ function certOf(attributes: { trait_type?: string; value?: unknown }[] | undefin
  */
 export type ListingIndex = Map<string, ListingEntry>;
 let listingsMemo: { at: number; p: Promise<ListingIndex> } | null = null;
+/** The listings snapshot's own `generatedAt`, for "listings as of" receipts. */
+let listingsGeneratedAt: string | null = null;
+export async function cachedListingsAsOf(): Promise<{ index: ListingIndex; generatedAt: string | null }> {
+  const index = await cachedListingIndex();
+  return { index, generatedAt: listingsGeneratedAt };
+}
 export function cachedListingIndex(): Promise<ListingIndex> {
   if (!listingsMemo || Date.now() - listingsMemo.at > PANEL_TTL_MS) {
     listingsMemo = {
       at: Date.now(),
       p: readListings()
         .then((snap) => {
+          listingsGeneratedAt = snap?.generatedAt ?? null;
           const m: ListingIndex = new Map();
           for (const e of Object.values(snap?.byItem ?? {})) {
             // "SOLANA:<mint>" → mint · "CHAIN:contract:tokenId" → tokenId

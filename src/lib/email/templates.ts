@@ -8,7 +8,10 @@
  */
 import type { WeeklyReport } from "../data/weeklyReport";
 import { siteUrl } from "../site";
-import { unsubscribeUrl, confirmUrl } from "./resend";
+import { unsubscribeUrl, confirmUrl, manageUrl } from "./resend";
+import { SITE_ORIGIN } from "../site";
+import { digestSubject, eventLine, digestText } from "../alerts/render";
+import type { Digest, FiredEvent } from "../alerts/signals";
 
 export type RenderedEmail = { subject: string; html: string; text: string };
 
@@ -43,21 +46,29 @@ function footer(unsubUrl: string): string {
   );
 }
 
-/** Double opt-in confirmation. Sent on signup; the CTA activates the subscription. */
-export function confirmationEmail(confirmToken: string, unsubscribeToken: string): RenderedEmail {
+/**
+ * Double opt-in confirmation. Sent on signup; the CTA activates the subscription.
+ * With `alert`, the signup came from an "Alert me" sheet: the email names the
+ * watch it turns on, and says the weekly report comes with it (one list, one
+ * unsubscribe; see the alerts PR for the product question).
+ */
+export function confirmationEmail(confirmToken: string, unsubscribeToken: string, alert?: { label: string }): RenderedEmail {
   const cUrl = confirmUrl(confirmToken);
   const uUrl = unsubscribeUrl(unsubscribeToken);
-  const subject = "Confirm your Varible weekly report subscription";
+  const subject = alert ? `Confirm your Varible alert for ${alert.label}` : "Confirm your Varible weekly report subscription";
+  const lead = alert
+    ? `Tap below to turn on your alert for <strong>${esc(alert.label)}</strong>. You will also receive <strong>The Varible Weekly</strong> every Monday; one link unsubscribes from both.`
+    : `Tap below to start receiving <strong>The Varible Weekly</strong>: prices, movers and the index for tokenized collectibles, every Monday.`;
   const html =
     WRAP_OPEN +
     `<h1 style="font-size:20px;font-weight:700;margin:0 0 8px">Confirm your subscription</h1>` +
-    `<p style="margin:0 0 20px;color:#444">Tap below to start receiving <strong>The Varible Weekly</strong>: prices, movers and the index for tokenized collectibles, every Monday.</p>` +
+    `<p style="margin:0 0 20px;color:#444">${lead}</p>` +
     `<p style="margin:0 0 24px"><a href="${esc(cUrl)}" style="display:inline-block;background:#111;color:#fff;text-decoration:none;font-weight:600;padding:12px 20px;border-radius:8px">Confirm subscription</a></p>` +
     `<p style="font-size:13px;color:#888;margin:0">If you didn't request this, you can ignore this email — nothing will be sent until you confirm. Or <a href="${esc(cUrl)}" style="color:#888">use this link</a>.</p>` +
     footer(uUrl) +
     WRAP_CLOSE;
   const text =
-    `Confirm your Varible weekly report subscription\n\n` +
+    `${subject}\n\n` +
     `Confirm: ${cUrl}\n\n` +
     `If you didn't request this, ignore this email — nothing is sent until you confirm.\n` +
     `Unsubscribe: ${uUrl}\n`;
@@ -147,5 +158,61 @@ export function weeklyReportEmail(report: WeeklyReport, unsubscribeToken: string
     `Full report: ${reportUrl}\n` +
     `Unsubscribe: ${uUrl}\n`;
 
+  return { subject, html, text };
+}
+
+function manageFooter(manage: string, unsubUrl: string): string {
+  return (
+    `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(manage)}" style="color:#111">Manage alerts →</a></p>` + footer(unsubUrl)
+  );
+}
+
+/**
+ * "Your alert is on" — to a CONFIRMED reader who added a watch, and to a reader
+ * who just confirmed with watches waiting. Carries the manage link; the API's
+ * answer never says which of the two happened.
+ */
+export function alertOnEmail(input: { labels: string[]; manageToken: string; unsubscribeToken: string }): RenderedEmail {
+  const m = manageUrl(input.manageToken);
+  const u = unsubscribeUrl(input.unsubscribeToken);
+  const n = input.labels.length;
+  const subject = n === 1 ? `Watching ${input.labels[0]}` : `Watching ${n} alerts`;
+  const html =
+    WRAP_OPEN +
+    `<h1 style="font-size:20px;font-weight:700;margin:0 0 8px">Your alert${n === 1 ? " is" : "s are"} on</h1>` +
+    `<ul style="margin:0 0 16px;padding-left:18px;color:#444">${input.labels.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` +
+    `<p style="margin:0;color:#444;font-size:14px">When one moves, you get one digest per run, never an email per event. Pause, resume or delete any watch from the manage page.</p>` +
+    manageFooter(m, u) +
+    WRAP_CLOSE;
+  const text = `${subject}\n\n${input.labels.map((l) => `• ${l}`).join("\n")}\n\nManage alerts: ${m}\nUnsubscribe: ${u}\n`;
+  return { subject, html, text };
+}
+
+/**
+ * The alert digest: ONE email per reader per run. The subject names the count
+ * and the biggest move; each event is one line with its figures, their windows
+ * and sources, and a link to the page that computes them.
+ */
+export function alertDigestEmail(
+  digest: Digest,
+  input: { hrefOf: (e: FiredEvent) => string; manageToken: string; unsubscribeToken: string },
+): RenderedEmail {
+  const m = manageUrl(input.manageToken);
+  const u = unsubscribeUrl(input.unsubscribeToken);
+  const subject = digestSubject(digest);
+  const abs = (href: string) => (href.startsWith("http") ? href : `${SITE_ORIGIN}${href}`);
+  const html =
+    WRAP_OPEN +
+    `<p style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#888;margin:0 0 12px">Varible alerts</p>` +
+    digest.events
+      .map(
+        (e) =>
+          `<p style="margin:0 0 14px;color:#222;font-size:14px">${esc(eventLine(e))} ` +
+          `<a href="${esc(abs(input.hrefOf(e)))}" style="color:#111;white-space:nowrap">Open →</a></p>`,
+      )
+      .join("") +
+    manageFooter(m, u) +
+    WRAP_CLOSE;
+  const text = digestText(digest, { hrefOf: (e) => abs(input.hrefOf(e)), manageUrl: m }) + `\nUnsubscribe: ${u}\n`;
   return { subject, html, text };
 }
