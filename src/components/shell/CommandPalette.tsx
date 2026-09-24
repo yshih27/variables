@@ -255,12 +255,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
         <div id={listId} role="listbox" className="scroll-y min-h-0 flex-1 overflow-y-auto py-1.5">
           {groups.length === 0 ? (
-            <p className="px-4 py-6 text-center text-[12.5px] text-ink-3">
+            <p className="px-4 py-6 text-center text-[12.5px] text-ink-3" data-search-state={q.trim().length < MIN_QUERY ? "short" : remoteDown ? "down" : remote?.q !== q.trim() ? "searching" : "empty"}>
               {q.trim().length < MIN_QUERY
                 ? `Type ${MIN_QUERY}+ characters`
                 : remoteDown
                   ? "Search index isn’t wired up yet — press Enter for the full search page"
-                  : "No matches"}
+                  : remote?.q !== q.trim()
+                    ? // The results carry the query they answered; until the current
+                      // query's answer is back this is a wait, not an empty result. A
+                      // cold instance takes seconds (measured 1.4–4.4 s on production),
+                      // and "No matches" for that long is a false answer.
+                      "Searching…"
+                    : "No matches"}
             </p>
           ) : (
             groups.map((g) => (

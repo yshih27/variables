@@ -1,6 +1,7 @@
 import type { CharacterDetail, CharacterIndexGate, CharacterMonthly } from "@/lib/data/characterRollups";
 import type { IdentityIndexPoint } from "@/lib/data/identityIndex";
 import { FLOOR_VS_MONTHLY_MIN, monthShort } from "./identityView";
+import { formatCompactUsd } from "@/lib/format";
 import type { CharacterVenueRow } from "@/lib/data/characterRollups";
 
 export type VenueFloorReading =
@@ -110,9 +111,16 @@ export function runningMonth(monthly: CharacterMonthly[]): CharacterMonthly | nu
   return monthly.find((m) => m.partial) ?? null;
 }
 
-/** "Sep · provisional · 129 sales" — the only words the page says about the running month. */
+/**
+ * "Sep · provisional · 129 sales · $78.2K so far" — the only words the page
+ * says about the running month. The figure is printed because the dashed box
+ * is drawn at its real height on the same scale as the complete months, and a
+ * running month that is already the largest reaches the top of every chart:
+ * without its number, three characters at $74.6K, $78.2K and $81.8K looked
+ * like one placeholder repeated (measured Sep 24).
+ */
 export function provisionalLabel(m: CharacterMonthly): string {
-  return `${monthShort(m.ts)} · provisional · ${m.sales} sale${m.sales === 1 ? "" : "s"}`;
+  return `${monthShort(m.ts)} · provisional · ${m.sales} sale${m.sales === 1 ? "" : "s"} · ${formatCompactUsd(m.volumeUsd)} so far`;
 }
 
 /** The leaderboard's two reader preferences, per IP (the machines table's pattern). */
