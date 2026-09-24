@@ -1,8 +1,10 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { readWatchlist, subscribeWatchlist, toggleWatchlist } from "@/lib/watchlist";
+import { useEffect, useRef, useState } from "react";
+import { parseWatchId, watchIdForPath } from "@/lib/watchlist";
+import { WATCH_BTN_RAIL, WatchStar } from "./WatchStar";
+import { AlertMe } from "./AlertMe";
 
 /**
  * Watchlist + Share actions for the IP / Platform rails (QA-1, R5).
@@ -21,8 +23,7 @@ import { readWatchlist, subscribeWatchlist, toggleWatchlist } from "@/lib/watchl
  * manual copying) rather than an empty catch.
  */
 
-const BTN =
-  "flex h-[38px] flex-1 items-center justify-center gap-2 rounded-xl border text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60";
+const BTN = WATCH_BTN_RAIL;
 
 type CopyState = "idle" | "ok" | "fail";
 
@@ -37,17 +38,11 @@ export function RailActions({
   placement?: "up" | "down";
 }) {
   const pathname = usePathname() ?? "";
-  const seg = pathname.split("/").filter(Boolean);
   // e.g. "/ip/pokemon" → "ip:pokemon"; "/platform/collector-crypt" → "platform:collector-crypt".
-  const id = seg.length >= 2 ? `${seg[0]}:${seg[1]}` : null;
-
-  // Server + first client render return false (no mismatch); real state resolves
-  // after hydration via the store snapshot.
-  const saved = useSyncExternalStore(
-    subscribeWatchlist,
-    () => (id ? readWatchlist().includes(id) : false),
-    () => false,
-  );
+  const id = watchIdForPath(pathname);
+  // The same entity the star holds is what "Alert me" watches (ip / platform).
+  const parsed = id ? parseWatchId(id) : null;
+  const alertEntity = parsed && parsed.kind !== "identity" ? { type: parsed.kind, key: parsed.key, label: name } : null;
 
   const [open, setOpen] = useState(false);
   const [copy, setCopy] = useState<CopyState>("idle");
@@ -80,10 +75,6 @@ export function RailActions({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-
-  function toggleWatch() {
-    if (id) toggleWatchlist(id);
-  }
 
   const shareTitle = `${name} · VARIBLE`;
 
@@ -133,26 +124,19 @@ export function RailActions({
   ];
 
   return (
-    <div ref={wrapRef} className="relative mt-auto flex gap-2 pt-[22px]">
-      <button
-        type="button"
-        onClick={toggleWatch}
-        aria-pressed={saved}
-        className={`${BTN} ${
-          saved
-            ? "border-yellow/40 bg-yellow/10 text-yellow"
-            : "border-line-2 bg-transparent text-ink hover:bg-bg-2"
-        }`}
-      >
-        {saved ? "★ Watchlisted" : "☆ Watchlist"}
-      </button>
+    // Two up: the star (this device) beside the alert (a confirmed
+    // subscription), Share full width beneath — three buttons side by side do
+    // not fit the rail's ~252px content box at the rail's type size.
+    <div ref={wrapRef} className="relative mt-auto grid grid-cols-2 gap-2 pt-[22px]">
+      <WatchStar id={id} variant="rail" />
+      <AlertMe entity={alertEntity} variant="rail" />
 
       <button
         type="button"
         onClick={onShare}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`${BTN} border-line-2 bg-transparent text-ink hover:bg-bg-2`}
+        className={`${BTN} col-span-2 border-line-2 bg-transparent text-ink hover:bg-bg-2`}
       >
         ↗ Share
       </button>

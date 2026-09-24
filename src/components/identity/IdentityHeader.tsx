@@ -5,6 +5,9 @@ import { GradeChip } from "../GradeChip";
 import type { IdentityDetail } from "@/lib/data/identityDetail";
 import { identityName, membershipParts } from "@/lib/card/identityView";
 import { receiptsHref } from "@/lib/indices/receiptRoute";
+import { identityWatchId } from "@/lib/watchlist";
+import { WatchStar } from "../WatchStar";
+import { AlertMe } from "../AlertMe";
 
 /**
  * Who this card is — the identity strip for /i/[...slug], in the venue page's
@@ -19,7 +22,7 @@ import { receiptsHref } from "@/lib/indices/receiptRoute";
  * routes every card image through the one proxy), in the slab's 5:7 frame; a
  * dead or missing image keeps the frame so the header never reflows.
  */
-export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
+export function IdentityHeader({ detail, canonicalSlug }: { detail: IdentityDetail; canonicalSlug: string }) {
   const p = detail.parts;
   const art = detail.tokens.find((t) => t.image)?.image ?? null;
   const name = identityName(p);
@@ -36,8 +39,17 @@ export function IdentityHeader({ detail }: { detail: IdentityDetail }) {
       <div className="flex items-start gap-4">
         {/* The hero frame: 144px wide (96 on phones), the slab trimmed whole. */}
         <CardThumb src={art} alt={name} variant="hero" />
-        <div className="min-w-0">
-          <h1 className="text-[22px] font-bold leading-none tracking-[-0.02em]">{name}</h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <h1 className="text-[22px] font-bold leading-none tracking-[-0.02em]">{name}</h1>
+            {/* The star (this device) and the alert (a confirmed subscription),
+                side by side: the same two the IP and platform rails carry. The
+                id is the card's canonical slug, so every URL form stars one card. */}
+            <div className="flex shrink-0 items-center gap-2" data-identity-actions>
+              <WatchStar id={identityWatchId(canonicalSlug)} variant="compact" />
+              <AlertMe entity={{ type: "identity", key: canonicalSlug, label: `${name} · ${p.grade}` }} variant="compact" />
+            </div>
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
             {p.setKey && p.setName ? (
               <Link

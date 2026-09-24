@@ -62,8 +62,13 @@ export function SubscribeForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: value, source, website }),
       });
-      if (!res.ok) throw new Error(String(res.status));
-      const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+      const body = (await res.json().catch(() => null)) as { message?: unknown; error?: unknown } | null;
+      if (!res.ok) {
+        // The API's own reason (a 429 says when to retry), not a guess.
+        setError(typeof body?.error === "string" && body.error.trim() ? body.error : "Couldn't sign you up. Please try again.");
+        setStatus("error");
+        return;
+      }
       if (typeof body?.message === "string" && body.message.trim()) setMessage(body.message);
       setStatus("success");
     } catch {
@@ -169,7 +174,6 @@ export function SubscribeForm({
         {status === "success" ? (
           <div className="flex flex-col gap-1.5 py-2">
             {successNode}
-            <p className="text-[13px] text-ink-3">The next issue lands Monday.</p>
           </div>
         ) : (
           <form onSubmit={onSubmit} noValidate className="flex flex-col gap-2.5">
