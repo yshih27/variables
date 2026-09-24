@@ -19,6 +19,7 @@ const TABS = [
   { href: "/ips", label: "Categories", match: "/ip" },
   { href: "/platforms", label: "Platforms", match: "/platform" },
   { href: "/report", label: "Report" },
+  { href: "/vault", label: "Vault" },
 ];
 
 const MORE = [

@@ -31,6 +31,7 @@ export const RAIL_CODES = {
   economics: "EC",
   report: "RP",
   watchlist: "★",
+  vault: "VT",
   status: "SY",
   gacha: "GC",
   /**

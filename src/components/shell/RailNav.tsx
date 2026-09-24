@@ -34,6 +34,7 @@ type Props = { model: RailModel };
 /** Static tail nodes — no series behind them, so no spark, by construction. */
 const TAIL: { key: string; name: string; short: string; railCode: string; href: string; gated?: boolean }[] = [
   { key: "report", name: "Report", short: "RPT", railCode: RAIL_CODES.report, href: "/report" },
+  { key: "vault", name: "Vault", short: "VT", railCode: RAIL_CODES.vault, href: "/vault" },
   { key: "watchlist", name: "Watchlist", short: "★", railCode: RAIL_CODES.watchlist, href: "/watchlist" },
   { key: "gacha", name: "Gacha", short: "GCH", railCode: RAIL_CODES.gacha, href: "/gacha", gated: true },
   { key: "status", name: "Status", short: "SYS", railCode: RAIL_CODES.status, href: "/status" },
