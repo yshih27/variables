@@ -4,11 +4,12 @@ import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT, INDEX_DESCRIPTOR, inde
 import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/indices";
 import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
-import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { PLATFORM_SOURCES, type PlatformSource } from "@/lib/data/sources";
 import { readMethodChanges, type MethodLedger } from "@/lib/data/methodChanges";
 import { labelFor } from "@/lib/indices/entityLabels";
 import { receiptsHref } from "@/lib/indices/receiptRoute";
 import Link from "next/link";
+import { Fragment } from "react";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (F8-4).
@@ -17,7 +18,7 @@ export const revalidate = 3600;
 export const metadata = {
   title: "Methodology · VARIBLE",
   description:
-    "How VARIBLE computes market cap, holders, volume, primary revenue, and gacha statistics — every number sourced directly from on-chain data.",
+    "How VARIBLE computes market cap, holders, volume, primary spend and the Varible Index — every figure traced to a named feed and its window, and withheld when it cannot be.",
 };
 
 export default async function MethodologyPage() {
@@ -37,53 +38,32 @@ export default async function MethodologyPage() {
             How we measure.
           </h1>
           <p className="mt-4 max-w-[640px] text-[14px] leading-relaxed text-ink-2">
-            Every number on VARIBLE is derived from on-chain reads. No
-            partner APIs, no aggregator black boxes, no marketing-deck math.
-            This page documents the formula behind every metric so you can
-            audit our numbers.
+            Every number on VARIBLE traces to a named feed: a chain read, a
+            venue&apos;s own order feed, or an index of on-chain trades. Where a
+            figure rests on an aggregator, the surface that shows it says so in a
+            receipt line; where a venue publishes nothing we can verify, the figure
+            is withheld rather than estimated. This page documents the source and
+            the formula behind every metric so you can audit our numbers.
           </p>
         </header>
 
         <Section title="Sources">
           <p>
-            We index {PLATFORM_SOURCES.length} platforms directly against their canonical chains.
-            Every metric on the site flows from one of these primitives:
+            We track {PLATFORM_SOURCES.length} venues across{" "}
+            {new Set(PLATFORM_SOURCES.map((p) => p.chain)).size} chains. Each is read leg by
+            leg: resale, listings, holders and card data, and primary spend. A leg with no
+            defensible source is listed as withheld, not filled in. Every metric on the site
+            flows from one of these reads:
           </p>
-          <ul className="mt-3 flex flex-col gap-2 text-[13.5px]">
-            <SrcLi
-              label="Beezie"
-              chain="Base"
-              source="Native marketplace contract + ERC-721 collection, read directly from Base."
-            />
-            <SrcLi
-              label="Courtyard"
-              chain="Polygon"
-              source="Native marketplace contract + USDC inflow tracking to tokenization wallets for primary-market fees."
-            />
-            <SrcLi
-              label="Collector Crypt"
-              chain="Solana"
-              source="Helius DAS for trait + ownership data; Helius Enhanced TX for marketplace sale parsing; SPL-USDC transfer indexing for gacha pull revenue."
-            />
-            <SrcLi
-              label="Phygitals"
-              chain="Solana"
-              source="SPL-USDC transfer indexing for gacha pull revenue. NFT collection not yet wired."
-            />
-            <SrcLi
-              label="DYLI"
-              chain="Abstract"
-              source="DYLI's own public sales API, read directly. Each sale is classified by its channel: user-to-user resale is marketplace volume, mystery boxes are gacha, and inventory purchases and fair-drop entries are direct sales. eBay-venue rows and zero-price box claims are excluded."
-            />
-          </ul>
+          <VenueSources />
         </Section>
 
         <Section title="Index naming" id="naming">
           <p>
             Every index we publish belongs to one family:{" "}
-            <span className="font-semibold text-ink">{INDEX_FAMILY}</span> (nickname &quot;
+            <span className="font-semibold text-ink">{INDEX_FAMILY}</span>{" "}(nickname &quot;
             {INDEX_FAMILY_SHORT}&quot;). Each is a <span className="text-ink">{INDEX_DESCRIPTOR}</span>:
-            the realised resale price of the same card <em>identity</em> — set, number, name and
+            the realised resale price of the same card <em>identity</em>{" "}— set, number, name and
             grade, with edition and language when the platform carries them — priced in
             consecutive calendar months. An identity&apos;s monthly price is the median of its
             sales that month, and it only counts with two or more sales (one sale is a quote,
@@ -94,7 +74,7 @@ export default async function MethodologyPage() {
             IP, is withheld: the chain does not advance through it, and the next published point
             says how many months it spans. The band on every point is a bootstrap over
             identities, and it widens with distance from the base, as a chained index&apos;s
-            uncertainty should. Each index carries a <code>V-</code> ticker derived from the
+            uncertainty should. Each index carries a <code>V-</code>{" "}ticker derived from the
             entity&apos;s short code, so the scheme never drifts as the catalog grows. The whole
             market is <code>V-MKT</code>; each category and named IP has its own. The public API
             echoes each index&apos;s ticker, which makes this registry the canonical one.
@@ -140,7 +120,7 @@ export default async function MethodologyPage() {
           <p>
             Per-token value is the cheapest active USD listing on the
             platform&apos;s order book. For Collector Crypt we use the{" "}
-            <em>Insured Value</em> trait (PWCC vault appraisal) since most CC
+            <em>Insured Value</em>{" "}trait (PWCC vault appraisal) since most CC
             tokens aren&apos;t actively listed.
           </p>
           <ul className="mt-3 list-disc pl-5 text-[13.5px] leading-relaxed">
@@ -154,10 +134,13 @@ export default async function MethodologyPage() {
         <Section title="24h Volume + Trades">
           <p>
             Sum of qualifying secondary-market sales in the last rolling 24h, read
-            from each platform&apos;s own feed: native marketplace contracts for Beezie
-            and Courtyard, and a USDC + NFT same-transaction heuristic against the
-            Collector Crypt marketplace program. Phygitals&apos; secondary market has no
-            source yet, so its resale figures read <code>—</code> rather than zero.
+            from each venue&apos;s resale feed listed under Sources: Beezie&apos;s own order
+            feed, Rarible&apos;s index of Courtyard&apos;s on-chain trades, the Dune query
+            over the Collector Crypt marketplace program, and DYLI&apos;s resale lane.
+            Every feed passes the same hygiene before it is counted: exact-duplicate
+            rows, self-trades, wallet-pair ring washes and one-seller bulk sweeps are
+            dropped. Phygitals&apos; resale market has no source yet, so its resale
+            figures read <code>—</code> rather than zero.
           </p>
           <p className="mt-3">
             <span className="font-semibold text-ink">Active 24h</span> = the
@@ -168,16 +151,17 @@ export default async function MethodologyPage() {
 
         <Section title="Primary Revenue (Gacha + Tokenization)">
           <p>
-            For each platform with a primary-market mechanic we maintain a
-            disk cache populated by{" "}
-            <code className="rounded-md bg-bg-2 px-1.5 py-0.5">npm run warm-primary-revenue</code>:
+            For each venue with a primary-market mechanic, spend is read daily
+            through Dune as USDC paid into the venue&apos;s receiving wallets; a
+            wallet-level scan of the same transfers stands behind it as the fallback:
           </p>
           <pre className="mt-3 overflow-x-auto rounded-lg border border-line/60 bg-bg-1 p-4 text-[12px] leading-relaxed text-ink-2">
 {`primary_revenue = Σ ( USDC inflow into platform.gacha_receivers
                       from senders NOT in platform.internal_exclusions )
 
-For CC: filter to canonical pull prices [$25, $50, $75, $80, $100, $151, $250, $1000, $2500, $5000]
-For Phygitals/Courtyard: count every inbound USDC transfer.`}
+For Collector Crypt: only transfers at a published pull price [${ccPullLadder()}]
+For Phygitals: every inbound transfer above dust, treasury excluded as a sender
+For Courtyard and the Claw: every inbound transfer.`}
           </pre>
           <p className="mt-3">
             Internal exclusions are addresses we&apos;ve identified as
@@ -241,7 +225,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
         <Section title="Platform economics" id="economics">
           <p>
             <strong className="font-semibold text-ink">What the page measures.</strong> Gacha <em>spend</em> is canonical pack-pull
-            volume from the spine. <em>Outbound</em> is USDC leaving a platform&apos;s known
+            volume from the spine. <em>Outbound</em>{" "}is USDC leaving a platform&apos;s known
             on-chain gacha wallets. Both are summed over the same 30 complete days, so the
             windows and the completeness basis match by construction.
           </p>
@@ -274,7 +258,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
             much of gross outflow passes that test.
           </p>
           <p>
-            <strong className="font-semibold text-ink">Payout ÷ spend.</strong> The ratio of those two legs. Above 100% is not
+            <strong className="font-semibold text-ink">Payout ÷ spend.</strong>{" "}The ratio of those two legs. Above 100% is not
             automatically an error: when a platform&apos;s spend is falling, payouts settle
             earlier and larger cohorts against a smaller current spend, and the ratio exceeds
             1.0 with nothing miscounted. Reading it as margin requires cohorting payouts to
@@ -283,7 +267,7 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
           <p>
             <strong className="font-semibold text-ink">Disclosure states, per platform.</strong> <em>Gross</em> — the outbound flow is
             published under a label saying what it is (players and partners, non-player
-            counterparties included). <em>Suppressed</em> — nothing is published on the
+            counterparties included). <em>Suppressed</em>{" "}— nothing is published on the
             outbound side, because that platform&apos;s exclusion list misses its dominant
             non-player counterparties and the resulting rate would be an artifact of the
             omission rather than a business fact. Spend comes from a separate query and is
@@ -306,10 +290,14 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
 
         <Section title="Cache + freshness">
           <p>
-            Warmers run on cron (target hourly). Server-rendered pages read
-            from disk via <code>unstable_cache</code> with a 1h revalidate
-            window. The &quot;Updated Xm ago&quot; badge in each hero reflects
-            the oldest underlying snapshot, not render time.
+            Warmers run on a fixed schedule and write snapshots; pages read the
+            newest snapshot and revalidate on a fixed window, so a figure can trail
+            its source by up to that window. Per-feed freshness, with the last time
+            each source actually succeeded rather than when a page rendered, is on{" "}
+            <Link href="/status" className="text-ink-2 underline-offset-2 hover:text-yellow hover:underline">
+              /status
+            </Link>
+            .
           </p>
         </Section>
 
@@ -333,11 +321,6 @@ For Phygitals/Courtyard: count every inbound USDC transfer.`}
             .
           </p>
         </Section>
-
-        <div className="mt-16 text-[12px] text-ink-3">
-          VARIBLE · methodology · last updated{" "}
-          {new Date().toISOString().slice(0, 10)}
-        </div>
       </div>
     </>
   );
@@ -354,16 +337,102 @@ function Section({ title, id, children }: { title: string; id?: string; children
   );
 }
 
-function SrcLi({ label, chain, source }: { label: string; chain: string; source: string }) {
+/** The four legs every venue is read by, in the order the cards print them. */
+type VenueLegs = { resale: string; listings: string; holders: string; primary: string };
+const LEG_LABELS: [keyof VenueLegs, string][] = [
+  ["resale", "Resale"],
+  ["listings", "Listings"],
+  ["holders", "Holders"],
+  ["primary", "Primary"],
+];
+
+/**
+ * How each venue is read, leg by leg — the prose for the Sources section.
+ *
+ * ⚠️ KEYED ON THE REGISTRY, DELIBERATELY. Names, chains and order come from
+ * PLATFORM_SOURCES; a venue added there without an entry here fails to compile,
+ * so this copy cannot drift from the code silently. It did: the section kept
+ * saying Courtyard was read from its own contract after #149 moved it to
+ * Rarible's activity index. When a reader changes (core.ts, warm-listings,
+ * warm-holders, the Dune SQL), change the leg here in the same PR.
+ */
+const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
+  courtyard: {
+    resale:
+      "Rarible's activity index for the Courtyard collection, which is where the collection's on-chain trades on Polygon are indexed; read live over a rolling window and passed through the same hygiene as every feed. Courtyard's own in-app marketplace settles off-chain and is visible to no source. The Dune query this leg replaced decoded the same trades a day late; it is retired and kept for the provenance of older points.",
+    listings:
+      "Rarible's active sell orders for the collection, cheapest ask per token, dust excluded; capped per run, since Courtyard's book is by far the largest we read.",
+    holders:
+      "Not indexed. Courtyard's per-card data is not yet in our card table, so it has no holder count, no per-card identity and no market cap; each reads as withheld, never as zero.",
+    primary:
+      "Pack spend: USDC paid into Courtyard's receiving wallets on Polygon, read daily through Dune and published as gacha volume, with an Etherscan read of the same transfers as the fallback. Tokenization fees are paid off-chain and are not counted.",
+  },
+  beezie: {
+    resale:
+      "Beezie's own order feed, read directly from its API: each fulfilled order is a sale, and the feed reaches back months, so every window is read in full. Not read through an aggregator.",
+    listings:
+      "Rarible's active sell orders for the collection, cheapest ask per token. An aggregator ask can be a placeholder, so an identity page prints a Beezie ask as the floor only when it sits within a set band of that card's monthly price; otherwise it is a receipt line marked unverified, never a headline.",
+    holders:
+      "Ownership from Rarible's ownership index for the collection; card metadata from each token's URI on Base, persisted the first time a token is seen.",
+    primary:
+      "The Claw: USDC paid into the Claw contract on Base, read daily through Dune, with an Etherscan read of the same transfers as the fallback. The Claw's catalog, stated odds and prize pool come from Beezie's own endpoint and are labelled as stated by the venue, never as realized.",
+  },
+  "collector-crypt": {
+    resale:
+      "A Dune query over the Collector Crypt marketplace program: one sale per transaction that moves both an NFT and USDC, priced at the largest USDC transfer in it, over a rolling window. Bids that never settle are excluded by construction.",
+    listings: "Collector Crypt's own marketplace API, cheapest ask per card.",
+    holders:
+      "Helius DAS over the collection: owner, traits and the Insured Value appraisal that prices its market cap.",
+    primary:
+      "Pack pulls: USDC paid into the gacha wallets at a price on the published pull ladder, house and rarity-bucket wallets excluded as senders, read daily through Dune. Each pull's prize comes from the gacha app's own winners feed, captured continuously. Buyback is USDC returned from those wallets to players who had spent in, under rule R3 below.",
+  },
+  phygitals: {
+    resale:
+      "No source. Its sales API carries pack pulls only, and its resale trades settle on Tensor and Magic Eden, which need a query of their own; resale figures are withheld until one exists.",
+    listings:
+      "Phygitals' own marketplace API, which already aggregates Tensor, Magic Eden and native asks; cheapest per card.",
+    holders:
+      "Helius DAS over its two compressed-NFT collections. No per-card valuation exists, so its market cap is floor times supply, at venue level only, and stays out of the cross-venue total.",
+    primary:
+      "Pack pulls: USDC paid into its gacha wallets, treasury excluded as a sender and dust excluded, read daily through Dune; realized pulls from its own pull feed. Buyback under rule R3, as for Collector Crypt.",
+  },
+  dyli: {
+    resale:
+      "DYLI's own public sales API, read directly. Each sale is classified by its channel, and only user-to-user resale is marketplace volume.",
+    listings: "Its public listings endpoint: the floor, and a market cap of cheapest ask times units available.",
+    holders: "Not counted; no ownership read is wired for its inventory contract.",
+    primary:
+      "From the same sales feed: mystery boxes are gacha, inventory purchases and fair-drop entries are direct sales. eBay-venue rows and zero-price box claims are excluded.",
+  },
+};
+
+function VenueSources() {
   return (
-    <li className="flex flex-col rounded-lg border border-line/60 bg-bg-1 px-4 py-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="font-semibold text-ink">{label}</span>
-        <span className="text-[11px] uppercase tracking-[0.06em] text-ink-3">{chain}</span>
-      </div>
-      <span className="mt-1 text-[12.5px] text-ink-2">{source}</span>
-    </li>
+    <ul className="mt-3 flex flex-col gap-2 text-[13.5px]">
+      {PLATFORM_SOURCES.map((p) => (
+        <li key={p.key} className="rounded-lg border border-line/60 bg-bg-1 px-4 py-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-semibold text-ink">{p.name}</span>
+            <span className="text-[11px] uppercase tracking-[0.06em] text-ink-3">{p.chain}</span>
+          </div>
+          <dl className="mt-2 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-[12.5px] leading-relaxed">
+            {LEG_LABELS.map(([leg, label]) => (
+              <Fragment key={leg}>
+                <dt className="pt-[3px] text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-3">{label}</dt>
+                <dd className="text-ink-2">{VENUE_LEGS[p.key][leg]}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </li>
+      ))}
+    </ul>
   );
+}
+
+/** Collector Crypt's pull-price ladder, from the registry — never typed here. */
+function ccPullLadder(): string {
+  const ladder = PLATFORM_SOURCES.find((p) => p.key === "collector-crypt")?.primary?.validAmounts ?? [];
+  return ladder.map((v) => `$${v.toLocaleString("en-US")}`).join(", ");
 }
 
 /**
