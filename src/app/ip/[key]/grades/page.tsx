@@ -18,6 +18,13 @@ import { formatCompactUsd } from "@/lib/format";
 // ISR: every input is snapshot- or cache-backed. Same 30 min as the overviews.
 export const revalidate = 1800;
 
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
+
 /** Grades that get their own band in the share chart; the rest pool into "Other". */
 const SHARE_BANDS = 5;
 

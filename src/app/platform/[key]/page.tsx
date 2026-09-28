@@ -34,6 +34,13 @@ import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 // Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
 export const revalidate = 1800;
 
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
+
 /** Same formatter OverviewMetricColumn uses — a NaN value renders "—" (not
  *  tracked), never a fabricated 0. */
 /** "7d $17.9M · avg $2.56M/day", or undefined when there is no 7d gacha figure to

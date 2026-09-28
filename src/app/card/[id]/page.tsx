@@ -5,7 +5,23 @@ import { CardDetailView } from "@/components/CardDetailView";
 import { getCardDetail } from "@/lib/card/fetchCard";
 import { getCardSales, type CardSalesHistory } from "@/lib/data/cardSales";
 
-export const dynamic = "force-dynamic";
+/**
+ * ⚠️ ISR, NOT PER-REQUEST. Only `params` is read; the detail is one keyset row
+ * plus the token's metadata and the sales come from a 30-minute
+ * `unstable_cache`. A per-request render paid that row read and a full RSC
+ * payload on every crawler hit of ~55K token URLs. With `revalidate` a card is
+ * rendered once per 30 minutes and served by the CDN in between; the horizon
+ * matches the sales reader's, so the page is never older than its own figures.
+ * (See the identity page for the September 2026 usage-pause context.)
+ */
+export const revalidate = 1800;
+
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
 
 export default async function CardDetailPage({
   params,

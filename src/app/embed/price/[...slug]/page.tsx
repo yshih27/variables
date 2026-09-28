@@ -25,6 +25,18 @@ import { PriceChip, CHIP_BOX, CHIP_SIZES, CHIP_THEMES, type ChipSize, type ChipT
  */
 export const revalidate = 1800;
 
+/**
+ * ⚠️ NO `generateStaticParams` HERE, SO `revalidate` ABOVE DOES NOT APPLY: the
+ * chip reads `searchParams` (`?size=`, `?theme=`), which is request-time data,
+ * and a static render of it throws DYNAMIC_SERVER_USAGE (measured Sep 28: a
+ * 500 on every chip). So this page renders per request, as it always has, and
+ * its 30 minutes live in the reader it shares with the identity page. To make
+ * the chip cacheable the variants must move into the PATH
+ * (`/embed/price/<slug>/<size>-<theme>`, the query form 301'd from proxy.ts so
+ * every snippet already pasted keeps working); that is a contract change and
+ * belongs to its own PR.
+ */
+
 type Search = { size?: string; theme?: string };
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string[] }> }) {

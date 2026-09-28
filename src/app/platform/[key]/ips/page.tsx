@@ -5,7 +5,17 @@ import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { PlatformIPsTable } from "@/components/PlatformTables";
 import { getPlatformDetail } from "@/lib/data/fetchPlatform";
 
-export const dynamic = "force-dynamic";
+// ISR at the parent page's horizon: only `params` is read and every figure comes
+// from `getPlatformDetail` (unstable_cache, 1 h). Per-request rendering re-ran React over
+// the same cached detail on every crawler hit; see src/app/i/[...slug]/page.tsx.
+export const revalidate = 1800;
+
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
 
 export default async function PlatformIPsPage({
   params,

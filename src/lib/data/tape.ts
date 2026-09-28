@@ -264,11 +264,22 @@ export async function buildTape(limit = 40): Promise<TapeItem[]> {
 }
 
 /**
- * Cached for 5 minutes on the `platform-buckets` tag, so a warm that publishes
- * new figures sweeps the tape with them — otherwise the tape could show a sale
- * the rest of the page has not counted yet.
+ * Cached on the `platform-buckets` tag, so a warm that publishes new figures
+ * sweeps the tape with them — otherwise the tape could show a sale the rest of
+ * the page has not counted yet. The live band on an open page is the client's
+ * own poll of `/api/internal/tape` (Tape.tsx); this cache is the first paint.
+ *
+ * ⚠️ 1800, NOT 300, BECAUSE THIS IS MOUNTED IN THE LAYOUT. A page's ISR horizon
+ * is the SMALLEST `revalidate` of anything read while rendering it, and the
+ * shell reads the tape on every route — so a 300 s tape made every cached page
+ * on the site regenerate every five minutes (`next build` printed "5m" against
+ * pages that declare 1800; measured `s-maxage=300` on `/`, `/ips`,
+ * `/methodology`). The tape's legs are warmed every six hours (sale feed, gacha)
+ * and daily (index closes), so the five-minute horizon bought no freshness: it
+ * bought six times the renders and six times the ISR writes. 1800 is the rail
+ * and strip's horizon, which the same layout already imposes.
  */
 export const getTape = unstable_cache(buildTape, ["shell-tape:v1"], {
-  revalidate: 300,
+  revalidate: 1800,
   tags: ["platform-buckets"],
 });

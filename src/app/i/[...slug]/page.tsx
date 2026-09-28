@@ -24,8 +24,44 @@ import { parseIdentityKey } from "@/lib/data/traits";
  *
  * `notFound()` for a slug the reader cannot resolve. A malformed slug (fewer
  * than five segments) never reaches here — `proxy.ts` rewrites it to a real 404.
+ *
+ * ⚠️ ISR, NOT PER-REQUEST. Nothing here reads a request-time API (no cookies,
+ * headers or searchParams — only `params`), and every figure comes from
+ * `getIdentityDetail`, which is already `unstable_cache`d for 30 minutes. A
+ * per-request render therefore bought no freshness: it re-ran React over the
+ * same cached detail on every hit and re-sent the whole RSC payload from the
+ * function each time. With `revalidate` the page is written once per slug per
+ * 30 minutes and every hit inside that window is served by the CDN — no
+ * function invocation, no CPU, no origin transfer (the September 2026 Hobby
+ * pause was Active CPU, origin transfer and ISR writes, all three over quota
+ * under ~25K crawler hits a day on these pages). The horizon equals the
+ * reader's, so a page can never be older than the detail it was built from.
+ * The cost of the trade is one ISR write per slug per window; the reader's
+ * own data-cache write was already being paid.
  */
-export const dynamic = "force-dynamic";
+export const revalidate = 1800;
+
+/**
+ * ⚠️ WITHOUT THIS EXPORT, `revalidate` ABOVE IS A NO-OP. Next's rule for a
+ * dynamic segment ("you must return an empty array from generateStaticParams,
+ * or use `dynamic = 'force-static'`, in order to revalidate paths at runtime"):
+ * a route with a dynamic segment and no `generateStaticParams` is rendered on
+ * every request, whatever `revalidate` says. Measured on `next start` before
+ * this export: every dynamic-segment page, including `/ip/[key]` and
+ * `/platform/[key]` which have declared `revalidate = 1800` since July,
+ * answered `cache-control: private, no-cache, no-store`; after it,
+ * `s-maxage=1800, stale-while-revalidate` and `x-nextjs-cache: HIT` on the
+ * second request. An empty array prerenders nothing at build (55K identities
+ * would be absurd) and caches every path on its first request; `dynamicParams`
+ * stays at its default (true), so an unlisted slug renders on demand. A
+ * well-formed slug that resolves nothing renders the not-found UI and is cached
+ * like any other path — still as a 200 (the soft 404 proxy.ts documents: the
+ * `notFound()` fires inside the `loading.tsx` boundary), so a crawler that
+ * guesses slugs now gets a cheap answer, not a correct status.
+ */
+export async function generateStaticParams() {
+  return [];
+}
 
 const slugOf = (parts: string[]) => parts.map((p) => decodeURIComponent(p)).join("/");
 
