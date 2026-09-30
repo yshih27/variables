@@ -17,7 +17,7 @@
  *                       WAF-blocked to servers.
  *   • dyli            → its own public /sales feed (marketplace lane only)
  *   • renaiss         → its own index API, read from the `renaiss_sales` and
- *                       `gacha_pulls` row stores its two warmers fill (resale,
+ *                       `renaiss_pulls` row stores its two warmers fill (resale,
  *                       and pack spend as the gacha fields)
  *
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
@@ -388,7 +388,7 @@ export async function runCoreWarm(
   }
 
   // ── Renaiss: its own index API, paged into `renaiss_sales` (resale) and
-  //    `gacha_pulls` (packs) by warm-renaiss-sales / warm-renaiss-pulls. The core
+  //    `renaiss_pulls` (packs) by warm-renaiss-sales / warm-renaiss-pulls. The core
   //    batch runs those beside the DYLI step, after this one, so this reads the
   //    previous batch's writes, as the DYLI entry above does. Resale goes through
   //    the same hygiene as every feed (readRenaissSales).

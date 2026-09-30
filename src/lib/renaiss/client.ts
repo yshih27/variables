@@ -4,7 +4,7 @@
  * Auth: `X-Api-Key` (rk_…) + `X-Api-Secret` (rsk_…) from RENAISS_API_KEY +
  * RENAISS_API_SECRET. They are Actions secrets read by the two warmers and by
  * nothing else: no request path imports this module. Pages read the row stores
- * the warmers fill (`renaiss_sales`, `gacha_pulls`, `cards`).
+ * the warmers fill (`renaiss_sales`, `renaiss_pulls`, `cards`).
  *
  * ⚠️ NO KEY, NO RUN. The anonymous tier is 10 requests a day per IP, and one
  * warmer run would spend it. `renaissCredentials()` is null unless BOTH are set;

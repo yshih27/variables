@@ -1,22 +1,26 @@
--- Renaiss marketplace sales — the row store behind Renaiss's resale volume, its
--- sale-panel leg and its daily spine; the two `cards` columns its feed names;
--- and the index its pack-spend reads need on `gacha_pulls`.
+-- Renaiss — two row stores and two `cards` columns:
+--   • renaiss_sales: the store behind Renaiss's resale volume, its sale-panel leg
+--     and its daily resale spine;
+--   • renaiss_pulls: its pack pulls, behind its pack spend in core-volume and
+--     the spine;
+--   • cards.language and cards.cert, which its feed names and no other does.
 --
--- Source: GET https://api.renaissos.com/v1/renaiss/sales, Renaiss's own index
--- API, paged in by scripts/warm-renaiss-sales.ts. One row per `TradeExecutedV2`
--- log on BNB Smart Chain. `sale_id` is the feed's own `id`, `{txHash}:{logIndex}`,
--- so a re-read page upserts in place and an overlapping run is harmless.
+-- renaiss_sales source: GET https://api.renaissos.com/v1/renaiss/sales,
+-- Renaiss's own index API, paged in by scripts/warm-renaiss-sales.ts. One row
+-- per `TradeExecutedV2` log on BNB Smart Chain. `sale_id` is the feed's own
+-- `id`, `{txHash}:{logIndex}`, so a re-read page upserts in place and an
+-- overlapping run is harmless.
 --
--- ⚠️ USDT IS COUNTED AS USD. Renaiss settles in BSC-USD (USDT). `price` is the
--- exact amount in `currency` as the feed prints it; `price_usd` is the feed's
--- `priceUsdCents` / 100: a dollar stablecoin taken at a dollar, the way USDC is
--- everywhere else in this database.
+-- ⚠️ USDT IS COUNTED AS USD, in both stores. Renaiss settles in BSC-USD (USDT).
+-- `price` is the exact amount in `currency` as the feed prints it; `price_usd`
+-- is the feed's `priceUsdCents` / 100: a dollar stablecoin taken at a dollar,
+-- the way USDC is everywhere else in this database.
 --
 -- The seller's fee is not in the feed (it is on the log the id names), so
 -- `price_usd` is the price the buyer paid.
 --
--- RLS is enabled with no policies: anon gets nothing; the warmer uses the
--- service role (the dyli_sales pattern).
+-- RLS is enabled on both tables with no policies: anon gets nothing; the
+-- warmers use the service role (the dyli_sales pattern).
 --
 -- ⚠️ APPLIED BY THE ORCHESTRATOR, before the first `--apply` run of either
 -- Renaiss warmer. The executor never applies it.
@@ -63,11 +67,44 @@ alter table public.renaiss_sales enable row level security;
 alter table public.cards add column if not exists language text;
 alter table public.cards add column if not exists cert text;
 
--- ── gacha_pulls: one platform's rows by time ─────────────────────────────────
--- Renaiss's pack spend (core-volume's rolling 24h and 7d, the spine's daily
--- sums) and its warmer's cursor read one platform's rows by `pulled_at`. The
--- table's indexes are on product, prize and memo slug only, so without this each
--- of those pages scans the whole table (~1.5M rows). A plain build takes a brief
--- write lock on gacha_pulls.
-create index if not exists gacha_pulls_platform_pulled_idx
-  on public.gacha_pulls (platform_id, pulled_at desc);
+-- ── renaiss_pulls: pack pulls, in their own table ────────────────────────────
+-- Source: GET https://api.renaissos.com/v1/gacha/pulls?platform=renaiss, paged
+-- in by scripts/warm-renaiss-pulls.ts. `pull_id` is the feed's own `id`.
+--
+-- ⚠️ NOT gacha_pulls. Renaiss's pull history was measured at roughly 800,000
+-- rows (four anonymous samples, Sep 30), and player analytics scans every
+-- gacha_pulls row daily (31.4 min of the daily job's 75 on Sep 30). Kept apart,
+-- Renaiss is simply absent from player analytics. `platform_id` and `source`
+-- are not carried: in a one-venue table they are constants, as in renaiss_sales.
+--
+-- ⚠️ A PRIZE WRITES NO `cards` ROW (distinct prizes run close to one per pull),
+-- so the pull row carries its prize's identity key and card fields itself.
+-- `prize_instance_id` is `rn-<tokenId>`; a `cards` row exists for it only if the
+-- token has sold.
+--
+-- `price_usd` is the price paid in USDT, counted as USD; null for an `observed`
+-- row (a draw seen before its checkout is matched), which is never spend.
+-- `prize_value_usd` is the value Renaiss STATES for the prize, never a price.
+create table if not exists public.renaiss_pulls (
+  pull_id             text primary key,         -- the feed's id
+  kind                text not null,            -- checkout | observed
+  product_id          text not null,            -- the machine (pack) id
+  buyer               text,
+  price_usd           numeric,                  -- pricePaid, USDT as USD; null when observed
+  tx_hash             text,
+  pulled_at           timestamptz not null,
+  prize_instance_id   text,                     -- rn-<tokenId> once named
+  prize_canonical_id  text,                     -- the prize's identity key
+  prize_value_usd     numeric,                  -- as stated by Renaiss
+  prize_card_name     text,
+  prize_set_name      text,
+  prize_card_number   text,
+  prize_grade_label   text,                     -- "PSA 10", composed through parseGrade
+  prize_cert          text,
+  prize_language      text
+);
+
+-- The cursor, the re-read window and every spend read go by time.
+create index if not exists renaiss_pulls_pulled_at_idx on public.renaiss_pulls (pulled_at desc);
+
+alter table public.renaiss_pulls enable row level security;

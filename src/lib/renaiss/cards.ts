@@ -1,18 +1,23 @@
 /**
  * Renaiss slabs → `cards` rows, and the grade rule both of its feeds share.
  *
- * Every linked row of the sales feed and every named pull carries the slab
- * (`cert`, `company`, `grade` as the grader prints it) and the catalog card
- * (`name`, `setName`, `setCode`, `cardNumber`, `year`, `language`, `imageUrl`).
- * One `cards` row per token (`rn-<tokenId>`) is written from them, so
- * `readCardDims("renaiss")` joins Renaiss sales to identities in the sale panel,
- * and `readCards` / `readCardMeta` serve `/card/rn-<tokenId>`.
+ * Every linked sale and every named pull carries the slab (`cert`, `company`,
+ * `grade` as the grader prints it) and the catalog card (`name`, `setName`,
+ * `setCode`, `cardNumber`, `year`, `language`, `imageUrl`), and
+ * `renaissCardRow` reads both the same way.
  *
- * ⚠️ ONLY A LINKED ROW WRITES A CARD. `slab` and `catalogCard` are null until the
- * index links the token to its cert (sales) or the platform names the prize
- * (pulls). Upserting from such a row would blank a card another row already
- * named, so it writes nothing and its token stays unkeyed until a linked row
- * arrives.
+ * ⚠️ ONLY A TOKEN THAT SELLS GETS A `cards` ROW (`rn-<tokenId>`), so
+ * `readCardDims("renaiss")` joins Renaiss sales to identities in the sale panel
+ * and `/card/rn-<tokenId>` works for every card that has traded. A pack prize is
+ * built by the same mapper IN MEMORY and never written: distinct prizes run
+ * close to one per pull (roughly 800,000 pulls, estimated Sep 30), and a row per prize would swell
+ * the table the dims scan and the identity snapshots read. Its identity key and
+ * card fields ride on its `renaiss_pulls` row instead (pulls.ts).
+ *
+ * ⚠️ ONLY A LINKED SALE WRITES A CARD. `slab` and `catalogCard` are null until
+ * the index links the token to its cert. Upserting from such a row would blank a
+ * card an earlier sale named, so it writes nothing and its token stays unkeyed
+ * until a linked sale arrives.
  *
  * ⚠️ EVERY UPSERT ECHOES `platform`, `token_id`, `chain`, `source` and `name`
  * (PR #128's lesson): PostgREST's upsert is INSERT … ON CONFLICT and Postgres
@@ -194,10 +199,9 @@ export function collectCardRows(linked: { tokenId: string; slab: FeedSlab; card:
 
 /**
  * The rows whose token has no `cards` row yet. A token's card is written the
- * first time a linked row names it: the pulls feed re-reads 14 days on every
- * run (the Sep 23 sample: 500 pulls, 418 distinct prizes, in three hours), and
- * rewriting every prize's row each time would be tens of thousands of identical
- * upserts a run.
+ * first time a linked sale names it; every later sale of the token, and the
+ * day of overlap each incremental run re-reads, would otherwise rewrite the
+ * same row.
  */
 export async function filterUnseenCards(rows: RenaissCardRow[]): Promise<RenaissCardRow[]> {
   if (!rows.length) return rows;

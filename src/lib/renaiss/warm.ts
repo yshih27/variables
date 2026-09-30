@@ -16,9 +16,14 @@
  * and exits 0, before any request.
  *
  * Incremental starts: sales from a day before the newest stored sale; pulls
- * from the earlier of that and 14 days ago, so prizes named late are picked up.
- * The feeds are oldest-first and cursor-paged, and every write is an upsert on
- * the feed's own id, so the overlap costs requests, never duplicates.
+ * from the earlier of that and PULLS_REREAD_DAYS ago, so prizes named late are
+ * picked up. The feeds are oldest-first and cursor-paged, and every write is an
+ * upsert on the feed's own id, so the overlap costs requests, never duplicates.
+ * An incremental pulls run also reads the stored state of its window once and
+ * writes only the pulls that are new or changed (pulls.ts `selectPullsToWrite`).
+ *
+ * `cards` rows come from the SALES feed only, the first time a token sells. A
+ * pull writes none: its prize's card fields ride on the pull row (pulls.ts).
  *
  * A run stopped by the call ceiling or a rate limit keeps every page it wrote,
  * records how far it got, and then FAILS: the store is behind, the freshness
@@ -54,10 +59,13 @@ import {
   latestStoredPulledAt,
   linkedCardOfPull,
   pullsIncrementalFrom,
+  readStoredPullStates,
+  selectPullsToWrite,
   toPullRow,
   upsertRenaissPulls,
   usdOf,
   type RenaissPullRow,
+  type StoredPullState,
 } from "./pulls";
 import {
   collectCardRows,
@@ -116,12 +124,24 @@ export function parseWarmArgs(argv: string[]): WarmArgs {
 
 type Linked = { tokenId: string; slab: FeedSlab; card: FeedCatalogCard };
 
+/** The rows a page should write, and why — the pulls feed's changed-only rule. */
+type Selection<Row> = { write: Row[]; fresh: number; named: number; matched: number; unchanged: number };
+
 /** What differs between the two feeds; everything else is `runFeed`. */
 type FeedSpec<Row> = {
   feed: RenaissFeed;
   source: "renaiss-sales" | "renaiss-pulls";
   noun: string;
   rowsKey: "sales" | "pulls";
+  /** The table the feed's rows go to, for the report. */
+  table: "renaiss_sales" | "renaiss_pulls";
+  /** Whether the feed writes `cards` rows (sales: yes, on first sighting; pulls: never). */
+  writesCards: boolean;
+  /** Incremental runs of this feed write only new or changed rows (pulls). */
+  changedOnly?: {
+    load: (since: string) => Promise<Map<string, StoredPullState>>;
+    select: (rows: Row[], stored: Map<string, StoredPullState>) => Selection<Row>;
+  };
   fetchPage: (q: FeedQuery) => Promise<FeedPage<Row>>;
   newestStored: () => Promise<string | null>;
   incrementalFrom: (newest: string | null) => string | null;
@@ -170,6 +190,8 @@ function salesSpec(env: RenaissEnv, fixture: string[] | null): FeedSpec<RenaissS
     source: "renaiss-sales",
     noun: "sales",
     rowsKey: "sales",
+    table: "renaiss_sales",
+    writesCards: true,
     fetchPage: fixture ? fixturePager<RenaissSaleRow>(fixture, "sales") : (q) => fetchSalesPage(q, env),
     newestStored: latestStoredSoldAt,
     incrementalFrom: salesIncrementalFrom,
@@ -203,6 +225,9 @@ function pullsSpec(env: RenaissEnv, fixture: string[] | null): FeedSpec<RenaissP
     source: "renaiss-pulls",
     noun: "pack pulls",
     rowsKey: "pulls",
+    table: "renaiss_pulls",
+    writesCards: false,
+    changedOnly: { load: readStoredPullStates, select: selectPullsToWrite },
     fetchPage: fixture ? fixturePager<RenaissPullRow>(fixture, "pulls") : (q) => fetchPullsPage(q, env),
     newestStored: latestStoredPulledAt,
     incrementalFrom: (newest) => pullsIncrementalFrom(newest),
@@ -237,6 +262,7 @@ async function runFeed<Row>(spec: FeedSpec<Row>, args: WarmArgs, ctx: Ctx): Prom
 
   let from: string | null = null;
   let start: string;
+  let incremental = false;
   if (args.fixture) start = `replaying ${args.fixture.length} saved response file(s), no API call`;
   else if (args.from) {
     from = args.from;
@@ -248,6 +274,7 @@ async function runFeed<Row>(spec: FeedSpec<Row>, args: WarmArgs, ctx: Ctx): Prom
       return null;
     });
     from = spec.incrementalFrom(newest);
+    incremental = from != null;
     start = from ? `incremental from ${from} (newest stored ${newest})` : "first run (nothing stored) → from the oldest row";
   }
   log(
@@ -255,6 +282,20 @@ async function runFeed<Row>(spec: FeedSpec<Row>, args: WarmArgs, ctx: Ctx): Prom
       `${Number.isFinite(args.pageLimit) ? ` · capped at ${args.pageLimit} page(s)` : ""}` +
       `${args.apply ? "" : " · DRY RUN (no writes)"}`,
   );
+
+  // The stored state of the re-read window, read once — only for an incremental
+  // run of a changed-only feed. A backfill, a --from run and a fixture replay
+  // write every row they fetch (each is an upsert on the feed's own id).
+  let stored: Map<string, StoredPullState> | null = null;
+  if (spec.changedOnly && incremental && from) {
+    stored = await spec.changedOnly.load(from).catch((e) => {
+      log(`  stored state not readable (${(e as Error).message.slice(0, 120)}) → every fetched row is written`);
+      return null;
+    });
+    if (stored) log(`  ${stored.size.toLocaleString()} pulls already stored from ${from}; only new or changed ones are written`);
+  }
+  const reread = { fresh: 0, named: 0, matched: 0, unchanged: 0 };
+  let selected = 0;
 
   const all: Row[] = [];
   /** Where each page starts in `all` — the report shows rows from every page. */
@@ -275,11 +316,20 @@ async function runFeed<Row>(spec: FeedSpec<Row>, args: WarmArgs, ctx: Ctx): Prom
       const pageCards = collectCardRows(linked);
       for (const c of pageCards) cards.set(c.id, c);
       for (const l of linked) slabs.set(`rn-${l.tokenId}`, l.slab);
+      const pick: Selection<Row> =
+        stored && spec.changedOnly ? spec.changedOnly.select(rows, stored) : { write: rows, fresh: rows.length, named: 0, matched: 0, unchanged: 0 };
+      reread.fresh += pick.fresh;
+      reread.named += pick.named;
+      reread.matched += pick.matched;
+      reread.unchanged += pick.unchanged;
+      selected += pick.write.length;
       if (args.apply) {
-        const unseen = await filterUnseenCards(pageCards.filter((c) => !writtenCards.has(c.id)));
-        cardsWritten += await upsertRenaissCards(unseen);
-        for (const c of pageCards) writtenCards.add(c.id);
-        rowsWritten += await spec.write(rows, cards);
+        if (spec.writesCards) {
+          const unseen = await filterUnseenCards(pageCards.filter((c) => !writtenCards.has(c.id)));
+          cardsWritten += await upsertRenaissCards(unseen);
+          for (const c of pageCards) writtenCards.add(c.id);
+        }
+        rowsWritten += await spec.write(pick.write, cards);
       }
       pageStarts.push(all.length);
       all.push(...rows);
@@ -300,9 +350,21 @@ async function runFeed<Row>(spec: FeedSpec<Row>, args: WarmArgs, ctx: Ctx): Prom
 
   const d = duneSpend();
   const stop = args.fixture && result.stoppedBy === "caught-up" ? "the replay ended" : result.stoppedBy;
+  const cardsPart = !spec.writesCards
+    ? "0 cards rows (a pull writes none; its prize's card fields ride on the pull row)"
+    : args.apply
+      ? `${cardsWritten.toLocaleString()} cards rows (first sighting only)`
+      : `${cards.size.toLocaleString()} cards rows (one per slab sold; a real run writes only the ones not stored yet)`;
+  if (spec.changedOnly) {
+    log(
+      stored
+        ? `\n  re-read: ${reread.fresh.toLocaleString()} new, ${reread.named.toLocaleString()} newly named, ${reread.matched.toLocaleString()} newly matched to a checkout, ${reread.unchanged.toLocaleString()} unchanged (not rewritten)`
+        : `\n  every fetched pull is written (${args.fixture ? "a fixture replay has no store to compare with" : incremental ? "no stored state was readable" : "a backfill, --from or first run upserts every row"})`,
+    );
+  }
   log(
-    `\n${args.apply ? "Wrote" : "Would write"} ${(args.apply ? rowsWritten : all.length).toLocaleString()} ${spec.noun} rows · ` +
-      `${(args.apply ? cardsWritten : cards.size).toLocaleString()} cards rows${args.apply ? " (first sighting only)" : " (one per slab named; a real run writes only the ones not stored yet)"} · ` +
+    `\n${args.apply ? "Wrote" : "Would write"} ${(args.apply ? rowsWritten : selected).toLocaleString()} ${spec.noun} rows to ${spec.table} · ` +
+      `${cardsPart} · ` +
       `${renaissCallCount()} API calls · ${result.pages} page(s) · stopped: ${stop}${result.detail ? ` (${result.detail})` : ""} · ` +
       `X-RateLimit-Remaining ${lastRateLimit().remaining ?? "—"} · Dune ${d.calls} calls, ${d.datapoints} datapoints (credit meter) · ` +
       `${((Date.now() - t0) / 1000).toFixed(1)}s${newest ? ` · newest stored ${newest}` : ""}`,
@@ -337,11 +399,13 @@ async function printReport<Row>(
   for (const r of shown) {
     const l = spec.linked(r);
     const card = l ? (cards.get(`rn-${l.tokenId}`) ?? null) : null;
-    log(`  ${spec.rowsKey === "sales" ? "renaiss_sales" : "gacha_pulls"} ${JSON.stringify(spec.mapped(r, card))}`);
-    if (card) {
+    log(`  ${spec.table} ${JSON.stringify(spec.mapped(r, card))}`);
+    if (!spec.writesCards) {
+      log(`    → cards: none (${card ? "the prize's card fields are on the pull row" : "prize not named yet"})`);
+    } else if (card) {
       log(`    → cards ${JSON.stringify({ ...card, attributes: `(${card.attributes?.length ?? 0} label/value pairs)` })}`);
     } else {
-      log(`    → cards: none (${spec.rowsKey === "sales" ? "not linked to a cert and a card yet" : "prize not named yet"})`);
+      log(`    → cards: none (not linked to a cert and a card yet)`);
     }
   }
 

@@ -30,7 +30,15 @@ import {
   type FeedQuery,
 } from "./client";
 import { linkedCardOfSale, salesIncrementalFrom, toStoredSale, toNormalizedSales, type RenaissSaleRow } from "./sales";
-import { linkedCardOfPull, packWindows, pullsIncrementalFrom, toPullRow, type RenaissPullRow } from "./pulls";
+import {
+  linkedCardOfPull,
+  packWindows,
+  pullsIncrementalFrom,
+  selectPullsToWrite,
+  toPullRow,
+  type RenaissPullRow,
+  type StoredPullState,
+} from "./pulls";
 import { composeGrade, renaissCardRow } from "./cards";
 import { feedIsCurrent, lastCompleteDay, nextFeedState } from "./feedState";
 import { runRenaissWarmer } from "./warm";
@@ -106,27 +114,32 @@ test("an unlinked sale is stored with no card fields and writes no cards row", (
   assert.equal(linkedCardOfSale(sale), null);
 });
 
-test("a named pull maps to gacha_pulls with its prize and the prize's identity", () => {
+test("a named pull maps to renaiss_pulls carrying its prize's identity and card fields", () => {
   const pull = pullsWeek[0]; // PANDORA 28, $28, Larvitar PSA 8, stated value $20.50
   const linked = linkedCardOfPull(pull);
   assert.ok(linked);
-  const card = renaissCardRow(linked.tokenId, linked.slab, linked.card);
-  const row = toPullRow(pull, card);
+  // Built in memory for its fields; a pull never writes a cards row.
+  const prize = renaissCardRow(linked.tokenId, linked.slab, linked.card);
+  const row = toPullRow(pull, prize);
   assert.deepEqual(row, {
     pull_id: pull.id,
-    platform_id: "renaiss",
+    kind: "checkout",
     product_id: "4c3263d7-8aab-4498-af7b-2c8a7c484a55",
     buyer: pull.buyer!.toLowerCase(),
     price_usd: 28,
-    prize_instance_id: `rn-${pull.tokenId}`,
-    prize_canonical_id: card.identity_key,
-    prize_value_usd: 20.5,
     tx_hash: pull.transaction,
-    source: "renaiss-api",
     pulled_at: "2026-09-23T00:00:36.000Z",
+    prize_instance_id: `rn-${pull.tokenId}`,
+    prize_canonical_id: "pokemon|ruler-of-the-black-flame|114|LARVITAR|PSA 8||Japanese",
+    prize_value_usd: 20.5,
+    prize_card_name: "Larvitar",
+    prize_set_name: "Ruler of the Black Flame",
+    prize_card_number: "114",
+    prize_grade_label: "PSA 8",
+    prize_cert: "PSA142678133",
+    prize_language: "Japanese",
   });
-  assert.ok(card.identity_key);
-  assert.equal(card.grade_label, "PSA 8");
+  assert.equal(prize.identity_key, row.prize_canonical_id);
 });
 
 test("an unnamed pull keeps its spend and has no prize yet", () => {
@@ -135,19 +148,23 @@ test("an unnamed pull keeps its spend and has no prize yet", () => {
   const row = toPullRow(pull, null);
   assert.equal(row.price_usd, 30);
   assert.equal(row.buyer, pull.buyer);
-  assert.equal(row.prize_instance_id, null);
-  assert.equal(row.prize_canonical_id, null);
-  assert.equal(row.prize_value_usd, null);
+  assert.equal(row.kind, "checkout");
   assert.equal(row.tx_hash, pull.transaction);
+  for (const k of ["prize_instance_id", "prize_canonical_id", "prize_value_usd", "prize_card_name", "prize_set_name", "prize_card_number", "prize_grade_label", "prize_cert", "prize_language"] as const) {
+    assert.equal(row[k], null, k);
+  }
 });
 
 test("an observed pull is stored with price null and never counts as spend", () => {
   const pull = constructed.observedPull;
-  const row = toPullRow(pull, null);
+  const l = linkedCardOfPull(pull)!;
+  const row = toPullRow(pull, renaissCardRow(l.tokenId, l.slab, l.card));
+  assert.equal(row.kind, "observed");
   assert.equal(row.price_usd, null);
   assert.equal(row.buyer, null);
   assert.equal(row.prize_instance_id, `rn-${pull.tokenId}`);
   assert.equal(row.prize_value_usd, 20.5);
+  assert.equal(row.prize_card_name, "Larvitar");
   // Even if the feed ever sent a price on an observed row, it is not spend.
   assert.equal(toPullRow({ ...pull, pricePaid: { amount: "28", currency: "USDT" } }, null).price_usd, null);
   // The spend windows only ever see priced (checkout) rows.
@@ -157,6 +174,23 @@ test("an observed pull is stored with price null and never counts as spend", () 
     .filter((r) => r.price_usd != null)
     .map((r) => ({ pulledAt: r.pulled_at, usd: r.price_usd! }));
   assert.deepEqual(packWindows(spend, now), { gachaVol24Usd: 28, gachaVol7Usd: 28, gachaSales24h: 1 });
+});
+
+test("the re-read writes only pulls that are new, newly named or newly matched", () => {
+  const [a, b, c, d] = pullsWeek; // four named checkouts
+  const stored = new Map<string, StoredPullState>([
+    [a.id, { named: true, kind: "checkout" }], // stored as the feed returns it → skipped
+    [b.id, { named: false, kind: "checkout" }], // stored unnamed, named since → written
+    [c.id, { named: true, kind: "observed" }], // stored observed, a checkout since → written
+  ]);
+  const unnamedAgain = { ...pullsOldest[0] }; // stored unnamed, still unnamed → skipped
+  stored.set(unnamedAgain.id, { named: false, kind: "checkout" });
+  const pick = selectPullsToWrite([a, b, c, d, unnamedAgain], stored); // d is not stored → new
+  assert.deepEqual(pick.write.map((p) => p.id), [b.id, c.id, d.id]);
+  assert.deepEqual({ fresh: pick.fresh, named: pick.named, matched: pick.matched, unchanged: pick.unchanged }, { fresh: 1, named: 1, matched: 1, unchanged: 2 });
+  // The Sep 29 shape: every pull in the window already stored and named → nothing to write.
+  const all = new Map(pullsWeek.map((p) => [p.id, { named: true, kind: "checkout" as const }]));
+  assert.equal(selectPullsToWrite(pullsWeek, all).write.length, 0);
 });
 
 test("the IP comes from the catalog image's game before any keyword", () => {
@@ -405,8 +439,8 @@ test("a day is complete once the newest row is past its end and the run reached 
 
 test("a fixture dry run maps both feeds and writes nothing", async () => {
   for (const [feed, files, expect] of [
-    ["sales", ["sales-oldest.json", "sales-week.json"], /Would write 49 sales rows/],
-    ["pulls", ["pulls-oldest.json", "pulls-week.json"], /Would write 503 pack pulls rows/],
+    ["sales", ["sales-oldest.json", "sales-week.json"], /Would write 49 sales rows to renaiss_sales · 48 cards rows/],
+    ["pulls", ["pulls-oldest.json", "pulls-week.json"], /Would write 503 pack pulls rows to renaiss_pulls · 0 cards rows \(a pull writes none/],
   ] as const) {
     const lines: string[] = [];
     const code = await runRenaissWarmer(feed, ["--dry-run", "--limit", "3", `--fixture=${files.map((f) => join(FIX, f)).join(",")}`], {

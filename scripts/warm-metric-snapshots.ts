@@ -15,7 +15,7 @@
  *     /sales feed, split by the lane classifier (src/lib/dyli/lanes.ts) and
  *     reconciled against its own /transactions daily GMV.
  *   • renaiss (volume_usd / trades from resale, gacha_volume_usd from pack
- *     checkouts) — its own index API, via the `renaiss_sales` and `gacha_pulls`
+ *     checkouts) — its own index API, via the `renaiss_sales` and `renaiss_pulls`
  *     row stores; complete days only, by the feed state its warmers record.
  *   • dominance (entity_type set / grade / platform_ip) — daily volume/trades/
  *     cards per "{ip}:{set}", "{ip}:{grade}", "{platform}:{ip}" so the dominance

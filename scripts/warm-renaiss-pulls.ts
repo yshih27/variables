@@ -1,10 +1,11 @@
 /**
  * Renaiss pack-pulls warmer — pages Renaiss's pack pulls (its own index API)
- * into `gacha_pulls` (platform_id renaiss), and writes a `cards` row the first
- * time a named prize is seen.
+ * into their own table, `renaiss_pulls`. A pull writes no `cards` row: its
+ * prize's identity key and card fields ride on the pull row.
  *
  *   npx tsx scripts/warm-renaiss-pulls.ts                     # DRY RUN, incremental (the default)
- *   npx tsx scripts/warm-renaiss-pulls.ts --apply             # incremental: re-reads the trailing 14 days
+ *   npx tsx scripts/warm-renaiss-pulls.ts --apply             # incremental: re-reads the trailing window
+ *                                                             # (PULLS_REREAD_DAYS), writes only new or changed pulls
  *   npx tsx scripts/warm-renaiss-pulls.ts --backfill --apply  # full history, from the oldest row (Nov 6, 2025)
  *   npx tsx scripts/warm-renaiss-pulls.ts --dry-run --limit 3 # at most 3 pages, writes nothing
  *
