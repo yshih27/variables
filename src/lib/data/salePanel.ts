@@ -8,6 +8,9 @@
  *                       ip/set/grade fall to "other"/null, so it can't be stratified
  *                       per-IP yet — lands in "other" until traded-mint enrichment)
  *   • Beezie          — its own /activity feed (full history)
+ *   • Renaiss         — its own index API, from the `renaiss_sales` row store the
+ *                       sales warmer fills (full history, hygiene-cleaned); every
+ *                       sale carries its cert and card, so its `cards` rows key it
  *   • Phygitals       — omitted: no clean row-level secondary feed (its sales API is
  *                       gacha-dominated). Add when a Phygitals secondary query lands.
  *
@@ -16,6 +19,7 @@
  */
 import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
+import { readRenaissSales } from "../renaiss/sales";
 import { readCardDims, type CardPlatform } from "./cards";
 import { identityKey, legacyIdentityKey } from "./traits";
 import type { NormalizedSale } from "../rarible/queries";
@@ -89,15 +93,18 @@ export async function readSaleFeed(opts: { sinceMs?: number } = {}): Promise<Unt
   // Beezie's window is derived from `sinceMs` when given (plus a day of slack for
   // clock skew at the boundary), else ~all history for the panel.
   const beezieWindowMs = sinceMs != null ? Math.max(Date.now() - sinceMs, 0) + DAY_MS : 800 * DAY_MS;
-  const [cc, cy, bz] = await Promise.all([
+  const [cc, cy, bz, rn] = await Promise.all([
     readSecondarySales("collector-crypt").catch(() => [] as NormalizedSale[]),
     readSecondarySales("courtyard").catch(() => [] as NormalizedSale[]),
     fetchBeezieSales(beezieWindowMs).catch(() => [] as NormalizedSale[]),
+    // The row store, never the API: no request path reads Renaiss's API.
+    readRenaissSales({ sinceMs }).then((r) => r.sales).catch(() => [] as NormalizedSale[]),
   ]);
   return [
     ...cleanPlatform("collector-crypt", cc, sinceMs),
     ...cleanPlatform("courtyard", cy, sinceMs),
     ...cleanPlatform("beezie", bz, sinceMs),
+    ...cleanPlatform("renaiss", rn, sinceMs),
   ];
 }
 

@@ -39,6 +39,8 @@
     "warm-dyli-listings": "tsx scripts/warm-dyli-listings.ts",
     "warm-dyli-boxes": "tsx scripts/warm-dyli-boxes.ts",
     "check-dyli-lanes": "tsx scripts/check-dyli-lanes.ts",
+    "warm-renaiss-sales": "tsx scripts/warm-renaiss-sales.ts",
+    "warm-renaiss-pulls": "tsx scripts/warm-renaiss-pulls.ts",
     "warm-player-analytics": "tsx scripts/warm-player-analytics.ts",
     "post-card": "tsx scripts/post-card.ts",
     "test:character": "tsx --test src/lib/card/character.test.ts src/lib/data/characterRollups.test.ts",
@@ -48,7 +50,8 @@
     "test:identity": "tsx --test src/lib/card/identity.test.ts",
     "test:price": "tsx --test src/lib/api/badge.test.ts",
     "test:names": "tsx --test src/lib/data/traits.test.ts",
-    "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts"
+    "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts",
+    "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

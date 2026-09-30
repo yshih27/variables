@@ -470,8 +470,9 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // DYLI's gacha does not come from the Dune gacha snapshot and never will — it
   // is not a Dune source. Its mystery-box sales arrive on the same native feed
   // as its resale, so core-volume carries them (rolling windows, same basis as
-  // every other platform's). Preferring `g` keeps this a pure fallback: a
-  // platform present in both is untouched.
+  // every other platform's). Renaiss's pack spend arrives the same way, from its
+  // own pulls feed. Preferring `g` keeps this a pure fallback: a platform present
+  // in both is untouched.
   const coreGacha24 = bucket.gachaVol24Usd;
   const coreGacha7 = bucket.gachaVol7Usd;
 

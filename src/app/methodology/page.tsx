@@ -404,6 +404,16 @@ const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
     primary:
       "From the same sales feed: mystery boxes are gacha, inventory purchases and fair-drop entries are direct sales. eBay-venue rows and zero-price box claims are excluded.",
   },
+  renaiss: {
+    resale:
+      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since the first, on Jan 9, 2026, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid.",
+    listings:
+      "No source. The API publishes no active listings, so the floor and the market cap read as withheld, never as zero.",
+    holders:
+      "Not counted; no ownership read is wired for its card contract. Card metadata (set, number, grade, cert, language) arrives with each linked sale and named pull, and is kept the first time a token is seen.",
+    primary:
+      "Pack pulls from the same API: each checkout with its buyer, price and transaction, and the prize once Renaiss names it, which for its V3 packs happens when the set sells out, so the last 14 days are re-read on every run. The prize value is the one Renaiss states. A draw seen on its public list but not yet matched to a checkout is kept and never counted as spend. No payout wallet is known, so net revenue is withheld with that reason.",
+  },
 };
 
 function VenueSources() {
