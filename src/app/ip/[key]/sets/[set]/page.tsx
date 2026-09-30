@@ -15,6 +15,13 @@ import { formatCompactUsd } from "@/lib/format";
 
 export const revalidate = 1800;
 
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
+
 export default async function IPSetDetailPage({
   params,
 }: {

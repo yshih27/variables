@@ -21,6 +21,13 @@ import { CharacterCardsTable } from "@/components/characters/CharacterCardsTable
  */
 export const revalidate = 1800;
 
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
+
 export default async function CharacterPage({ params }: { params: Promise<{ key: string; character: string }> }) {
   const { key, character } = await params;
   const [detail, ticker] = await Promise.all([getCharacterDetail(key, decodeURIComponent(character)), buildMarketTicker()]);

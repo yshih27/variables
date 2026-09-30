@@ -28,6 +28,13 @@ import { buildPriceComparison, PRICE_RANGES } from "@/lib/data/perfCompare";
 // Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
 export const revalidate = 1800;
 
+// Required for `revalidate` to take effect on a dynamic segment: an empty list
+// prerenders nothing and caches every path on first request. The full note is
+// on src/app/i/[...slug]/page.tsx.
+export async function generateStaticParams() {
+  return [];
+}
+
 const PLATFORM_META: Record<string, { name: string; chain: string; chainColor: string; color: string }> = {
   beezie: { name: "Beezie", chain: "Base", chainColor: "#5fa3ff", color: "#a78bfa" },
   "collector-crypt": { name: "Collector Crypt", chain: "Solana", chainColor: "#14f195", color: "#5b9bff" },
