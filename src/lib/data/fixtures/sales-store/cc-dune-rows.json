@@ -1,0 +1,6 @@
+{
+ "_note": "CONSTRUCTED in the shape of Dune query 7675297's rows (dune/cc-secondary.sql): block_time as Dune prints it, price_usd, nft_mint, buyer, seller, and tx_id as the query selects it once applied. Addresses are illustrative base58 strings, not real accounts. No Dune read was made to build it.",
+ "withoutTx": {"block_time": "2026-09-30 05:58:08.000 UTC", "price_usd": 125.5, "nft_mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "buyer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", "seller": "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T"},
+ "withTx": {"block_time": "2026-09-30 05:58:08.000 UTC", "price_usd": 125.5, "nft_mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "buyer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", "seller": "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T", "tx_id": "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW"},
+ "zeroPrice": {"block_time": "2026-09-30 06:01:00.000 UTC", "price_usd": 0, "nft_mint": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "buyer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", "seller": "4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T"}
+}

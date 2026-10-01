@@ -1,0 +1,41 @@
+{
+ "@type": "SELL",
+ "orderId": "POLYGON:0x3034b3d93dedcbd3b37bc2058f704bf197d9d8b8cb1b4cda7b4deef3a1d34b1c",
+ "source": "OPEN_SEA",
+ "transactionHash": "0x3f142c0af3b93b7c3474f65d86b879f964f6ec8a7f2af7adb58f7d7e18e173e3",
+ "blockchainInfo": {
+  "transactionHash": "0x3f142c0af3b93b7c3474f65d86b879f964f6ec8a7f2af7adb58f7d7e18e173e3",
+  "blockHash": "0x74f36c6216e39a371a16176154c01c2ecdc417c55c92b0bfc5bcee44dadbb947",
+  "blockNumber": 94657929,
+  "logIndex": 875
+ },
+ "id": "POLYGON:6abbcac4040767744a7287a7",
+ "date": "2026-09-29T14:27:14Z",
+ "lastUpdatedAt": "2026-09-29T14:27:16.284Z",
+ "cursor": "[1790692034000,94657929,875,4097729516526706390]",
+ "reverted": false,
+ "nft": {
+  "type": {
+   "@type": "ERC721",
+   "contract": "POLYGON:0x251be3a17af4892035c37ebf5890f4a4d889dcad",
+   "collection": "POLYGON:0x251be3a17af4892035c37ebf5890f4a4d889dcad",
+   "tokenId": "107805133462299590982151323861325155745020266141687428119153289787852269074973"
+  },
+  "value": "1"
+ },
+ "payment": {
+  "type": {
+   "@type": "ERC20",
+   "contract": "POLYGON:0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
+  },
+  "value": "465.01"
+ },
+ "buyer": "ETHEREUM:0xe146eb724747bef18d09c645a07ccec7d6e63814",
+ "seller": "ETHEREUM:0x08c4e146e9e0935c627049cc21dfefbe9e384004",
+ "buyerOrderHash": "0x3034b3d93dedcbd3b37bc2058f704bf197d9d8b8cb1b4cda7b4deef3a1d34b1c",
+ "sellerOrderHash": "0xbceda696f22e39d47d48a39e7e7eb3da8ccb94e34af6c9bd4d3c51cb41f97005",
+ "price": "465.01",
+ "priceUsd": "464.990995367216115798",
+ "amountUsd": "464.990995367216115798",
+ "type": "ACCEPT_BID"
+}
