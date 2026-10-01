@@ -221,7 +221,7 @@ export async function fetchCCSecondaryScan(
   return mustHaveScan(fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
 }
 
-const COURTYARD_COLLECTION = (() => {
+export const COURTYARD_COLLECTION = (() => {
   const src = PLATFORM_SOURCES.find((p) => p.key === "courtyard");
   return src && "collectionId" in src ? src.collectionId : "POLYGON:0x251be3a17af4892035c37ebf5890f4a4d889dcad";
 })();
@@ -311,7 +311,7 @@ export async function runCoreWarm(
     } else {
       const ccSales = ccScan.sales;
       ccRowsForStore = ccSales;
-      kept.push(...ccScan.observed.map(storedFromCC));
+      kept.push(...ccScan.observed.map((o) => storedFromCC(o)));
       platforms["collector-crypt"] = buildPlatform("collector-crypt", "dune", ccSales, 30);
       log(
         `→ collector-crypt (Dune) ${ccSales.length} sales/30d · 24h $${Math.round(
