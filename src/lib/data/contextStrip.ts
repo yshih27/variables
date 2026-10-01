@@ -5,7 +5,8 @@ import type { IPRow } from "@/lib/types";
 import { formatCompactNumber, formatCompactUsd } from "@/lib/format";
 import { tickerOf, INDEX_DESCRIPTOR } from "@/lib/indices/naming";
 import { fetchHomepage } from "./fetchHomepage";
-import { readIndexSeries, monthlyChangePct } from "./indices";
+import { readIndexSeries, readIndexProvisional } from "./indices";
+import { indexReading } from "@/lib/indices/reading";
 
 /**
  * The market context strip (P1-C) — one line of market state carried under the nav
@@ -24,30 +25,40 @@ import { readIndexSeries, monthlyChangePct } from "./indices";
 
 /** Build the five items. Never throws — see `buildMarketTicker`. */
 async function buildItems(): Promise<TickerItem[]> {
-  const [data, marketIdx] = await Promise.all([
+  const [data, marketIdx, marketProv] = await Promise.all([
     fetchHomepage(),
     // Same call as src/app/page.tsx's getMarketIndexSeries.
     readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" }).catch(() => []),
+    readIndexProvisional("market", "total", { from: "2000-01-01" }).catch(() => null),
   ]);
   const hero = data.hero;
   const items: TickerItem[] = [];
 
-  // 1 — V-MKT. Level and Δ1m are built EXACTLY as the homepage headline builds
-  // them: rebase to the first finite point, read the newest level, and take the
-  // month-over-month move between the last two COMPLETE months (the index is
-  // monthly and stamped at month-end; `monthlyChangePct` drops a running month).
+  // 1 — V-MKT. The SAME reading the homepage hero leads with (indexReading, on
+  // the same series, the same base and the same provisional): the running
+  // month's provisional when it clears the floor, its step labelled MTD; else
+  // the last close and its month-over-month, labelled 1m. The tooltip carries
+  // the reading that does not lead, so the published close is one hover away.
   const idxBase = marketIdx.find((p) => Number.isFinite(p.value) && p.value > 0)?.value ?? null;
-  const level =
-    idxBase && marketIdx.length ? (marketIdx[marketIdx.length - 1].value / idxBase) * 100 : null;
+  const reading = indexReading("market", marketIdx, marketProv, { base: idxBase });
+  const about = `The Varible Market Index — ${INDEX_DESCRIPTOR}, rebased to 100 at inception`;
   items.push({
     label: tickerOf("market", "total"),
-    value: level != null && Number.isFinite(level) ? level.toFixed(2) : "—",
-    delta: monthlyChangePct(marketIdx), // null under the hold → no delta rendered
-    deltaWindow: "1m",
+    value: reading.figure != null && Number.isFinite(reading.figure) ? reading.figure.toFixed(2) : "—",
+    delta: PRICE_INDEX_HOLD.active ? null : reading.stepPct,
+    deltaWindow: reading.stepWindow,
     href: "/ips",
     title: PRICE_INDEX_HOLD.active
       ? PRICE_INDEX_HOLD.title
-      : `The Varible Market Index — ${INDEX_DESCRIPTOR}, rebased to 100 at inception`,
+      : [
+          reading.lead === "provisional" && reading.provisional?.state === "leads"
+            ? `${reading.provisional.chip} · ${reading.provisional.receipt}`
+            : null,
+          reading.other,
+          about,
+        ]
+          .filter(Boolean)
+          .join("\n"),
     priority: true,
   });
 

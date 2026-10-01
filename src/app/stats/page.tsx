@@ -5,6 +5,7 @@ import { StackedAreaChart } from "@/components/StackedAreaChart";
 import { CompositionChart } from "@/components/CompositionChart";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioProvisional } from "@/lib/studio/provisional";
 import { CiteBlock } from "@/components/CiteBlock";
 import { Section } from "@/components/Section";
 import { buildStatsBoard } from "@/lib/data/statsBoard";
@@ -130,7 +131,7 @@ export default async function StatsPage() {
               </Section>
             )}
             <div className={holdReason ? "mt-3" : undefined}>
-              <IndexStudio seed={seed}  ledger={ledger}/>
+              <IndexStudio provisional={await readStudioProvisional(seed)} seed={seed}  ledger={ledger}/>
             </div>
           </div>
 
