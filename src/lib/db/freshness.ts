@@ -113,6 +113,18 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   // WRITER; the comps themselves are third-party context, never a spine input.
   "ripfun-oracle": 7 * DAY_MS,
   "weekly-report": 7 * DAY_MS, // Mondays 08:00 — movers + composer (B9-2)
+  // Mondays, right after the composer, once RESEND_API_KEY is set. rows = the
+  // week's recipients (scripts/send-weekly-report.ts). Untracked until then.
+  "weekly-report-send": 7 * DAY_MS,
+};
+
+/**
+ * Sources that go stale sooner than the default 2× their interval. A weekly
+ * send judged at 2× would only turn stale after TWO silent Mondays; a report
+ * that did not go out is news the Tuesday after, so the send is stale at 8 days.
+ */
+export const SOURCE_STALE_AFTER_MS: Record<string, number> = {
+  "weekly-report-send": 8 * DAY_MS,
 };
 
 export type FreshnessState = "ok" | "stale" | "error" | "untracked";
@@ -132,6 +144,6 @@ export function freshnessState(
   const ageMs = now - new Date(row.generated_at).getTime();
   if (row.status === "error") return { state: "error", ageMs };
   const interval = SOURCE_INTERVALS_MS[source] ?? 6 * HOUR_MS;
-  if (ageMs > 2 * interval) return { state: "stale", ageMs };
+  if (ageMs > (SOURCE_STALE_AFTER_MS[source] ?? 2 * interval)) return { state: "stale", ageMs };
   return { state: "ok", ageMs };
 }

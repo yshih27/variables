@@ -266,6 +266,13 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'weekly-report')
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # ⚠️ JOB-LEVEL, NOT `secrets.*` IN THE STEP'S `if:`. Actions does not allow a
+    # secret in an `if:` conditional; the documented pattern is to lift it into
+    # env and test the env. Empty until the sending domain is verified, which is
+    # what keeps the send step below a no-op.
+    env:
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -283,6 +290,14 @@ jobs:
       - name: Weekly report (movers + composer)
         continue-on-error: true
         run: npx tsx scripts/warm-weekly-report.ts
+      # The report, in inboxes. Reads the snapshot the composer just wrote; skips
+      # anyone already sent this week (weekly-report-send:<week> ledger), so a
+      # re-dispatch never double-sends. Records `weekly-report-send` freshness
+      # (rows = recipients). A no-op until RESEND_API_KEY exists.
+      - name: Weekly report — send to confirmed subscribers
+        if: env.RESEND_API_KEY != ''
+        continue-on-error: true
+        run: npx tsx scripts/send-weekly-report.ts --send
       # CardOS price oracle — third-party COMPS for cards our platforms tokenize.
       # Refreshes a QUARTER of the mapped expansions (oldest-refreshed first) plus
       # up to 30 graded ladders: ~30 credits/week + ~30/month ≈ 160/month against a
