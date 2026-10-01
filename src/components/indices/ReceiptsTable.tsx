@@ -34,12 +34,21 @@ export function ReceiptsTable({ identities, month }: { identities: IdentityRecei
   const visible = all ? identities : identities.slice(0, TOP_ROWS);
   const truncated = visible.length < identities.length;
   const totalWeight = identities.reduce((a, r) => a + r.weight, 0);
+  /**
+   * ⚠️ THE WEIGHT IS THE FEWER OF THE TWO MONTHS' SALES, NOT THE LATER MONTH'S.
+   * The estimator weights each identity by `min(nFrom, nTo)` (identityIndex.ts,
+   * `periodSteps`), and the Weight column prints exactly that. This line used to
+   * say "weight = sales in the later month · N sales in total": wrong on the rule
+   * (Sep 2026: an Abra PSA 10 sold 2 → 6 times carries weight 2, not 6) and wrong
+   * on the total, which is the sum of weights (95), not of sales (110 in the later
+   * month alone).
+   */
 
   return (
     <Section
       title="The cards in this step"
       readMe="every identity priced in both months, heaviest first"
-      subtitle={`${identities.length} identit${identities.length === 1 ? "y" : "ies"} · weight = sales in the later month · ${totalWeight} sales in total`}
+      subtitle={`${identities.length} identit${identities.length === 1 ? "y" : "ies"} · weight = the fewer of its two months' sales · total weight ${totalWeight}`}
       flush
     >
       <div className="scroll-x">
