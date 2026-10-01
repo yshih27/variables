@@ -84,16 +84,27 @@ function cleanPlatform(platform: CardPlatform, sales: NormalizedSale[], sinceMs?
  *
  * `sinceMs` also shortens the Beezie leg, which is a live `/activity` request.
  */
-export async function readSaleFeed(opts: { sinceMs?: number } = {}): Promise<UntaggedSale[]> {
+export async function readSaleFeed(opts: { sinceMs?: number; strict?: boolean } = {}): Promise<UntaggedSale[]> {
   const { sinceMs } = opts;
   // Beezie's window is derived from `sinceMs` when given (plus a day of slack for
   // clock skew at the boundary), else ~all history for the panel.
   const beezieWindowMs = sinceMs != null ? Math.max(Date.now() - sinceMs, 0) + DAY_MS : 800 * DAY_MS;
+  // A request-path caller (the tape) takes a shorter feed over none; the index
+  // build (`strict`) must not: see buildSalePanel.
+  const leg = (label: string, p: Promise<NormalizedSale[]>): Promise<NormalizedSale[]> =>
+    opts.strict
+      ? p.catch((e: unknown) => {
+          throw new Error(`sale panel: the ${label} leg failed (${e instanceof Error ? e.message : String(e)}); nothing was written, the previous index stands`);
+        })
+      : p.catch(() => [] as NormalizedSale[]);
   const [cc, cy, bz] = await Promise.all([
-    readSecondarySales("collector-crypt").catch(() => [] as NormalizedSale[]),
-    readSecondarySales("courtyard").catch(() => [] as NormalizedSale[]),
-    fetchBeezieSales(beezieWindowMs).catch(() => [] as NormalizedSale[]),
+    leg("collector-crypt", readSecondarySales("collector-crypt")),
+    leg("courtyard", readSecondarySales("courtyard")),
+    leg("beezie", fetchBeezieSales(beezieWindowMs)),
   ]);
+  if (opts.strict && !bz.length) {
+    throw new Error("sale panel: Beezie's /activity returned no sales; nothing was written, the previous index stands");
+  }
   return [
     ...cleanPlatform("collector-crypt", cc, sinceMs),
     ...cleanPlatform("courtyard", cy, sinceMs),
@@ -126,13 +137,21 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[], legacy
 /**
  * Build the full cross-platform sale-price panel. A failing feed degrades to an
  * empty contribution (logged by the caller via the returned counts) rather than
- * sinking the whole panel.
+ * sinking the whole panel — unless `strict`.
+ *
+ * ⚠️ `strict` IS THE INDEX BUILD'S (warm-sale-panel). Measured Oct 1: one live
+ * Beezie /activity request failed, the leg degraded to empty, and the index
+ * built on the rest published NO month for market:total, ip:pokemon or
+ * category:tcg, because every published step rests on Beezie. The warmer would
+ * have overwritten the blob with that. It now throws instead, and the previous
+ * blob stands until the next run. Since the build runs in every 6-hourly core
+ * job, a lenient leg would have had four chances a day to do it.
  */
-export async function buildSalePanel(opts: { legacyIdentity?: boolean } = {}): Promise<SaleRow[]> {
+export async function buildSalePanel(opts: { legacyIdentity?: boolean; strict?: boolean } = {}): Promise<SaleRow[]> {
   // CC + Courtyard come from the secondary-sales store runCoreWarm writes — the
   // same cleaned rows the old direct Dune reads returned, without re-buying the
   // export (~5.6 cr each). Only warmers/core touches Dune for these feeds now.
-  const feed = await readSaleFeed();
+  const feed = await readSaleFeed({ strict: opts.strict });
   const byPlatform = new Map<CardPlatform, UntaggedSale[]>();
   for (const s of feed) {
     const cur = byPlatform.get(s.platform);
