@@ -1,7 +1,8 @@
 import type { CategoryTrend } from "../category/rollup";
-import { readIndexSeries, rebaseSeries, resampleWeekly } from "./indices";
+import { readIndexSeries, readIndexProvisional, rebaseSeries, resampleWeekly } from "./indices";
 import { readMetricSeries } from "./metricSnapshots";
 import { tickerOf } from "../indices/naming";
+import { provisionalWords } from "../indices/readingWords";
 
 /**
  * Rebased PRICE-index comparison for the /ips + /ip[key] charts (QA-6): the given
@@ -38,7 +39,14 @@ const BENCHMARKS = [
 // week with enough graded sales), and benchmarks are windowed to that inception.
 const FROM = "2025-06-01";
 
-type Line = { group: string; color: string; benchmark: boolean; ticker?: string; series: { ts: string; value: number }[] };
+type Line = {
+  group: string;
+  color: string;
+  benchmark: boolean;
+  ticker?: string;
+  series: { ts: string; value: number }[];
+  provisional?: { ts: string; value: number; chip: string; receipt: string };
+};
 
 export async function buildPriceComparison(entities: PriceEntity[]): Promise<CategoryTrend> {
   const internal = (
@@ -51,6 +59,12 @@ export async function buildPriceComparison(entities: PriceEntity[]): Promise<Cat
         // keeps the plain `group` name). Benchmarks intentionally have none.
         ticker: tickerOf(e.entity, e.key),
         series: await readIndexSeries(e.entity, e.key, { kind: "price", from: FROM }),
+        // The running month, when it clears its floor — on the series' own scale
+        // (readIndexSeries rebases at FROM; the blob's levels share that base).
+        // Same axis as `series` (same from); placed at its asOf, so none without one.
+        provisional: await readIndexProvisional(e.entity, e.key, { from: FROM })
+          .then((p) => (p && "value" in p && p.asOf ? { ts: p.asOf, value: p.value, ...provisionalWords(p) } : undefined))
+          .catch(() => undefined),
       })),
     )
   ).filter((s) => s.series.length >= 2);
@@ -85,6 +99,8 @@ export async function buildPriceComparison(entities: PriceEntity[]): Promise<Cat
 function alignSparse(items: Line[]): CategoryTrend {
   const tsSet = new Set<string>();
   for (const it of items) for (const p of it.series) tsSet.add(p.ts);
+  // A provisional needs its own column on the axis; it is not a point of the series.
+  for (const it of items) if (it.provisional) tsSet.add(it.provisional.ts);
   const labels = [...tsSet].sort();
   const idx = new Map(labels.map((ts, i) => [ts, i]));
   const datasets = items
@@ -95,7 +111,14 @@ function alignSparse(items: Line[]): CategoryTrend {
         const i = idx.get(p.ts);
         if (i != null && Number.isFinite(p.value)) arr[i] = p.value;
       }
-      return { group: it.group, color: it.color, benchmark: it.benchmark, ticker: it.ticker, points: arr };
+      return {
+        group: it.group,
+        color: it.color,
+        benchmark: it.benchmark,
+        ticker: it.ticker,
+        points: arr,
+        ...(it.provisional ? { provisional: { ts: it.provisional.ts, value: it.provisional.value, chip: it.provisional.chip, receipt: it.provisional.receipt } } : {}),
+      };
     });
   return { labels, datasets };
 }

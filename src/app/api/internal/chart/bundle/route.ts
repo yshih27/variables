@@ -20,6 +20,8 @@ import { buildStudioCatalog } from "@/lib/studio/catalog";
 import { serverChartLoader } from "@/lib/studio/serverLoader";
 import { v1OkInternal, v1Error } from "@/lib/api/v1";
 import { cachedChart, guardChartRequest, CHART_CDN_HEADERS } from "@/lib/api/chartSeries";
+import { readIndexProvisional, type IndexProvisional } from "@/lib/data/indices";
+import type { IndexEntity } from "@/lib/indices/naming";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +34,20 @@ export async function GET(req: Request) {
   // a plain object and the client rebuilds the Map.
   const bundle = await cachedChart(["studio-bundle"], async () => {
     const { items, data } = await buildStudioCatalog(serverChartLoader());
-    return { items, data: Object.fromEntries(data) };
+    // The running month's reading per index line, under its OWN key — never a
+    // point in `data`, because it is never chained and is replaced at the close.
+    const provisional: Record<string, IndexProvisional> = {};
+    await Promise.all(
+      items
+        .filter((it) => it.id.startsWith("idx:"))
+        .map(async (it) => {
+          const [, entity, ...rest] = it.id.split(":");
+          // Same axis as the catalog's index lines (read from 2000-01-01).
+          const p = await readIndexProvisional(entity as IndexEntity, rest.join(":"), { from: "2000-01-01" }).catch(() => null);
+          if (p) provisional[it.id] = p;
+        }),
+    );
+    return { items, data: Object.fromEntries(data), provisional };
   });
 
   return v1OkInternal(bundle, CHART_CDN_HEADERS);

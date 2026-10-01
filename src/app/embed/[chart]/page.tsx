@@ -41,6 +41,7 @@ export async function generateMetadata({ params }: { params: Promise<{ chart: st
 }
 
 import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioProvisional } from "@/lib/studio/provisional";
 import { readStudioSeed } from "@/lib/studio/seed";
 
 export default async function EmbedPage({ params }: { params: Promise<{ chart: string }> }) {
@@ -54,7 +55,7 @@ export default async function EmbedPage({ params }: { params: Promise<{ chart: s
     return (
       <div className="flex min-h-screen flex-col bg-bg px-3 py-3 font-sans">
         <div className="min-h-0 flex-1">
-          <IndexStudio seed={seed}  ledger={ledger}/>
+          <IndexStudio provisional={await readStudioProvisional(seed)} seed={seed}  ledger={ledger}/>
         </div>
         <a
           href="https://varible.rarible.com/ips"
@@ -103,7 +104,7 @@ export default async function EmbedPage({ params }: { params: Promise<{ chart: s
           {/* actions=false: the export band belongs to the page, not to an iframe
               sitting on someone else's site. */}
           <div className="mt-2">
-            <MarketIndexChart points={idx.points} anchor={idx.anchor} actions={false} />
+            <MarketIndexChart points={idx.points} anchor={idx.anchor} actions={false} provisional={idx.provisional} />
           </div>
           {/* THE RECEIPT — the reason this chart may not travel bare. */}
           {idx.receipt && (

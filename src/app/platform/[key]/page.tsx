@@ -8,6 +8,7 @@ import { type OverviewMetricRow } from "@/components/OverviewMetricColumn";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioProvisional } from "@/lib/studio/provisional";
 import { readStudioSeed } from "@/lib/studio/seed";
 import { CompositionChart, type CompositionSeries } from "@/components/CompositionChart";
 import { IPByPlatform, type PlatformRow } from "@/components/IPByPlatform";
@@ -366,7 +367,7 @@ export default async function PlatformDetailPage({
               shares a top AND a bottom edge, so the rail is sized by the studio
               beside it and its three cards divide that height between them. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <IndexStudio seed={studioSeed} scope={{ entity: "platform", key }}  ledger={ledger}/>
+            <IndexStudio provisional={await readStudioProvisional(studioSeed, { entity: "platform", key })} seed={studioSeed} scope={{ entity: "platform", key }}  ledger={ledger}/>
             {/* grid-rows-3 of 1fr from lg up: the rail fills the studio's height
                 and each card gets an equal share, rather than three natural-height
                 cards stacking to whatever they happen to total. */}
