@@ -116,6 +116,22 @@ export const BUYBACK_QUERY_ID = 8252735;
 export const CC_SECONDARY_QUERY_ID = 7675297;
 
 /**
+ * Collector Crypt's resale HISTORY, for the `secondary_sales` backfill
+ * (scripts/backfill-secondary-sales.ts; brief-backend-index-every-venue B2):
+ * dune/cc-secondary-history.sql (the 7675297 logic + tx_id over a {{start}},
+ * {{end}} window) and dune/cc-secondary-history-count.sql (the same, counted per
+ * month: the cost probe that runs first). NOT YET SAVED: the orchestrator saves
+ * both SQL files to the workspace and sets the ids in the environment. Until
+ * then they are null and the script makes no Dune call.
+ */
+const envId = (name: string): number | null => {
+  const n = Number(process.env[name]);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+export const CC_SECONDARY_HISTORY_QUERY_ID: number | null = envId("DUNE_CC_SECONDARY_HISTORY_QUERY_ID");
+export const CC_SECONDARY_HISTORY_COUNT_QUERY_ID: number | null = envId("DUNE_CC_SECONDARY_HISTORY_COUNT_QUERY_ID");
+
+/**
  * Courtyard secondary marketplace sales (Polygon) via Dune `nft.trades` — replaces
  * the Rarible aggregator. Same row shape as CC's 7675297
  * `{ block_time, price_usd, nft_mint, buyer, seller }`, over 30d.

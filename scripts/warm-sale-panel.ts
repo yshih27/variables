@@ -17,6 +17,15 @@
  *       (price-index.v4.1.json), rekey-report.json + rekey-report.md (the level-by-
  *       level diff, the merge review and the fragment counts the PR body carries)
  *       and the method-changes snapshot the methodology page renders from.
+ *   npx tsx --env-file=.env.local scripts/warm-sale-panel.ts --out=/tmp/blob --shadow-venues
+ *       THE EVERY-VENUE SHADOW BUILD (brief-backend-index-every-venue B2). Requires
+ *       --out. The run builds on the `secondary_sales` store, as every run now does,
+ *       then builds the SAME index on today's legs (the 30-day snapshot windows and
+ *       Beezie's live /activity) and writes, beside the new blob: the legs blob
+ *       (price-index.legs.json), venues-report.json + venues-report.md (per entity
+ *       per month: identities by venue, step and level, holds, thin flags, old →
+ *       new) and method-changes.json under the next ledger version. Pair it with
+ *       SALES_STORE_LOCAL_DIR=<dir> to build on a store a backfill's --out wrote.
  *
  * WHAT IS IN THE BLOB, AND WHY EVERY SURFACE READS IT RATHER THAN TYPING ANYTHING:
  *   series[entity]           month-END-stamped IndexPoints, n = identities in the
@@ -31,6 +40,11 @@
  *                            readIndexReceipts prints it.
  *   holds[entity]            the months that did NOT publish, each with the gate
  *                            that held it — so a gap explains itself from data.
+ *   provisional[entity]      the running month's reading: the step the chain
+ *                            computes and holds, as last close × exp(step) with
+ *                            its band and `asOf`, or a below-floor record. Never a
+ *                            series point; replaced when the month closes.
+ *   series[e][i].venues      the venues behind each published step's sample.
  *   biasTests.invariance     the holding-period test for V-MKT (INV-12).
  *   biasTests.entities[e]    selectionPremiumPP (the disclosed resale skew), the
  *                            market-cap anchor over the series' span, and
@@ -54,8 +68,9 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
+import { diffVenues, nextMethodVersion, venuesTable, type VenueEntityDiff } from "../src/lib/data/venuesReport";
 import { chainIdentityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, type IndexHold, type StepObs } from "../src/lib/data/identityIndex";
-import type { IndexPoint } from "../src/lib/data/indices";
+import type { IndexPoint, IndexProvisional, StepVenues } from "../src/lib/data/indices";
 import type { StepObsTuple } from "../src/lib/data/indexReceipts";
 import { slugOfKey, legacySlugOfKey, ruleSplit, fragmentsOfKeys, keysOf, mergeReview, diffEntity, shadowTable, mergeTable, type EntityDiff } from "../src/lib/data/rekeyReport";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
@@ -77,6 +92,8 @@ const OUT_DIR = process.argv.find((a) => a.startsWith("--out="))?.split("=")[1] 
  * production would have performed the cutover it was meant to preview.
  */
 const SHADOW = process.argv.includes("--shadow-rekey");
+/** The every-venue shadow: legs → store. `--out`-only, for the same reason. */
+const SHADOW_VENUES = process.argv.includes("--shadow-venues");
 /** The identity keying these levels were built under — carried in the blob. */
 const METHOD = "v4.2" as const;
 const PREVIOUS_METHOD = "v4.1" as const;
@@ -151,6 +168,8 @@ type SeriesSet = {
   salesOf: Record<string, SaleRow[]>;
   /** entity → the months it withheld, with the gate that withheld each. */
   holds: Record<string, IndexHold[]>;
+  /** entity → the running month's reading (every entity that publishes has one). */
+  provisional: Record<string, IndexProvisional>;
   gated: string[];
   mktSales: SaleRow[];
 };
@@ -167,9 +186,10 @@ function buildSeriesSet(panel: SaleRow[]): SeriesSet {
   const series: Record<string, IndexPoint[]> = {};
   const salesOf: Record<string, SaleRow[]> = {};
   const holds: Record<string, IndexHold[]> = {};
+  const provisional: Record<string, IndexProvisional> = {};
   const gated: string[] = [];
   const chain = (id: string, sales: SaleRow[], minIdentities: number, listWhenGated: boolean, label = id) => {
-    const { points, holds: held } = chainIdentityIndex(sales, { minIdentities, grain: "month" });
+    const { points, holds: held, provisional: prov } = chainIdentityIndex(sales, { minIdentities, grain: "month" });
     if (!points.length) {
       if (listWhenGated) gated.push(`${label}(${sales.length})`); // too few priced identities — publish nothing
       return;
@@ -177,6 +197,7 @@ function buildSeriesSet(panel: SaleRow[]): SeriesSet {
     series[id] = points;
     salesOf[id] = sales;
     if (held.length) holds[id] = held;
+    if (prov) provisional[id] = prov;
   };
 
   // Group sales by IP (skip "other" — no publishable single-IP index).
@@ -227,7 +248,28 @@ function buildSeriesSet(panel: SaleRow[]): SeriesSet {
   const mktSales = panel.filter((r) => r.ip !== "other");
   chain("market:total", mktSales, MIN_IDENTITIES_BROAD, false);
 
-  return { series, salesOf, holds, gated, mktSales };
+  return { series, salesOf, holds, provisional, gated, mktSales };
+}
+
+/** "Beezie 806 identities / 1,000 sales · collector-crypt 2,018 / 2,879" — a sample as a receipt line. */
+function venuesLine(v: StepVenues | undefined): string {
+  if (!v) return "—";
+  const parts = Object.entries(v.byVenue)
+    .sort((a, b) => b[1].sales - a[1].sales)
+    .map(([venue, x]) => `${venue} ${x.identities} id / ${x.sales} sales`);
+  return `${parts.join(" · ")} (${v.identities} identities, ${v.sales} sales${v.multiVenue ? `, ${v.multiVenue} on 2+ venues` : ""})`;
+}
+
+/** The running-month reading as one line. */
+function provisionalLine(p: IndexProvisional | undefined): string {
+  if (!p) return "none (the entity does not publish)";
+  if ("value" in p) {
+    return (
+      `${p.month} ${p.value.toFixed(1)} (${p.stepPct >= 0 ? "+" : ""}${p.stepPct.toFixed(2)}% on ${p.n} identities${p.thin ? ", thin" : ""}` +
+      `${p.spansMonths > 1 ? `, spans ${p.spansMonths} months` : ""}) band ${p.lo.toFixed(1)}–${p.hi.toFixed(1)} · asOf ${p.asOf ?? "—"} · ${venuesLine(p.venues)}`
+    );
+  }
+  return `${p.month} ${p.reason} (${p.n} of ${p.floor} identities${p.stepPct != null ? `, step ${p.stepPct >= 0 ? "+" : ""}${p.stepPct.toFixed(2)}%` : ""}) · asOf ${p.asOf ?? "—"}`;
 }
 
 /**
@@ -421,10 +463,191 @@ async function writeShadowRekey(ctx: {
   console.log(`  wrote rekey-report.json + rekey-report.md + price-index.${PREVIOUS_METHOD}.json + method-changes.json → ${ctx.dir}`);
 }
 
+/** Per venue: panel rows, rows that resolve to an identity, identities, first → last sale. */
+function panelVenues(panel: SaleRow[]): Record<string, { sales: number; resolved: number; identities: number; first: string | null; last: string | null }> {
+  const out: Record<string, { sales: number; resolved: number; ids: Set<string>; first: string | null; last: string | null }> = {};
+  for (const r of panel) {
+    const v = (out[r.platform] ??= { sales: 0, resolved: 0, ids: new Set(), first: null, last: null });
+    v.sales++;
+    if (r.identity) {
+      v.resolved++;
+      v.ids.add(r.identity);
+    }
+    if (!v.first || r.ts < v.first) v.first = r.ts;
+    if (!v.last || r.ts > v.last) v.last = r.ts;
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, { sales: v.sales, resolved: v.resolved, identities: v.ids.size, first: v.first, last: v.last }]));
+}
+
+/**
+ * THE EVERY-VENUE SHADOW BUILD — the same index on today's legs and on the
+ * store, differenced. Writes, all under `--out` and nothing else:
+ *   price-index.legs.json   the legs-built blob (series, holds, provisional)
+ *   venues-report.json      every number below, machine-readable
+ *   venues-report.md        the tables the PR body carries
+ *   method-changes.json     the ledger record the cutover run publishes with
+ *                           `--method-changes=<this file>`
+ *
+ * ⚠️ THE ACCEPTANCE IS COMPUTED HERE, NOT ASSERTED IN THE PR: a month that
+ * published on the legs must still publish on the store, and on no fewer
+ * identities. A store that loses either is missing history the legs had.
+ */
+async function writeShadowVenues(ctx: {
+  dir: string;
+  now: string;
+  panel: SaleRow[];
+  after: Record<string, IndexPoint[]>;
+  holds: Record<string, IndexHold[]>;
+  provisional: Record<string, IndexProvisional>;
+  mktSales: SaleRow[];
+}): Promise<{ pass: boolean }> {
+  const t0 = Date.now();
+  console.log(`\n── shadow venues (legs → store) ─────────────────────────────────────────`);
+  const legsPanel = await buildSalePanel({ source: "legs", strict: true });
+  // ⚠️ A "BEFORE" MISSING A VENUE WOULD MAKE EVERY MONTH LOOK GAINED. Measured
+  // Oct 1, before the legs were strict: a live Beezie /activity failure left the
+  // legs panel at 3,281 sales and the legs index publishing no month at all,
+  // and this report read "+42 months, PASS". Strict catches Beezie; this catches
+  // any venue the store resolves to identities and the legs returned nothing for.
+  const legsVenues = panelVenues(legsPanel);
+  const missing = Object.entries(panelVenues(ctx.panel))
+    .filter(([v, x]) => x.resolved > 0 && !legsVenues[v])
+    .map(([v]) => v);
+  if (missing.length) throw new Error(`shadow venues: the legs build returned no ${missing.join(", ")} rows (a feed failed); the comparison would be meaningless, so nothing was reported. Rerun.`);
+  const before = buildSeriesSet(legsPanel);
+  const ids = [...new Set([...Object.keys(before.series), ...Object.keys(ctx.after)])].filter((id) => !id.startsWith("premium:"));
+  const diffs: VenueEntityDiff[] = ids
+    .map((id) => diffVenues(id, { points: before.series[id] ?? [], holds: before.holds[id] ?? [] }, { points: ctx.after[id] ?? [], holds: ctx.holds[id] ?? [] }))
+    .sort((a, b) => {
+      if (a.id === "market:total") return -1;
+      if (b.id === "market:total") return 1;
+      return b.months.length - a.months.length || a.id.localeCompare(b.id);
+    });
+
+  const invBefore = holdingPeriodInvariance(before.mktSales, { grain: "month" });
+  const invAfter = holdingPeriodInvariance(ctx.mktSales, { grain: "month" });
+  const venues = { legs: legsVenues, store: panelVenues(ctx.panel) };
+  const lost = diffs.flatMap((d) => d.monthsLost.map((m) => `${d.id} ${m}`));
+  const fewer = diffs.flatMap((d) => d.fewerIdentities.map((m) => `${d.id} ${m}`));
+  const baseChanged = diffs.flatMap((d) => d.baseIdentitiesChanged.map((m) => `${d.id} ${m}`));
+  const gained = diffs.flatMap((d) => d.monthsGained.map((m) => `${d.id} ${m}`));
+  const entitiesLost = ids.filter((id) => before.series[id] && !ctx.after[id]);
+  const entitiesNew = ids.filter((id) => ctx.after[id] && !before.series[id]);
+  const pass = !lost.length && !fewer.length && !entitiesLost.length;
+
+  // The ledger record, under the next version AT THIS RUN (run the shadow at merge).
+  const ledger = (await readSnapshot<{ changes?: MethodChange[] }>(METHOD_CHANGES_SNAPSHOT_KEY))?.changes ?? [];
+  const version = nextMethodVersion([...ledger.map((c) => c.version), METHOD]);
+  const moved = diffs.flatMap((d) => d.months).filter((m) => m.levelBefore != null && m.levelAfter != null && Math.abs(m.levelAfter - m.levelBefore) >= 0.05);
+  const maxMove = Math.max(0, ...moved.map((m) => Math.abs((m.levelAfter as number) - (m.levelBefore as number))));
+  const venueList = Object.entries(venues.store)
+    .sort((a, b) => b[1].sales - a[1].sales)
+    .map(([v, x]) => `${v} from ${x.first?.slice(0, 10) ?? "—"}`)
+    .join(", ");
+  const changes: MethodChange[] = [
+    {
+      version,
+      date: ctx.now,
+      summary:
+        `The index reads every venue's full resale history from one store instead of 30-day windows: ${venueList}. ` +
+        // Measured, never asserted: the outcome sentence is whatever this run found.
+        (gained.length || lost.length
+          ? `${gained.length} month${gained.length === 1 ? "" : "s"} that were withheld now publish and ${lost.length} that published are now withheld; `
+          : `No month gained or lost publication; `) +
+        `${moved.length} published level${moved.length === 1 ? "" : "s"} moved, by at most ${maxMove.toFixed(1)} points.`,
+      entities: diffs.flatMap((d) =>
+        d.months
+          .filter((m) => m.levelBefore != null || m.levelAfter != null)
+          .map((m) => ({ id: d.id, month: m.month, levelBefore: m.levelBefore, levelAfter: m.levelAfter, identitiesBefore: m.identitiesBefore, identitiesAfter: m.identitiesAfter })),
+      ),
+    },
+  ];
+  writeFileSync(join(ctx.dir, "method-changes.json"), JSON.stringify({ generatedAt: ctx.now, changes }, null, 2));
+  writeFileSync(
+    join(ctx.dir, "price-index.legs.json"),
+    JSON.stringify({ generatedAt: ctx.now, cadence: "monthly", method: METHOD, source: "legs", series: before.series, holds: before.holds, provisional: before.provisional }),
+  );
+
+  const report = {
+    generatedAt: ctx.now,
+    version,
+    panel: { legs: legsPanel.length, store: ctx.panel.length },
+    venues,
+    invariance: { before: { spreadPP: invBefore.spreadPP, buckets: invBefore.buckets }, after: { spreadPP: invAfter.spreadPP, buckets: invAfter.buckets } },
+    acceptance: { pass, monthsLost: lost, fewerIdentities: fewer, entitiesLost },
+    baseIdentitiesChanged: baseChanged,
+    monthsGained: gained,
+    entitiesNew,
+    entities: diffs,
+  };
+  writeFileSync(join(ctx.dir, "venues-report.json"), JSON.stringify(report, null, 2));
+
+  const vline = (v: (typeof venues)["legs"]) =>
+    Object.entries(v)
+      .sort((a, b) => b[1].sales - a[1].sales)
+      .map(([k, x]) => `| ${k} | ${x.sales.toLocaleString()} | ${x.resolved.toLocaleString()} | ${x.identities.toLocaleString()} | ${x.first?.slice(0, 16) ?? "—"} → ${x.last?.slice(0, 16) ?? "—"} |`);
+  const headline = ["market:total", "ip:pokemon", "category:tcg"];
+  const md = [
+    `## Shadow build: legs → store`,
+    ``,
+    `Panel: ${legsPanel.length.toLocaleString()} sales on the legs → ${ctx.panel.length.toLocaleString()} on the store. Ledger record: \`${version}\`.`,
+    ``,
+    `| venue (legs) | sales | resolved to an identity | identities | first → last |`,
+    `| --- | --- | --- | --- | --- |`,
+    ...vline(venues.legs),
+    ``,
+    `| venue (store) | sales | resolved to an identity | identities | first → last |`,
+    `| --- | --- | --- | --- | --- |`,
+    ...vline(venues.store),
+    ``,
+    `**Acceptance:** ${pass ? "PASS" : "FAIL"}. Months that published on the legs and not on the store: ${lost.length ? lost.join(", ") : "none"}. ` +
+      `Months whose step rests on fewer identities: ${fewer.length ? fewer.join(", ") : "none"}. Entities lost: ${entitiesLost.length ? entitiesLost.join(", ") : "none"}.`,
+    ``,
+    `Base months (a series' first point, no step) whose identity count changed: ${baseChanged.length ? baseChanged.join(", ") : "none"}.`,
+    ``,
+    `Months that now publish: ${gained.length ? gained.join(", ") : "none"}. New entities: ${entitiesNew.length ? entitiesNew.join(", ") : "none"}.`,
+    ``,
+    `Holding-period invariance (V-MKT): spread ${invBefore.spreadPP.toFixed(2)} pp → ${invAfter.spreadPP.toFixed(2)} pp.`,
+    ``,
+    `Across ${diffs.length} entities: holds that appear ${diffs.reduce((a, d) => a + d.holdsAppear.length, 0)}, holds that clear ${diffs.reduce((a, d) => a + d.holdsClear.length, 0)}, ` +
+      `thin flags that clear ${diffs.reduce((a, d) => a + d.thinCleared.length, 0)}, thin flags that appear ${diffs.reduce((a, d) => a + d.thinAppeared.length, 0)}, ` +
+      `published levels that moved ≥ 0.05 ${moved.length} (at most ${maxMove.toFixed(1)} points).`,
+    ``,
+    ...headline.flatMap((id) => {
+      const d = diffs.find((x) => x.id === id);
+      return d ? [`### \`${id}\``, ``, venuesTable(d), ``] : [];
+    }),
+    `### Every other entity with a change`,
+    ``,
+    ...diffs
+      .filter((d) => !headline.includes(d.id))
+      .filter((d) => d.monthsGained.length || d.monthsLost.length || d.holdsAppear.length || d.holdsClear.length || d.thinCleared.length || d.fewerIdentities.length || d.baseIdentitiesChanged.length || d.months.some((m) => m.identitiesBefore !== m.identitiesAfter))
+      .map(
+        (d) =>
+          `- \`${d.id}\`: identities ${d.months.filter((m) => m.identitiesBefore !== m.identitiesAfter && m.identitiesBefore != null && m.identitiesAfter != null).map((m) => `${m.month} ${m.identitiesBefore}→${m.identitiesAfter}`).join(", ") || "unchanged"}` +
+          `${d.monthsGained.length ? `; gains ${d.monthsGained.join(", ")}` : ""}${d.monthsLost.length ? `; LOSES ${d.monthsLost.join(", ")}` : ""}` +
+          `${d.holdsClear.length ? `; clears ${d.holdsClear.join(", ")}` : ""}${d.holdsAppear.length ? `; new hold ${d.holdsAppear.join(", ")}` : ""}` +
+          `${d.thinCleared.length ? `; thin clears ${d.thinCleared.join(", ")}` : ""}`,
+      ),
+    ``,
+  ].join("\n");
+  writeFileSync(join(ctx.dir, "venues-report.md"), md);
+
+  console.log(
+    `  panel ${legsPanel.length.toLocaleString()} → ${ctx.panel.length.toLocaleString()} · months +${gained.length}/−${lost.length} · fewer-identity steps ${fewer.length} · base months changed ${baseChanged.length} · ` +
+      `invariance ${invBefore.spreadPP.toFixed(2)} → ${invAfter.spreadPP.toFixed(2)} pp · ${version} · acceptance ${pass ? "PASS" : "FAIL"} · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
+  );
+  console.log(`  wrote venues-report.json + venues-report.md + price-index.legs.json + method-changes.json → ${ctx.dir}`);
+  return { pass };
+}
+
 async function main() {
   if (SHADOW && !OUT_DIR) throw new Error("--shadow-rekey requires --out=<dir>: a shadow build never writes production");
-  const panel = await buildSalePanel({ legacyIdentity: SHADOW });
-  const { series, salesOf, holds, gated, mktSales } = buildSeriesSet(panel);
+  if (SHADOW_VENUES && !OUT_DIR) throw new Error("--shadow-venues requires --out=<dir>: a shadow build never writes production");
+  if (SHADOW && SHADOW_VENUES) throw new Error("one shadow build per run: --shadow-rekey or --shadow-venues");
+  // Strict: a failed or empty feed throws here, before anything is written.
+  const panel = await buildSalePanel({ legacyIdentity: SHADOW, strict: true });
+  const { series, salesOf, holds, provisional, gated, mktSales } = buildSeriesSet(panel);
 
   // INV-12 input + the disclosure receipt, per entity. The invariance spread IS
   // the "resale skew" every surface prints; past the hard limit the entity is
@@ -492,8 +715,18 @@ async function main() {
   for (const pts of Object.values(series)) for (const pt of pts) if (pt.thin) thinPts++;
   console.log(`  thin points (overlap < THIN_MONTH_IDENTITIES): ${thinPts} across ${Object.keys(series).length} series`);
 
+  // The running month and the venues behind every published step, for the
+  // headline entities — what the run log (and an --out build's report) states.
+  for (const id of ["market:total", "ip:pokemon", "category:tcg"]) {
+    console.log(`  provisional ${id.padEnd(14)} ${provisionalLine(provisional[id])}`);
+    for (const pt of series[id] ?? []) {
+      if (pt.venues) console.log(`    ${pt.ts.slice(0, 7)} step on ${venuesLine(pt.venues)}`);
+    }
+  }
+  console.log(`  provisional readings: ${Object.values(provisional).filter((p) => "value" in p).length} with a level, ${Object.values(provisional).filter((p) => !("value" in p)).length} below the floor or the step limit`);
+
   const now = new Date().toISOString();
-  const blob = { generatedAt: now, cadence: "monthly" as const, method: METHOD, series, biasTests: { invariance, entities }, stepObs, holds };
+  const blob = { generatedAt: now, cadence: "monthly" as const, method: METHOD, series, biasTests: { invariance, entities }, stepObs, holds, provisional };
   console.log(`  receipts: ${nObs.toLocaleString()} identity observations across ${Object.keys(stepObs).length} series · ${nHolds} withheld months carry their gate`);
   // Persist the panel this run already built, so the identity reader and the
   // palette never build it on a request path (see salePanel.ts). Written FIRST:
@@ -598,6 +831,10 @@ async function main() {
     }
   }
 
+  if (SHADOW_VENUES && OUT_DIR) {
+    const { pass } = await writeShadowVenues({ dir: OUT_DIR, now, panel, after: series, holds, provisional, mktSales });
+    if (!pass) process.exitCode = 1;
+  }
   if (SHADOW && OUT_DIR) {
     await writeShadowRekey({ dir: OUT_DIR, now, panel, after: series, afterSalesOf: salesOf, holds, identityIdx, charactersAfter: { characters: nChars, indexed: nIndexed, coverage: rollups.coverage }, premiumsAfter: premiums });
   }

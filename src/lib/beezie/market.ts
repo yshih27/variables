@@ -14,6 +14,7 @@
  * 24h Rarible fetch — Beezie now gets real 7d/30d volume too.
  */
 import type { NormalizedSale } from "../rarible/queries";
+import type { ObservedSale } from "../data/salesStore";
 
 const BASE = "https://api.beezie.com";
 const UA =
@@ -31,7 +32,9 @@ const backoffMs = (attempt: number) =>
   Math.min(8000, 500 * 2 ** attempt) + Math.floor(Math.random() * 250);
 
 /** One row of /activity. Sales carry from/to (seller/buyer) + amount (USDC raw). */
-type BeezieActivity = {
+export type BeezieActivity = {
+  /** Beezie's own id for the row — unique per sale (18,246 of 18,246, Oct 1). */
+  id?: string;
   type: string; // "order_fulfilled" (sale) | "order_created" (listing)
   createdAt: string; // "2026-06-29 06:35:22" (UTC, space-separated)
   categoryId: number;
@@ -81,29 +84,47 @@ function beezieTimeToIso(s: string): string {
 }
 
 /**
+ * One /activity row → a sale, or null when it is not one: a listing, a burned
+ * token, another contract, or no positive price. Pure, so the store's tests and
+ * the feed share the one rule.
+ */
+export function beezieSaleOf(e: BeezieActivity): NormalizedSale | null {
+  if (e.type !== "order_fulfilled" || e.isBurned) return null;
+  if (e.tokenAddress && e.tokenAddress.toLowerCase() !== BEEZIE_CONTRACT) return null;
+  const priceUsd = Number(e.amount) / 1e6;
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+  return {
+    date: beezieTimeToIso(e.createdAt),
+    tokenId: String(e.tokenId),
+    buyer: String(e.to ?? ""),
+    seller: String(e.from ?? ""),
+    priceUsd,
+  };
+}
+
+/**
+ * Beezie secondary SALES within `windowMs`, each with its /activity row
+ * verbatim — the core run keeps both, the row for the `secondary_sales` store.
+ * One request, the same one `fetchBeezieSales` makes.
+ */
+export async function fetchBeezieSaleRows(windowMs: number): Promise<ObservedSale<BeezieActivity>[]> {
+  const events = await fetchActivity();
+  const cutoff = Date.now() - windowMs;
+  const out: ObservedSale<BeezieActivity>[] = [];
+  for (const e of events) {
+    const sale = beezieSaleOf(e);
+    if (!sale || new Date(sale.date).getTime() < cutoff) continue;
+    out.push({ sale, raw: e });
+  }
+  return out;
+}
+
+/**
  * Beezie secondary SALES (order_fulfilled) within `windowMs`, normalized to the
  * same shape as the Rarible/Dune paths so it's a drop-in for buildPlatform.
  * `tokenId` is the on-chain ERC-721 id (the key the beezie metadata cache + image
  * CDN use, so enrichSales resolves it); buyer = `to`, seller = `from`.
  */
 export async function fetchBeezieSales(windowMs: number): Promise<NormalizedSale[]> {
-  const events = await fetchActivity();
-  const cutoff = Date.now() - windowMs;
-  const out: NormalizedSale[] = [];
-  for (const e of events) {
-    if (e.type !== "order_fulfilled" || e.isBurned) continue;
-    if (e.tokenAddress && e.tokenAddress.toLowerCase() !== BEEZIE_CONTRACT) continue;
-    const priceUsd = Number(e.amount) / 1e6;
-    if (!Number.isFinite(priceUsd) || priceUsd <= 0) continue;
-    const date = beezieTimeToIso(e.createdAt);
-    if (new Date(date).getTime() < cutoff) continue;
-    out.push({
-      date,
-      tokenId: String(e.tokenId),
-      buyer: String(e.to ?? ""),
-      seller: String(e.from ?? ""),
-      priceUsd,
-    });
-  }
-  return out;
+  return (await fetchBeezieSaleRows(windowMs)).map((r) => r.sale);
 }

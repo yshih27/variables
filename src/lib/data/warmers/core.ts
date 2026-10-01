@@ -38,8 +38,17 @@ import { readSecondarySalesSnapshot, writeSecondarySales } from "../secondarySal
 // the next; the safety it was there for survives: if the daily batch fails, the
 // first cached run past 26h still self-heals, one day late instead of six hours.
 const CC_SECONDARY_MAX_CACHE_AGE_MS = 26 * 60 * 60 * 1000;
-import { collectSales, type CollectionStats, type NormalizedSale } from "../../rarible/queries";
-import { fetchBeezieSales } from "../../beezie/market";
+import { collectSaleActivities, type CollectionStats, type NormalizedSale } from "../../rarible/queries";
+import type { RaribleSellActivity } from "../../rarible/types";
+import { fetchBeezieSaleRows } from "../../beezie/market";
+import {
+  storedFromBeezie,
+  storedFromCC,
+  storedFromCourtyard,
+  writeSalesStore,
+  type ObservedSale,
+  type StoredSecondarySale,
+} from "../salesStore";
 import { fetchDyliLaneWindows } from "../../dyli/sales";
 import {
   readCoreVolume,
@@ -113,8 +122,12 @@ function buildPlatform(
 /** The secondary window: Dune 7675297 scans `block_time > now() - interval '30' day`; the Courtyard Rarible read uses the same 30 days. */
 export const SECONDARY_WINDOW_DAYS = 30;
 
-export type SecondaryScan = {
+export type SecondaryScan<Raw = unknown> = {
+  /** The hygiene-cleaned sales every reader takes. */
   sales: NormalizedSale[];
+  /** The same feed BEFORE hygiene, each sale with its feed row — what the
+   *  `secondary_sales` store keeps (hygiene runs at read). */
+  observed: ObservedSale<Raw>[];
   /** When Dune computed the rows (AutoRefreshResult.executionEndedAt; a fresh
    *  execution reports now). Null only when Dune omitted it — then a caller
    *  must not infer that a day with no rows was scanned. */
@@ -131,7 +144,7 @@ async function fetchDuneSecondaryScan(
   queryId: number,
   label: string,
   opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
-): Promise<SecondaryScan | null> {
+): Promise<SecondaryScan<DuneRow> | null> {
   let rows: DuneRow[];
   let executionEndedAt: string | null = null;
   if (opts.cachedOnly) {
@@ -157,22 +170,33 @@ async function fetchDuneSecondaryScan(
     rows = await runQuery(queryId, { maxWaitMs: 480_000, maxRows: 250_000 });
     executionEndedAt = new Date().toISOString();
   }
-  const mapped = rows
-    .map((r) => ({
-      date: duneTimeToIso(r.block_time),
-      tokenId: String(r.nft_mint ?? ""),
-      buyer: String(r.buyer ?? ""),
-      seller: String(r.seller ?? ""),
-      priceUsd: num(r.price_usd),
-    }))
-    .filter((s) => s.priceUsd > 0 && s.tokenId);
+  const observed: ObservedSale<DuneRow>[] = [];
+  for (const raw of rows) {
+    const sale = ccSaleOf(raw);
+    if (sale) observed.push({ sale, raw });
+  }
   // D10-1: strip fan-out dupes, self-trades, and ring-wash at the source, so every
   // downstream reader (core volume, spine, trending, sale panel / price index,
   // getCardSales) sees the same clean feed. See secondaryHygiene.ts.
-  const { sales, stats } = cleanSecondarySales(mapped);
+  const { sales, stats } = cleanSecondarySales(observed.map((o) => o.sale));
   const line = formatHygiene(label, stats);
   if (line) (opts.log ?? console.log)(line);
-  return { sales, executionEndedAt, windowDays: SECONDARY_WINDOW_DAYS };
+  return { sales, observed, executionEndedAt, windowDays: SECONDARY_WINDOW_DAYS };
+}
+
+/**
+ * One row of Dune query 7675297 → a sale, or null without a positive price or
+ * a mint. Pure, so the `secondary_sales` store's tests and the feed share it.
+ */
+export function ccSaleOf(r: DuneRow): NormalizedSale | null {
+  const sale = {
+    date: duneTimeToIso(r.block_time),
+    tokenId: String(r.nft_mint ?? ""),
+    buyer: String(r.buyer ?? ""),
+    seller: String(r.seller ?? ""),
+    priceUsd: num(r.price_usd),
+  };
+  return sale.priceUsd > 0 && sale.tokenId ? sale : null;
 }
 
 async function fetchDuneSecondarySales(
@@ -184,7 +208,7 @@ async function fetchDuneSecondarySales(
   return scan ? scan.sales : null;
 }
 
-async function mustHaveScan(p: Promise<SecondaryScan | null>): Promise<SecondaryScan> {
+async function mustHaveScan<Raw>(p: Promise<SecondaryScan<Raw> | null>): Promise<SecondaryScan<Raw>> {
   const scan = await p;
   if (scan === null) throw new Error("dune secondary feed returned an unrequested reuse signal");
   return scan;
@@ -193,11 +217,11 @@ async function mustHaveScan(p: Promise<SecondaryScan | null>): Promise<Secondary
 /** CC secondary sales with the scan's coverage — the spine writer's read. */
 export async function fetchCCSecondaryScan(
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
-): Promise<SecondaryScan> {
+): Promise<SecondaryScan<DuneRow>> {
   return mustHaveScan(fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
 }
 
-const COURTYARD_COLLECTION = (() => {
+export const COURTYARD_COLLECTION = (() => {
   const src = PLATFORM_SOURCES.find((p) => p.key === "courtyard");
   return src && "collectionId" in src ? src.collectionId : "POLYGON:0x251be3a17af4892035c37ebf5890f4a4d889dcad";
 })();
@@ -210,12 +234,12 @@ const COURTYARD_COLLECTION = (() => {
  */
 export async function fetchCourtyardSecondaryScan(
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
-): Promise<SecondaryScan> {
-  const raw = await collectSales(COURTYARD_COLLECTION, SECONDARY_WINDOW_DAYS * DAY);
-  const { sales, stats } = cleanSecondarySales(raw);
+): Promise<SecondaryScan<RaribleSellActivity>> {
+  const observed = await collectSaleActivities(COURTYARD_COLLECTION, SECONDARY_WINDOW_DAYS * DAY);
+  const { sales, stats } = cleanSecondarySales(observed.map((o) => o.sale));
   const line = formatHygiene("courtyard-secondary", stats);
   if (line) (opts.log ?? console.log)(line);
-  return { sales, executionEndedAt: new Date().toISOString(), windowDays: SECONDARY_WINDOW_DAYS };
+  return { sales, observed, executionEndedAt: new Date().toISOString(), windowDays: SECONDARY_WINDOW_DAYS };
 }
 
 /**
@@ -274,15 +298,20 @@ export async function runCoreWarm(
   // carried forward (stored rows still current) or failed (keep previous rows).
   let ccRowsForStore: NormalizedSale[] | null = null;
   let courtyardRowsForStore: NormalizedSale[] | null = null;
+  // Every row the legs fetched, before hygiene, for the `secondary_sales` store
+  // (salesStore.ts). No request is added for it: these are the rows above.
+  const kept: StoredSecondarySale[] = [];
 
   // ── Collector Crypt: Dune (full chain scan, no Helius 429) ──
   try {
     const t0 = Date.now();
-    const ccSales = await fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, reuseIfUnchanged: true });
-    if (ccSales === null) {
+    const ccScan = await fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, reuseIfUnchanged: true });
+    if (ccScan === null) {
       carryForward("collector-crypt", "collector-crypt (Dune)");
     } else {
+      const ccSales = ccScan.sales;
       ccRowsForStore = ccSales;
+      kept.push(...ccScan.observed.map((o) => storedFromCC(o)));
       platforms["collector-crypt"] = buildPlatform("collector-crypt", "dune", ccSales, 30);
       log(
         `→ collector-crypt (Dune) ${ccSales.length} sales/30d · 24h $${Math.round(
@@ -299,7 +328,9 @@ export async function runCoreWarm(
   //    $0 — Rarible's 429 used to drop Beezie sales entirely. ──
   try {
     const t0 = Date.now();
-    const sales = await fetchBeezieSales(30 * DAY);
+    const rows = await fetchBeezieSaleRows(30 * DAY);
+    const sales = rows.map((r) => r.sale);
+    kept.push(...rows.map(storedFromBeezie));
     platforms["beezie"] = buildPlatform("beezie", "beezie", sales, 30);
     log(
       `→ beezie (Beezie /activity) ${sales.length} sales/30d · 24h $${Math.round(
@@ -315,8 +346,10 @@ export async function runCoreWarm(
   //    previous snapshot's entry in place through `carryForward`. ──
   try {
     const t0 = Date.now();
-    const sales = await fetchCourtyardSecondarySales({ log });
+    const scan = await fetchCourtyardSecondaryScan({ log });
+    const sales = scan.sales;
     courtyardRowsForStore = sales;
+    kept.push(...scan.observed.map(storedFromCourtyard));
     platforms["courtyard"] = buildPlatform("courtyard", "rarible", sales, 30);
     log(
       `→ courtyard (Rarible activity) ${sales.length} sales · 24h $${Math.round(
@@ -355,6 +388,12 @@ export async function runCoreWarm(
       log(`→ secondary-sales store write FAILED (app readers keep previous rows): ${(err as Error).message}`);
     }
   }
+
+  // ── Keep every fetched row in `secondary_sales` (salesStore.ts) ─────────────
+  // The snapshot above is a 30-day window each run overwrites; the store keeps
+  // what ages out of it. Idempotent upserts on the feed's own key, rows before
+  // hygiene. Never fails the run: a store error is logged and the volumes stand.
+  log(`→ ${await writeSalesStore(kept)}`);
 
   // ── DYLI: its own public sales feed, already paged into `dyli_sales` by
   //    warm-dyli-sales. Only the MARKETPLACE lane belongs in core-volume —

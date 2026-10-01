@@ -105,7 +105,10 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "secondary-sales": DAY_MS,
   // indices batch — daily 06:00 (its own job, after the daily batch)
   benchmarks: DAY_MS,
-  "price-index": DAY_MS,
+  // The price index (and the panel, identity index, slabs and rollups the same
+  // run writes) is built by the CORE batch every 6 h, so a missed build shows
+  // within two cycles rather than two days.
+  "price-index": 6 * HOUR_MS,
   // weekly batch — every 7d
   "cc-traits": 7 * DAY_MS,
   // CardOS price oracle — refreshes HALF the mapped expansions each Monday, so
