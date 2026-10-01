@@ -453,7 +453,8 @@ async function writeShadowRekey(ctx: {
 
 async function main() {
   if (SHADOW && !OUT_DIR) throw new Error("--shadow-rekey requires --out=<dir>: a shadow build never writes production");
-  const panel = await buildSalePanel({ legacyIdentity: SHADOW });
+  // Strict: a failed or empty feed throws here, before anything is written.
+  const panel = await buildSalePanel({ legacyIdentity: SHADOW, strict: true });
   const { series, salesOf, holds, provisional, gated, mktSales } = buildSeriesSet(panel);
 
   // INV-12 input + the disclosure receipt, per entity. The invariance spread IS
