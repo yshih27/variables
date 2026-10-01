@@ -92,39 +92,65 @@ export type NormalizedSale = {
   priceUsd: number;
 };
 
-export async function* iterateSales(
+/**
+ * One activity → a sale, or null when it is not one: not a SELL, reverted, no
+ * finite USD amount, or no token id. Pure, so the `secondary_sales` store's
+ * tests and the feed share the one rule.
+ */
+export function raribleSaleOf(a: RaribleActivitiesResponse["activities"][number]): NormalizedSale | null {
+  if (a["@type"] !== "SELL") return null;
+  const sale = a as RaribleSellActivity;
+  if (sale.reverted) return null;
+  const usd = parseFloat(sale.amountUsd ?? sale.priceUsd ?? "0");
+  if (!Number.isFinite(usd)) return null;
+  const nftType = sale.nft.type;
+  if (!("tokenId" in nftType)) return null;
+  return {
+    date: sale.date,
+    tokenId: nftType.tokenId,
+    buyer: sale.buyer,
+    seller: sale.seller,
+    priceUsd: usd,
+  };
+}
+
+/** Sales within `windowMs`, each with its SELL activity verbatim (for the `secondary_sales` store). */
+export async function* iterateSaleActivities(
   collection: CollectionId,
   windowMs: number,
-): AsyncGenerator<NormalizedSale> {
+): AsyncGenerator<{ sale: NormalizedSale; raw: RaribleSellActivity }> {
   const cutoff = new Date(Date.now() - windowMs).toISOString();
   for await (const a of iterateActivities(
     { collection, types: ["SELL"], sort: "LATEST_FIRST" },
     { date: cutoff },
   )) {
-    if (a["@type"] !== "SELL") continue;
-    const sale = a as RaribleSellActivity;
-    if (sale.reverted) continue;
-    const usd = parseFloat(sale.amountUsd ?? sale.priceUsd ?? "0");
-    if (!Number.isFinite(usd)) continue;
-    const nftType = sale.nft.type;
-    if (!("tokenId" in nftType)) continue;
-    yield {
-      date: sale.date,
-      tokenId: nftType.tokenId,
-      buyer: sale.buyer,
-      seller: sale.seller,
-      priceUsd: usd,
-    };
+    const sale = raribleSaleOf(a);
+    if (sale) yield { sale, raw: a as RaribleSellActivity };
   }
+}
+
+export async function* iterateSales(
+  collection: CollectionId,
+  windowMs: number,
+): AsyncGenerator<NormalizedSale> {
+  for await (const o of iterateSaleActivities(collection, windowMs)) yield o.sale;
+}
+
+/** Every sale within `windowMs` with its activity — the same requests `collectSales` makes. */
+export async function collectSaleActivities(
+  collection: CollectionId,
+  windowMs: number,
+): Promise<{ sale: NormalizedSale; raw: RaribleSellActivity }[]> {
+  const out: { sale: NormalizedSale; raw: RaribleSellActivity }[] = [];
+  for await (const o of iterateSaleActivities(collection, windowMs)) out.push(o);
+  return out;
 }
 
 export async function collectSales(
   collection: CollectionId,
   windowMs: number,
 ): Promise<NormalizedSale[]> {
-  const out: NormalizedSale[] = [];
-  for await (const sale of iterateSales(collection, windowMs)) out.push(sale);
-  return out;
+  return (await collectSaleActivities(collection, windowMs)).map((o) => o.sale);
 }
 
 export async function computeStatsFromSales(
