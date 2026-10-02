@@ -17,6 +17,9 @@ import {
  * Renders only for platforms whose pulls carry per-wallet attribution (Collector
  * Crypt, Phygitals). Everyone else is absent from the snapshot's `platforms` list
  * and gets no section — not a zero, not an empty frame. See getPlatformPlayers.
+ * Renaiss's pulls carry wallets too, but live in `renaiss_pulls`, which the
+ * player-analytics scan does not read (src/lib/renaiss/pulls.ts says why); the
+ * methodology's Renaiss leg states it.
  *
  * ⚠️ ALREADY PERCENT. `pctUsers`, `pctRevenue`, `top1PctShare` and `top10PctShare`
  * all arrive on a 0–100 scale from playerAnalytics.ts. Nothing here multiplies by

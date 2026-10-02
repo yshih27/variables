@@ -111,6 +111,13 @@ export function normalizeTraits(meta: TokenMetadata): NormalizedTraits {
  *             (the set name is cut off mid-word). Year and number lead the string so
  *             they survive the truncation; the tail never can be trusted. `card_name`
  *             and `set_name` are populated on some rows and null on others.
+ *  • Renaiss  its feed names every part as a FIELD (catalog card `name`,
+ *             `setName` / `setCode`, `cardNumber`, `year`, `language`; measured
+ *             2026-09-30 on 546 sample rows), so `name` is the bare card name
+ *             ("Kecleon") and nothing but the edition is read off it. Its quirk
+ *             below: set from the set name, else the set code; number from the
+ *             field; LANGUAGE FROM THE FIELD ("Japanese", "Simplified Chinese"),
+ *             because the name never carries it.
  *  • Courtyard / DYLI  have NO rows in `cards` at all, so they yield no identity.
  *
  * Hence: year and number are parsed from `name`, while set / cardName / grade are
@@ -139,6 +146,18 @@ const LANGUAGES = ["Japanese", "Korean", "Chinese", "German", "French", "Spanish
 const EDITIONS = ["1st Edition", "Unlimited", "Shadowless", "Reverse Foil", "Holo"];
 
 /**
+ * A language FIELD in the identity's vocabulary — the rule the name reading
+ * uses, applied to the field: "Simplified Chinese" → "Chinese", "Japanese" →
+ * "Japanese". English and an empty field are the unmarked default (null), as
+ * everywhere else; a language outside LANGUAGES reads null too, exactly as it
+ * does when a name carries it.
+ */
+export function languageOfField(field: string | null | undefined): string | null {
+  const f = field?.toLowerCase() ?? "";
+  return LANGUAGES.find((l) => f.includes(l.toLowerCase())) ?? null;
+}
+
+/**
  * Identity parts for one `cards` row. Platform quirks live HERE, never in the
  * consumer — see the header for what each platform actually stores.
  */
@@ -149,6 +168,12 @@ export function extractCardIdentity(row: {
   grade?: string | null;
   year?: number | null;
   cardNumber?: string | null;
+  /** The row's platform. Only Renaiss's quirk is keyed on it. */
+  platform?: string | null;
+  /** Renaiss: the feed's `language` field (`cards.language`). */
+  language?: string | null;
+  /** Renaiss: the feed's `setCode`, the set when there is no set name. */
+  setCode?: string | null;
 }): CardIdentityParts {
   const name = row.name ?? "";
   // Year: leading 4-digit on both platforms' name strings, else the column.
@@ -166,7 +191,7 @@ export function extractCardIdentity(row: {
   // name sits AFTER the #number, Beezie's BEFORE it, and a grade is never a name.
   const cardName = row.cardName?.trim() || cardNameFromTokenName({ name, set: row.set, number: row.cardNumber });
 
-  return {
+  const parts: CardIdentityParts = {
     year,
     set: row.set?.trim() || null,
     number,
@@ -174,6 +199,17 @@ export function extractCardIdentity(row: {
     grade: row.grade?.trim() || "Ungraded",
     edition,
     language,
+  };
+  if (row.platform !== "renaiss") return parts;
+  // ⚠️ RENAISS: the parts are fields, so the fields win and the name is not
+  // parsed for them. The language is the one that matters: the name never
+  // carries it, and without it the Japanese "Pokémon Card 151" Charizard would
+  // key as the English one once the set key folds the two set strings together.
+  return {
+    ...parts,
+    set: row.set?.trim() || row.setCode?.trim() || null,
+    number: normalizeNumber(row.cardNumber ?? null),
+    language: languageOfField(row.language),
   };
 }
 

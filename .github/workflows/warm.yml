@@ -39,6 +39,10 @@ env:
   DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
   HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
   DYLI_API_KEY: ${{ secrets.DYLI_API_KEY }}
+  # Renaiss's index API (10,000 requests a day per key). Until both are set its
+  # two warmers exit 0 with one line and make no request.
+  RENAISS_API_KEY: ${{ secrets.RENAISS_API_KEY }}
+  RENAISS_API_SECRET: ${{ secrets.RENAISS_API_SECRET }}
   RIP_API_KEY: ${{ secrets.RIP_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -78,6 +82,18 @@ jobs:
       - name: DYLI sales (native feed, incremental)
         continue-on-error: true
         run: npx tsx scripts/warm-dyli-sales.ts
+      # Renaiss's own index API. Both warmers are dry runs unless told otherwise,
+      # so the batch passes --apply; each caps itself at RENAISS_MAX_CALLS (1,500).
+      # ⚠️ Not in the health gate's --require list yet: until the key lands a run
+      # writes no freshness row, so requiring them would redden every core run.
+      # The orchestrator adds renaiss-sales,renaiss-pulls at cutover, after the
+      # backfill has written their first rows.
+      - name: Renaiss sales (native index API, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-sales.ts --apply
+      - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-pulls.ts --apply
       - name: Gacha (cached)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached

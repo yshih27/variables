@@ -14,6 +14,9 @@
  *   • dyli  (volume_usd / gacha_volume_usd / direct_volume_usd) — DYLI's native
  *     /sales feed, split by the lane classifier (src/lib/dyli/lanes.ts) and
  *     reconciled against its own /transactions daily GMV.
+ *   • renaiss (volume_usd / trades from resale, gacha_volume_usd from pack
+ *     checkouts) — its own index API, via the `renaiss_sales` and `renaiss_pulls`
+ *     row stores; complete days only, by the feed state its warmers record.
  *   • dominance (entity_type set / grade / platform_ip) — daily volume/trades/
  *     cards per "{ip}:{set}", "{ip}:{grade}", "{platform}:{ip}" so the dominance
  *     panels can render a REAL historical trend (shares computed at read time).
@@ -39,6 +42,9 @@ import { getResultsAutoRefresh, type DuneRow } from "../src/lib/dune/client";
 import { GACHA_DAILY_QUERY_ID, BUYBACK_QUERY_ID } from "../src/lib/dune/queryIds";
 import { readDyliSales, fetchDailyGmv } from "../src/lib/dyli/sales";
 import { LANE_METRIC } from "../src/lib/dyli/lanes";
+import { oldestStoredSoldAt, readRenaissSales } from "../src/lib/renaiss/sales";
+import { oldestStoredPulledAt, readDailyPackSpend, PULLS_REREAD_DAYS } from "../src/lib/renaiss/pulls";
+import { lastCompleteDay, readRenaissFeeds } from "../src/lib/renaiss/feedState";
 import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { sanitizeStockSeries } from "../src/lib/data/indices";
 import { readHolders } from "../src/lib/data/holders";
@@ -663,6 +669,77 @@ async function main() {
     }
   } catch (e) {
     console.warn(`  dyli daily failed: ${(e as Error).message}`);
+  }
+
+  // ── Renaiss daily flow — its own index API, via the two row stores ─────────
+  // Resale → volume_usd + trades: the hygiene-cleaned sales the panel and
+  // core-volume read (readRenaissSales). Packs → gacha_volume_usd: checkout
+  // pulls only; an observed draw is never spend.
+  // ⚠️ COMPLETE DAYS ONLY: a day is published once the newest stored row is past
+  // its end AND the feed's last run reached the present (renaiss/feedState.ts);
+  // the day holding the newest row is a partial and is never published (INV-8).
+  // Inside the span a feed covers, a day with no row is a measured zero.
+  try {
+    const feeds = (await readRenaissFeeds())?.feeds ?? {};
+
+    const resaleThrough = lastCompleteDay(feeds.sales);
+    const firstSale = resaleThrough ? await oldestStoredSoldAt() : null;
+    if (resaleThrough && firstSale) {
+      // Full history every run: the store is small (46 sales in the week to Sep 30).
+      const { sales, stats } = await readRenaissSales();
+      const byDay = new Map<string, { vol: number; trades: number }>();
+      for (const s of sales) {
+        const t = Date.parse(s.date);
+        if (!Number.isFinite(t)) continue;
+        const day = dayStartUtc(t);
+        const b = byDay.get(day) ?? { vol: 0, trades: 0 };
+        b.vol += s.priceUsd;
+        b.trades += 1;
+        byDay.set(day, b);
+      }
+      let days = 0;
+      for (let d = Date.parse(dayStartUtc(Date.parse(firstSale))); d <= Date.parse(resaleThrough); d += DAY) {
+        const day = dayStartUtc(d);
+        const b = byDay.get(day) ?? { vol: 0, trades: 0 };
+        push("platform", "renaiss", "volume_usd", b.vol, day);
+        push("platform", "renaiss", "trades", b.trades, day);
+        days++;
+      }
+      console.log(
+        `  renaiss resale: ${days} complete days through ${resaleThrough.slice(0, 10)} · ${stats.output} sales after hygiene (${stats.input - stats.output} removed)`,
+      );
+    } else {
+      console.log(`  renaiss resale: no complete day to publish (sales feed ${feeds.sales ? `last stopped: ${feeds.sales.stoppedBy}` : "has never run"})`);
+    }
+
+    const packsThrough = lastCompleteDay(feeds.pulls);
+    const firstPull = packsThrough ? await oldestStoredPulledAt() : null;
+    if (packsThrough && firstPull) {
+      // The pull history is large, so only the days not yet published are read,
+      // plus the trailing re-read window the pulls warmer can still correct.
+      const published = await readMetricSeries("platform", "renaiss", "gacha_volume_usd");
+      const newest = published.length ? Date.parse(published[published.length - 1].ts) : NaN;
+      const start = Math.max(
+        Date.parse(dayStartUtc(Date.parse(firstPull))),
+        Number.isFinite(newest) ? newest - PULLS_REREAD_DAYS * DAY : -Infinity,
+      );
+      const daily = await readDailyPackSpend(start, Date.parse(packsThrough));
+      let spend = 0;
+      let packs = 0;
+      for (const [day, v] of daily) {
+        push("platform", "renaiss", "gacha_volume_usd", v.usd, day);
+        spend += v.usd;
+        packs += v.packs;
+      }
+      console.log(
+        `  renaiss packs: ${daily.size} complete day(s) ${new Date(start).toISOString().slice(0, 10)} → ${packsThrough.slice(0, 10)} · ` +
+          `${packs.toLocaleString()} packs · $${Math.round(spend).toLocaleString()} pack spend`,
+      );
+    } else {
+      console.log(`  renaiss packs: no complete day to publish (pulls feed ${feeds.pulls ? `last stopped: ${feeds.pulls.stoppedBy}` : "has never run"})`);
+    }
+  } catch (e) {
+    console.warn(`  renaiss daily failed: ${(e as Error).message}`);
   }
 
   // ── Family 2: stock metrics — today's reading (forward only) ──

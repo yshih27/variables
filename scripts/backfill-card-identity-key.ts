@@ -85,6 +85,8 @@ type Row = {
   year: number | null;
   card_number: string | null;
   ip_key: string | null;
+  /** Renaiss's language field (20260930000001); absent until that migration is applied. */
+  language?: string | null;
   identity_key?: string | null;
   identity_slug?: string | null;
 };
@@ -105,6 +107,19 @@ async function columnsExist(): Promise<boolean> {
   const { error } = await db().from("cards").select("identity_key,identity_slug").limit(1);
   if (!error) return true;
   if (/identity_key|identity_slug/.test(error.message)) return false;
+  throw new Error(`cards probe failed: ${error.message}`);
+}
+
+/**
+ * `cards.language` (20260930000001) — Renaiss's identity reads its language from
+ * this field (traits.ts), so a recompute that could not see it would move every
+ * Japanese Renaiss row onto the English key. Selected when present; absent means
+ * no Renaiss row exists yet (its upsert carries the column), so nothing is lost.
+ */
+async function languageColumnExists(): Promise<boolean> {
+  const { error } = await db().from("cards").select("language").limit(1);
+  if (!error) return true;
+  if (/\blanguage\b/.test(error.message)) return false;
   throw new Error(`cards probe failed: ${error.message}`);
 }
 
@@ -148,7 +163,7 @@ async function main() {
     if (!s) stats.set(p, (s = { scanned: 0, filled: 0, noIdentity: 0, already: 0, changed: 0, cleared: 0, slugs: new Set() }));
     return s;
   };
-  const base = "id,platform,token_id,chain,source,name,card_name,set_name,grade_label,year,card_number,ip_key";
+  const base = `id,platform,token_id,chain,source,name,card_name,set_name,grade_label,year,card_number,ip_key${(await languageColumnExists()) ? ",language" : ""}`;
   let lastId: string | null = FROM;
   let pending: Update[] = [];
   let written = 0;
@@ -173,7 +188,7 @@ async function main() {
       // whether it has the RIGHT one.
       if (!REWRITE && hasCols && stored.key != null && stored.slug != null) { s.already++; continue; }
       const ip = r.ip_key ?? "other";
-      const parts = extractCardIdentity({ name: r.name, cardName: r.card_name, set: r.set_name, grade: r.grade_label, year: r.year, cardNumber: r.card_number });
+      const parts = extractCardIdentity({ name: r.name, cardName: r.card_name, set: r.set_name, grade: r.grade_label, year: r.year, cardNumber: r.card_number, platform: r.platform, language: r.language ?? null });
       const key = identityKey(ip, parts);
       const slug = key ? identitySlug(ip, parts) : null;
       if (!key || !slug) {
@@ -277,7 +292,7 @@ async function reportNames(): Promise<void> {
   const rowCounts = { scanned: 0, unchanged: 0, rekeyed: 0, gained: 0, lost: 0, neither: 0 };
   const otherChanges: { platform: string; title: string; storedName: string; newName: string | null }[] = [];
   const gained = new Map<string, { rows: number; examples: string[] }>();
-  const base = "id,platform,token_id,name,card_name,set_name,grade_label,year,card_number,ip_key,identity_key,identity_slug";
+  const base = `id,platform,token_id,name,card_name,set_name,grade_label,year,card_number,ip_key,identity_key,identity_slug${(await languageColumnExists()) ? ",language" : ""}`;
   let lastId: string | null = null;
   for (;;) {
     let q = db().from("cards").select(base).order("id", { ascending: true }).limit(READ_PAGE);
@@ -290,7 +305,7 @@ async function reportNames(): Promise<void> {
       if (ONLY && r.platform !== ONLY) continue;
       rowCounts.scanned++;
       const ip = r.ip_key ?? "other";
-      const parts = extractCardIdentity({ name: r.name, cardName: r.card_name, set: r.set_name, grade: r.grade_label, year: r.year, cardNumber: r.card_number });
+      const parts = extractCardIdentity({ name: r.name, cardName: r.card_name, set: r.set_name, grade: r.grade_label, year: r.year, cardNumber: r.card_number, platform: r.platform, language: r.language ?? null });
       const newKey = identityKey(ip, parts);
       const storedKey = r.identity_key ?? null;
       if (storedKey) (fate.get(storedKey) ?? fate.set(storedKey, new Set()).get(storedKey)!).add(newKey);

@@ -14,25 +14,28 @@ import { classifyIP } from "./ipCatalog";
 import { extractCardIdentity, supersededCardName, type CardIdentityParts } from "./traits";
 import { normalizeSetName } from "../card/setName";
 
-export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard";
+export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard" | "renaiss";
 
 const CHAIN_BY_PLATFORM: Record<CardPlatform, string> = {
   "collector-crypt": "Solana",
   beezie: "Base",
   phygitals: "Solana",
   courtyard: "Polygon",
+  renaiss: "BNB Chain",
 };
 const CODE_BY_PLATFORM: Record<CardPlatform, string> = {
   "collector-crypt": "cc",
   beezie: "bz",
   phygitals: "pg",
   courtyard: "cy",
+  renaiss: "rn",
 };
 const SOURCE_BY_PLATFORM: Record<CardPlatform, string> = {
   "collector-crypt": "helius-das",
   beezie: "beezie-tokenuri",
   phygitals: "helius-das",
   courtyard: "rarible",
+  renaiss: "renaiss-api",
 };
 
 export type CardRow = {
@@ -238,6 +241,32 @@ const MEMO_TTL_MS = 5 * 60 * 1000;
 let valMemo: { at: number; map: Map<string, CardValuation[]> } | null = null;
 let dimMemo: { at: number; map: Map<string, Map<string, CardDims>> } | null = null;
 
+/**
+ * `cards.language` (migration 20260930000001) — Renaiss is the first venue whose
+ * feed names a card's language as a field; the identity extractor reads it for
+ * that platform (traits.ts). Every other platform's rows leave it null.
+ *
+ * ⚠️ READ BEHIND A GUARD UNTIL THE MIGRATION IS APPLIED. Selecting a column
+ * PostgREST does not know fails the whole request, and these readers sit under
+ * every page that reads dims. So a read asks for the column, and on the
+ * missing-column error re-asks without it and remembers the answer for a TTL
+ * (the `identity_slug` probe's pattern, identityDetail.ts). Without the column
+ * no Renaiss row can exist either (its upsert carries `language`), so nothing is
+ * lost while it is absent.
+ */
+const LANGUAGE_ABSENT_TTL_MS = 10 * 60 * 1000;
+let languageAbsentUntil = 0;
+const missingLanguage = (e: { message?: string } | null) => !!e && /\blanguage\b/.test(e.message ?? "");
+type SelectResult = { data: Record<string, unknown>[] | null; error: { message: string } | null };
+async function selectWithLanguage(base: string, run: (cols: string) => PromiseLike<SelectResult>): Promise<SelectResult> {
+  if (Date.now() >= languageAbsentUntil) {
+    const res = await run(`${base},language`);
+    if (!missingLanguage(res.error)) return res;
+    languageAbsentUntil = Date.now() + LANGUAGE_ABSENT_TTL_MS;
+  }
+  return run(base);
+}
+
 /** Valuation columns for EVERY card, partitioned by platform, in one full-table
  *  PK-keyset pass (see the note above on why there's no platform filter). */
 export async function readAllCardValuations(): Promise<Map<string, CardValuation[]>> {
@@ -278,13 +307,12 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
   const map = new Map<string, Map<string, CardDims>>();
   let lastId: string | null = null;
   for (;;) {
-    let q = db()
-      .from("cards")
-      .select("id,platform,token_id,ip_key,set_name,grade_label,name,card_name,year,card_number")
-      .order("id", { ascending: true })
-      .limit(PAGE);
-    if (lastId !== null) q = q.gt("id", lastId);
-    const { data, error } = await q;
+    const after = lastId;
+    const { data, error } = await selectWithLanguage("id,platform,token_id,ip_key,set_name,grade_label,name,card_name,year,card_number", (cols) => {
+      let q = db().from("cards").select(cols).order("id", { ascending: true }).limit(PAGE);
+      if (after !== null) q = q.gt("id", after);
+      return q as unknown as PromiseLike<SelectResult>;
+    });
     if (error) throw new Error(`[cards] dims read failed: ${error.message}`);
     const rows = data ?? [];
     for (const r of rows) {
@@ -298,6 +326,8 @@ export async function readAllCardDims(): Promise<Map<string, Map<string, CardDim
         grade: r.grade_label as string | null,
         year: r.year as number | null,
         cardNumber: r.card_number as string | null,
+        platform: p,
+        language: (r.language as string | null | undefined) ?? null,
       };
       const identity = extractCardIdentity(tokenRow);
       const supersededName = supersededCardName(tokenRow, identity);
@@ -340,6 +370,18 @@ export async function readCardDims(platform: CardPlatform): Promise<Map<string, 
   return (await readAllCardDims()).get(platform) ?? new Map<string, CardDims>();
 }
 
+/**
+ * How many token ids one `IN(...)` read carries. The list travels in the URL:
+ * 300 Collector Crypt mints (44 characters each, plus an encoded comma) is
+ * ~14 KB, which production has always accepted; 300 Renaiss token ids (77-digit
+ * decimal ERC-721 ids) would be ~24 KB, a length nothing here has proven the
+ * gateway takes. Long ids get half the count (~12 KB), so every existing
+ * platform keeps its 300.
+ */
+export function inChunk(ids: string[]): number {
+  return ids.some((id) => id.length > 50) ? 150 : 300;
+}
+
 export type CardMeta = {
   name: string | null;
   cardName: string | null;
@@ -367,15 +409,16 @@ export async function readCardMeta(
 ): Promise<Map<string, CardMeta>> {
   const out = new Map<string, CardMeta>();
   const ids = [...new Set(tokenIds)].filter(Boolean);
-  const CHUNK = 300;
+  const CHUNK = inChunk(ids);
   for (let i = 0; i < ids.length; i += CHUNK) {
-    const { data, error } = await db()
-      .from("cards")
-      // `year` + `card_number` ride the same query so the identity parts can be
-      // derived here — no second read per token for the identity hand-off.
-      .select("token_id,name,card_name,ip_key,set_name,grade_label,image,year,card_number")
-      .eq("platform", platform)
-      .in("token_id", ids.slice(i, i + CHUNK));
+    const slice = ids.slice(i, i + CHUNK);
+    // `year` + `card_number` (+ `language`, guarded) ride the same query so the
+    // identity parts can be derived here — no second read per token for the
+    // identity hand-off.
+    const { data, error } = await selectWithLanguage(
+      "token_id,name,card_name,ip_key,set_name,grade_label,image,year,card_number",
+      (cols) => db().from("cards").select(cols).eq("platform", platform).in("token_id", slice) as unknown as PromiseLike<SelectResult>,
+    );
     if (error) {
       console.warn(`[cards] meta read failed: ${error.message}`);
       continue;
@@ -398,6 +441,8 @@ export async function readCardMeta(
           grade: r.grade_label as string | null,
           year: r.year as number | null,
           cardNumber: r.card_number as string | null,
+          platform,
+          language: (r.language as string | null | undefined) ?? null,
         }),
       });
     }
@@ -413,7 +458,7 @@ export async function readCards(
   const out = new Map<string, TokenMetadata>();
   const ids = [...new Set(tokenIds)].filter(Boolean);
   if (ids.length === 0) return out;
-  const CHUNK = 300; // keep the IN(...) list / URL length reasonable
+  const CHUNK = inChunk(ids); // keep the IN(...) list / URL length reasonable
   for (let i = 0; i < ids.length; i += CHUNK) {
     const slice = ids.slice(i, i + CHUNK);
     const { data, error } = await db()
