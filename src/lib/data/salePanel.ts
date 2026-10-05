@@ -131,6 +131,25 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[], legacy
 }
 
 /**
+ * Venues whose sales are kept OUT of the panel until adding them has a recorded
+ * restatement.
+ *
+ * ⚠️ RENAISS RESTATES THE PUBLISHED INDEX. Its backfill (Oct 5 2026, 18,304
+ * sales since Jan 9) nearly doubles the panel (21,523 → 39,459 sales), and most
+ * of it is January to April. Measured on a local --out build that day: the base
+ * month moves from February to January, three set indices start publishing, and
+ * the published September close moves from 151.2 to 129.2 on V-MKT (149.3 →
+ * 126.6 on V-PKM), with May to August 21 to 29 points lower. A restated history
+ * ships with its method-ledger entry or not at all, so Renaiss joins the panel
+ * through the shadow build and ledger entry of the every-venue change (PR #172),
+ * once, rather than through the next scheduled rebuild with no record.
+ *
+ * The panel only: the tape and the grade/set feeds read `readSaleFeed`
+ * directly, and Renaiss's volumes come from its own row stores.
+ */
+export const PANEL_VENUES_PENDING_RESTATEMENT: ReadonlySet<CardPlatform> = new Set<CardPlatform>(["renaiss"]);
+
+/**
  * Build the full cross-platform sale-price panel. A failing feed degrades to an
  * empty contribution (logged by the caller via the returned counts) rather than
  * sinking the whole panel.
@@ -139,7 +158,7 @@ export async function buildSalePanel(opts: { legacyIdentity?: boolean } = {}): P
   // CC + Courtyard come from the secondary-sales store runCoreWarm writes — the
   // same cleaned rows the old direct Dune reads returned, without re-buying the
   // export (~5.6 cr each). Only warmers/core touches Dune for these feeds now.
-  const feed = await readSaleFeed();
+  const feed = (await readSaleFeed()).filter((s) => !PANEL_VENUES_PENDING_RESTATEMENT.has(s.platform));
   const byPlatform = new Map<CardPlatform, UntaggedSale[]>();
   for (const s of feed) {
     const cur = byPlatform.get(s.platform);
