@@ -154,6 +154,9 @@ export type GachaPayload = {
   venues: GachaVenue[];
 };
 
+/** The frontend's name for a venue row (PR A); the payload's type is GachaVenue. */
+export type GachaVenueRecord = GachaVenue;
+
 /** The listener's hits count as live only while its newest poll is this recent. */
 export const LIVE_HEARTBEAT_MAX_MS = 15 * 60_000;
 /** The hits band and "Biggest Hit 7d" cover this many days. */
