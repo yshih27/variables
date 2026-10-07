@@ -33,10 +33,11 @@ const DAY = 86_400_000;
 /** Sales and pulls older than this never reach the tape. */
 const EVENT_WINDOW_MS = DAY;
 /**
- * Index closes get a longer leash BY DESIGN: the price index is weekly and
- * stamped at the week end, so its newest close is up to seven days old on any
- * given day. Dropping it at 24h would mean the tape simply never shows an index
- * close. The label carries the age instead — see `indexItems`.
+ * Index closes get a longer leash BY DESIGN: a close is stamped at the end of
+ * its period, so on any given day it is days old. Dropping it at 24h would mean
+ * the tape simply never shows an index close. The label carries the age instead
+ * — see `indexItems`. Since the index went monthly (v4) a close shows for the
+ * first eight days of the next month.
  */
 const INDEX_WINDOW_MS = 8 * DAY;
 
@@ -169,11 +170,16 @@ const INDEX_SCOPES: { entity: "market" | "category"; key: string }[] = [
 ];
 
 /**
- * One item per complete week per index, stamped at the week END (the house
- * convention — see resampleWeekly). The label states the close, the 1-week move,
- * and, when the point is more than a day old, how old it is: a weekly series'
- * newest point is usually days behind, and a bare number would read as "as of
- * now" on a feed where every other line is minutes old.
+ * One item per published close per index, read at the index's own cadence
+ * (monthly since v4) and stamped at the period END. The label states the close,
+ * the move since the previous published close with that window ("1m", or "2m"
+ * when a month did not publish), and, when the point is more than a day old, how
+ * old it is: a bare number would read as "as of now" on a feed where every other
+ * line is minutes old.
+ *
+ * ⚠️ It read the series resampled weekly until Oct 7 2026 and labelled every
+ * move "1w": on the monthly index that put a month's step ("−4.8%") under a
+ * one-week label.
  */
 async function indexItems(nowMs: number, limit: number): Promise<TapeItem[]> {
   const out: TapeItem[] = [];
@@ -182,7 +188,6 @@ async function indexItems(nowMs: number, limit: number): Promise<TapeItem[]> {
       const pts = await readIndexSeries(s.entity, s.key, {
         kind: "price",
         from: "2000-01-01",
-        freq: "weekly",
       }).catch(() => []);
       return { s, pts };
     }),
@@ -199,7 +204,10 @@ async function indexItems(nowMs: number, limit: number): Promise<TapeItem[]> {
       if (!Number.isFinite(p.value)) continue;
       const pct = Number.isFinite(prev?.value) && prev.value > 0 ? ((p.value - prev.value) / prev.value) * 100 : null;
       const ageDays = Math.floor((nowMs - t) / DAY);
-      const move = pct == null ? "" : ` (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% 1w)`;
+      // The move's window is the gap to the previous published close.
+      const gapDays = (t - Date.parse(prev.ts)) / DAY;
+      const win = !Number.isFinite(gapDays) ? "" : gapDays <= 10 ? " 1w" : ` ${Math.max(1, Math.round(gapDays / 30.4))}m`;
+      const move = pct == null ? "" : ` (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%${win})`;
       const age = ageDays >= 1 ? ` · ${ageDays}d ago` : "";
       takenForScope++;
       out.push({
