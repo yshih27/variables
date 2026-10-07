@@ -33,6 +33,13 @@ export function leadMedian(p: GachaPack): Lead | null {
 
 /** A realized median above this multiple of the stated EV is withheld. */
 export const MEDIAN_MAX_OVER_STATED_EV = 1.5;
+/**
+ * A realized median above this multiple of its own mean is withheld. Not 1.0: a
+ * low-variance pack's median honestly sits a hair above its mean (DYLI's Pack
+ * Ripper 1.02× vs 1.00×, n=67, Oct 7), and the rule exists for the right-skewed
+ * artifact (CC PKMN 50 read 2.36× vs 1.90×), which 10% still catches.
+ */
+export const MEDIAN_MAX_OVER_MEAN = 1.1;
 
 export type PlausibilityVerdict = { withheld: boolean; reason: string | null };
 
@@ -49,10 +56,10 @@ export type PlausibilityVerdict = { withheld: boolean; reason: string | null };
 export function plausibilityGate(p: GachaPack): PlausibilityVerdict {
   const med = p.medianReturn;
   if (med == null) return { withheld: false, reason: null };
-  if (p.evRealized != null && med > p.evRealized) {
+  if (p.evRealized != null && med > MEDIAN_MAX_OVER_MEAN * p.evRealized) {
     return {
       withheld: true,
-      reason: `realized median ${med.toFixed(2)}× is above its own mean ${p.evRealized.toFixed(2)}× (n=${p.realizedN ?? "?"})`,
+      reason: `realized median ${med.toFixed(2)}× is more than ${Math.round((MEDIAN_MAX_OVER_MEAN - 1) * 100)}% above its own mean ${p.evRealized.toFixed(2)}× (n=${p.realizedN ?? "?"})`,
     };
   }
   if (p.evStated != null && p.evStated > 0 && med > MEDIAN_MAX_OVER_STATED_EV * p.evStated) {

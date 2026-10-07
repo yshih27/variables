@@ -41,11 +41,17 @@ test("gate: a median above its own mean is withheld, with its reason", () => {
   const p = pack({ medianReturn: 2.36, evRealized: 1.9, realizedN: 25 });
   const v = plausibilityGate(p);
   assert.equal(v.withheld, true);
-  assert.match(v.reason!, /median 2.36× is above its own mean 1.90× \(n=25\)/);
+  assert.match(v.reason!, /median 2.36× is more than 10% above its own mean 1.90× \(n=25\)/);
   assert.equal(leadMedian(p), null);
   const gated = gatePack(p);
   assert.equal(gated.medianReturn, null);
   assert.match(gated.medianWithheld!, /above its own mean/);
+});
+
+test("gate: a low-variance median a hair above its mean passes (within 10%)", () => {
+  const p = pack({ id: "dyli:pack-ripper", platform: "dyli", medianReturn: 1.02, evRealized: 1.0, realizedN: 67 });
+  assert.deepEqual(plausibilityGate(p), { withheld: false, reason: null });
+  assert.equal(gatePack(p).medianWithheld, null);
 });
 
 test("gate: a median above 1.5 × the stated EV is withheld; one under it passes", () => {
