@@ -23,12 +23,20 @@ import {
   type RowsPref,
 } from "@/lib/machines/prefs";
 import { useStoredPref } from "@/lib/windowPref";
+import { CardThumb } from "./CardThumb";
 import { Section } from "./Section";
 import { TableFoot } from "./TableFoot";
 
 /**
- * Machines — for each Collector Crypt machine, how much is being pulled and
- * which partner's traffic is the largest share of it. One table, one question.
+ * Machines — for each machine on a venue that has a board, how much is being
+ * pulled, and then either which partner's traffic is the largest share of it
+ * (Collector Crypt, whose pulls carry a memo_slug) or what its prizes are stated
+ * to be worth (Renaiss, in its own stated prize value). One table, one question.
+ *
+ * ⚠️ THE COLUMNS FOLLOW THE BOARD, NEVER THE VENUE KEY. Partner columns render
+ * only on a board that carries the partner split (`attributedSpendPct`); the
+ * value columns only on one that carries a `valueBasis`, and are labelled with
+ * it wherever they print. Collector Crypt's board renders exactly as before.
  *
  * ⚠️ EVERY SHARE IS OF ATTRIBUTED SPEND, AND THE DENOMINATOR IS STATED ONCE.
  * Only ~8% of CC's pull spend carries a `memo_slug`. Sharing against TOTAL spend
@@ -116,11 +124,8 @@ export function PlatformMachines({
   // where the rows are rendered, below — never here.
   const sorted = useMemo(() => sortMachines(rows, sortKey, dir), [rows, sortKey, dir]);
 
-  // ⚠️ The board carries NO platform key — it is Collector Crypt's by
-  // construction (the one platform whose pulls have both a machine code and an
-  // originating partner). So the page's key is what keeps it off every other
-  // platform; without this check /platform/beezie would render CC's machines.
-  if (platformKey !== "collector-crypt") return null;
+  // The board is the venue's own (readVenueMachineBoard reads one per venue and
+  // returns null for a venue without one), so its existence is the only gate.
   // Honest absence: no board, or a board with nothing in it, renders NOTHING —
   // not an empty frame, which would assert we measured and found no machines.
   if (!board || rows.length === 0) return null;
@@ -152,6 +157,9 @@ export function PlatformMachines({
   };
 
   const asOf = board.asOf.slice(0, 10);
+  // The partner split is Collector Crypt's alone; a board without it gets the
+  // venue's stated-value columns instead (Renaiss).
+  const partnered = board.attributedSpendPct != null;
   // Cut ONLY here. `sorted` stays whole for the count and for anything that
   // exports.
   const visible = showAll ? sorted : sorted.slice(0, TOP_ROWS);
@@ -163,14 +171,25 @@ export function PlatformMachines({
       // Clears the sticky top bar + tape when `#machines` lands here.
       className="scroll-mt-24"
       title="Machines"
-      readMe="where the pull money goes, per machine — shares are of attributed spend"
+      readMe={
+        partnered
+          ? "where the pull money goes, per machine — shares are of attributed spend"
+          : "where the pull money goes, per machine, and what its prizes are stated to be worth"
+      }
       subtitle={`Last ${board.windowDays} complete days · through ${asOf}`}
       right={
-        // The denominator, once. Every share in the table is against this.
-        <span className="whitespace-nowrap font-mono text-[11px] text-ink-3">
-          <span className="tabular text-ink-2">{(board.attributedSpendPct ?? 0).toFixed(1)}%</span> of spend
-          attributed
-        </span>
+        partnered ? (
+          // The denominator, once. Every share in the table is against this.
+          <span className="whitespace-nowrap font-mono text-[11px] text-ink-3">
+            <span className="tabular text-ink-2">{(board.attributedSpendPct ?? 0).toFixed(1)}%</span> of spend
+            attributed
+          </span>
+        ) : board.valueBasis ? (
+          // The basis, once: value back, hit share and the top prize are all in it.
+          <span className="whitespace-nowrap font-mono text-[11px] text-ink-3" data-value-basis>
+            values in {board.valueBasis}
+          </span>
+        ) : undefined
       }
       disclosure={{ open, onToggle: () => setOpen(open ? "closed" : "open"), label: "Machines" }}
       flush
@@ -187,15 +206,33 @@ export function PlatformMachines({
                   <SortTh align="right" {...sp("spend")}>{board.windowDays}d Spend</SortTh>
                   <SortTh align="right" className="hidden md:table-cell" {...sp("pulls")}>Pulls</SortTh>
                   <SortTh align="right" className="hidden lg:table-cell" {...sp("spend7d")}>7d Spend</SortTh>
-                  <SortTh align="right" className="hidden sm:table-cell" {...sp("attributed")}>Attr %</SortTh>
-                  <Th className="hidden md:table-cell">Top partner</Th>
-                  <Th className="hidden sm:table-cell">Split</Th>
+                  {partnered ? (
+                    <>
+                      <SortTh align="right" className="hidden sm:table-cell" {...sp("attributed")}>Attr %</SortTh>
+                      <Th className="hidden md:table-cell">Top partner</Th>
+                      <Th className="hidden sm:table-cell">Split</Th>
+                    </>
+                  ) : (
+                    <>
+                      <SortTh align="right" className="hidden sm:table-cell" {...sp("valueBack")}>
+                        <span title={board.valueBasis}>Value back</span>
+                      </SortTh>
+                      <SortTh align="right" className="hidden md:table-cell" {...sp("hitShare")}>
+                        <span title={board.valueBasis}>Hit share</span>
+                      </SortTh>
+                      <Th className="hidden md:table-cell">Top prize</Th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {visible.map((r, i) => (
-                  <MachineTr key={r.key} row={r} rank={i + 1} colors={colors} />
-                ))}
+                {visible.map((r, i) =>
+                  partnered ? (
+                    <MachineTr key={r.key} row={r} rank={i + 1} colors={colors} />
+                  ) : (
+                    <StatedMachineTr key={r.key} row={r} rank={i + 1} basis={board.valueBasis ?? null} />
+                  ),
+                )}
               </tbody>
             </table>
           </div>
@@ -215,7 +252,7 @@ export function PlatformMachines({
           />
         </>
       ) : (
-        <MachinesSummary board={board} asOf={asOf} />
+        <MachinesSummary board={board} asOf={asOf} partnered={partnered} />
       )}
     </Section>
   );
@@ -233,7 +270,7 @@ export function PlatformMachines({
  * exists on the board, and a spend share captioned as a pull share would be a
  * different, unmeasured claim.
  */
-function MachinesSummary({ board, asOf }: { board: MachineBoard; asOf: string }) {
+function MachinesSummary({ board, asOf, partnered }: { board: MachineBoard; asOf: string; partnered: boolean }) {
   const n = board.rows.length;
   const spend = board.rows.reduce((s, r) => s + r.spendUsd, 0);
   return (
@@ -241,8 +278,12 @@ function MachinesSummary({ board, asOf }: { board: MachineBoard; asOf: string })
       <span className="tabular text-ink-2">{formatInt(n)}</span> {n === 1 ? "machine" : "machines"}
       {" · "}
       <span className="tabular text-ink-2">{formatCompactUsd(spend)}</span> spend
-      {" · "}
-      <span className="tabular text-ink-2">{(board.attributedSpendPct ?? 0).toFixed(1)}%</span> of spend attributed
+      {partnered ? (
+        <>
+          {" · "}
+          <span className="tabular text-ink-2">{(board.attributedSpendPct ?? 0).toFixed(1)}%</span> of spend attributed
+        </>
+      ) : null}
       {" · "}
       through <span className="tabular text-ink-2">{asOf}</span>
     </p>
@@ -285,6 +326,61 @@ function MachineTr({
       </Td>
       <Td className="hidden w-[220px] sm:table-cell">
         <SplitBar row={row} colors={colors} />
+      </Td>
+    </tr>
+  );
+}
+
+/**
+ * A row on a board in the venue's stated value (Renaiss). Value back and hit
+ * share are the venue's own claim, so each cell's title names the basis, and the
+ * hit share prints its n: a share of 4 pulls is not a share of 1,252.
+ */
+function StatedMachineTr({ row, rank, basis }: { row: MachineRow; rank: number; basis: string | null }) {
+  const raw = isRawKey(row);
+  const label = raw ? shortKey(row.key) : row.name;
+  const prize = row.topPrize ?? null;
+  return (
+    <tr className="[&:last-child>td]:border-b-0">
+      <Td className="w-[44px] text-ink-3">{String(rank).padStart(2, "0")}</Td>
+      <Td>
+        <MachineName row={row} raw={raw} label={label} />
+      </Td>
+      <Td align="right" className="hidden md:table-cell">
+        {row.priceUsd == null ? <span className="text-ink-4">—</span> : formatCompactUsd(row.priceUsd)}
+      </Td>
+      <Td align="right" strong>{formatCompactUsd(row.spendUsd)}</Td>
+      <Td align="right" muted className="hidden md:table-cell">{formatInt(row.pulls)}</Td>
+      <Td align="right" muted className="hidden lg:table-cell">{formatCompactUsd(row.spend7dUsd)}</Td>
+      <Td align="right" muted className="hidden sm:table-cell">
+        {row.valueBackPct != null ? (
+          <span title={basis ?? undefined}>{row.valueBackPct.toFixed(1)}%</span>
+        ) : (
+          <span className="text-ink-4">—</span>
+        )}
+      </Td>
+      <Td align="right" muted className="hidden md:table-cell">
+        {row.hitSharePct != null ? (
+          <span title={basis ?? undefined}>
+            {row.hitSharePct.toFixed(1)}%<span className="ml-1.5 text-[11px] text-ink-4">n={formatInt(row.hitN ?? 0)}</span>
+          </span>
+        ) : (
+          <span className="text-ink-4">—</span>
+        )}
+      </Td>
+      <Td className="hidden max-w-[260px] md:table-cell">
+        {prize ? (
+          <span className="flex items-center gap-2" title={basis ?? undefined}>
+            <CardThumb src={prize.image} variant="cell" preview={{ name: prize.cardName ?? label, grade: prize.grade }} />
+            <span className="min-w-0 truncate font-sans text-ink-2">
+              {prize.cardName ?? "—"}
+              {prize.grade ? ` · ${prize.grade}` : ""}
+            </span>
+            <span className="tabular shrink-0 text-ink">{formatCompactUsd(prize.valueUsd)}</span>
+          </span>
+        ) : (
+          <span className="text-ink-4">—</span>
+        )}
       </Td>
     </tr>
   );

@@ -37,7 +37,7 @@ export default async function PlatformSalesPage({
         <div className="mb-8 text-[13px] text-ink-3">
           {detail.salesEnriched} of {detail.salesTotal} sales enriched on {detail.source.name} in the last 24h, chronological.
         </div>
-        <RecentSalesTable rows={detail.recentSales} salesTotal={detail.salesTotal} />
+        <RecentSalesTable rows={detail.recentSales} salesTotal={detail.salesTotal} salesWindow={detail.salesWindow ?? "24h"} />
       </div>
     </>
   );

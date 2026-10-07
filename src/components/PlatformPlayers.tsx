@@ -15,11 +15,11 @@ import {
  * Players — who actually spends on a gacha platform, and how unevenly.
  *
  * Renders only for platforms whose pulls carry per-wallet attribution (Collector
- * Crypt, Phygitals). Everyone else is absent from the snapshot's `platforms` list
- * and gets no section — not a zero, not an empty frame. See getPlatformPlayers.
- * Renaiss's pulls carry wallets too, but live in `renaiss_pulls`, which the
- * player-analytics scan does not read (src/lib/renaiss/pulls.ts says why); the
- * methodology's Renaiss leg states it.
+ * Crypt and Phygitals from the player-analytics scan, Renaiss from its own
+ * `players:renaiss` aggregate — readVenuePlayers picks the source). Everyone else
+ * gets no section — not a zero, not an empty frame. A venue whose aggregate
+ * builds no month-by-price split (Renaiss) says so in one line, from data, in
+ * place of the monthly chart.
  *
  * ⚠️ ALREADY PERCENT. `pctUsers`, `pctRevenue`, `top1PctShare` and `top10PctShare`
  * all arrive on a 0–100 scale from playerAnalytics.ts. Nothing here multiplies by
@@ -81,7 +81,7 @@ export function PlatformPlayers({
   overallCoverage,
 }: {
   /** null → render nothing (no attribution, or the warmer hasn't run). */
-  data: { player: PlatformPlayerAnalytics; generatedAt: string } | null;
+  data: { player: PlatformPlayerAnalytics; generatedAt?: string } | null;
   /** Month → share of spine gacha spend our pulls hold (0–100). Months below
    *  PULL_COVERAGE_MIN_PCT are withheld from the chart — see pullCoverage.ts. */
   monthCoverage?: PullCoverage;
@@ -150,7 +150,13 @@ export function PlatformPlayers({
       </div>
 
       <TierTable tiers={tiers} totalWallets={c.totalWallets} totalSpend={c.totalSpendUsd} />
-      <MonthlyChart monthly={monthly} coverage={monthCoverage} />
+      {monthly.length === 0 && player.monthlyReason ? (
+        <p className="mt-5 font-mono text-[10.5px] leading-snug text-ink-4" data-monthly-reason>
+          Monthly spend by price: {player.monthlyReason}
+        </p>
+      ) : (
+        <MonthlyChart monthly={monthly} coverage={monthCoverage} />
+      )}
     </Section>
   );
 }
