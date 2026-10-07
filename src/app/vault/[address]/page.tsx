@@ -1,5 +1,6 @@
-import { redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { VAULT_ENABLED } from "@/lib/flags";
 import { Section } from "@/components/Section";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { getVaultValuation, type VaultValuation } from "@/lib/data/vault";
@@ -29,6 +30,8 @@ export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ address: string }> };
 
 export default async function VaultStatementPage({ params }: Props) {
+  // Out of public view while VAULT_ENABLED is off (src/lib/flags.ts).
+  if (!VAULT_ENABLED) notFound();
   const { address: raw } = await params;
   const input = safeDecode(raw);
   const parsed = parseWalletAddress(input);

@@ -30,3 +30,22 @@ export const GACHA_ENABLED = process.env.NEXT_PUBLIC_GACHA_ENABLED === "true";
  * Flip = set NEXT_PUBLIC_SHELL_V2="true" in Vercel and redeploy (launch day, Sep 19).
  */
 export const SHELL_V2 = process.env.NEXT_PUBLIC_SHELL_V2 === "true";
+
+/**
+ * VAULT_ENABLED and PRICE_CHIP_ENABLED gate two surfaces the owner has put out
+ * of public view (Oct 7 2026): Varible presents itself as a comparison dashboard
+ * with analytics, and "value a wallet" and "embed our price on your page" are
+ * not part of that.
+ *
+ * Default OFF, the GACHA_ENABLED pattern: with VAULT_ENABLED off the Vault leaves
+ * every navigation (rail, top bar, bottom tabs, command palette) and `/vault`,
+ * `/vault/<address>` answer 404; with PRICE_CHIP_ENABLED off the "Get the chip"
+ * action leaves identity pages. All code stays: the vault readers, the
+ * `/embed/price/<slug>` chip, `/api/public/price/<slug>` and the badge keep
+ * working for anything already pointing at them.
+ *
+ * Bring back = set NEXT_PUBLIC_VAULT_ENABLED / NEXT_PUBLIC_PRICE_CHIP_ENABLED to
+ * "true" in Vercel and redeploy.
+ */
+export const VAULT_ENABLED = process.env.NEXT_PUBLIC_VAULT_ENABLED === "true";
+export const PRICE_CHIP_ENABLED = process.env.NEXT_PUBLIC_PRICE_CHIP_ENABLED === "true";
