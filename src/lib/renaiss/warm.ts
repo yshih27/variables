@@ -32,6 +32,17 @@
  * `--compare-sets` (report only): reads every `cards` row once (the dims scan,
  * read-only) to say which Renaiss set strings reach a set key another venue's
  * cards already carry — the ones that do not are the set-alias brief's input.
+ *
+ * `--refill-columns` (pulls only): re-reads the WHOLE pulls history, oldest
+ * first, and upserts every row, so the columns migration 20261007000001 added
+ * (`machine_name`, `prize_image_url`) are filled on rows stored before it.
+ * About 1,450 pages at 500 rows: inside one day's 10,000-call quota, not inside
+ * the 75-min core job, so the orchestrator runs it by dispatch (warm.yml batch
+ * `renaiss-refill`). RESUMABLE: with --apply it records the feed's cursor in the
+ * `renaiss-pulls-refill` snapshot every REFILL_SAVE_EVERY pages and at the end,
+ * and the next run continues from it (`--restart` ignores it). The call
+ * ceiling still applies: a refill longer than RENAISS_MAX_CALLS stops, keeps
+ * its cursor and fails, and the next dispatch carries on.
  */
 import { readFileSync } from "node:fs";
 import {
@@ -63,6 +74,7 @@ import {
   selectPullsToWrite,
   toPullRow,
   upsertRenaissPulls,
+  countStoredPulls,
   usdOf,
   type RenaissPullRow,
   type StoredPullState,
@@ -78,6 +90,7 @@ import {
   type RenaissCardRow,
 } from "./cards";
 import { recordFeedRun, type RenaissFeed } from "./feedState";
+import { readSnapshot, writeSnapshot } from "../db/snapshots";
 import { runWarmer } from "../db/runWarmer";
 import { duneSpend } from "../dune/client";
 import { identityKeyRefusal, languageOfField } from "../data/traits";
@@ -92,6 +105,8 @@ export type WarmArgs = {
   from: string | null;
   fixture: string[] | null;
   compareSets: boolean;
+  refillColumns: boolean;
+  restart: boolean;
 };
 
 /** Flags → args. Throws on a malformed value. */
@@ -119,6 +134,8 @@ export function parseWarmArgs(argv: string[]): WarmArgs {
     from,
     fixture: fixture ? fixture.split(",").map((f) => f.trim()).filter(Boolean) : null,
     compareSets: argv.includes("--compare-sets"),
+    refillColumns: argv.includes("--refill-columns"),
+    restart: argv.includes("--restart"),
   };
 }
 
@@ -491,6 +508,10 @@ export async function runRenaissWarmer(
     log("✗ --backfill starts at the oldest row and --from at a time; pass one.");
     return 1;
   }
+  if (args.refillColumns && (feed !== "pulls" || args.backfill || args.from || args.fixture)) {
+    log("✗ --refill-columns is the pulls feed's, on its own: it reads the whole history from its own cursor.");
+    return 1;
+  }
   if (!args.fixture && noKeyExit(env, log)) return 0;
 
   const ctx: Ctx = { env, log };
@@ -499,10 +520,123 @@ export async function runRenaissWarmer(
     const run = () => runFeed(spec, args, ctx);
     // A dry run must not touch source_freshness: it would advertise a warm that wrote nothing.
     await (args.apply ? runWarmer(spec.source, run) : run());
+  } else if (args.refillColumns) {
+    // Its own freshness source: a refill is not the incremental feed, and must
+    // not stamp `renaiss-pulls` as fresh (nor the feed state core-volume reads).
+    const run = () => runRefill(env, args, ctx);
+    await (args.apply ? runWarmer("renaiss-pulls-refill", run) : run());
   } else {
     const spec = pullsSpec(env, args.fixture);
     const run = () => runFeed(spec, args, ctx);
     await (args.apply ? runWarmer(spec.source, run) : run());
   }
   return 0;
+}
+
+// ── The columns refill ───────────────────────────────────────────────────────
+
+export const REFILL_SNAPSHOT_KEY = "renaiss-pulls-refill";
+/** The cursor is recorded every this many pages (and at the end): a resume redoes at most this many. */
+export const REFILL_SAVE_EVERY = 10;
+
+export type RefillState = {
+  startedAt: string;
+  updatedAt: string;
+  /** The feed's cursor after the last recorded page; null before the first. */
+  cursor: string | null;
+  pages: number;
+  rows: number;
+  /** Set when a run reached the newest row: the refill is done. */
+  doneAt: string | null;
+};
+
+/** Where a refill starts: the recorded cursor of an unfinished refill, else the oldest row. Pure. */
+export function refillStart(state: RefillState | null, restart: boolean): { after: string | null; resumed: boolean } {
+  if (restart || !state || state.doneAt || !state.cursor) return { after: null, resumed: false };
+  return { after: state.cursor, resumed: true };
+}
+
+async function runRefill(env: RenaissEnv, args: WarmArgs, ctx: Ctx): Promise<{ rowsWritten: number }> {
+  const { log } = ctx;
+  const t0 = Date.now();
+  const prev = await readSnapshot<RefillState>(REFILL_SNAPSHOT_KEY).catch(() => null);
+  const { after, resumed } = refillStart(prev, args.restart);
+  const state: RefillState =
+    resumed && prev
+      ? { ...prev, updatedAt: new Date().toISOString() }
+      : { startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), cursor: null, pages: 0, rows: 0, doneAt: null };
+  log(
+    `Renaiss pack pulls — COLUMNS REFILL (machine_name, prize_image_url) ` +
+      `${resumed ? `resuming after page ${state.pages} (${state.rows.toLocaleString()} rows done)` : "from the oldest row"}` +
+      `${Number.isFinite(args.pageLimit) ? ` · capped at ${args.pageLimit} page(s)` : ""}` +
+      `${args.apply ? "" : " · DRY RUN (no writes)"}`,
+  );
+  const save = async () => {
+    state.updatedAt = new Date().toISOString();
+    if (args.apply) await writeSnapshot(REFILL_SNAPSHOT_KEY, state, state.updatedAt);
+  };
+
+  let written = 0;
+  let named = 0;
+  let imaged = 0;
+  let fetched = 0;
+  const pageMs: number[] = [];
+  let pageT = Date.now();
+  const result: PagedRun = await pageFeed<RenaissPullRow>({
+    fetchPage: (q) => fetchPullsPage(q, env),
+    after,
+    from: null,
+    limit: RENAISS_PAGE_SIZE,
+    maxPages: args.pageLimit,
+    onPage: async (rows, info) => {
+      const cards = new Map(collectCardRows(rows.map(linkedCardOfPull).filter((l): l is Linked => l !== null)).map((c) => [c.id, c]));
+      const mapped = rows.map((p) => toPullRow(p, p.tokenId ? (cards.get(`rn-${p.tokenId}`) ?? null) : null));
+      fetched += rows.length;
+      named += mapped.filter((r) => r.machine_name).length;
+      imaged += mapped.filter((r) => r.prize_image_url).length;
+      if (args.apply) written += await upsertRenaissPulls(mapped);
+      state.pages += 1;
+      state.rows += rows.length;
+      if (info.nextCursor) state.cursor = info.nextCursor;
+      if (state.pages % REFILL_SAVE_EVERY === 0) await save();
+      pageMs.push(Date.now() - pageT);
+      pageT = Date.now();
+      const first = rows[0]?.pulledAt.slice(0, 16) ?? "—";
+      const last = rows.length ? rows[rows.length - 1].pulledAt.slice(0, 16) : "—";
+      log(
+        `  page ${String(info.page).padStart(4)} · ${String(rows.length).padStart(3)} rows · ${first} → ${last} · ` +
+          `machine name on ${mapped.filter((r) => r.machine_name).length}, prize image on ${mapped.filter((r) => r.prize_image_url).length} · ` +
+          `${pageMs[pageMs.length - 1]}ms · X-RateLimit-Remaining ${info.rate?.remaining ?? "?"}`,
+      );
+    },
+  });
+  if (result.stoppedBy === "caught-up") state.doneAt = new Date().toISOString();
+  await save();
+
+  const sec = (Date.now() - t0) / 1000;
+  const perPage = pageMs.length ? pageMs.reduce((a, b) => a + b, 0) / pageMs.length / 1000 : NaN;
+  log(
+    `\n${args.apply ? "Wrote" : "Would write"} ${(args.apply ? written : fetched).toLocaleString()} pulls rows · ` +
+      `machine name on ${named.toLocaleString()} of ${fetched.toLocaleString()}, prize image on ${imaged.toLocaleString()} · ` +
+      `${renaissCallCount()} API calls · ${result.pages} page(s) · ${perPage.toFixed(2)} s/page · stopped: ${result.stoppedBy}` +
+      `${result.detail ? ` (${result.detail})` : ""} · X-RateLimit-Remaining ${lastRateLimit().remaining ?? "—"} · ${sec.toFixed(1)}s` +
+      `${state.doneAt ? " · REFILL DONE" : ` · refill at page ${state.pages}${args.apply ? ", cursor recorded" : ""}`}`,
+  );
+  if (!args.apply) {
+    // The projection the orchestrator plans the dispatch by: the whole table at
+    // the feed's page size, at this run's measured time per page (fetch + map;
+    // the upsert a real run adds is not in a dry run's figure).
+    const total = await countStoredPulls().catch(() => null);
+    if (total != null) {
+      const pages = Math.ceil(total / RENAISS_PAGE_SIZE);
+      log(
+        `  projection: ${total.toLocaleString()} pulls stored → ${pages.toLocaleString()} pages = ${pages.toLocaleString()} API calls ` +
+          `(the day's quota is 10,000) · at ${perPage.toFixed(2)} s/page ≈ ${((pages * perPage) / 60).toFixed(0)} min of fetching, before the writes`,
+      );
+    }
+  }
+  if (result.stoppedBy === "ceiling" || result.stoppedBy === "rate-limited") {
+    throw new Error(`renaiss-pulls-refill: ${result.detail ?? result.stoppedBy}. ${args.apply ? "Cursor recorded; the next dispatch continues from it." : "Dry run: nothing written."}`);
+  }
+  return { rowsWritten: written };
 }

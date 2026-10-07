@@ -25,6 +25,8 @@ export type PlatformBucket = {
   source: PlatformSource;
   stats24h: CollectionStats;
   sales24h: NormalizedSale[];
+  /** The trailing 7 days' sales, present only when the 24h holds fewer than SALES_TABLE_MIN (core.ts). */
+  sales7d?: NormalizedSale[];
   /**
    * False when this platform has NO secondary-sales source at all — `core-volume`
    * carries no entry for it (Phygitals: its listings aggregate Tensor + Magic
@@ -125,6 +127,7 @@ function buildBucket(
     source,
     stats24h: cv?.stats24h ?? unknownStats(collectionId || source.key),
     sales24h: cv?.sales24h ?? [],
+    ...(cv?.sales7d ? { sales7d: cv.sales7d } : {}),
     hasSecondarySource: !!cv,
     history,
     primaryUsd,

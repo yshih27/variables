@@ -37,6 +37,7 @@ import { PLATFORM_SOURCES } from "../src/lib/data/sources";
 import { db } from "../src/lib/db/client";
 import { readSnapshot } from "../src/lib/db/snapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
+import { readRenaissHoldings, STATED_MCAP_MIN_COVERAGE } from "../src/lib/renaiss/holders";
 
 type Acc = {
   cards: number;
@@ -226,6 +227,48 @@ async function processDyli(byPlatform: Map<string, PlatAcc>) {
   );
 }
 
+/**
+ * Renaiss — its own STATED prize value over the tokens its holders hold, as
+ * counted on-chain by warm-holders' Renaiss step (the `renaiss-holdings`
+ * snapshot, renaiss/holders.ts). Same class as Collector Crypt's insured
+ * value: the venue's appraisal, not a price (MCAP_BASIS "stated").
+ *
+ * ⚠️ ONLY ABOVE THE COVERAGE FLOOR. A held token with no stated value is a gap,
+ * never a zero, so below STATED_MCAP_MIN_COVERAGE the figure would understate
+ * by an unknown amount: no entry is written and the platform page prints "—"
+ * with the measured coverage as its reason.
+ */
+async function processRenaiss(byPlatform: Map<string, PlatAcc>): Promise<void> {
+  const h = await readRenaissHoldings().catch(() => null);
+  if (!h) {
+    console.log("→ Renaiss: no holdings run yet (warm-holders' Renaiss step) — no market cap");
+    return;
+  }
+  if (!h.stated.publishable) {
+    console.log(
+      `→ Renaiss: stated value covers ${h.stated.coveragePct.toFixed(1)}% of ${h.stated.held.toLocaleString()} held tokens ` +
+        `(< ${Math.round(STATED_MCAP_MIN_COVERAGE * 100)}%) — market cap withheld (holdings of ${h.generatedAt})`,
+    );
+    return;
+  }
+  const pAcc = platAccFor(byPlatform, "renaiss");
+  pAcc.cards = h.stated.held;
+  pAcc.cardsValued = h.stated.valued;
+  pAcc.mcap = h.stated.mcapUsd;
+  pAcc.insured = h.stated.mcapUsd;
+  for (const [ip, r] of Object.entries(h.byIp)) {
+    const a = accFor(pAcc.byIp, ip);
+    a.cards = r.tokens;
+    a.cardsValued = r.valued;
+    a.mcap = r.mcapUsd;
+    a.insured = r.mcapUsd;
+  }
+  console.log(
+    `→ Renaiss: $${Math.round(h.stated.mcapUsd).toLocaleString()} stated value on ${h.stated.valued.toLocaleString()} of ` +
+      `${h.stated.held.toLocaleString()} held tokens (${h.stated.coveragePct.toFixed(1)}% coverage; holdings of ${h.generatedAt})`,
+  );
+}
+
 const finalFloor = (floor: number): number => (Number.isFinite(floor) ? floor : 0);
 
 async function main() {
@@ -236,6 +279,7 @@ async function main() {
   await processCC(byPlatform);
   await processPhygitals(byPlatform);
   await processDyli(byPlatform);
+  await processRenaiss(byPlatform);
 
   // Derive cross-platform byIp from byPlatform (single source of truth). Phygitals
   // contributes a platform-level mcap only (empty byIp), so it doesn't fold into

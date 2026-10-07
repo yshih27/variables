@@ -6,7 +6,7 @@
 const SELECTOR_TOKEN_URI = "c87b56dd";
 
 /** Public JSON-RPC endpoints per chain, tried in order. Shared with ownerOf.ts. */
-export const RPCS: Record<"polygon" | "base", string[]> = {
+export const RPCS: Record<"polygon" | "base" | "bnb", string[]> = {
   polygon: [
     "https://polygon-bor-rpc.publicnode.com",
     "https://polygon.drpc.org",
@@ -15,6 +15,16 @@ export const RPCS: Record<"polygon" | "base", string[]> = {
     "https://base-rpc.publicnode.com",
     "https://mainnet.base.org",
     "https://base.llamarpc.com",
+  ],
+  // BNB Smart Chain (Renaiss). publicnode first (https://bsc-rpc.publicnode.com,
+  // listed at https://publicnode.com), then two of the BNB Chain foundation's own
+  // dataseeds (https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/).
+  // All three answered a Multicall3 eth_getCode in 376–564 ms on Oct 7. ⚠️ eth_call
+  // only: none serves eth_getLogs beyond the last few thousand blocks for free.
+  bnb: [
+    "https://bsc-rpc.publicnode.com",
+    "https://bsc-dataseed.bnbchain.org",
+    "https://bsc-dataseed1.defibit.io",
   ],
 };
 

@@ -7,12 +7,15 @@
 import { unstable_cache } from "next/cache";
 import type { NormalizedSale } from "@/lib/rarible/queries";
 import { getPlatformBuckets, type PlatformBucket } from "./buckets";
-import { getBeezieMetadataCachedOnly, extractCategoryHints } from "./beezieTraits";
+import { getBeezieMetadataCachedOnly } from "./beezieTraits";
 import { getCCMetadataCachedOnly } from "./ccTraits";
-import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "./traits";
 import { readHolders } from "./holders";
 import { readMarketCap, type MarketCapPlatformIP } from "./marketcap";
+import { readCardsWithIp } from "./cards";
+import { readBiggestPulls, type BiggestPull } from "./venueBoards";
+import { readRenaissHoldings, STATED_MCAP_MIN_COVERAGE } from "@/lib/renaiss/holders";
+import { chooseSalesWindow, holdersReasonFor, ipMetaByKey, ipOfSale } from "./platformTables";
 import { readGachaDune } from "./gachaDuneCache";
 import {
   readMetricSeries,
@@ -121,6 +124,26 @@ export type PlatformDetail = {
   ips: PlatformIPRow[];
   topCards: PlatformCardRow[];
   recentSales: RecentSaleRow[];
+  /**
+   * The window `ips`, `topCards` and `recentSales` (and `salesEnriched` /
+   * `salesTotal`) cover. "24h" normally; "7d" when the venue's 24h held fewer
+   * than SALES_TABLE_MIN sales and core-volume carried its week (Renaiss clears
+   * about 6 a day), so a thin venue's tables read a week instead of nothing.
+   * ⚠️ In "7d" the IP rows' `vol24Usd` / `trades24h` / `buyers24h` are the
+   * week's: the frontend labels by this field.
+   */
+  salesWindow: "24h" | "7d";
+  /**
+   * Why `holders` is "—" when it is: null when the venue's holders are counted.
+   * From data — the holders snapshot either carries the venue or it does not.
+   */
+  holdersReason: string | null;
+  /** Coverage of the market cap's basis: tokens valued ÷ tokens counted (0-100). Null when no market cap. */
+  mcapCoveragePct: number | null;
+  /** Why `mcapUsd` is "—" when it is (Renaiss below its stated-value coverage floor); null otherwise. */
+  mcapReason: string | null;
+  /** The 12 biggest prizes over 30 days, each with its value basis; null for a venue with no named pull feed. */
+  biggestPulls: BiggestPull[] | null;
   /** How many of the 24h sales the tables below could enrich with card metadata,
    *  out of the total that traded (M2). `salesEnriched < salesTotal` means a token
    *  traded before warm-traits fetched its metadata — label the tables
@@ -206,30 +229,33 @@ function trendOf(values: number[]): Trend {
 type EnrichedSale = NormalizedSale & {
   meta: TokenMetadata;
   traits: NormalizedTraits;
+  /** The stored IP, where the venue's `cards` row carries one from a feed field (Renaiss). */
+  ipKey?: string;
 };
 
-async function enrichSales(bucket: PlatformBucket): Promise<EnrichedSale[]> {
-  if (bucket.sales24h.length === 0) return [];
-  const tokenIds = bucket.sales24h.map((s) => s.tokenId);
+async function enrichSales(platform: string, sales: NormalizedSale[]): Promise<EnrichedSale[]> {
+  if (sales.length === 0) return [];
+  const tokenIds = sales.map((s) => s.tokenId);
   let metas: Map<string, TokenMetadata> = new Map();
-  if (bucket.source.key === "beezie") {
+  let ips: Map<string, string> = new Map();
+  if (platform === "beezie") {
     metas = await getBeezieMetadataCachedOnly(tokenIds);
-  } else if (bucket.source.key === "collector-crypt") {
+  } else if (platform === "collector-crypt") {
     metas = await getCCMetadataCachedOnly(tokenIds);
+  } else if (platform === "renaiss") {
+    // `cards` rows `rn-<tokenId>`, written the first time a token sells (renaiss/cards.ts).
+    const rows = await readCardsWithIp("renaiss", tokenIds);
+    metas = new Map([...rows].map(([k, v]) => [k, v.meta]));
+    ips = new Map([...rows].map(([k, v]) => [k, v.ipKey]));
   }
   const out: EnrichedSale[] = [];
-  for (const s of bucket.sales24h) {
+  for (const s of sales) {
     const meta = metas.get(s.tokenId);
     if (!meta) continue;
-    out.push({ ...s, meta, traits: normalizeTraits(meta) });
+    const ipKey = ips.get(s.tokenId);
+    out.push({ ...s, meta, traits: normalizeTraits(meta), ...(ipKey ? { ipKey } : {}) });
   }
   return out;
-}
-
-/** IP metadata by key — composition rows come from the cards table, which only carries the key. */
-function ipMetaByKey(key: string): IPMeta {
-  if (key === OTHER_IP.key) return OTHER_IP;
-  return IP_CATALOG.find((i) => i.key === key) ?? OTHER_IP;
 }
 
 /**
@@ -252,7 +278,7 @@ function buildPlatformIPs(
   };
   const sales = new Map<string, SalesAcc>();
   for (const s of enriched) {
-    const ip = classifyIP(extractCategoryHints(s.meta));
+    const ip = ipOfSale(s);
     let acc = sales.get(ip.key);
     if (!acc) {
       acc = { vol: 0, trades: 0, buyers: new Set(), topCard: null };
@@ -325,7 +351,7 @@ function buildTopCards(enriched: EnrichedSale[], platform: string): PlatformCard
   }
   const rows: PlatformCardRow[] = [];
   for (const acc of byToken.values()) {
-    const ip = classifyIP(extractCategoryHints(acc.sale.meta));
+    const ip = ipOfSale(acc.sale);
     const traits = acc.sale.traits;
     rows.push({
       rank: 0,
@@ -355,7 +381,7 @@ function buildTopCards(enriched: EnrichedSale[], platform: string): PlatformCard
 function buildRecentSales(enriched: EnrichedSale[], platform: string): RecentSaleRow[] {
   const sorted = [...enriched].sort((a, b) => (a.date < b.date ? 1 : -1));
   return sorted.map((s) => {
-    const ip = classifyIP(extractCategoryHints(s.meta));
+    const ip = ipOfSale(s);
     return {
       date: s.date,
       platform,
@@ -371,8 +397,16 @@ function buildRecentSales(enriched: EnrichedSale[], platform: string): RecentSal
   });
 }
 
-async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> {
-  const buckets = await getPlatformBuckets();
+/**
+ * The detail, uncached. `loadBuckets` defaults to the cached reader; a script
+ * running outside Next (scripts/platform-detail.ts) passes the uncached one,
+ * since `unstable_cache` throws there.
+ */
+export async function buildPlatformDetail(
+  key: string,
+  loadBuckets: () => Promise<PlatformBucket[]> = getPlatformBuckets,
+): Promise<PlatformDetail | null> {
+  const buckets = await loadBuckets();
   const bucket = buckets.find((b) => b.source.key === key);
   if (!bucket) return null;
 
@@ -386,7 +420,15 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     readMetricSeries("platform", key, "volume_usd"),
   ]);
 
-  const enriched = await enrichSales(bucket);
+  // The tables' window: the 24h, or — when the 24h is thin and core-volume
+  // carried the week — the trailing 7 days. Never an empty table while the
+  // store holds sales in the week.
+  const { window: salesWindow, sales: tableSales } = chooseSalesWindow(bucket.sales24h, bucket.sales7d);
+  const [enriched, biggestPulls, renaissHoldings] = await Promise.all([
+    enrichSales(key, tableSales),
+    readBiggestPulls(key, 30),
+    key === "renaiss" ? readRenaissHoldings().catch(() => null) : Promise.resolve(null),
+  ]);
 
   const allSales = bucket.sales24h;
   // M2: enrichSales drops any sale whose token has no metadata yet, so the tables
@@ -396,7 +438,7 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // no row yet. Surface BOTH counts so the label can say "186 of 205 enriched"
   // instead of quietly restating a smaller number as the truth.
   const salesEnriched = enriched.length;
-  const salesTotal = allSales.length;
+  const salesTotal = tableSales.length;
   // ⚠️ This page derives its secondary figures from `sales24h`, NOT `stats24h`,
   // so `unknownStats` alone doesn't reach it. For an untracked platform
   // `sales24h` is [] — and reducing [] gives a confident 0. `tracked` is the
@@ -415,6 +457,17 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
   // have no entry → NaN, surfaced honestly as "—" (not a fabricated $0 = "worthless"; X5).
   const platformMcapEntry = mcap?.byPlatform?.[key];
   const platformMcap = platformMcapEntry?.mcapUsd ?? NaN;
+  const mcapCoveragePct =
+    platformMcapEntry && platformMcapEntry.cards > 0 ? (platformMcapEntry.cardsValued / platformMcapEntry.cards) * 100 : null;
+  // Renaiss's market cap is its stated prize value, published only above its
+  // coverage floor (renaiss/holders.ts); below it the entry is absent and the
+  // reason is the measured coverage.
+  const mcapReason =
+    platformMcapEntry || key !== "renaiss"
+      ? null
+      : renaissHoldings
+        ? `Renaiss's stated prize value covers ${renaissHoldings.stated.coveragePct.toFixed(1)}% of the ${renaissHoldings.stated.held.toLocaleString("en-US")} tokens its holders hold; ${Math.round(STATED_MCAP_MIN_COVERAGE * 100)}% is needed`
+        : "no holders run has counted Renaiss's tokens yet";
 
   // 7d volume + the 24h change, both from the NATIVE spine (B3/M4). These used to
   // read the Rarible-era `readHistory()` blobs — the last legacy path on this page —
@@ -560,6 +613,11 @@ async function buildPlatformDetail(key: string): Promise<PlatformDetail | null> 
     vol7Usd,
     salesEnriched,
     salesTotal,
+    salesWindow,
+    holdersReason: holdersReasonFor(key, holders?.platforms),
+    mcapCoveragePct,
+    mcapReason,
+    biggestPulls,
     netGachaRevenue,
     heldReason,
     buybackRatePct30d,
@@ -599,7 +657,10 @@ export const getPlatformDetail = unstable_cache(
   // which reads as "no R3 basis" and would hold CC's net shut for a cache cycle;
   // worse, a cached v8 net was computed off gross-basis payouts and must not be
   // served under the new label.
-  ["platform-detail:v9"],
+  // v10: + salesWindow / holdersReason / mcapCoveragePct / mcapReason /
+  // biggestPulls, and Renaiss's tables (enriched for the first time). A v9 row
+  // deserializes without them.
+  ["platform-detail:v10"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

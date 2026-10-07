@@ -26,7 +26,7 @@ on:
         description: Which batch to run
         type: choice
         default: core
-        options: [core, daily, player-analytics, indices, cc-traits, weekly-report]
+        options: [core, daily, player-analytics, indices, cc-traits, weekly-report, renaiss-refill]
 
 # One run at a time; never cancel an in-flight warm (cancelling mid-write is
 # what used to lose data — keep cancel-in-progress false).
@@ -105,6 +105,18 @@ jobs:
       - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
         continue-on-error: true
         run: npx tsx scripts/warm-renaiss-pulls.ts --apply
+      # Renaiss's machine board and players, from the rows just stored. No API call.
+      # Machines: a 30-complete-day windowed read (~166K pulls, ~70 s measured Oct 7).
+      # Players: one RPC, renaiss_wallet_spend() (migration 20261007000002); until
+      # it is applied the step logs one line and writes nothing. Neither is in the
+      # --require list yet: the orchestrator adds `renaiss-machines` and
+      # `renaiss-players` after the first green run with the migrations applied.
+      - name: Renaiss machines (30 complete days → machines:renaiss)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-machines.ts --apply
+      - name: Renaiss players (renaiss_wallet_spend RPC → players:renaiss)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-players.ts --apply
       - name: Gacha (cached)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached
@@ -356,6 +368,28 @@ jobs:
         run: npx tsx scripts/warm-ripfun-oracle.ts
       - name: Health gate # fails the job (→ Actions notifies) if the composer errored
         run: npx tsx scripts/check-freshness.ts --require=weekly-report
+
+  # ── On demand — refill Renaiss pull columns (machine_name, prize_image_url) ──
+  # After migration 20261007000001: re-reads the whole pulls history (~1,463 pages
+  # at 500 rows, measured Oct 7) and upserts every row. Within one day's 10,000-call
+  # quota, not within the core job's 75 min. Resumable: the cursor is recorded in
+  # the `renaiss-pulls-refill` snapshot, so a run stopped by the ceiling or the
+  # timeout continues from it on the next dispatch.
+  renaiss-refill:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'renaiss-refill'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RENAISS_MAX_CALLS: "2000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Renaiss pull columns refill (resumable)
+        run: npx tsx scripts/warm-renaiss-pulls.ts --refill-columns --apply
 
   # ── Weekly — full CC collection trait crawl (~122K assets, slow) ──
   # Its own job + a generous timeout: this crawl is what kept blowing the old
