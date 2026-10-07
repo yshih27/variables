@@ -1,7 +1,7 @@
 import type { NetHeldReason, OutboundDisclosure } from "@/lib/metrics/outboundDisclosure";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
 
-export type Chain = "Polygon" | "Solana" | "Base" | "Ethereum" | "Abstract";
+export type Chain = "Polygon" | "Solana" | "Base" | "Ethereum" | "Abstract" | "BNB Chain";
 
 export type Trend = "up" | "down" | "flat";
 

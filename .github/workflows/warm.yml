@@ -39,6 +39,10 @@ env:
   DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
   HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
   DYLI_API_KEY: ${{ secrets.DYLI_API_KEY }}
+  # Renaiss's index API (10,000 requests a day per key). Until both are set its
+  # two warmers exit 0 with one line and make no request.
+  RENAISS_API_KEY: ${{ secrets.RENAISS_API_KEY }}
+  RENAISS_API_SECRET: ${{ secrets.RENAISS_API_SECRET }}
   RIP_API_KEY: ${{ secrets.RIP_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -78,6 +82,17 @@ jobs:
       - name: DYLI sales (native feed, incremental)
         continue-on-error: true
         run: npx tsx scripts/warm-dyli-sales.ts
+      # Renaiss's own index API. Both warmers are dry runs unless told otherwise,
+      # so the batch passes --apply; each caps itself at RENAISS_MAX_CALLS (1,500).
+      # In the health gate's --require list since the Oct 5 2026 cutover: the key is
+      # in Actions and the backfill wrote both stores (18,304 sales, ~720K pulls), so
+      # a run that fails or goes silent now reddens the gate like every other feed.
+      - name: Renaiss sales (native index API, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-sales.ts --apply
+      - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-pulls.ts --apply
       - name: Gacha (cached)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached
@@ -118,7 +133,7 @@ jobs:
       # to run and fail. Combined with the stale/untracked fix in check-freshness,
       # this is what closes the "6 days dead behind green runs" hole.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,homepage,studio-seed,metric-snapshots,weekly-report
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,renaiss-sales,renaiss-pulls,homepage,studio-seed,metric-snapshots,weekly-report
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:
