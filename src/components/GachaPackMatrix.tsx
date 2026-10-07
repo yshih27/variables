@@ -75,16 +75,89 @@ function indexOf(venues: GachaVenue[]): VenueIndex {
 const VenuesCtx = createContext<VenueIndex>(indexOf([]));
 const useVenues = () => useContext(VenuesCtx);
 type Tab = { key: string; label: string };
-const TABS: Tab[] = [
+/** The games with a tab of their own, first and in this order. Any other game
+ *  follows under its own label; "Mixed" (no single game) comes last. */
+const LEAD_TABS: Tab[] = [
   { key: "pokemon", label: "Pokémon" },
   { key: "one_piece", label: "One Piece" },
   { key: "sports", label: "Sports" },
-  { key: "mixed", label: "Mixed" },
 ];
-/** Which tab a pack belongs to — pop-culture & no-single-IP packs share "Mixed". */
-function tabOf(p: GachaPack): string {
-  if (p.category === "pokemon" || p.category === "one_piece" || p.category === "sports") return p.category;
-  return "mixed";
+/** Mixed pools (`mixedPool`): in every game tab; LISTED once, under this. */
+const MIXED: Tab = { key: "mixed", label: "Mixed" };
+/** A single-game product whose game the payload does not name (CC's DRGNBLL,
+ *  DYLI's Watch Box, an unattributed Phygitals slug): one tab, never "Mixed". */
+const OTHER: Tab = { key: "other", label: "Other" };
+/** A pack's (or prize's) own tab: its game, or "other" when it names none. */
+function tabOf(p: { category: string | null }): string {
+  return p.category ?? OTHER.key;
+}
+/**
+ * Whether a pack sits in EVERY game tab. Only a pool the payload flags as
+ * spanning games (`mixedPool`, Beezie's claws) does: a single-game pack whose
+ * game has no lead tab (CC's DRGNBLL, DYLI's Watch Box) gets a tab of its own
+ * instead of being repeated under Pokémon as if it paid Pokémon cards.
+ */
+function inEveryTab(p: GachaPack): boolean {
+  return p.mixedPool === true;
+}
+/** The tab list for a set of (game key, the payload's label for it). */
+function tabsFor(entries: { key: string; label?: string | null }[]): Tab[] {
+  const labels = new Map<string, string>();
+  for (const e of entries) if (!labels.has(e.key) || !labels.get(e.key)) labels.set(e.key, e.label ?? "");
+  const lead = LEAD_TABS.filter((t) => labels.has(t.key));
+  const own = [...labels.entries()]
+    .filter(([k]) => k !== MIXED.key && k !== OTHER.key && !LEAD_TABS.some((t) => t.key === k))
+    .map(([key, label]) => ({ key, label: label && label !== "—" && label !== "Mixed" ? label : titleOf(key) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return [...lead, ...own, ...(labels.has(OTHER.key) ? [OTHER] : []), ...(labels.has(MIXED.key) ? [MIXED] : [])];
+}
+/** "dragon_ball" → "Dragon Ball", for a game the payload gives no label. */
+function titleOf(key: string): string {
+  return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+/** One price column's pitch in the matrix: a 140px cell + the 7px gap. */
+const COL_PX = 147;
+/** How much of the column before the opening band shows under the left fade:
+ *  enough to say "more this way", so the band itself starts clear of the fade. */
+const PEEK_PX = 24;
+
+/**
+ * The price band the matrix opens on: of every run of `fit` adjacent price
+ * columns (what the frame shows at once), the one where the most venues have a
+ * product; ties go to the run with more filled cells, then the cheaper one.
+ * Returns the index of the run's first column. Pure, so it can be checked
+ * without a browser.
+ */
+export function densestBand(
+  prices: number[],
+  rows: { cells: Map<number, unknown[]> }[],
+  fit: number,
+): number {
+  const k = Math.max(1, Math.min(fit, prices.length));
+  let best = 0;
+  let bestVenues = -1;
+  let bestCells = -1;
+  for (let i = 0; i + k <= prices.length; i++) {
+    const band = prices.slice(i, i + k);
+    let venues = 0;
+    let cells = 0;
+    for (const r of rows) {
+      const n = band.filter((pr) => (r.cells.get(pr)?.length ?? 0) > 0).length;
+      if (n > 0) venues += 1;
+      cells += n;
+    }
+    if (venues > bestVenues || (venues === bestVenues && cells > bestCells)) {
+      best = i;
+      bestVenues = venues;
+      bestCells = cells;
+    }
+  }
+  return best;
+}
+
+/** Where a pack is LISTED once (mobile list, compare picker): a mixed pool under "Mixed". */
+function listTabOf(p: GachaPack): string {
+  return inEveryTab(p) ? MIXED.key : tabOf(p);
 }
 function tierLabel(price: number): string {
   return price >= 1000 ? `$${(price / 1000).toString().replace(/\.0$/, "")}K` : `$${price}`;
@@ -164,14 +237,23 @@ function valueBack(p: GachaPack): Lead | null {
 
 /* ───────────────────────── component ───────────────────────── */
 
-export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[]; prizes: GachaPrize[]; venues: GachaVenue[] }) {
+/** Where the finder's prizes come from: the payload's on-demand route and counts. */
+export type PrizeSource = { route: string; byVenue: Record<string, number>; total: number };
+
+export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[]; prizes: PrizeSource; venues: GachaVenue[] }) {
   const vi = useMemo(() => indexOf(venues), [venues]);
   // CC Dune-fallback shells aren't pack-attributable — the matrix is pack-grain.
   const usable = useMemo(() => packs.filter((p) => !p.notDirectlyComparable && p.priceUsd > 0), [packs]);
   const byId = useMemo(() => new Map(usable.map((p) => [p.id, p])), [usable]);
 
-  const tabs = useMemo(() => TABS.filter((t) => usable.some((p) => tabOf(p) === t.key)), [usable]);
-  const [tab, setTab] = useState<string>("pokemon");
+  // A mixed pool is in every tab already, so it adds no tab of its own; when
+  // every pack is one, "Mixed" is the one tab they share.
+  const tabs = useMemo(() => {
+    const own = tabsFor(usable.filter((p) => !inEveryTab(p)).map((p) => ({ key: tabOf(p), label: p.categoryLabel })));
+    return own.length || usable.length === 0 ? own : [MIXED];
+  }, [usable]);
+  const [tabPick, setTab] = useState<string>("pokemon");
+  const tab = tabs.some((t) => t.key === tabPick) ? tabPick : (tabs[0]?.key ?? tabPick);
   const [pins, setPins] = useState<string[]>([]);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [cmpOpen, setCmpOpen] = useState(false);
@@ -212,7 +294,7 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
       const id = m ? decodeURIComponent(m[1]) : null;
       if (id && byId.has(id)) {
         const p = byId.get(id)!;
-        setTab(tabOf(p));
+        if (!inEveryTab(p)) setTab(tabOf(p));
         setDrawerId(id);
       }
     };
@@ -234,11 +316,12 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
 
   // matrix model for the current tab: platform rows × price columns, cells
   // hold ALL packs at that (platform, price) — lead pack shown, rest stepped.
-  // Mixed-pool packs (no single game, e.g. Beezie's TCG claws) appear in EVERY
-  // IP tab — they're a real alternative at that price — flagged "mixed pool"
-  // since their pool (and thus odds) isn't specific to the tab's game.
+  // Mixed-pool packs (the payload's `mixedPool`, e.g. Beezie's TCG claws) appear
+  // in EVERY tab — they're a real alternative at that price — flagged "mixed
+  // pool" since their pool (and thus odds) isn't specific to the tab's game.
   const model = useMemo(() => {
-    const inTab = usable.filter((p) => tabOf(p) === tab || (tab !== "mixed" && p.category === null));
+    // "Other" is not a game, so a mixed pool (which pays several games) is not in it.
+    const inTab = usable.filter((p) => (inEveryTab(p) && tab !== OTHER.key) || listTabOf(p) === tab);
     const prices = [...new Set(inTab.map((p) => p.priceUsd))].sort((a, b) => a - b);
     const platforms = venues.map((v) => v.key).filter((key) => inTab.some((p) => p.platform === key)).map((key) => {
       const mine = inTab.filter((p) => p.platform === key);
@@ -251,7 +334,7 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
       for (const arr of cells.values())
         arr.sort((a, b) => (leadHitOdds(b)?.value ?? -1) - (leadHitOdds(a)?.value ?? -1));
       const sample = mine[0];
-      const mixedPool = tab !== "mixed" && mine.every((p) => p.category === null);
+      const mixedPool = tab !== MIXED.key && mine.every(inEveryTab);
       const v = vi.byKey(key);
       return { key, name: v?.name ?? sample.platformName, short: sample.platformShort, chain: v?.chain || sample.chain, kind: v?.kind ?? null, cells, mixedPool };
     });
@@ -269,16 +352,52 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
     return { prices, platforms, best, inTab };
   }, [usable, tab, venues, vi]);
 
+  // ── The price frame: opens on the densest band, every column reachable ──
+  // The scrollbar is hidden (the fades carry the overflow), so ‹ › and the
+  // readout between them are how a mouse without a trackpad reaches the rest.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState<{ first: number; last: number; left: boolean; right: boolean }>({
+    first: 0,
+    last: 0,
+    left: false,
+    right: false,
+  });
+  const readView = useCallback(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const n = model.prices.length;
+    const first = Math.min(n - 1, Math.max(0, Math.round(el.scrollLeft / COL_PX)));
+    const last = Math.min(n - 1, Math.max(first, Math.floor((el.scrollLeft + el.clientWidth - 140) / COL_PX)));
+    setView({ first, last, left: el.scrollLeft > 2, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2 });
+  }, [model.prices.length]);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const fit = Math.max(1, Math.floor((el.clientWidth - PEEK_PX + 7) / COL_PX));
+    const start = densestBand(model.prices, model.platforms, fit);
+    el.scrollLeft = start > 0 ? start * COL_PX - PEEK_PX : 0;
+    readView();
+  }, [model, readView]);
+  const stepBand = (dir: 1 | -1) => {
+    const el = gridRef.current;
+    if (!el) return;
+    const fit = Math.max(1, Math.floor((el.clientWidth + 7) / COL_PX));
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollBy({ left: dir * Math.max(1, fit - 1) * COL_PX, behavior: reduce ? "auto" : "smooth" });
+  };
+
   // drawer stepping order: every pack at the SAME price in the open pack's own
   // game (+ mixed pools) — independent of the matrix tab, so packs opened from
   // the prize grid still step sensibly.
   const drawerPack = drawerId ? byId.get(drawerId) ?? null : null;
   const siblings = useMemo(() => {
     if (!drawerPack) return [];
-    const dTab = tabOf(drawerPack);
+    const dTab = inEveryTab(drawerPack) ? null : tabOf(drawerPack);
     return usable
       .filter(
-        (p) => p.priceUsd === drawerPack.priceUsd && (tabOf(p) === dTab || p.category === null),
+        (p) =>
+          p.priceUsd === drawerPack.priceUsd &&
+          (dTab == null || listTabOf(p) === dTab || (inEveryTab(p) && dTab !== OTHER.key)),
       )
       .sort(
         (a, b) =>
@@ -309,14 +428,15 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
 
   // Mobile (below md): one-hand list, grouped by game then price; each row is a
   // pack and opens the drawer (a bottom sheet at that width).
+  // One row per pack: a mixed pool is listed once, under "Mixed".
   const mobileGroups = useMemo(
     () =>
-      TABS.map((t) => ({
+      tabsFor(usable.map((p) => ({ key: listTabOf(p), label: p.categoryLabel }))).map((t) => ({
         tab: t,
         rows: usable
-          .filter((p) => tabOf(p) === t.key)
+          .filter((p) => listTabOf(p) === t.key)
           .sort((a, b) => a.priceUsd - b.priceUsd || vi.order(a.platform) - vi.order(b.platform)),
-      })).filter((g) => g.rows.length),
+      })),
     [usable, vi],
   );
   const coverage = coverageLine(venues);
@@ -331,7 +451,8 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
         readMe="hit odds, top prizes and returns at each price, side by side"
         subtitle="Each cell is one venue's pack, machine, claw or box at that price"
       >
-      <div role="tablist" aria-label="Game" className="mb-3 hidden flex-wrap gap-1 md:flex" data-game-tabs>
+      <div className="mb-3 hidden flex-wrap items-center gap-x-4 gap-y-2 md:flex">
+      <div role="tablist" aria-label="Game" className="flex flex-wrap gap-1" data-game-tabs>
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -347,6 +468,17 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
             {t.label}
           </button>
         ))}
+      </div>
+      {model.prices.length > 1 ? (
+        <div className="ml-auto flex items-center gap-2 font-mono text-[11.5px] text-ink-3" data-price-band>
+          <BandButton dir={-1} disabled={!view.left} onClick={() => stepBand(-1)} />
+          <span className="tabular whitespace-nowrap" aria-live="polite" data-price-band-range>
+            {tierLabel(model.prices[view.first] ?? model.prices[0])}–{tierLabel(model.prices[view.last] ?? model.prices[0])}
+            <span className="text-ink-4"> · {view.last - view.first + 1} of {model.prices.length} prices</span>
+          </span>
+          <BandButton dir={1} disabled={!view.right} onClick={() => stepBand(1)} />
+        </div>
+      ) : null}
       </div>
       {/* matrix — pinned platform rail + scrollable tier grid. Uniform fixed
           row heights keep the two panes aligned; the scrollbar is hidden and a
@@ -380,7 +512,12 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
           ))}
         </div>
         <div className="relative min-w-0 flex-1">
-          <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div
+            ref={gridRef}
+            onScroll={readView}
+            className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            data-matrix-grid
+          >
             <div className="w-max pr-6">
               <div className="flex h-[34px] gap-[7px] pb-2">
                 {model.prices.map((price) => (
@@ -434,7 +571,12 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
               ))}
             </div>
           </div>
-          <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-bg-1 to-transparent" />
+          {view.left ? (
+            <div className="pointer-events-none absolute left-0 top-0 h-full w-10 bg-gradient-to-r from-bg-1 to-transparent" />
+          ) : null}
+          {view.right ? (
+            <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-bg-1 to-transparent" />
+          ) : null}
         </div>
       </div>
 
@@ -482,10 +624,13 @@ export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[];
           <span>grey = a sample under the floor · — = not published or withheld (hover for why)</span>
         </p>
         {coverage ? <p data-coverage-line>not compared: {coverage}</p> : null}
+        {tabs.some((t) => t.key === OTHER.key) ? (
+          <p data-other-line>Other: no game on record for these products, so they sit in no game&apos;s tab</p>
+        ) : null}
       </div>
       </Section>
 
-      <PrizeFinder prizes={prizes} packsById={byId} onOpenPack={(id) => setDrawerId(id)} />
+      <PrizeFinderLoader source={prizes} packsById={byId} onOpenPack={(id) => setDrawerId(id)} />
 
       {/* tray */}
       <div
@@ -578,12 +723,96 @@ type PrizeSort = "value" | "cheapest" | "name";
  * publishes no pool, so its absence is said out loud instead of implied away.
  * No per-item odds exist anywhere — only the pack pointer — so none are shown.
  */
+type PrizeLoad = "idle" | "loading" | "ready" | "error";
+
+/**
+ * The finder's prizes are NOT in the page (they were most of its weight): they
+ * load from the payload's `prizesRoute` once the finder comes within 300px of
+ * the viewport, so a reader who never scrolls that far never pays for them.
+ * Until then the finder is sized from `prizesByVenue` (its venue menu and its
+ * count are real before a byte of prizes arrives), and its grid is a fixed-
+ * height placeholder, so nothing below it jumps when they land.
+ */
+function PrizeFinderLoader({
+  source,
+  packsById,
+  onOpenPack,
+}: {
+  source: PrizeSource;
+  packsById: Map<string, GachaPack>;
+  onOpenPack: (packId: string) => void;
+}) {
+  const [prizes, setPrizes] = useState<GachaPrize[]>([]);
+  const [status, setStatus] = useState<PrizeLoad>("idle");
+  const [attempt, setAttempt] = useState(0);
+  const anchor = useRef<HTMLDivElement>(null);
+  // Once the prizes are in, nothing re-arms the observer. A ref, not `status`:
+  // the effect must not re-run (and abort its own fetch) when status changes.
+  const loaded = useRef(false);
+
+  // Armed on mount and again by each retry (`attempt`).
+  useEffect(() => {
+    if (source.total === 0 || loaded.current) return;
+    const el = anchor.current;
+    if (!el) return;
+    const ctrl = new AbortController();
+    let started = false;
+    const load = () => {
+      if (started) return;
+      started = true;
+      setStatus("loading");
+      fetch(source.route, { signal: ctrl.signal })
+        .then((r) => r.json() as Promise<{ ok: boolean; data?: { prizes?: GachaPrize[] } }>)
+        .then((j) => {
+          if (!j.ok || !j.data?.prizes) throw new Error("prizes");
+          loaded.current = true;
+          setPrizes(j.data.prizes);
+          setStatus("ready");
+        })
+        .catch(() => {
+          if (!ctrl.signal.aborted) setStatus("error");
+        });
+    };
+    const io = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && load(), {
+      rootMargin: "300px 0px",
+    });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      ctrl.abort();
+    };
+  }, [source.route, source.total, attempt]);
+
+  if (source.total === 0) return null;
+  return (
+    <div ref={anchor} data-finder-state={status}>
+      <PrizeFinder
+        prizes={prizes}
+        source={source}
+        status={status}
+        onRetry={() => {
+          setStatus("idle");
+          setAttempt((n) => n + 1);
+        }}
+        packsById={packsById}
+        onOpenPack={onOpenPack}
+      />
+    </div>
+  );
+}
+
 function PrizeFinder({
   prizes,
+  source,
+  status,
+  onRetry,
   packsById,
   onOpenPack,
 }: {
   prizes: GachaPrize[];
+  source: PrizeSource;
+  status: PrizeLoad;
+  onRetry: () => void;
   packsById: Map<string, GachaPack>;
   onOpenPack: (packId: string) => void;
 }) {
@@ -608,16 +837,17 @@ function PrizeFinder({
 
   // Every covered venue is a filter option — including one with no prizes, so
   // the reader can see that it publishes none rather than not find it at all.
+  // From the payload's counts, so the menu is whole before the prizes load.
   const platforms = useMemo(
-    () => [...new Set([...prizes.map((p) => p.platform), ...vi.coveredKeys])].sort(
+    () => [...new Set([...Object.keys(source.byVenue), ...vi.coveredKeys])].sort(
       (a, b) => vi.order(a) - vi.order(b),
     ),
-    [prizes, vi],
+    [source.byVenue, vi],
   );
-  const games = useMemo(() => {
-    const present = new Set(prizes.map((p) => p.category ?? "mixed"));
-    return TABS.filter((t) => present.has(t.key));
-  }, [prizes]);
+  const games = useMemo(
+    () => tabsFor(prizes.map((p) => ({ key: tabOf(p), label: packsById.get(p.packId)?.categoryLabel }))),
+    [prizes, packsById],
+  );
 
   // One card can sit in several pools (and at several prices) — group by the
   // card itself so the grid shows ONE slab with all the packs that pay it.
@@ -630,7 +860,7 @@ function PrizeFinder({
   const groups = useMemo(() => {
     const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
     const rows = prizes.filter((p) => {
-      if (game !== "all" && (p.category ?? "mixed") !== game) return false;
+      if (game !== "all" && tabOf(p) !== game) return false;
       if (platform !== "all" && p.platform !== platform) return false;
       if (tokens.length) {
         // Name + every trait we hold + the token id itself — "psa 10", "lost
@@ -666,12 +896,12 @@ function PrizeFinder({
   }, [prizes, q, game, platform, sort]);
 
   const shown = groups.slice(0, visible);
-  const gameLabel = game === "all" ? "All" : TABS.find((t) => t.key === game)?.label ?? game;
+  const gameLabel = game === "all" ? "All" : games.find((t) => t.key === game)?.label ?? game;
   const platformLabel =
     platform === "all" ? "All" : vi.name(platform);
   const sortLabel = sort === "value" ? "Top value" : sort === "cheapest" ? "Cheapest pull" : "A–Z";
 
-  if (prizes.length === 0) return null;
+  const ready = status === "ready";
 
   return (
     <Section
@@ -683,9 +913,11 @@ function PrizeFinder({
       subtitle="Prizes each venue advertises in its pool, and recent pulls where it publishes none · follow a card to what pays it"
       right={
         <span className="text-[11px] tabular text-ink-3">
-          {groups.length === totalCards
-            ? `${formatInt(totalCards)} cards`
-            : `${formatInt(groups.length)} of ${formatInt(totalCards)} cards`}
+          {!ready
+            ? `${formatInt(source.total)} prizes${status === "error" ? "" : " · loading"}`
+            : groups.length === totalCards
+              ? `${formatInt(totalCards)} cards`
+              : `${formatInt(groups.length)} of ${formatInt(totalCards)} cards`}
         </span>
       }
       className="mt-6"
@@ -755,8 +987,29 @@ function PrizeFinder({
         />
       </div>
 
-      {/* grid */}
-      {shown.length > 0 ? (
+      {/* grid — a placeholder of the first page's shape until the prizes land */}
+      {status === "error" ? (
+        <div className="rounded-xl border border-dashed border-line/70 px-6 py-12 text-center text-[12.5px] leading-relaxed text-ink-3" data-finder-error>
+          The prizes did not load.{" "}
+          <button type="button" onClick={onRetry} className="font-semibold text-ink-2 underline-offset-2 hover:text-yellow hover:underline">
+            Try again
+          </button>
+        </div>
+      ) : !ready ? (
+        // The PrizeCard's own frame (3:4 art + its 114px text block) and the
+        // "show more" row it will need, so the page below does not move.
+        <div aria-busy="true">
+          <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" data-finder-placeholder>
+            {Array.from({ length: Math.min(PRIZE_PAGE, source.total) }, (_, i) => (
+              <div key={i} className="rounded-xl border border-line bg-bg-1">
+                <div className="aspect-[3/4] rounded-t-xl bg-bg-2" />
+                <div className="h-[114px]" />
+              </div>
+            ))}
+          </div>
+          {source.total > PRIZE_PAGE ? <div className="mt-5 h-10" /> : null}
+        </div>
+      ) : shown.length > 0 ? (
         <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {shown.map((g) => (
             <PrizeCard key={g.key} group={g} onExpand={() => setExpanded(g)} />
@@ -764,7 +1017,7 @@ function PrizeFinder({
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-line/70 px-6 py-12 text-center text-[12.5px] leading-relaxed text-ink-3" data-finder-empty>
-          {platform !== "all" && !prizes.some((p) => p.platform === platform)
+          {platform !== "all" && !(source.byVenue[platform] > 0)
             ? `No prize from ${vi.name(platform)} in this read: it advertises no pool here, and no recent pull of its was read.`
             : `No prize matches${q ? ` “${q}”` : " these filters"}. Try fewer words.`}
         </div>
@@ -1488,6 +1741,22 @@ function MatrixCellMulti({
   );
 }
 
+/** ‹ / › — one frame of prices lower or higher. */
+function BandButton({ dir, disabled, onClick }: { dir: 1 | -1; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={dir === 1 ? "Higher prices" : "Lower prices"}
+      data-band-step={dir}
+      className="grid h-8 w-8 place-items-center rounded-lg border border-line bg-bg-2 text-[14px] text-ink-2 transition-colors hover:border-line-2 hover:text-ink disabled:cursor-default disabled:opacity-35 disabled:hover:border-line disabled:hover:text-ink-2"
+    >
+      {dir === 1 ? "›" : "‹"}
+    </button>
+  );
+}
+
 /** The public odds audit: published hit rate vs what we measured on-chain.
  *  Wilson 95% interval — "matches" only when the stated rate survives it. */
 function AuditLine({ pack }: { pack: GachaPack }) {
@@ -2112,13 +2381,13 @@ function CompareOverlay({
                     Max {MAX_COMPARE}. Remove one to add another.
                   </div>
                 ) : (
-                  TABS.filter((t) => available.some((p) => tabOf(p) === t.key)).map((t) => (
+                  tabsFor(available.map((p) => ({ key: listTabOf(p), label: p.categoryLabel }))).map((t) => (
                     <div key={t.key}>
                       <div className="px-2.5 pb-[5px] pt-2.5 text-[10px] uppercase tracking-[0.12em] text-ink-4">
                         {t.label}
                       </div>
                       {available
-                        .filter((p) => tabOf(p) === t.key)
+                        .filter((p) => listTabOf(p) === t.key)
                         .sort((a, b) => a.priceUsd - b.priceUsd)
                         .map((p) => {
                           const o = leadHitOdds(p);
