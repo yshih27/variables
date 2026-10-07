@@ -125,6 +125,16 @@ export type GachaPack = {
   oddsBasis: MetricBasis;
   /** True for CC: only platform-wide data exists; render in a "not pack-attributable" lane. */
   notDirectlyComparable: boolean;
+  /**
+   * True only when the pack's pool prizes span more than one game (Beezie's
+   * claws). A pack with no category and `mixedPool: false` is a SINGLE-game pack
+   * whose game has no tab (CC's DRGNBLL / RFTBND / WATCH, DYLI's Watch Box), and
+   * belongs in one place, not every game tab. Computed from the prizes
+   * (gachaPackView `isMixedPool`): the pack warmer writes it, and the payload
+   * recomputes it for every pack, so a snapshot that predates the field still
+   * ships it. Optional only on stored snapshots older than Oct 7 2026.
+   */
+  mixedPool?: boolean;
   asOf: string; // ISO — when this pack's data was sourced
   sources: { advertised: string | null; realized: string | null };
 };

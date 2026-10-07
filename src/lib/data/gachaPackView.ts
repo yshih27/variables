@@ -8,7 +8,8 @@
  *   • Realized numbers carry their sample size `n`; below THIN_N they're flagged.
  *   • Net-EV folds in the buyback haircut (the real cost if you flip every card).
  */
-import type { GachaPack, MetricBasis } from "./gachaPacksCache";
+import type { GachaPack, GachaPrize, MetricBasis } from "./gachaPacksCache";
+import { classifyIP } from "./ipCatalog";
 
 /** Below this many realized pulls, a measured number is "thin" (badge it). */
 export const THIN_N = 10;
@@ -27,6 +28,47 @@ export function leadEv(p: GachaPack): Lead | null {
 export function leadMedian(p: GachaPack): Lead | null {
   if (p.medianReturn == null || plausibilityGate(p).withheld) return null;
   return { value: p.medianReturn, basis: "realized", n: p.realizedN };
+}
+
+// ─────────────────────────── Mixed pools ───────────────────────────
+
+/** A game needs this many prizes in a pool to count toward "mixed": one keyword misread is not a second game. */
+export const MIXED_POOL_MIN_PRIZES = 2;
+
+/**
+ * A prize's game: its own category where the venue tags each prize (Beezie's
+ * category trait), else the IP its name and traits classify to. Null when
+ * neither names a game ("other" is not a game).
+ */
+export function prizeGame(p: Pick<GachaPrize, "category" | "name" | "traits">): string | null {
+  if (p.category) return p.category;
+  const ip = classifyIP([p.name ?? undefined, ...(p.traits ?? [])]);
+  return ip.key === "other" ? null : ip.key;
+}
+
+/**
+ * True only when a pack's pool prizes span more than one game, each with at
+ * least MIXED_POOL_MIN_PRIZES prizes. Pure. A pack whose prizes name no game,
+ * or one game, is not mixed.
+ */
+export function isMixedPool(prizes: Pick<GachaPrize, "category" | "name" | "traits">[]): boolean {
+  const counts = new Map<string, number>();
+  for (const p of prizes) {
+    const g = prizeGame(p);
+    if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
+  }
+  return [...counts.values()].filter((n) => n >= MIXED_POOL_MIN_PRIZES).length > 1;
+}
+
+/** Every pack with `mixedPool` set from the prizes the finder lists for it (pool and pulled). Pure. */
+export function withMixedPool(packs: GachaPack[], prizes: Pick<GachaPrize, "packId" | "category" | "name" | "traits">[]): GachaPack[] {
+  const byPack = new Map<string, Pick<GachaPrize, "category" | "name" | "traits">[]>();
+  for (const p of prizes) {
+    const arr = byPack.get(p.packId);
+    if (arr) arr.push(p);
+    else byPack.set(p.packId, [p]);
+  }
+  return packs.map((p) => ({ ...p, mixedPool: isMixedPool(byPack.get(p.id) ?? []) }));
 }
 
 // ─────────────────────────── Plausibility gate ───────────────────────────

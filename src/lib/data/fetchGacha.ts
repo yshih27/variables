@@ -28,7 +28,7 @@ import {
   type GachaPacksSnapshot,
   type GachaPrize,
 } from "./gachaPacksCache";
-import { gatePack, leadMedian, THIN_N } from "./gachaPackView";
+import { gatePack, leadMedian, withMixedPool, THIN_N } from "./gachaPackView";
 import { gachaVenues, type GachaVenue } from "./gachaVenues";
 import type { GachaLiveSnapshot } from "./gachaLiveCache";
 import type { Chain } from "@/lib/types";
@@ -131,9 +131,17 @@ export type GachaPayload = {
   packs: GachaPack[];
   /** Honest window the realized side of `packs` rests on. */
   packsWindow: GachaPacksSnapshot["window"] | null;
-  /** Every prize in an ADVERTISED pool (Phygitals chase + Beezie grail tiers) —
-   *  the searchable "find your chase" index. CC publishes no pool. */
-  prizes: GachaPrize[];
+  /**
+   * The finder's prizes are NOT in the payload: they are most of its weight
+   * (1.70 MB of 2.18 MB on Oct 7, 4,063 prizes) and pushed the cached payload
+   * past Next's 2 MB `unstable_cache` limit, so it was never cached. They are
+   * cached per venue (`getGachaPrizes`) and served on demand by
+   * `prizesRoute` (GET /api/internal/gacha/prizes[?venue=<key>]). These say
+   * how many each venue has, so the finder can size itself before it loads.
+   */
+  prizesByVenue: Record<string, number>;
+  prizesTotal: number;
+  prizesRoute: string;
   /** Biggest hits (high-FMV prizes) of the last 7 days, ranked desc. Each carries its `at` timestamp:
    *  ages are computed by the reader, never pre-formatted (the page is cached for an hour). */
   bigHits: GachaBigHit[];
@@ -389,7 +397,12 @@ export async function buildGacha(): Promise<GachaPayload> {
   const bigHits = dedupeHits([...(snap?.bigHits ?? []), ...(ccSnap?.bigHits ?? [])]);
   // Every pack's median through the plausibility gate before anything reads it:
   // a withheld median is null here, so neither the matrix nor the hero can print it.
-  const packs = (packsSnap?.packs ?? []).map(gatePack);
+  // Mixed pools from the prizes (recomputed, so a snapshot older than the
+  // field ships it too), then every median through the plausibility gate.
+  const allPrizes = packsSnap?.prizes ?? [];
+  const packs = withMixedPool(packsSnap?.packs ?? [], allPrizes).map(gatePack);
+  const prizesByVenue: Record<string, number> = {};
+  for (const p of allPrizes) prizesByVenue[p.platform] = (prizesByVenue[p.platform] ?? 0) + 1;
   const bestTypical = bestTypicalPack(packs);
   const warmerAsOf = [snap?.generatedAt, ccSnap?.generatedAt, pg?.generatedAt].filter((x): x is string => !!x).sort().pop() ?? null;
   const recent = hitsWithinDays(bigHits, BIG_HIT_WINDOW_DAYS, Date.now());
@@ -414,7 +427,9 @@ export async function buildGacha(): Promise<GachaPayload> {
     packBuckets,
     packs,
     packsWindow: packsSnap?.window ?? null,
-    prizes: packsSnap?.prizes ?? [],
+    prizesByVenue,
+    prizesTotal: allPrizes.length,
+    prizesRoute: GACHA_PRIZES_ROUTE,
     bigHits: recent,
     hitsSource: "warmers",
     hitsAsOf: warmerAsOf,
@@ -426,9 +441,42 @@ export const getGachaData = unstable_cache(
   async () => buildGacha(),
   // v19: + venues / hitsSource / hitsAsOf, packs through the plausibility gate,
   // DYLI and Renaiss packs, hits windowed to 7 days.
-  ["gacha:v19"],
+  // v20: prizes out of the payload (cached per venue, getGachaPrizes), + mixedPool.
+  ["gacha:v20"],
   { revalidate: 3600, tags: ["gacha", "platform-buckets"] },
 );
+
+/** Where the finder loads its prizes from (src/app/api/internal/gacha/prizes/route.ts). */
+export const GACHA_PRIZES_ROUTE = "/api/internal/gacha/prizes";
+
+/** One venue's finder prizes, value-desc, uncached. */
+export async function buildVenuePrizes(venue: string): Promise<GachaPrize[]> {
+  const snap = await readGachaPacks();
+  return (snap?.prizes ?? []).filter((p) => p.platform === venue);
+}
+
+/**
+ * One venue's prizes, cached on their own: one `unstable_cache` entry per
+ * venue, so no entry nears the 2 MB limit as pools grow (Phygitals, the
+ * largest, measured 3,279 prizes and ~1.37 MB on Oct 7).
+ */
+const getVenuePrizes = unstable_cache(
+  async (venue: string) => buildVenuePrizes(venue),
+  ["gacha-prizes:v1"],
+  { revalidate: 3600, tags: ["gacha"] },
+);
+
+/**
+ * The finder's prizes: one venue's, or every venue's (assembled from the
+ * per-venue entries, value-desc). Venues come from the payload's own counts,
+ * so a venue with prizes is never missed.
+ */
+export async function getGachaPrizes(venue?: string | null): Promise<GachaPrize[]> {
+  if (venue) return getVenuePrizes(venue);
+  const { prizesByVenue } = await getGachaData();
+  const lists = await Promise.all(Object.keys(prizesByVenue).map((v) => getVenuePrizes(v)));
+  return lists.flat().sort((a, b) => b.fmvUsd - a.fmvUsd);
+}
 
 /**
  * Page-facing payload: the cached aggregate ({@link getGachaData}) with the

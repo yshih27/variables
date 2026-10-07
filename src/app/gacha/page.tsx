@@ -3,7 +3,7 @@ import { NavBar, type TickerItem } from "@/components/NavBar";
 import { GachaHitsTicker } from "@/components/GachaHitsTicker";
 import { mapBigHits } from "@/lib/data/gachaHits";
 import { GachaPackMatrix } from "@/components/GachaPackMatrix";
-import { getGachaPayload } from "@/lib/data/fetchGacha";
+import { getGachaPayload, getGachaPrizes } from "@/lib/data/fetchGacha";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 import { GACHA_ENABLED } from "@/lib/flags";
 
@@ -40,7 +40,9 @@ export default async function GachaPage() {
     );
   }
 
-  const data = await getGachaPayload();
+  // The finder's prizes are cached apart from the payload (getGachaPrizes); the
+  // frontend relaunch loads them on demand from data.prizesRoute instead.
+  const [data, prizes] = await Promise.all([getGachaPayload(), getGachaPrizes()]);
   // nowMs passed through so the hits band's "ago" + 24h window match between
   // server and client renders (no hydration drift).
   const bigHits = mapBigHits(data.bigHits ?? [], Date.now());
@@ -68,7 +70,7 @@ export default async function GachaPage() {
 
         <GachaHitsTicker hits={bigHits.hits} windowLabel={bigHits.windowLabel} />
 
-        <GachaPackMatrix packs={data.packs ?? []} prizes={data.prizes ?? []} />
+        <GachaPackMatrix packs={data.packs ?? []} prizes={prizes} />
 
         <div className="mt-16 flex justify-end border-t border-line/60 pt-6 text-[12px] text-ink-3">
           <Link href="/methodology" className="hover:text-yellow">
