@@ -67,7 +67,8 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
+import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, PANEL_VENUES_PENDING_RESTATEMENT, type SaleRow } from "../src/lib/data/salePanel";
+import type { CardPlatform } from "../src/lib/data/cards";
 import { diffVenues, nextMethodVersion, venuesTable, type VenueEntityDiff } from "../src/lib/data/venuesReport";
 import { chainIdentityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, type IndexHold, type StepObs } from "../src/lib/data/identityIndex";
 import type { IndexPoint, IndexProvisional, StepVenues } from "../src/lib/data/indices";
@@ -510,8 +511,13 @@ async function writeShadowVenues(ctx: {
   // and this report read "+42 months, PASS". Strict catches Beezie; this catches
   // any venue the store resolves to identities and the legs returned nothing for.
   const legsVenues = panelVenues(legsPanel);
+  // A venue held out of the legs build BY DESIGN (PANEL_VENUES_PENDING_RESTATEMENT:
+  // the published method keeps it out, this restatement adds it) is joining,
+  // not missing: it is named, and the check still catches any other venue.
+  const joining = Object.keys(panelVenues(ctx.panel)).filter((v) => PANEL_VENUES_PENDING_RESTATEMENT.has(v as CardPlatform));
+  if (joining.length) console.log(`  joining with this restatement (held out of the legs build by design): ${joining.join(", ")}`);
   const missing = Object.entries(panelVenues(ctx.panel))
-    .filter(([v, x]) => x.resolved > 0 && !legsVenues[v])
+    .filter(([v, x]) => x.resolved > 0 && !legsVenues[v] && !PANEL_VENUES_PENDING_RESTATEMENT.has(v as CardPlatform))
     .map(([v]) => v);
   if (missing.length) throw new Error(`shadow venues: the legs build returned no ${missing.join(", ")} rows (a feed failed); the comparison would be meaningless, so nothing was reported. Rerun.`);
   const before = buildSeriesSet(legsPanel);
