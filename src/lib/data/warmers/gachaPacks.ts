@@ -49,6 +49,7 @@ import {
 import { getBeezieMetadataBatch } from "../beezieTraits";
 import { dyliPacks, readDyliProducts, readDyliPulls, readRenaissPackPulls, renaissPacks } from "./gachaPacksVenues";
 import { readDyliBoxPrizes } from "../../dyli/boxPrizes";
+import { withMixedPool } from "../gachaPackView";
 import { db } from "../../db/client";
 import type { Chain } from "@/lib/types";
 import { parseGrade } from "@/lib/card/grade";
@@ -869,7 +870,8 @@ export async function runGachaPacksWarm(
 
   packs.sort((a, b) => a.priceUsd - b.priceUsd || a.platform.localeCompare(b.platform));
   prizes.sort((a, b) => b.fmvUsd - a.fmvUsd);
-  const snap: GachaPacksSnapshot = { generatedAt: asOf, window: win, packs, prizes };
+  const snap: GachaPacksSnapshot = { generatedAt: asOf, window: win, packs: withMixedPool(packs, prizes), prizes };
+  log(`mixed pools: ${snap.packs.filter((p) => p.mixedPool).map((p) => `${p.platform}:${p.name}`).join(", ") || "none"}`);
   if (!opts.out) await writeGachaPacks(snap);
 
   const byPlatform: Record<string, number> = {};

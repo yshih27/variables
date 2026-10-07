@@ -8,7 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gatePack, leadMedian, plausibilityGate, MEDIAN_MAX_OVER_STATED_EV, THIN_N } from "./gachaPackView";
+import { gatePack, isMixedPool, leadMedian, plausibilityGate, withMixedPool, MEDIAN_MAX_OVER_STATED_EV, THIN_N } from "./gachaPackView";
 import { bestTypicalPack, chooseHits, hitsWithinDays, liveHeartbeatMs, LIVE_HEARTBEAT_MAX_MS } from "./fetchGacha";
 import { gachaVenues } from "./gachaVenues";
 import { coverageSegments, statsFromCoveredPulls, tierOfValue, COVERAGE_GAP_MS, MIN_SEGMENT_MS } from "./ccRealized";
@@ -236,4 +236,21 @@ test("DYLI box prizes: chase cards deduped and ranked; recent pulls merged newes
   assert.deepEqual(c.map((x) => x.name), ["B", "A"]);
   const r = (id: number, at: string) => ({ pullId: id, collectibleId: null, title: `t${id}`, image: null, fmvUsd: 1, tier: null, pulledAt: at });
   assert.deepEqual(mergeRecent([r(1, "2026-10-01"), r(2, "2026-10-02")], [r(3, "2026-10-03"), r(2, "2026-10-02")], 2).map((x) => x.pullId), [3, 2]);
+});
+
+// ── Mixed pools ─────────────────────────────────────────────────────────────
+
+test("mixedPool: true only when the pool spans more than one game, each with at least two prizes", () => {
+  const pr = (packId: string, category: string | null, name: string | null = null) => ({ packId, category, name, traits: null });
+  // CONSTRUCTED from the shapes on Oct 7: a Beezie claw tags each prize with its game.
+  const claw = [pr("beezie:1", "pokemon"), pr("beezie:1", "pokemon"), pr("beezie:1", "one_piece"), pr("beezie:1", "one_piece")];
+  assert.equal(isMixedPool(claw), true);
+  // One game, no tab for it: not mixed.
+  const watches = [pr("cc:watch", null, "Rolex Submariner"), pr("cc:watch", null, "Omega Speedmaster")];
+  assert.equal(isMixedPool(watches), false, "prizes that name no game are not a second game");
+  // A single stray prize of another game is not a mixed pool.
+  assert.equal(isMixedPool([pr("x", "pokemon"), pr("x", "pokemon"), pr("x", "pokemon"), pr("x", "one_piece")]), false);
+  assert.equal(isMixedPool([]), false);
+  const packs = withMixedPool([pack({ id: "beezie:1" }), pack({ id: "cc:watch" }), pack({ id: "no-prizes" })], [...claw, ...watches]);
+  assert.deepEqual(packs.map((p) => [p.id, p.mixedPool]), [["beezie:1", true], ["cc:watch", false], ["no-prizes", false]]);
 });

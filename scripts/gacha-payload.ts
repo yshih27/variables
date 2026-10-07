@@ -11,7 +11,7 @@ config({ path: ".env.local" });
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildGacha, getGachaPayload, liveHeartbeatMs, LIVE_HEARTBEAT_MAX_MS } from "../src/lib/data/fetchGacha";
+import { buildGacha, buildVenuePrizes, getGachaPayload, liveHeartbeatMs, LIVE_HEARTBEAT_MAX_MS } from "../src/lib/data/fetchGacha";
 import { readGachaLive } from "../src/lib/data/gachaLiveCache";
 
 const argv = process.argv.slice(2);
@@ -37,7 +37,12 @@ async function main(): Promise<number> {
   console.log(`  hits: source ${p.hitsSource} · as of ${p.hitsAsOf ?? "—"} · ${p.bigHits.length} hits in 7 days · biggest ${usd(p.hero.biggestHitUsd)} (${p.bigHits[0]?.at ?? "—"})`);
   console.log(`  hero: best typical return ${p.hero.bestEvMultiple == null ? "—" : `${p.hero.bestEvMultiple.toFixed(2)}×`} (${p.hero.bestEvPlatform ?? "—"} · ${p.hero.bestEvPackId ?? "—"})`);
   console.log(`  venues: ${p.venues.map((v) => `${v.name} (${v.kind}) ${v.covered ? "covered" : `NOT covered: ${v.reason}`}`).join(" · ")}`);
-  console.log(`  packs ${p.packs.length} · prizes ${p.prizes.length} · medians withheld ${p.packs.filter((x) => x.medianWithheld).length}`);
+  console.log(`  packs ${p.packs.length} · medians withheld ${p.packs.filter((x) => x.medianWithheld).length} · mixed pools: ${p.packs.filter((x) => x.mixedPool).map((x) => `${x.platform}:${x.name}`).join(", ") || "none"}`);
+  const size = (v: unknown) => Buffer.byteLength(JSON.stringify(v));
+  console.log(`  cached entries: payload ${size(p).toLocaleString()} bytes (limit 2,097,152)`);
+  for (const [venue, n] of Object.entries(p.prizesByVenue)) {
+    console.log(`    prizes:${venue.padEnd(16)} ${String(n).padStart(5)} prizes · ${size(await buildVenuePrizes(venue)).toLocaleString()} bytes`);
+  }
   if (OUT) {
     mkdirSync(OUT, { recursive: true });
     writeFileSync(join(OUT, `gacha-payload${AT ? `.at${AT}` : ""}.json`), JSON.stringify(p));

@@ -135,7 +135,13 @@ export default async function GachaPage() {
           <GachaHitsTicker hits={bigHits.hits} windowLabel={bigHits.windowLabel} source={data.hitsSource ?? null} asOf={hitsAsOf} />
         </div>
 
-        <GachaPackMatrix packs={data.packs ?? []} prizes={data.prizes ?? []} venues={venues} />
+        {/* The finder's prizes are not in the page: they load on demand from
+            the payload's prizesRoute, sized beforehand by prizesByVenue. */}
+        <GachaPackMatrix
+          packs={data.packs ?? []}
+          venues={venues}
+          prizes={{ route: data.prizesRoute, byVenue: data.prizesByVenue ?? {}, total: data.prizesTotal ?? 0 }}
+        />
 
         <div className="mt-16 flex justify-end border-t border-line/60 pt-6 text-[12px] text-ink-3">
           <Link href="/methodology" className="hover:text-yellow">
