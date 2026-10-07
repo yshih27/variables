@@ -1778,9 +1778,12 @@ function PackDrawer({
               basis={ev?.basis}
               n={ev?.n}
             />
+            {/* No buyback published (Renaiss) → no "net of buyback" figure: netEv
+                falls back to the gross mean, which this label would misstate. */}
             <KV
               k="Mean · net of buyback"
-              v={netEv(d) != null ? `${netEv(d)!.toFixed(2)}×` : "—"}
+              v={d.buybackPct != null && netEv(d) != null ? `${netEv(d)!.toFixed(2)}×` : "—"}
+              hint={d.buybackPct == null ? "no buyback published" : undefined}
             />
             {cashCards != null && (
               <KV
