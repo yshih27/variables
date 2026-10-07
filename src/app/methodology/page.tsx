@@ -5,6 +5,7 @@ import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/i
 import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
 import { PLATFORM_SOURCES, type PlatformSource } from "@/lib/data/sources";
+import { PULLS_REREAD_DAYS } from "@/lib/renaiss/constants";
 import { readMethodChanges, type MethodLedger } from "@/lib/data/methodChanges";
 import { labelFor } from "@/lib/indices/entityLabels";
 import { receiptsHref } from "@/lib/indices/receiptRoute";
@@ -436,6 +437,16 @@ const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
     holders: "Not counted; no ownership read is wired for its inventory contract.",
     primary:
       "From the same sales feed: mystery boxes are gacha, inventory purchases and fair-drop entries are direct sales. eBay-venue rows and zero-price box claims are excluded.",
+  },
+  renaiss: {
+    resale:
+      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since its first sale, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid.",
+    listings:
+      "No source. The API publishes no active listings, so the floor and the market cap read as withheld, never as zero.",
+    holders:
+      "Not counted; no ownership read is wired for its card contract. A card's metadata (set, number, grade, cert, language) is kept the first time the card sells, so a card seen only as a pack prize has no card page.",
+    primary:
+      `Pack pulls from the same API: each checkout with its buyer, price and transaction, and the prize once Renaiss names it, which for its V3 packs happens when the set sells out, so the last ${PULLS_REREAD_DAYS} days are re-read on every run and a pull is written again only when it is new or has changed: its prize named, or its checkout matched. The prize value is the one Renaiss states. A draw seen on its public list but not yet matched to a checkout is kept and never counted as spend. Its pulls are kept apart from the other venues' pull records, so the player analysis does not cover it. No payout wallet is known, so net revenue is withheld with that reason.`,
   },
 };
 

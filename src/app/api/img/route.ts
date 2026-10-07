@@ -33,6 +33,7 @@ const ALLOWED_HOSTS = new Set<string>([
   "metadata.degods.com",
   "img.rarible.com",
   "raw.seadn.io",
+  "bhshyxmgzwogzgcf.public.blob.vercel-storage.com", // Renaiss catalog card images
 ]);
 
 /**

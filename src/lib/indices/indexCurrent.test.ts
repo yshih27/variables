@@ -1,6 +1,7 @@
 /**
  * test:index-current — the running month's reading, the venues behind a step,
- * β on monthly returns, and INV-14. Synthetic sales; no I/O.
+ * β on monthly returns, INV-14, and the strict panel build. Synthetic sales; no
+ * network or database (a local snapshot dir and a stubbed fetch).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -9,6 +10,10 @@ import type { SaleRow } from "../data/salePanel";
 import type { CardPlatform } from "../card/ids";
 import { monthlyBetaVsBtc, MIN_ALIGNED_MONTHS } from "./monthlyBeta";
 import { checkProvisionalFreshness } from "./provisionalCheck";
+import { readSaleFeed } from "../data/salePanel";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const sale = (identity: string, ts: string, priceUsd: number, platform: CardPlatform = "beezie"): SaleRow => ({
   ts, tokenId: `${identity}-${ts}`, priceUsd, platform, ip: "pokemon", set: "Base Set", setKey: "base-set", grade: "PSA 10", identity,
@@ -175,4 +180,26 @@ test("INV-14: an index that published last month needs a reading for this month,
   const stale = checkProvisionalFreshness({ ...blob, generatedAt: "2026-09-30T06:00:00Z" }, now);
   assert.equal(stale.violations.length, 2);
   assert.match(stale.violations[0], /30\.0h old \(> 24h\)/);
+});
+
+// ── The index build's panel is strict ─────────────────────────────────────────
+
+test("strict panel: a Beezie leg that comes back empty throws; the lenient feed still serves the rest", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "index-current-"));
+  const cc = { date: "2026-09-20T00:00:00.000Z", tokenId: "m", buyer: "x", seller: "y", priceUsd: 50 };
+  writeFileSync(join(dir, "secondary-sales.json"), JSON.stringify({ generatedAt: "2026-09-30T00:00:00Z", windowDays: 30, platforms: { "collector-crypt": [cc] } }));
+  const prevDir = process.env.SNAPSHOT_LOCAL_DIR;
+  const prevFetch = globalThis.fetch;
+  process.env.SNAPSHOT_LOCAL_DIR = dir;
+  // Beezie /activity answering 200 with nothing: the degraded response that left the Oct 1 legs build without Beezie.
+  globalThis.fetch = (async () => Response.json({ activity: [] })) as typeof fetch;
+  try {
+    await assert.rejects(readSaleFeed({ strict: true }), /Beezie's \/activity returned no sales; nothing was written/);
+    const lenient = await readSaleFeed();
+    assert.deepEqual(lenient.map((r) => [r.platform, r.tokenId]), [["collector-crypt", "m"]]);
+  } finally {
+    globalThis.fetch = prevFetch;
+    if (prevDir == null) delete process.env.SNAPSHOT_LOCAL_DIR;
+    else process.env.SNAPSHOT_LOCAL_DIR = prevDir;
+  }
 });
