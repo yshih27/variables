@@ -42,6 +42,7 @@
     "warm-renaiss-sales": "tsx scripts/warm-renaiss-sales.ts",
     "warm-renaiss-pulls": "tsx scripts/warm-renaiss-pulls.ts",
     "warm-player-analytics": "tsx scripts/warm-player-analytics.ts",
+    "sales-store": "tsx scripts/sales-store.ts",
     "post-card": "tsx scripts/post-card.ts",
     "test:character": "tsx --test src/lib/card/character.test.ts src/lib/data/characterRollups.test.ts",
     "test:spine": "tsx --test src/lib/dune/scanWindow.test.ts src/lib/data/buybackFold.test.ts",
@@ -54,7 +55,8 @@
     "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts",
     "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts src/lib/renaiss/platform.test.ts",
     "test:index-current": "tsx --test src/lib/indices/indexCurrent.test.ts",
-    "test:gacha": "tsx --test src/lib/data/gacha.test.ts"
+    "test:gacha": "tsx --test src/lib/data/gacha.test.ts",
+    "test:sales-store": "tsx --test src/lib/data/salesStore.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

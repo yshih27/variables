@@ -1,5 +1,9 @@
 -- TCG.market - CC secondary sales (Collector Crypt marketplace program CcmRKTuZ...)
--- One row per USDC-settled secondary sale: time, price, NFT mint, buyer, seller.
+-- One row per USDC-settled secondary sale: time, price, NFT mint, buyer, seller,
+-- and the transaction (tx_id). tx_id is the key the `secondary_sales` store keeps
+-- each sale under (src/lib/data/salesStore.ts); it adds one column to every read
+-- (+20% datapoints at five columns today). Applied to query 7675297 by the
+-- orchestrator; until then the store keys on mint + block_time + price + buyer.
 -- price_usd = MAX USDC transfer per tx (robust to escrow/fee splits). Native-SOL
 -- transfers in these txs are fees/rent (validated), so USDC carries the sale value
 -- and the high-end tail. The warmer derives 24h/7d/30d aggregates + a recent list.
@@ -25,7 +29,7 @@ nft AS (
         'So11111111111111111111111111111111111111111','So11111111111111111111111111111111111111112')
     AND amount = 1
 )
-SELECT p.block_time, p.price_usd, n.mint AS nft_mint, n.buyer, n.seller
+SELECT p.block_time, p.price_usd, n.mint AS nft_mint, n.buyer, n.seller, p.tx_id
 FROM price p JOIN nft n ON n.tx_id = p.tx_id AND n.rn = 1
 WHERE p.price_usd > 1
 ORDER BY p.block_time DESC
