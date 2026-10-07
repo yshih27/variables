@@ -1,8 +1,6 @@
 /**
  * Shared API auth + throttling (B9-3).
  *
- *   • cronAuthorized — the CRON_SECRET bearer check every /api/cron/* route
- *     shares (extracted from the previously per-route inline copies).
  *   • requireApiKey  — /api/v1/* key check + per-key daily quota, for the
  *     attribution-required free tier.
  *   • rateLimitByIp  — coarse per-IP fixed-window throttle (same snapshots-KV
@@ -23,13 +21,6 @@
  * never take the whole API down.
  */
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
-
-/** Bearer-token check for the /api/cron/* routes (scheduler-only endpoints). */
-export function cronAuthorized(req: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 export type ApiKeyResult =
   | { ok: true; label: string; limit: number; remaining: number }

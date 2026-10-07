@@ -84,6 +84,11 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   // cursor) and pack pulls (the trailing 14 days re-read every run).
   "renaiss-sales": 6 * HOUR_MS,
   "renaiss-pulls": 6 * HOUR_MS,
+  "renaiss-machines": 6 * HOUR_MS,
+  "renaiss-players": 6 * HOUR_MS,
+  // Dispatch-only, run once after migration 20261007000001; a long interval so
+  // /status does not call a finished refill stale.
+  "renaiss-pulls-refill": 365 * DAY_MS,
   // DYLI active book (~2 requests) → floor + market cap. Daily: the book is
   // small and slow-moving, and the mcap it feeds is a daily stock reading.
   "dyli-listings": DAY_MS,
@@ -109,7 +114,10 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "secondary-sales": DAY_MS,
   // indices batch — daily 06:00 (its own job, after the daily batch)
   benchmarks: DAY_MS,
-  "price-index": DAY_MS,
+  // The price index (and the panel, identity index, slabs and rollups the same
+  // run writes) is built by the CORE batch every 6 h, so a missed build shows
+  // within two cycles rather than two days.
+  "price-index": 6 * HOUR_MS,
   // weekly batch — every 7d
   "cc-traits": 7 * DAY_MS,
   // CardOS price oracle — refreshes HALF the mapped expansions each Monday, so

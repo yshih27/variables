@@ -13,6 +13,9 @@
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
 import type { CollectionStats, NormalizedSale } from "../rarible/queries";
 
+/** Below this many 24h sales, a venue's tables read its trailing 7 days instead (fetchPlatform `salesWindow`). */
+export const SALES_TABLE_MIN = 10;
+
 export type CorePlatformVolume = {
   /** Where this platform's volume came from, for provenance. */
   source: "dune" | "rarible" | "beezie" | "dyli" | "renaiss";
@@ -20,6 +23,13 @@ export type CorePlatformVolume = {
   stats24h: CollectionStats;
   /** 24h sale-level rows (powers Top Sales + per-IP aggregation). */
   sales24h: NormalizedSale[];
+  /**
+   * The trailing 7 days' sale-level rows — present ONLY when the 24h holds
+   * fewer than SALES_TABLE_MIN sales, so a thin venue's tables (Renaiss clears
+   * about 6 a day) read a week rather than render empty. Absent otherwise:
+   * a busy venue's week would only bloat the snapshot.
+   */
+  sales7d?: NormalizedSale[];
   /** 7d / 30d volume — present where the source covers it (CC via Dune); null otherwise. */
   vol7dUsd: number | null;
   vol30dUsd: number | null;

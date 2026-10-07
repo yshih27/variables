@@ -138,6 +138,8 @@ test("a named pull maps to renaiss_pulls carrying its prize's identity and card 
     prize_grade_label: "PSA 8",
     prize_cert: "PSA142678133",
     prize_language: "Japanese",
+    machine_name: "PANDORA 28",
+    prize_image_url: pull.imageUrl,
   });
   assert.equal(prize.identity_key, row.prize_canonical_id);
 });

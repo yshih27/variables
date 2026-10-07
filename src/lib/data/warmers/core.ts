@@ -54,6 +54,7 @@ import {
 } from "../salesStore";
 import { fetchDyliLaneWindows } from "../../dyli/sales";
 import { readRenaissSales } from "../../renaiss/sales";
+import { SALES_TABLE_MIN } from "../coreVolumeCache";
 import { packWindows, readPackSpend } from "../../renaiss/pulls";
 import { feedIsCurrent, readRenaissFeeds } from "../../renaiss/feedState";
 import {
@@ -96,7 +97,7 @@ function statsFromSaleList(collectionId: string, sales: NormalizedSale[]): Colle
  * windows OVER the list, so a longer (full-history) list is fine — only the partial
  * 24h day stored in `sales24h` is kept; older rows just feed the window sums.
  */
-function buildPlatform(
+export function buildPlatform(
   key: string,
   source: CorePlatformVolume["source"],
   allSales: NormalizedSale[],
@@ -108,10 +109,13 @@ function buildPlatform(
   const sumUsd = (xs: NormalizedSale[]) => xs.reduce((s, x) => s + x.priceUsd, 0);
 
   const s24 = within(1).sort((a, b) => b.date.localeCompare(a.date));
+  // A thin 24h: carry the week too, for the platform page's tables (fetchPlatform).
+  const s7 = s24.length < SALES_TABLE_MIN && spanDays >= 7 ? within(7).sort((a, b) => b.date.localeCompare(a.date)) : null;
   return {
     source,
     stats24h: statsFromSaleList(key, s24),
     sales24h: s24,
+    ...(s7 ? { sales7d: s7 } : {}),
     vol7dUsd: spanDays >= 7 ? sumUsd(within(7)) : null,
     vol30dUsd: spanDays >= 30 ? sumUsd(within(30)) : null,
     sales7dCount: spanDays >= 7 ? within(7).length : null,

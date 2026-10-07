@@ -4,6 +4,7 @@ import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
 import { StatCard, StatCardRow } from "@/components/StatCard";
 import { SetLeaderboard } from "@/components/sets/SetLeaderboard";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
+import { withProvisional } from "@/lib/indices/levelProvisional";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { readMethodChanges } from "@/lib/data/methodChanges";
 import { getIPDetail } from "@/lib/data/fetchIP";
@@ -97,7 +98,7 @@ export default async function IPSetsPage({ params }: { params: Promise<{ key: st
               question the leaderboard's index column does, at a different grain —
               §3 lets two DIFFERENT questions share a row, and these are not two. */}
           <IndexLevelsChart
-            series={levelSeries}
+            series={await withProvisional(levelSeries)}
             title="Set index levels"
             readMe="what a set's cards are worth, month over month"
             subtitle="Identity comparables, monthly · rebased to the shared base month"

@@ -6,6 +6,7 @@ import { GradePremiumChart } from "@/components/grades/GradePremiumChart";
 import { GradeShareChart } from "@/components/grades/GradeShareChart";
 import { GradeTable } from "@/components/grades/GradeTable";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
+import { withProvisional } from "@/lib/indices/levelProvisional";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { readMethodChanges } from "@/lib/data/methodChanges";
 import { getIPDetail } from "@/lib/data/fetchIP";
@@ -144,7 +145,7 @@ export default async function IPGradesPage({ params }: { params: Promise<{ key: 
               questions, so they may share a row. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <IndexLevelsChart
-              series={levelSeries}
+              series={await withProvisional(levelSeries)}
               title="Grade index levels"
               readMe="what a grade is worth, month over month"
               subtitle="Market-wide identity comparables, monthly · rebased to the shared base month"

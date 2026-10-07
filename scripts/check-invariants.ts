@@ -23,6 +23,7 @@ config({ path: ".env.local" });
 
 import { getLatestResults } from "../src/lib/dune/client";
 import { CC_SECONDARY_QUERY_ID } from "../src/lib/dune/queryIds";
+import { checkProvisionalFreshness } from "../src/lib/indices/provisionalCheck";
 import { readSecondarySales } from "../src/lib/data/secondarySalesCache";
 import { cleanSecondarySales } from "../src/lib/data/secondaryHygiene";
 import { readSnapshot } from "../src/lib/db/snapshots";
@@ -406,6 +407,20 @@ async function checkStepNotSingleIdentity(): Promise<Result> {
 }
 
 /**
+ * INV-14 (HARD): every index that published last month has a reading for the
+ * running month — a provisional level or a below-floor record — younger than
+ * 24 hours (src/lib/indices/provisionalCheck.ts says why).
+ */
+async function checkProvisionalReadings(nowMs: number = Date.now()): Promise<Result> {
+  const snap = await readSnapshot<{ generatedAt?: string; series?: Record<string, { ts: string }[]>; provisional?: Record<string, { month: string }> }>("price-index");
+  if (!snap?.series) return skip("provisional-readings", "hard", "price-index snapshot unreadable");
+  const { checked, violations, running, last } = checkProvisionalFreshness(snap, nowMs);
+  return violations.length
+    ? bad("provisional-readings", "hard", `${violations.length} of ${checked} indices that published ${last} have no current ${running} reading`, violations.slice(0, 8))
+    : ok("provisional-readings", "hard", `${checked} indices that published ${last} carry a ${running} reading under 24h old`);
+}
+
+/**
  * INV-8 (HARD): published Σ-based 24h deltas must be computed over SOURCE-COMPLETE days,
  * never a Dune-lagged partial newest day (the "gacha −79.8%" fake collapse). Recompute
  * the gated delta from the spine and compare to the homepage payload's hero.vol24Pct /
@@ -519,9 +534,21 @@ async function main() {
   // (SNAPSHOT_LOCAL_DIR) where the point is the index invariants and a Dune
   // export would be a paid read for nothing. CI never passes it.
   const noDune = process.argv.includes("--no-dune");
-  console.log(`\nData invariants — ${process.env.SUPABASE_URL ?? "(no SUPABASE_URL)"}\n`);
+  // --only=index: the index invariants alone (INV-7/11/12/13/14), for the core
+  // batch, which now publishes the index: no index point goes out without them.
+  // No Dune read, no homepage or spine check.
+  const onlyIndex = process.argv.includes("--only=index");
+  console.log(`\nData invariants${onlyIndex ? " (index only)" : ""} — ${process.env.SUPABASE_URL ?? "(no SUPABASE_URL)"}\n`);
 
   const results: Result[] = [];
+  if (onlyIndex) {
+    results.push(await checkIndexCompleteness());
+    results.push(await checkIndexStepSanity());
+    results.push(await checkHoldingPeriodInvariance());
+    results.push(await checkStepNotSingleIdentity());
+    results.push(await checkProvisionalReadings());
+    return report(results, strict);
+  }
   // Dune feeds (0-credit reads; independent of Supabase).
   if (!noDune) {
     results.push(...(await checkDuneFeed("cc", CC_SECONDARY_QUERY_ID)));
@@ -544,9 +571,13 @@ async function main() {
   results.push(await checkIndexStepSanity());
   results.push(await checkHoldingPeriodInvariance());
   results.push(await checkStepNotSingleIdentity());
+  results.push(await checkProvisionalReadings());
   results.push(await checkDailyDeltaCompleteness(hp));
   results.push(await checkSourceDeath());
+  report(results, strict);
+}
 
+function report(results: Result[], strict: boolean): void {
   const ICON: Record<Status, string> = { pass: "✓", fail: "✗", skip: "·" };
   for (const r of results) {
     console.log(`  ${ICON[r.status]} [${r.severity.toUpperCase().padEnd(4)}] ${r.name.padEnd(24)} ${r.detail}`);

@@ -7,8 +7,8 @@
  * fetchGacha and the warmer are untouched (the migration "seam" — see
  * MIGRATION_PLAN.md §2).
  *
- * Populated by runGachaWarm() (scripts/warm-gacha-dune.ts CLI or the
- * /api/cron/gacha route), read by fetchGacha.
+ * Populated by runGachaWarm() (scripts/warm-gacha-dune.ts, run by warm.yml),
+ * read by fetchGacha.
  */
 import { db } from "../db/client";
 

@@ -11,11 +11,12 @@ import { PALETTE } from "@/lib/studio/catalog";
  * only way to know it works before the day it fires.
  */
 
-export type MachineSortKey = "name" | "price" | "spend" | "pulls" | "spend7d" | "attributed";
+export type MachineSortKey = "name" | "price" | "spend" | "pulls" | "spend7d" | "attributed" | "valueBack" | "hitShare";
 
 /** A machine's attributed share of its OWN spend. NaN (→ "—") when it took none. */
 export function attributedPct(r: MachineRow): number {
-  return r.spendUsd > 0 ? (r.attributedUsd / r.spendUsd) * 100 : NaN;
+  // Undefined on a board with no partner split (Renaiss): "—", like a machine that took none.
+  return r.spendUsd > 0 && r.attributedUsd != null ? (r.attributedUsd / r.spendUsd) * 100 : NaN;
 }
 
 export function valueFor(r: MachineRow, key: MachineSortKey): number {
@@ -30,6 +31,11 @@ export function valueFor(r: MachineRow, key: MachineSortKey): number {
       return r.spend7dUsd;
     case "attributed":
       return attributedPct(r);
+    // A board in the venue's stated value (Renaiss): null → NaN → "—", sinks.
+    case "valueBack":
+      return r.valueBackPct ?? NaN;
+    case "hitShare":
+      return r.hitSharePct ?? NaN;
     case "name":
       return NaN; // string-compared in sortMachines
   }
@@ -83,7 +89,7 @@ export function shortKey(key: string): string {
 export function colorBySlug(rows: MachineRow[]): Map<string, string> {
   const total = new Map<string, number>();
   for (const r of rows) {
-    for (const p of r.partners) total.set(p.slug, (total.get(p.slug) ?? 0) + p.spendUsd);
+    for (const p of r.partners ?? []) total.set(p.slug, (total.get(p.slug) ?? 0) + p.spendUsd);
   }
   return new Map(
     [...total.entries()]

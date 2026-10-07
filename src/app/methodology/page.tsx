@@ -4,13 +4,17 @@ import { indexRegistry, INDEX_FAMILY, INDEX_FAMILY_SHORT, INDEX_DESCRIPTOR, inde
 import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/indices";
 import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
-import { PLATFORM_SOURCES, type PlatformSource } from "@/lib/data/sources";
-import { PULLS_REREAD_DAYS } from "@/lib/renaiss/constants";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { VENUE_LEGS, type VenueLegs } from "@/lib/methodology/venueLegs";
 import { readMethodChanges, type MethodLedger } from "@/lib/data/methodChanges";
 import { labelFor } from "@/lib/indices/entityLabels";
 import { receiptsHref } from "@/lib/indices/receiptRoute";
 import Link from "next/link";
 import { Fragment } from "react";
+import type { StepVenues } from "@/lib/data/indices";
+import { MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, MIN_SALES_PER_IDENTITY, THIN_MONTH_IDENTITIES } from "@/lib/data/identityIndex";
+import { PLATFORM_META, type CardPlatform } from "@/lib/card/ids";
+import { monthName } from "@/lib/indices/readingWords";
 
 // Static hand-authored content — cache it and revalidate hourly instead of
 // re-rendering per request (F8-4).
@@ -25,7 +29,11 @@ export const metadata = {
 export default async function MethodologyPage() {
   // The method ledger, for the "Method changes" section below. Absent when the
   // snapshot has no records — see MethodChangesSection.
-  const ledger = await readMethodChanges();
+  const [ledger, marketVenues] = await Promise.all([
+    readMethodChanges(),
+    // The venues behind every published market step ride on its points — the table below.
+    readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" }).catch(() => []),
+  ]);
   return (
     <>
       <NavBar ticker={await buildMarketTicker()} />
@@ -114,6 +122,31 @@ export default async function MethodologyPage() {
           </p>
           <IndexBiasReceipt />
         </Section>
+
+        <Section title="The running month" id="provisional">
+          <p>
+            The index closes once a month. Between closes, the builder computes the running
+            month&apos;s step from the sales so far, with the same estimator and the same sample
+            rule: an identity counts when it has at least {MIN_SALES_PER_IDENTITY}{" "}sales in each
+            of the two months. When that step clears the index&apos;s floor ({MIN_IDENTITIES_BROAD}{" "}
+            identities for the market and for a category, {MIN_IDENTITIES_IP}{" "}for an IP), it is
+            shown as a <span className="font-mono text-ink">provisional</span> reading: the last
+            close moved by the step so far, with its own band, its identity count and the time of
+            its newest sale. Under {THIN_MONTH_IDENTITIES}{" "}identities it is marked thin, as a
+            close would be.
+          </p>
+          <p className="mt-2">
+            A provisional reading is never chained into the series and never becomes a receipts
+            month. It is replaced when the month closes, on the first day of the next month, and
+            the close is what the series keeps. Below the floor, the last close leads and the page
+            says how many identities the month has so far. The published close is always one line
+            away from any provisional figure.
+          </p>
+        </Section>
+
+        <IndexVenuesSection
+          rows={marketVenues.flatMap((p) => (p.venues ? [{ month: p.ts.slice(0, 7), venues: p.venues }] : []))}
+        />
 
         <MethodChangesSection ledger={ledger} />
 
@@ -338,8 +371,6 @@ function Section({ title, id, children }: { title: string; id?: string; children
   );
 }
 
-/** The four legs every venue is read by, in the order the cards print them. */
-type VenueLegs = { resale: string; listings: string; holders: string; primary: string };
 const LEG_LABELS: [keyof VenueLegs, string][] = [
   ["resale", "Resale"],
   ["listings", "Listings"],
@@ -347,75 +378,6 @@ const LEG_LABELS: [keyof VenueLegs, string][] = [
   ["primary", "Primary"],
 ];
 
-/**
- * How each venue is read, leg by leg — the prose for the Sources section.
- *
- * ⚠️ KEYED ON THE REGISTRY, DELIBERATELY. Names, chains and order come from
- * PLATFORM_SOURCES; a venue added there without an entry here fails to compile,
- * so this copy cannot drift from the code silently. It did: the section kept
- * saying Courtyard was read from its own contract after #149 moved it to
- * Rarible's activity index. When a reader changes (core.ts, warm-listings,
- * warm-holders, the Dune SQL), change the leg here in the same PR.
- */
-const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
-  courtyard: {
-    resale:
-      "Rarible's activity index for the Courtyard collection, which is where the collection's on-chain trades on Polygon are indexed; read live over a rolling window and passed through the same hygiene as every feed. Courtyard's own in-app marketplace settles off-chain and is visible to no source. The Dune query this leg replaced decoded the same trades a day late; it is retired and kept for the provenance of older points.",
-    listings:
-      "Rarible's active sell orders for the collection, cheapest ask per token, dust excluded; capped per run, since Courtyard's book is by far the largest we read.",
-    holders:
-      "Not indexed. Courtyard's per-card data is not yet in our card table, so it has no holder count, no per-card identity and no market cap; each reads as withheld, never as zero.",
-    primary:
-      "Pack spend: USDC paid into Courtyard's receiving wallets on Polygon, read daily through Dune and published as gacha volume, with an Etherscan read of the same transfers as the fallback. Tokenization fees are paid off-chain and are not counted.",
-  },
-  beezie: {
-    resale:
-      "Beezie's own order feed, read directly from its API: each fulfilled order is a sale, and the feed reaches back months, so every window is read in full. Not read through an aggregator.",
-    listings:
-      "Rarible's active sell orders for the collection, cheapest ask per token. An aggregator ask can be a placeholder, so an identity page prints a Beezie ask as the floor only when it sits within a set band of that card's monthly price; otherwise it is a receipt line marked unverified, never a headline.",
-    holders:
-      "Ownership from Rarible's ownership index for the collection; card metadata from each token's URI on Base, persisted the first time a token is seen.",
-    primary:
-      "The Claw: USDC paid into the Claw contract on Base, read daily through Dune, with an Etherscan read of the same transfers as the fallback. The Claw's catalog, stated odds and prize pool come from Beezie's own endpoint and are labelled as stated by the venue, never as realized.",
-  },
-  "collector-crypt": {
-    resale:
-      "A Dune query over the Collector Crypt marketplace program: one sale per transaction that moves both an NFT and USDC, priced at the largest USDC transfer in it, over a rolling window. Bids that never settle are excluded by construction.",
-    listings: "Collector Crypt's own marketplace API, cheapest ask per card.",
-    holders:
-      "Helius DAS over the collection: owner, traits and the Insured Value appraisal that prices its market cap.",
-    primary:
-      "Pack pulls: USDC paid into the gacha wallets at a price on the published pull ladder, house and rarity-bucket wallets excluded as senders, read daily through Dune. Each pull's prize comes from the gacha app's own winners feed, captured continuously. Buyback is USDC returned from those wallets to players who had spent in, under rule R3 below.",
-  },
-  phygitals: {
-    resale:
-      "No source. Its sales API carries pack pulls only, and its resale trades settle on Tensor and Magic Eden, which need a query of their own; resale figures are withheld until one exists.",
-    listings:
-      "Phygitals' own marketplace API, which already aggregates Tensor, Magic Eden and native asks; cheapest per card.",
-    holders:
-      "Helius DAS over its two compressed-NFT collections. No per-card valuation exists, so its market cap is floor times supply, at venue level only, and stays out of the cross-venue total.",
-    primary:
-      "Pack pulls: USDC paid into its gacha wallets, treasury excluded as a sender and dust excluded, read daily through Dune; realized pulls from its own pull feed. Buyback under rule R3, as for Collector Crypt.",
-  },
-  dyli: {
-    resale:
-      "DYLI's own public sales API, read directly. Each sale is classified by its channel, and only user-to-user resale is marketplace volume.",
-    listings: "Its public listings endpoint: the floor, and a market cap of cheapest ask times units available.",
-    holders: "Not counted; no ownership read is wired for its inventory contract.",
-    primary:
-      "From the same sales feed: mystery boxes are gacha, inventory purchases and fair-drop entries are direct sales. eBay-venue rows and zero-price box claims are excluded.",
-  },
-  renaiss: {
-    resale:
-      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since its first sale, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid.",
-    listings:
-      "No source. The API publishes no active listings, so the floor and the market cap read as withheld, never as zero.",
-    holders:
-      "Not counted; no ownership read is wired for its card contract. A card's metadata (set, number, grade, cert, language) is kept the first time the card sells, so a card seen only as a pack prize has no card page.",
-    primary:
-      `Pack pulls from the same API: each checkout with its buyer, price and transaction, and the prize once Renaiss names it, which for its V3 packs happens when the set sells out, so the last ${PULLS_REREAD_DAYS} days are re-read on every run and a pull is written again only when it is new or has changed: its prize named, or its checkout matched. The prize value is the one Renaiss states. A draw seen on its public list but not yet matched to a checkout is kept and never counted as spend. Its pulls are kept apart from the other venues' pull records, so the player analysis does not cover it. No payout wallet is known, so net revenue is withheld with that reason.`,
-  },
-};
 
 function VenueSources() {
   return (
@@ -553,6 +515,83 @@ function MethodChangesSection({ ledger }: { ledger: MethodLedger }) {
           </div>
         );
       })}
+    </Section>
+  );
+}
+
+/**
+ * WHAT EACH MONTH RESTS ON — the market index's sample by venue, every published
+ * month, from the blob's `venues`. Stated here so a reader does not have to
+ * discover from the receipts that a stretch of the history rests on one venue.
+ *
+ * ⚠️ NO VENUES, NO SECTION: an older blob without the field renders nothing
+ * rather than an empty table that would read as "no venues".
+ */
+function IndexVenuesSection({ rows }: { rows: { month: string; venues: StepVenues }[] }) {
+  const sorted = [...rows].sort((a, b) => a.month.localeCompare(b.month));
+  const months = sorted.map((r) => r.month);
+  if (!months.length) return null;
+  const venues = Object.fromEntries(sorted.map((r) => [r.month, r.venues])) as Record<string, StepVenues>;
+  const totals = new Map<string, number>();
+  for (const m of months) for (const [v, x] of Object.entries(venues[m].byVenue)) totals.set(v, (totals.get(v) ?? 0) + x.identities);
+  const cols = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
+  const doubled = months.some((m) => venues[m].multiVenue > 0);
+  return (
+    <Section title="What each month rests on" id="index-venues">
+      <p>
+        The market index&apos;s sample by venue, for every published month: the identities
+        priced in both months of the step, and the sales behind them. An identity sold on two
+        venues counts under each, so a row can add to more than its distinct identities.
+      </p>
+      <div className="scroll-x mt-3 rounded-xl border border-line bg-bg-1" data-index-venues>
+        <table className="w-full min-w-[420px] border-collapse text-left text-[12.5px]">
+          <thead>
+            <tr className="border-b border-line text-[10.5px] uppercase tracking-[0.07em] text-ink-4">
+              <th scope="col" className="py-2 pl-4 pr-3 font-medium">Month</th>
+              {cols.map((v) => (
+                <th key={v} scope="col" className="px-3 py-2 text-right font-medium">
+                  {PLATFORM_META[v as CardPlatform]?.label ?? v}
+                </th>
+              ))}
+              <th scope="col" className="py-2 pl-3 pr-4 text-right font-medium">Identities</th>
+            </tr>
+          </thead>
+          <tbody>
+            {months.map((m) => {
+              const row = venues[m];
+              return (
+                <tr key={m} className="border-b border-line/60 last:border-0">
+                  <th scope="row" className="py-2 pl-4 pr-3 text-left font-normal">
+                    <Link href={receiptsHref("market:total", m)} className="tabular text-ink-2 underline-offset-2 hover:text-yellow hover:underline">
+                      {monthName(m)} {m.slice(0, 4)}
+                    </Link>
+                  </th>
+                  {cols.map((v) => {
+                    const c = row.byVenue[v];
+                    return (
+                      <td key={v} className="px-3 py-2 text-right tabular">
+                        {c && c.identities ? (
+                          <>
+                            <span className="text-ink">{c.identities}</span>
+                            <span className="text-ink-4"> · {c.sales} sales</span>
+                          </>
+                        ) : (
+                          <span className="text-ink-4">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className="py-2 pl-3 pr-4 text-right tabular text-ink-2">{row.identities}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 font-mono text-[11px] text-ink-4">
+        identities priced in both months of the step · sales behind them
+        {doubled ? " · a month whose identities sold on two venues counts them under each" : ""} · every month links to its receipts
+      </p>
     </Section>
   );
 }

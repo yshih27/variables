@@ -3,6 +3,11 @@
  *   • Beezie:    Rarible /ownerships/byCollection (paginated) + cached metadata
  *   • CC:        Helius DAS searchAssets (paginated, metadata + owner inline)
  *   • Phygitals: Helius DAS searchAssets over its two cNFT collections
+ *   • Renaiss:   ON-CHAIN on BNB Smart Chain — every live token of its
+ *                ERC721Enumerable collection and its owner through Multicall3,
+ *                minus the wallets the contract names as Renaiss's (renaiss/holders.ts).
+ *                Also writes `renaiss-holdings` (exclusions, burns, and the stated-
+ *                value market cap warm-marketcap folds in at ≥ 80% coverage).
  *   • Courtyard: skipped (no metadata cache + ~millions of tokens — separate effort)
  *
  * Writes the `holders` Postgres snapshot (see src/lib/data/holders.ts for shape).
@@ -36,6 +41,15 @@ import type { DasGroupResponse } from "../src/lib/helius/client";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
 import { dasAssetToTokenMetadata } from "../src/lib/data/ccTraits";
 import { runWarmer } from "../src/lib/db/runWarmer";
+import {
+  readLiveTokens,
+  readOperatedWallets,
+  readPulledTokens,
+  readSoldTokenIps,
+  readSoldTokens,
+  summarizeHoldings,
+  writeRenaissHoldings,
+} from "../src/lib/renaiss/holders";
 
 const SCAN_BUDGET_MS = 10 * 60 * 1000; // per-scan; parallel → total ≤ budget
 
@@ -213,6 +227,35 @@ async function warmPhygitals(deadline: number): Promise<ScanResult> {
   return { total: totalOwners.size, assets: tokens, byIp, complete };
 }
 
+/**
+ * Renaiss, on-chain. No API key, no Helius: public BNB RPCs (eth_call only)
+ * and the two Renaiss row stores. Measured Oct 7: 11,215 live tokens in 76
+ * multicalls, 5 s; the named-pull read is the slow part (one keyset pass).
+ */
+async function warmRenaiss(deadline: number): Promise<ScanResult> {
+  const t0 = Date.now();
+  console.log("→ Renaiss holders (BNB Smart Chain, on-chain)");
+  const operated = await readOperatedWallets();
+  const live = await readLiveTokens({ deadlineMs: Math.max(30_000, deadline - Date.now()) });
+  const pulled = await readPulledTokens();
+  const sold = await readSoldTokens();
+  const ipOfSold = await readSoldTokenIps([...sold]);
+  const complete = live.unanswered === 0;
+  const { summary, ownersByIp } = summarizeHoldings({ live, operated, pulled: pulled.tokens, sold, ipOfSold, complete });
+  await writeRenaissHoldings(summary);
+  console.log(
+    `  Renaiss: ${summary.holders.toLocaleString()} holders · ${summary.tokensHeld.toLocaleString()} tokens held of ${summary.liveTokens.toLocaleString()} live ` +
+      `(${live.multicalls} multicalls, ${(live.ms / 1000).toFixed(1)}s; ${live.unanswered} unanswered) · excluded ` +
+      `${summary.excluded.map((e) => `${e.address.slice(0, 10)}… (${e.roles.join("/")}) ${e.tokens}`).join(", ")} · ` +
+      `burned (likely redeemed) ${Number.isFinite(summary.burnedLikelyRedeemed) ? summary.burnedLikelyRedeemed.toLocaleString() : "—"} · ` +
+      `stated value coverage ${summary.stated.coveragePct.toFixed(1)}% · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
+  );
+  return { total: summary.holders, assets: summary.liveTokens, byIp: ownersByIp, complete };
+}
+
+/** An EVM owner as one key: Rarible's "BASE:0xabc…" and the chain's "0xabc…" match. */
+const evmKey = (owner: string) => owner.replace(/^[A-Z_]+:/, "").toLowerCase();
+
 async function main() {
   const t0 = Date.now();
   // Resilient: a hang/failure in one source must not sink the other or leave the
@@ -220,14 +263,18 @@ async function main() {
   // we got. Only fail (so runWarmer records an error) when BOTH sources fail outright.
   const empty: ScanResult = { total: 0, assets: 0, byIp: new Map(), complete: false };
   const deadline = Date.now() + SCAN_BUDGET_MS;
-  const [beezieR, ccR, phR] = await Promise.allSettled([
+  const [beezieR, ccR, phR, rnR] = await Promise.allSettled([
     guard(warmBeezie(deadline), "Beezie"),
     guard(warmCC(deadline), "CC"),
     guard(warmPhygitals(deadline), "Phygitals"),
+    guard(warmRenaiss(deadline), "Renaiss"),
   ]);
   const beezie = beezieR.status === "fulfilled" ? beezieR.value : empty;
   const cc = ccR.status === "fulfilled" ? ccR.value : empty;
   const ph = phR.status === "fulfilled" ? phR.value : empty;
+  const rn = rnR.status === "fulfilled" ? rnR.value : empty;
+  if (rnR.status === "rejected")
+    console.warn(`  Renaiss holders FAILED: ${(rnR.reason as Error).message}`);
   if (beezieR.status === "rejected")
     console.warn(`  Beezie holders FAILED: ${(beezieR.reason as Error).message}`);
   if (ccR.status === "rejected")
@@ -258,6 +305,7 @@ async function main() {
     ["beezie", beezie],
     ["collector-crypt", cc],
     ["phygitals", ph],
+    ["renaiss", rn],
   ] as const;
   const lastGood: Record<string, number> = {};
   for (const [key] of PLATS) {
@@ -300,9 +348,10 @@ async function main() {
     byIp[ip] = { total: union.size + carriedSum, perPlatform };
   }
 
-  const platTotal = (key: "beezie" | "collector-crypt" | "phygitals", res: ScanResult) =>
+  type PlatKey = (typeof PLATS)[number][0];
+  const platTotal = (key: PlatKey, res: ScanResult) =>
     carried.has(key) ? lastGood[key] : res.total;
-  const tag = (key: "beezie" | "collector-crypt" | "phygitals", res: ScanResult) =>
+  const tag = (key: PlatKey, res: ScanResult) =>
     carried.has(key) ? " (carried)" : res.total === 0 ? " (no data)" : res.complete ? "" : " (partial)";
 
   // True cross-platform holder count (X2). beezie is on Base (0x… addresses) so it
@@ -312,6 +361,18 @@ async function main() {
   // When a Solana scan is carried (no owner set to union), reconstruct the previous
   // Solana union from the last snapshot rather than an inflated sum.
   const beezieN = platTotal("beezie", beezie);
+  // EVM: Beezie (Base) and Renaiss (BNB) share an address space, so a wallet on
+  // both counts once — the same union rule as the two Solana venues below. A
+  // carried scan has no owner set: then its count is added, as before.
+  let evm: number;
+  if (!carried.has("beezie") && !carried.has("renaiss") && rn.total > 0) {
+    const set = new Set<string>();
+    for (const s of beezie.byIp.values()) for (const o of s) set.add(evmKey(o));
+    for (const s of rn.byIp.values()) for (const o of s) set.add(evmKey(o));
+    evm = set.size;
+  } else {
+    evm = beezieN + platTotal("renaiss", rn);
+  }
   let solanaUnion: number;
   if (!carried.has("collector-crypt") && !carried.has("phygitals")) {
     const sol = new Set<string>();
@@ -323,7 +384,7 @@ async function main() {
   } else {
     solanaUnion = platTotal("collector-crypt", cc) + platTotal("phygitals", ph);
   }
-  const totalHolders = beezieN + solanaUnion;
+  const totalHolders = evm + solanaUnion;
 
   // Circulating supply per platform = assets enumerated by the scan. Carry-forward
   // like the holder totals: a failed scan (total 0) keeps the prev supply; a PARTIAL
@@ -345,6 +406,9 @@ async function main() {
       beezie: beezieN,
       "collector-crypt": platTotal("collector-crypt", cc),
       phygitals: platTotal("phygitals", ph),
+      // Only once a Renaiss scan has counted it (now or carried): until then the
+      // key is absent and the page prints its holdersReason, never a 0.
+      ...(platTotal("renaiss", rn) > 0 ? { renaiss: platTotal("renaiss", rn) } : {}),
     },
     byIp,
     totalHolders,
@@ -356,7 +420,8 @@ async function main() {
       `beezie=${platTotal("beezie", beezie)}${tag("beezie", beezie)} ` +
       `cc=${platTotal("collector-crypt", cc)}${tag("collector-crypt", cc)} ` +
       `phygitals=${platTotal("phygitals", ph)}${tag("phygitals", ph)} ` +
-      `· unique=${totalHolders} (sum ${beezieN + platTotal("collector-crypt", cc) + platTotal("phygitals", ph)})`,
+      `renaiss=${platTotal("renaiss", rn)}${tag("renaiss", rn)} ` +
+      `· unique=${totalHolders} (sum ${beezieN + platTotal("collector-crypt", cc) + platTotal("phygitals", ph) + platTotal("renaiss", rn)})`,
   );
   if (carried.size) console.log(`  carried-forward (scan failed): ${[...carried].join(", ")}`);
   console.log(

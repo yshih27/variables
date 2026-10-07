@@ -55,6 +55,7 @@ export function IPByPlatform({
   donutTitle = "Platform share",
   showChain = true,
   hrefBase,
+  salesWindow = "24h",
 }: {
   rows: PlatformRow[];
   title?: string;
@@ -69,7 +70,11 @@ export function IPByPlatform({
   /** When set, each row links to `${hrefBase}${row.key}` (e.g. "/platform/").
    *  The synthetic "other" bucket never links. */
   hrefBase?: string;
+  /** The window the rows' volume and trades cover (a thin venue's platform page
+   *  reads 7 days; PlatformDetail.salesWindow). The column labels follow it. */
+  salesWindow?: "24h" | "7d";
 }) {
+  const w = salesWindow === "7d" ? "7d" : "24h";
   const [metric, setMetric] = useState<DonutMetric>("volume");
   const [hover, setHover] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("vol");
@@ -121,10 +126,10 @@ export function IPByPlatform({
                   <SortTh left {...sp("name")}>{entityHeader}</SortTh>
                   {showChain && <Th left>Chain</Th>}
                   <SortTh {...sp("cards")}>Cards</SortTh>
-                  <SortTh {...sp("vol")}>24h Vol</SortTh>
+                  <SortTh {...sp("vol")}>{`${w} Vol`}</SortTh>
                   <SortTh {...sp("mcap")}>Market Cap</SortTh>
-                  <SortTh {...sp("trades")}>24h Trades</SortTh>
-                  <SortTh {...sp("avgTrade")}>Avg Trade · 24h</SortTh>
+                  <SortTh {...sp("trades")}>{`${w} Trades`}</SortTh>
+                  <SortTh {...sp("avgTrade")}>{`Avg Trade · ${w}`}</SortTh>
                   <SortTh {...sp("holders")}>Holders</SortTh>
                 </tr>
               </thead>

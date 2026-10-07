@@ -5,6 +5,8 @@ import { CardArt } from "./CardImage";
 import { Section } from "./Section";
 import { isSealed } from "@/lib/card/sealed";
 import type { CoverflowHit } from "@/lib/data/gachaHits";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { Ago } from "./gacha/Ago";
 
 /**
  * LIVE hits ticker — the slim ambient band of biggest realized pulls under the
@@ -21,11 +23,21 @@ import type { CoverflowHit } from "@/lib/data/gachaHits";
  * kept ∝ chip count so the drift velocity stays constant regardless of tiling.
  */
 
-const PF: Record<string, { short: string; color: string; name: string }> = {
-  "collector-crypt": { short: "CC", color: "#2bd6a0", name: "Collector Crypt" },
-  phygitals: { short: "PH", color: "#ffd23d", name: "Phygitals" },
-  beezie: { short: "B", color: "#5b9bff", name: "Beezie" },
-};
+/** A venue's name and two-character monogram, from the registry (any venue,
+ *  not a hard-coded three). The tile is neutral: venue identity is the code. */
+function venueOf(key: string, fallbackName: string): { code: string; name: string } {
+  const r = PLATFORM_SOURCES.find((p) => p.key === key);
+  return { code: r?.railCode ?? key.slice(0, 2).toUpperCase(), name: r?.name ?? fallbackName };
+}
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Oct 7, 14:05 UTC" */
+function stamp(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${MON[d.getUTCMonth()]} ${d.getUTCDate()}, ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+}
 
 const CHIP_PX = 320; // rough chip width, for the tiling estimate
 const TARGET_ROW_PX = 2100; // ≥ the 1760 container + margin
@@ -33,9 +45,15 @@ const TARGET_ROW_PX = 2100; // ≥ the 1760 container + margin
 export function GachaHitsTicker({
   hits,
   windowLabel,
+  source,
+  asOf,
 }: {
   hits: CoverflowHit[];
   windowLabel: string;
+  /** The payload's `hitsSource`: "live" only when the listener's feed is fresh. */
+  source: "live" | "warmers" | null;
+  /** When the hits were read (`hitsAsOf`, else the payload's generatedAt). */
+  asOf: string | null;
 }) {
   if (hits.length === 0) return null;
 
@@ -52,14 +70,16 @@ export function GachaHitsTicker({
   );
 
   return (
+    // "Live" is claimed only when the payload says the source is the live feed;
+    // otherwise the band names the time it was read.
     <Section
-      title="Live hits"
-      readMe="the tail of the odds — what the luckiest packs actually paid"
-      subtitle={`Biggest realized pulls · ${windowLabel}`}
+      title={source === "live" ? "Live hits" : "Recent hits"}
+      readMe="the luckiest pulls, and what they actually paid"
+      subtitle={`Biggest realized pulls · ${windowLabel}${source === "live" ? " · live" : stamp(asOf) ? ` · as of ${stamp(asOf)}` : ""}`}
       className="mt-7 font-sans"
       flush
     >
-      <div className="ght" aria-label={`Biggest gacha hits, ${windowLabel}`}>
+      <div className="ght" aria-label={`Biggest realized pulls, ${windowLabel}`}>
         <div className="ght-mask">
           <div className="ght-track" style={{ ["--ght-dur" as string]: dur }}>
             {row(false)}
@@ -73,7 +93,7 @@ export function GachaHitsTicker({
 
 function Chip({ hit, dup }: { hit: CoverflowHit; dup: boolean }) {
   const link = cardSupported(hit.platformKey) ? cardHref(hit.platformKey, hit.mint) : null;
-  const pf = PF[hit.platformKey] ?? { short: "?", color: "#888", name: hit.platform };
+  const pf = venueOf(hit.platformKey, hit.platform);
   // Sealed products get a squarer frame (no slab crop, no pedestal zoom) — R6-1.
   const sealed = isSealed(hit.name, hit.grade);
   const artClass = `ght-art${sealed ? " ght-art--sealed" : hit.platformKey === "phygitals" ? " ght-art--zoom" : ""}`;
@@ -84,7 +104,7 @@ function Chip({ hit, dup }: { hit: CoverflowHit; dup: boolean }) {
             platform-colored slab glyph instead of a blank box. */}
         <CardArt
           sources={[proxyImg(hit.image ?? undefined), proxyImg(hit.imageFallback ?? undefined)]}
-          color={pf.color}
+          color="var(--color-line-2)"
           imgClassName=""
         />
       </span>
@@ -95,12 +115,13 @@ function Chip({ hit, dup }: { hit: CoverflowHit; dup: boolean }) {
         </span>
         <span className="ght-name">{hit.name.replace(/^\d{4}\s+/, "")}</span>
         <span className="ght-sub">
-          <span className="ght-pf" style={{ background: pf.color }} title={pf.name}>
-            {pf.short}
+          <span className="ght-pf" style={{ background: "var(--color-bg-3)", color: "var(--color-ink-2)" }} title={pf.name}>
+            {pf.code}
           </span>
           <span className="ght-sub-t">
             {pf.name}
-            {hit.pack ? ` · ${hit.pack}` : ""} · {hit.ago}
+            {hit.pack ? ` · ${hit.pack}` : ""}
+            <Ago at={hit.at} prefix=" · " />
           </span>
         </span>
       </span>

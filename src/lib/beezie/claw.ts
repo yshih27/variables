@@ -73,7 +73,7 @@ export function beezieImage(tokenId: number): string {
   return `https://images.beezie.com/base/${tokenId}/4/512.webp`;
 }
 
-/** Fetch the full Claw catalog (4 active claws today). Throws on non-200. */
+/** Fetch the full Claw catalog (every claw /claw lists; the count is the feed's, not ours). Throws on non-200. */
 export async function fetchBeezieClaws(): Promise<BeezieClaw[]> {
   const res = await fetch(`${BASE}/claw`, { headers: HEADERS, cache: "no-store" });
   if (!res.ok) throw new Error(`Beezie /claw ${res.status}`);

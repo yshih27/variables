@@ -107,6 +107,7 @@ export type DyliPull = {
   box_id: number;
   collectible_id: number | null;
   title: string | null;
+  image: string | null;
   /** DYLI's fair-market mark for the item pulled. */
   fmv_usd: number | null;
   fmv_source: string | null;
@@ -138,6 +139,7 @@ function toPull(r: Record<string, unknown>, boxId: number): DyliPull {
     box_id: Number(r.box_id ?? boxId),
     collectible_id: num(r.collectible_id),
     title: (r.title as string) ?? null,
+    image: (r.image_url as string) ?? null,
     fmv_usd: num(r.fmv_usd),
     fmv_source: (r.fmv_source as string) ?? null,
     tier: (r.tier as string) ?? null,
@@ -172,5 +174,18 @@ export async function fetchBoxHistoryPage(boxId: number, cursor?: number): Promi
     nextCursor: p.next_cursor ?? null,
     hasMore: Boolean(p.has_more),
     newestPullId: p.newest_pull_id ?? null,
+  };
+}
+
+/** One box's detail — `chase_cards` (the box's advertised top remaining hits) and its art. */
+export async function fetchBoxDetail(boxId: number): Promise<{ image: string | null; chase: unknown; brand: string | null; type: string | null; name: string | null }> {
+  const res = await dyliGet<{ box?: Record<string, unknown> }>(`/boxes/${boxId}`, {});
+  const b = res.box ?? {};
+  return {
+    image: (b.image_url as string) ?? (b.cover_image_url as string) ?? null,
+    chase: b.chase_cards ?? b.top_chase_cards ?? [],
+    brand: (b.brand as string) ?? null,
+    type: (b.type as string) ?? null,
+    name: (b.name as string) ?? null,
   };
 }

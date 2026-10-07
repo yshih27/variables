@@ -20,7 +20,7 @@ import { readSnapshot, writeSnapshot } from "../db/snapshots";
  * Crypt's appraised cap — $3/holder sitting next to $398K/day of gacha, with
  * nothing on the page to say why.
  */
-export type McapBasis = "appraisal" | "floor";
+export type McapBasis = "appraisal" | "floor" | "stated";
 
 /** Platforms absent here have no market cap tracked at all (Courtyard). */
 export const MCAP_BASIS: Record<string, McapBasis> = {
@@ -32,12 +32,17 @@ export const MCAP_BASIS: Record<string, McapBasis> = {
   // so it shares the floor label. It is not floor × supply: DYLI settles on
   // Abstract with no holder scan, so no supply figure exists to multiply by.
   dyli: "floor",
+  // Renaiss's own stated prize value at pull, over the tokens held outside its
+  // wallets (renaiss/holders.ts). The venue's appraisal, like CC's insured value,
+  // so it is never called a price; written only at ≥ 80% coverage.
+  renaiss: "stated",
 };
 
 /** The qualifier shown beside the number. */
 export const MCAP_BASIS_LABEL: Record<McapBasis, string> = {
   appraisal: "vault appraisal",
   floor: "floor-based estimate",
+  stated: "platform's stated prize value",
 };
 
 export type MarketCapIPEntry = {

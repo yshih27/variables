@@ -40,7 +40,7 @@
  * v2's token pairs are kept as a CHECK, not as the index — see repeatSalesIndex.ts
  * and the bias tests in `biasTests.ts`.
  */
-import type { IndexPoint } from "./indices";
+import type { IndexPoint, IndexProvisional, StepVenues } from "./indices";
 import type { SaleRow } from "./salePanel";
 import { weekStartUtc, weekEndUtc, monthStartUtc, monthEndUtc } from "@/lib/chart/period";
 
@@ -398,6 +398,54 @@ export function identityIndex(sales: SaleRow[], opts: IdentityIndexOptions = {})
 }
 
 /**
+ * Per period, per identity: sales by venue, and the newest sale — what a step's
+ * `venues` and a provisional's `asOf` are read from. Same filter as
+ * `identityPrices` (an identity and a positive price), so the counts are the
+ * sales behind the medians.
+ */
+type VenueLedger = Map<string, Map<string, { byVenue: Map<string, number>; newest: number }>>;
+
+function venueLedger(sales: SaleRow[], grain: Grain): VenueLedger {
+  const G = GRAINS[grain];
+  const out: VenueLedger = new Map();
+  for (const s of sales) {
+    if (!s.identity || !(s.priceUsd > 0)) continue;
+    const t = Date.parse(s.ts);
+    if (!Number.isFinite(t)) continue;
+    const period = G.start(t);
+    let byId = out.get(period);
+    if (!byId) out.set(period, (byId = new Map()));
+    let e = byId.get(s.identity);
+    if (!e) byId.set(s.identity, (e = { byVenue: new Map(), newest: -Infinity }));
+    e.byVenue.set(s.platform, (e.byVenue.get(s.platform) ?? 0) + 1);
+    if (t > e.newest) e.newest = t;
+  }
+  return out;
+}
+
+/** The venues behind one step's sample: its identities, over the two months of the step. */
+export function stepVenues(ledger: VenueLedger, fromPeriod: string, toPeriod: string, ids: string[]): StepVenues {
+  const byVenue: Record<string, { identities: number; sales: number }> = {};
+  let sales = 0;
+  let multiVenue = 0;
+  for (const id of ids) {
+    const venuesOfId = new Set<string>();
+    for (const period of [fromPeriod, toPeriod]) {
+      const e = ledger.get(period)?.get(id);
+      if (!e) continue;
+      for (const [venue, n] of e.byVenue) {
+        (byVenue[venue] ??= { identities: 0, sales: 0 }).sales += n;
+        sales += n;
+        venuesOfId.add(venue);
+      }
+    }
+    for (const v of venuesOfId) byVenue[v].identities += 1;
+    if (venuesOfId.size > 1) multiVenue += 1;
+  }
+  return { byVenue, identities: ids.length, sales, multiVenue };
+}
+
+/**
  * The chain AND the months it withheld, with the gate that withheld each one.
  *
  * ⚠️ ONE IMPLEMENTATION, TWO VIEWS. `identityIndex` is this function's `points`
@@ -409,7 +457,7 @@ export function identityIndex(sales: SaleRow[], opts: IdentityIndexOptions = {})
 export function chainIdentityIndex(
   sales: SaleRow[],
   opts: IdentityIndexOptions = {},
-): { points: IdentityIndexPoint[]; holds: IndexHold[] } {
+): { points: IdentityIndexPoint[]; holds: IndexHold[]; provisional: IndexProvisional | null } {
   const grain = opts.grain ?? "month";
   const G = GRAINS[grain];
   const floor = opts.minIdentities ?? MIN_IDENTITIES_IP;
@@ -418,13 +466,15 @@ export function chainIdentityIndex(
 
   const prices = identityPrices(sales, grain);
   const steps = periodSteps(prices, grain);
-  if (!steps.length) return { points: [], holds: [] };
+  if (!steps.length) return { points: [], holds: [], provisional: null };
 
   // Never publish the running period (mirrors completeWeeksOnly/completeMonthsOnly).
-  const runningIdx = G.index(G.start(opts.nowMs ?? Date.now()));
+  const runningStart = G.start(opts.nowMs ?? Date.now());
+  const runningIdx = G.index(runningStart);
+  const ledger = venueLedger(sales, grain);
 
   const qualifying = steps.filter((s) => s.overlap >= floor);
-  if (!qualifying.length) return { points: [], holds: [] };
+  if (!qualifying.length) return { points: [], holds: [], provisional: null };
   const baseIdx = G.index(qualifying[0].week) - 1;
   const baseStart = G.fromIndex(baseIdx);
 
@@ -434,6 +484,19 @@ export function chainIdentityIndex(
   let logLevel = 0;
   let cumVar = 0;
   let lastPublishedIdx = baseIdx;
+  // The running month's reading, set where the loop meets its step. Its level
+  // is relative to the same base as the points, so it takes the same rebase.
+  let provisional: IndexProvisional | null = null;
+  const prevStart = (st: WeeklyStep) => G.fromIndex(G.index(st.week) - 1);
+  /** The newest sale in the running month among `ids` (all identities when null). */
+  const newestInRunning = (ids: string[] | null): string | null => {
+    const byId = ledger.get(runningStart);
+    if (!byId) return null;
+    let best = -Infinity;
+    for (const [id, e] of byId) if ((!ids || ids.includes(id)) && e.newest > best) best = e.newest;
+    return Number.isFinite(best) ? new Date(best).toISOString() : null;
+  };
+  const month = runningStart.slice(0, 7);
 
   if (baseIdx < runningIdx) {
     out.push({
@@ -451,6 +514,9 @@ export function chainIdentityIndex(
     // publish, and do not treat it as zero.
     if (st.overlap < floor) {
       holds.push({ ts: G.end(Date.parse(st.week)), reason: "below-floor", overlap: st.overlap, floor, stepPct: stepPctOf(st) });
+      if (idx === runningIdx) {
+        provisional = { month, asOf: newestInRunning(st.obs.map((o) => o.id)), n: st.overlap, floor, reason: "below-floor", stepPct: stepPctOf(st) };
+      }
       continue;
     }
     /**
@@ -468,13 +534,36 @@ export function chainIdentityIndex(
      */
     if (Math.abs(stepPctOf(st)) > STEP_LIMIT_PCT && st.overlap < THIN_MONTH_IDENTITIES) {
       holds.push({ ts: G.end(Date.parse(st.week)), reason: "step-limit", overlap: st.overlap, floor, stepPct: stepPctOf(st) });
+      if (idx === runningIdx) {
+        provisional = { month, asOf: newestInRunning(st.obs.map((o) => o.id)), n: st.overlap, floor, reason: "step-limit", stepPct: stepPctOf(st) };
+      }
       continue;
     }
     logLevel += st.logReturn;
     const sd = bootstrapSd(st.obs, 1000003 + idx * 7919);
     if (Number.isFinite(sd)) cumVar += sd * sd;
+    const venues = stepVenues(ledger, prevStart(st), st.week, st.obs.map((o) => o.id));
     if (idx >= runningIdx) {
       holds.push({ ts: G.end(Date.parse(st.week)), reason: "running-month", overlap: st.overlap, floor, stepPct: stepPctOf(st) });
+      if (idx === runningIdx) {
+        // The step the chain computes and holds, as a reading: the last close ×
+        // exp(step), the band from the chain's variance plus this step's. Never
+        // chained further and never a point.
+        const value = 100 * Math.exp(logLevel);
+        const half = z * Math.sqrt(cumVar);
+        provisional = {
+          month,
+          asOf: newestInRunning(st.obs.map((o) => o.id)),
+          value,
+          stepPct: stepPctOf(st),
+          n: st.overlap,
+          lo: value * Math.exp(-half),
+          hi: value * Math.exp(half),
+          thin: st.overlap < THIN_MONTH_IDENTITIES,
+          spansMonths: idx - lastPublishedIdx,
+          venues,
+        };
+      }
       continue;
     }
     const spans = idx - lastPublishedIdx;
@@ -494,8 +583,16 @@ export function chainIdentityIndex(
       // identities" rather than presenting it with the same confidence as a
       // month with 200.
       thin: st.overlap < THIN_MONTH_IDENTITIES,
+      venues,
       obs: st.obs,
     });
+  }
+
+  // No step at all for the running month (nothing priced in both months yet): a
+  // below-floor record with an empty sample, so an entity that publishes always
+  // says what its running month is.
+  if (!provisional) {
+    provisional = { month, asOf: newestInRunning(null), n: 0, floor, reason: "below-floor", stepPct: null };
   }
 
   // Months inside the chain's span that produced no adjacent pair at all — a
@@ -508,7 +605,7 @@ export function chainIdentityIndex(
   }
   holds.sort((a, b) => a.ts.localeCompare(b.ts));
 
-  if (out.length < minPeriods) return { points: [], holds: [] };
+  if (out.length < minPeriods) return { points: [], holds: [], provisional: null };
   const base0 = out[0].value;
   if (base0 > 0 && Math.abs(base0 - 100) > 1e-9) {
     const f = 100 / base0;
@@ -517,6 +614,7 @@ export function chainIdentityIndex(
       if (p.lo != null) p.lo *= f;
       if (p.hi != null) p.hi *= f;
     }
+    if ("value" in provisional) provisional = { ...provisional, value: provisional.value * f, lo: provisional.lo * f, hi: provisional.hi * f };
   }
-  return { points: out, holds };
+  return { points: out, holds, provisional };
 }
