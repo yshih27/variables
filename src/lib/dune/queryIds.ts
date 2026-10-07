@@ -37,10 +37,11 @@ export const GACHA_LIVE_QUERY_ID = 8252733;
  * for 24h/7d/30d. 7d is the headline window (24h is small-sample; 30d can
  * include occasional bulk inventory moves).
  *
- * ⚠️ EXECUTION PAUSED. This feeds ONLY the /gacha page, which is gated off
- * behind GACHA_ENABLED — so we were paying for a daily execution nothing could
- * display. The warmer skips it while the flag is off and carries the last odds
- * forward in the snapshot; flipping GACHA_ENABLED on resumes it. The code path
+ * ⚠️ EXECUTION PAUSED. Nothing renders its output since the pack-centric
+ * /gacha (#181/#177), which reads CC's odds from its native catalog and the
+ * realized spine. The warmer skips it and carries the last odds forward unless
+ * CC_ODDS_DUNE="true" (warmers/gacha.ts); it no longer follows GACHA_ENABLED,
+ * so the page going public on Oct 7 2026 restarted no paid read. The code path
  * is deliberately intact — do not delete it.
  */
 export const CC_ODDS_QUERY_ID = 7643215;

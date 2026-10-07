@@ -13,8 +13,14 @@
  * keep running so the data stays warm.
  *
  * Relaunch later = set NEXT_PUBLIC_GACHA_ENABLED="true" and redeploy. Nothing to rebuild.
+ *
+ * ⚠️ ON BY DEFAULT SINCE OCT 7 2026 (the owner's word, after the every-venue
+ * relaunch #181/#177): the page is public unless NEXT_PUBLIC_GACHA_ENABLED is
+ * set to "false", which hides it again exactly as before. The paid Dune CC odds
+ * read it used to switch on is NOT tied to this flag any more (warmers/gacha.ts,
+ * CC_ODDS_DUNE): nothing renders it, so turning the page on costs no credits.
  */
-export const GACHA_ENABLED = process.env.NEXT_PUBLIC_GACHA_ENABLED === "true";
+export const GACHA_ENABLED = process.env.NEXT_PUBLIC_GACHA_ENABLED !== "false";
 
 /**
  * SHELL_V2 gates the terminal frame (docs/roadmap/brief-frontend-shell-v2.md):

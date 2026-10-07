@@ -18,7 +18,6 @@ import {
   CC_ODDS_QUERY_ID,
   CC_BIG_HITS_QUERY_ID,
 } from "../../dune/queryIds";
-import { GACHA_ENABLED } from "../../flags";
 import {
   readGachaDune,
   writeGachaDune,
@@ -155,7 +154,7 @@ export type GachaWarmResult = {
  *
  * Two of the four inputs are no longer fetched on every run, because Dune bills
  * per execution and nothing consumed them daily:
- *   • ODDS     — feeds only the /gacha page, which GACHA_ENABLED gates off.
+ *   • ODDS     — feeds nothing since the pack-centric /gacha; paid only with CC_ODDS_DUNE="true".
  *   • BIG HITS — feeds only the weekly report; refreshed by `--big-hits` in the
  *                Monday job.
  * Both are CARRIED FORWARD from the previous snapshot when skipped. That matters:
@@ -245,11 +244,14 @@ export async function runGachaWarm(
   // written again. If a blob-level window is ever wanted back, derive it from
   // the spine (readMetricSeries) — do not re-add a second Dune read.
 
-  // CC odds — realized rarity-tier distribution from prize deliveries. Only the
-  // flag-gated /gacha page renders this, so while GACHA_ENABLED is off we carry
-  // the last computed odds forward instead of paying for a daily execution.
+  // CC odds — realized rarity-tier distribution from prize deliveries. Nothing
+  // renders `platforms[].odds` since the pack-centric /gacha (#181/#177 read
+  // CC's odds from its native catalog and the realized spine), so the paid
+  // daily execution runs only when CC_ODDS_DUNE="true"; otherwise the last
+  // computed odds are carried forward. It used to follow GACHA_ENABLED, which
+  // would have restarted a paid read the moment the page went public.
   if (platforms["collector-crypt"]) {
-    if (GACHA_ENABLED) {
+    if (process.env.CC_ODDS_DUNE === "true") {
       try {
         const rows = await fetchRows(CC_ODDS_QUERY_ID);
         // Never null: this does not opt into reuse.
@@ -267,9 +269,9 @@ export async function runGachaWarm(
       const carried = prev?.platforms?.["collector-crypt"]?.odds;
       if (carried?.length) {
         platforms["collector-crypt"].odds = carried;
-        log(`→ collector-crypt odds — carried forward (${carried.length} tiers; GACHA_ENABLED off)`);
+        log(`→ collector-crypt odds — carried forward (${carried.length} tiers; CC_ODDS_DUNE off)`);
       } else {
-        log(`→ collector-crypt odds — skipped (GACHA_ENABLED off, nothing to carry forward)`);
+        log(`→ collector-crypt odds — skipped (CC_ODDS_DUNE off, nothing to carry forward)`);
       }
     }
   }
