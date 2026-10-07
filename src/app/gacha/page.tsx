@@ -117,7 +117,7 @@ export default async function GachaPage() {
             <StatCard
               label="Best typical return"
               value={`${hero.bestEvMultiple.toFixed(2)}×`}
-              sub={`${bestPack.platformName} · ${bestPack.name} · median × buyback${bestPack.realizedN ? ` · n ${bestPack.realizedN}` : ""}`}
+              sub={`${bestPack.platformName} · ${bestPack.name} · median × buyback${bestPack.realizedValueBasis ? `, in ${bestPack.realizedValueBasis}` : ""}${bestPack.realizedN ? ` · n ${bestPack.realizedN}` : ""}`}
               href={`#pack=${encodeURIComponent(bestPack.id)}`}
             />
           ) : (
