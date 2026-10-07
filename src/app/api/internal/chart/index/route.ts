@@ -5,7 +5,7 @@
  * are cached. Same params + `data` shape as /api/v1/index. NOT CORS-open, so it
  * can't be used cross-origin to dodge the keyed public tier.
  */
-import { readIndexSeries, indexStats } from "@/lib/data/indices";
+import { readIndexSeries, indexStats, readIndexProvisional } from "@/lib/data/indices";
 import { v1OkInternal, v1Error, pickParam } from "@/lib/api/v1";
 import { cachedChart, guardChartRequest, CHART_CDN_HEADERS } from "@/lib/api/chartSeries";
 import { tickerOf, indexDisplayName } from "@/lib/indices/naming";
@@ -34,6 +34,10 @@ export async function GET(req: Request) {
     kind === "price"
       ? await cachedChart(["index-stats", entity, key, from], () => indexStats(entity, key, { from }))
       : null;
+  const provisional =
+    kind === "price"
+      ? await cachedChart(["index-provisional", entity, key, from], () => readIndexProvisional(entity, key, { from }))
+      : null;
 
   return v1OkInternal(
     {
@@ -46,6 +50,7 @@ export async function GET(req: Request) {
       freq,
       rebasedTo: 100,
       points,
+      provisional,
       stats,
     },
     CHART_CDN_HEADERS,
