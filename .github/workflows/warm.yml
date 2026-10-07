@@ -26,7 +26,7 @@ on:
         description: Which batch to run
         type: choice
         default: core
-        options: [core, daily, indices, cc-traits, weekly-report]
+        options: [core, daily, player-analytics, indices, cc-traits, weekly-report, renaiss-refill]
 
 # One run at a time; never cancel an in-flight warm (cancelling mid-write is
 # what used to lose data — keep cancel-in-progress false).
@@ -39,6 +39,10 @@ env:
   DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
   HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
   DYLI_API_KEY: ${{ secrets.DYLI_API_KEY }}
+  # Renaiss's index API (10,000 requests a day per key). Until both are set its
+  # two warmers exit 0 with one line and make no request.
+  RENAISS_API_KEY: ${{ secrets.RENAISS_API_KEY }}
+  RENAISS_API_SECRET: ${{ secrets.RENAISS_API_SECRET }}
   RIP_API_KEY: ${{ secrets.RIP_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -90,6 +94,29 @@ jobs:
       - name: DYLI sales (native feed, incremental)
         continue-on-error: true
         run: npx tsx scripts/warm-dyli-sales.ts
+      # Renaiss's own index API. Both warmers are dry runs unless told otherwise,
+      # so the batch passes --apply; each caps itself at RENAISS_MAX_CALLS (1,500).
+      # In the health gate's --require list since the Oct 5 2026 cutover: the key is
+      # in Actions and the backfill wrote both stores (18,304 sales, ~720K pulls), so
+      # a run that fails or goes silent now reddens the gate like every other feed.
+      - name: Renaiss sales (native index API, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-sales.ts --apply
+      - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-pulls.ts --apply
+      # Renaiss's machine board and players, from the rows just stored. No API call.
+      # Machines: a 30-complete-day windowed read (~166K pulls, ~70 s measured Oct 7).
+      # Players: one RPC, renaiss_wallet_spend() (migration 20261007000002); until
+      # it is applied the step logs one line and writes nothing. Neither is in the
+      # --require list yet: the orchestrator adds `renaiss-machines` and
+      # `renaiss-players` after the first green run with the migrations applied.
+      - name: Renaiss machines (30 complete days → machines:renaiss)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-machines.ts --apply
+      - name: Renaiss players (renaiss_wallet_spend RPC → players:renaiss)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-players.ts --apply
       - name: Gacha (cached)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached
@@ -130,7 +157,7 @@ jobs:
       # to run and fail. Combined with the stale/untracked fix in check-freshness,
       # this is what closes the "6 days dead behind green runs" hole.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,price-index,homepage,studio-seed,metric-snapshots,weekly-report
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,renaiss-sales,renaiss-pulls,price-index,homepage,studio-seed,metric-snapshots,weekly-report
       # The index this job just published, gated in the same job (INV-7/11/12/13
       # and INV-14, the running month's reading): no index point goes out without
       # them. Runs even when the health gate fails, so both verdicts show.
@@ -144,7 +171,7 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '30 5 * * *')
       || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'daily')
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110  # 75 until Oct 5 2026: runs took 44–70 min (player analytics ~30 + metric snapshots ~28), and the first Renaiss spine pass adds ~1,050 reads; the spine writes once at the end, so a timeout loses the whole day for every venue
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -187,13 +214,9 @@ jobs:
         run: npx tsx scripts/warm-core-dune.ts
       # Time-series spine — runs LAST: it reads the fresh core-volume (Dune),
       # marketcap, and holders output the steps above wrote.
-      # Full re-aggregation of ~1.5M gacha_pulls rows into the player-analytics
-      # snapshot. Minutes, by design: PostgREST caps every page at 1000 rows, so
-      # this is ~1,525 sequential reads. Daily and precomputed precisely so no
-      # request path ever attempts it.
-      - name: Player analytics (gacha_pulls re-aggregation)
-        continue-on-error: true
-        run: npx tsx scripts/warm-player-analytics.ts
+      # Player analytics runs in its own job below (`player-analytics`), on its own
+      # runner: nothing in this job reads it, and on Oct 7 2026 it took the spine
+      # down with it.
       - name: Metric snapshots (time-series spine)
         continue-on-error: true
         run: npx tsx scripts/warm-metric-snapshots.ts
@@ -208,12 +231,40 @@ jobs:
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
       - name: Freshness gate # fails the job (→ Actions notifies) if any warmer errored
-        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,player-analytics,homepage,dyli-listings,dyli-boxes
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,homepage,dyli-listings,dyli-boxes
       # Data-integrity gate (D10-4) — everything above is fresh now. A HARD invariant
       # violation (fan-out dupes, holders union>sum, hero≠Σrows, avgTrade≠vol/trades,
       # cards>0 while vol=0) fails the run red; SOFT heuristics only warn.
       - name: Invariants gate
         run: npx tsx scripts/check-invariants.ts
+
+  # ── Player analytics — its own job, beside the daily batch, same schedule ──
+  # A full keyset scan of gacha_pulls into the player-analytics snapshot: one
+  # PostgREST page of 1,000 rows at a time, so no request path ever attempts it.
+  # It took 31–39 min a day from Sep 30 to Oct 6 as the table grew, and it sat
+  # in the daily job BEFORE the spine. On Oct 7 (run 37562386190) the daily
+  # runner "lost communication with the server" 62 min into this step and the
+  # spine never ran: a whole day lost for every venue to a section the spine does
+  # not read. On its own runner a slow or dead scan costs the Players section its
+  # freshness, never the day. Runs in parallel with `daily` (same run, same
+  # `warm` concurrency slot).
+  player-analytics:
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 5 * * *')
+      || (github.event_name == 'workflow_dispatch' && (github.event.inputs.batch == 'daily' || github.event.inputs.batch == 'player-analytics'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Player analytics (gacha_pulls re-aggregation)
+        run: npx tsx scripts/warm-player-analytics.ts
+      - name: Freshness gate
+        run: npx tsx scripts/check-freshness.ts --require=player-analytics
 
   # ── Indices — benchmarks + price-index sale panel. Own job + tight timeout so a
   #    slow panel build can't starve the daily batch; runs at 06:00, after daily. ──
@@ -317,6 +368,28 @@ jobs:
         run: npx tsx scripts/warm-ripfun-oracle.ts
       - name: Health gate # fails the job (→ Actions notifies) if the composer errored
         run: npx tsx scripts/check-freshness.ts --require=weekly-report
+
+  # ── On demand — refill Renaiss pull columns (machine_name, prize_image_url) ──
+  # After migration 20261007000001: re-reads the whole pulls history (~1,463 pages
+  # at 500 rows, measured Oct 7) and upserts every row. Within one day's 10,000-call
+  # quota, not within the core job's 75 min. Resumable: the cursor is recorded in
+  # the `renaiss-pulls-refill` snapshot, so a run stopped by the ceiling or the
+  # timeout continues from it on the next dispatch.
+  renaiss-refill:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'renaiss-refill'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RENAISS_MAX_CALLS: "2000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Renaiss pull columns refill (resumable)
+        run: npx tsx scripts/warm-renaiss-pulls.ts --refill-columns --apply
 
   # ── Weekly — full CC collection trait crawl (~122K assets, slow) ──
   # Its own job + a generous timeout: this crawl is what kept blowing the old

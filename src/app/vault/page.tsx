@@ -1,4 +1,6 @@
+import { notFound } from "next/navigation";
 import { NavBar } from "@/components/NavBar";
+import { VAULT_ENABLED } from "@/lib/flags";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { VaultDoor } from "@/components/vault/VaultDoor";
 
@@ -15,6 +17,8 @@ export const metadata = {
 };
 
 export default async function VaultPage() {
+  // Out of public view while VAULT_ENABLED is off (src/lib/flags.ts).
+  if (!VAULT_ENABLED) notFound();
   return (
     <>
       <NavBar ticker={await buildMarketTicker()} />

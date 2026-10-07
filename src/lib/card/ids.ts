@@ -8,6 +8,7 @@
  *
  *   collector-crypt mint  → /card/cc-<mint>
  *   beezie tokenId        → /card/bz-<tokenId>
+ *   renaiss tokenId       → /card/rn-<tokenId>   (a 77-digit decimal ERC-721 id)
  *
  * Platform codes contain no "-", and mint addresses (base58) / Beezie tokenIds
  * (numeric) contain no "-", so splitting on the first "-" is unambiguous.
@@ -18,13 +19,14 @@
  */
 import type { Chain } from "@/lib/types";
 
-export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard";
+export type CardPlatform = "collector-crypt" | "beezie" | "phygitals" | "courtyard" | "renaiss";
 
 const CODE_BY_PLATFORM: Record<CardPlatform, string> = {
   "collector-crypt": "cc",
   beezie: "bz",
   phygitals: "pg",
   courtyard: "cy",
+  renaiss: "rn",
 };
 
 const PLATFORM_BY_CODE: Record<string, CardPlatform> = {
@@ -32,6 +34,7 @@ const PLATFORM_BY_CODE: Record<string, CardPlatform> = {
   bz: "beezie",
   pg: "phygitals",
   cy: "courtyard",
+  rn: "renaiss",
 };
 
 export const PLATFORM_META: Record<CardPlatform, { label: string; chain: Chain }> = {
@@ -39,6 +42,7 @@ export const PLATFORM_META: Record<CardPlatform, { label: string; chain: Chain }
   beezie: { label: "Beezie", chain: "Base" },
   phygitals: { label: "Phygitals", chain: "Solana" },
   courtyard: { label: "Courtyard", chain: "Polygon" },
+  renaiss: { label: "Renaiss", chain: "BNB Chain" },
 };
 
 /** Build the URL for a card detail page from a platform key + tokenId. */
@@ -50,12 +54,12 @@ export function cardHref(platform: string, tokenId: string): string {
 
 /**
  * Whether we can render a card-detail page for this platform today (i.e. we
- * have a per-card metadata reader). Used to avoid linking to a 404. Phygitals /
- * Courtyard don't have readers yet.
+ * have a per-card metadata reader). Used to avoid linking to a 404. Courtyard
+ * doesn't have a reader yet; Renaiss reads the `cards` row its own feed writes.
  */
 export function cardSupported(platform: string): boolean {
   return (
-    platform === "collector-crypt" || platform === "beezie" || platform === "phygitals"
+    platform === "collector-crypt" || platform === "beezie" || platform === "phygitals" || platform === "renaiss"
   );
 }
 

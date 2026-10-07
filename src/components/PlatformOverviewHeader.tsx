@@ -24,9 +24,18 @@ const CHAIN_DOT: Record<Chain, string> = {
   Base: "var(--color-blue)",
   Ethereum: "#9aa6ff",
   Abstract: "#5ee6a8", // DYLI settles on Abstract (chain_id 2741)
+  "BNB Chain": "#F0B90B", // Renaiss settles on BNB Smart Chain; BNB Chain's own brand yellow
 };
 
-export function PlatformOverviewHeader({ detail }: { detail: PlatformDetail }) {
+export function PlatformOverviewHeader({
+  detail,
+  listingsWithheld = false,
+}: {
+  detail: PlatformDetail;
+  /** The venue has no listings source (Renaiss): no listings freshness chip, since
+   *  the page prints the registry's reason as a receipt line instead. */
+  listingsWithheld?: boolean;
+}) {
   return (
     <header className="mb-3">
       <Breadcrumbs />
@@ -66,7 +75,9 @@ export function PlatformOverviewHeader({ detail }: { detail: PlatformDetail }) {
 
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <FreshnessChips
-            sources={["core-volume", "marketcap", "listings", "holders"]}
+            sources={
+              listingsWithheld ? ["core-volume", "marketcap", "holders"] : ["core-volume", "marketcap", "listings", "holders"]
+            }
           />
           {/* RailActions' own `mt-auto pt-[22px]` is for the tall rail's bottom;
             neutralized here so the buttons sit on the header's baseline. */}

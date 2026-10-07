@@ -92,11 +92,11 @@ async function run() {
   if (mb) {
     console.log(
       `\nmachines — ${mb.rows.length} machine(s) over ${mb.windowDays} complete days ` +
-        `(as of ${mb.asOf.slice(0, 10)}) · ${mb.attributedSpendPct.toFixed(1)}% of spend attributed`,
+        `(as of ${mb.asOf.slice(0, 10)}) · ${(mb.attributedSpendPct ?? 0).toFixed(1)}% of spend attributed`,
     );
     console.log(`  machine                        price    30d spend    pulls    7d spend   attr%   top partner`);
     for (const r of mb.rows.slice(0, 10)) {
-      const attrPct = r.spendUsd > 0 ? (r.attributedUsd / r.spendUsd) * 100 : 0;
+      const attrPct = r.spendUsd > 0 ? ((r.attributedUsd ?? 0) / r.spendUsd) * 100 : 0;
       console.log(
         `  ${r.name.slice(0, 28).padEnd(28)} ${(r.priceUsd == null ? "—" : "$" + r.priceUsd).padStart(6)} ` +
           `$${Math.round(r.spendUsd).toLocaleString().padStart(11)} ${String(r.pulls).padStart(8)} ` +

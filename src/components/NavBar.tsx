@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { GACHA_ENABLED, SHELL_V2 } from "@/lib/flags";
+import { GACHA_ENABLED, SHELL_V2, VAULT_ENABLED } from "@/lib/flags";
 import { TickerStat, type TickerItem } from "./shell/TickerStat";
 import { BrandLockup, BrandMark } from "./Brand";
 
@@ -163,7 +163,7 @@ export function NavBar({
         </Link>
 
         <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] sm:flex-none sm:overflow-visible [&::-webkit-scrollbar]:hidden">
-          {LINKS.filter((link) => GACHA_ENABLED || link.href !== "/gacha").map((link) => {
+          {LINKS.filter((link) => (GACHA_ENABLED || link.href !== "/gacha") && (VAULT_ENABLED || link.href !== "/vault")).map((link) => {
             const active = isActive(pathname, link);
             return (
               <Link

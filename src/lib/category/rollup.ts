@@ -170,6 +170,11 @@ export type CategoryTrendDataset = {
    *  shows this while the tooltip keeps the full `group` name. Absent on
    *  benchmarks + non-index series. */
   ticker?: string;
+  /** An index line's running-month reading, when it clears its floor: drawn
+   *  after the last close as a dashed segment to a hollow marker, never joined
+   *  into `points` (it is never chained and is replaced at the close). `ts` is
+   *  also one of the trend's labels, so it has a column on the axis. */
+  provisional?: { ts: string; value: number; chip: string; receipt: string };
 };
 export type CategoryTrend = { labels: string[]; datasets: CategoryTrendDataset[] };
 

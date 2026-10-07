@@ -9,8 +9,7 @@
  * Ingests this run's unique CLAW pulls into the durable gacha_pulls spine, then
  * derives realized value-odds + per-pack EV + biggest hits from the ACCUMULATED
  * window — writing the snapshot (key='gacha:phygitals') + spine + freshness.
- * Logic lives in src/lib/data/warmers/phygitalsGacha.ts so the cron route
- * (app/api/cron/phygitals-gacha) shares it.
+ * Logic lives in src/lib/data/warmers/phygitalsGacha.ts.
  *
  * Cadence: a few times a day — the feed only exposes a shallow recent window per
  * scan, so frequent runs accumulate a fuller picture. Dune carries volume.

@@ -10,6 +10,7 @@ import {
 import { isEmbedChartId } from "@/lib/chart/embeds";
 import { canonicalIdentitySlug, IDENTITY_PATH_PREFIX } from "@/lib/card/identity";
 import { parseWalletAddress } from "@/lib/vault/address";
+import { VAULT_ENABLED } from "@/lib/flags";
 
 /** `/embed/price/<slug>` — the chip's own prefix under the embed route. */
 const PRICE_CHIP_SEGMENT = "price";
@@ -140,7 +141,13 @@ function canonicalVaultRedirect(request: NextRequest): NextResponse | null {
 }
 
 export function proxy(request: NextRequest): NextResponse {
-  if (isInvalidDetailPath(request.nextUrl.pathname)) {
+  const { pathname } = request.nextUrl;
+  // The Vault is out of public view while VAULT_ENABLED is off (src/lib/flags.ts).
+  // A real 404 here: the pages' own notFound() streams a 200 behind loading.tsx.
+  if (!VAULT_ENABLED && (pathname === VAULT_PREFIX || pathname.startsWith(`${VAULT_PREFIX}/`))) {
+    return NextResponse.rewrite(new URL(NOT_FOUND_PATH, request.url));
+  }
+  if (isInvalidDetailPath(pathname)) {
     return NextResponse.rewrite(new URL(NOT_FOUND_PATH, request.url));
   }
   return canonicalIdentityRedirect(request) ?? canonicalVaultRedirect(request) ?? NextResponse.next();
@@ -148,7 +155,7 @@ export function proxy(request: NextRequest): NextResponse {
 
 export const config = {
   // Only the dynamic detail routes (and their sub-pages). Note `/ip/:path+`
-  // does NOT match the list pages `/ips` or `/platforms`, and `/vault/:path+`
-  // does not match the door at `/vault`.
-  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+", "/index/:path+", "/vault/:path+"],
+  // does NOT match the list pages `/ips` or `/platforms`; `/vault` (the door) is
+  // listed on its own for the VAULT_ENABLED gate.
+  matcher: ["/ip/:path+", "/platform/:path+", "/card/:path+", "/embed/:path+", "/i/:path+", "/index/:path+", "/vault", "/vault/:path+"],
 };

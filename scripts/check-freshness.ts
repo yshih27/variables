@@ -188,7 +188,7 @@ async function main() {
   //    and the failures only surfaced as downstream 403s (the spine writer died
   //    silently for a week). Probe every fleet query's metadata directly (zero
   //    datapoints billed) so a re-archive is named in the SAME run it happens.
-  //    Paused queries (odds, while GACHA_ENABLED is off) warn instead of failing:
+  //    Paused queries (odds, while CC_ODDS_DUNE is off) warn instead of failing:
   //    nothing breaks today, but an unexpected archive there is the storage-
   //    pressure canary. Probe errors (no key / network) degrade to a note.
   const FLEET: { id: number; name: string; pausedOk?: boolean }[] = [

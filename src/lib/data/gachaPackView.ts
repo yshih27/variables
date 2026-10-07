@@ -8,7 +8,8 @@
  *   • Realized numbers carry their sample size `n`; below THIN_N they're flagged.
  *   • Net-EV folds in the buyback haircut (the real cost if you flip every card).
  */
-import type { GachaPack, MetricBasis } from "./gachaPacksCache";
+import type { GachaPack, GachaPrize, MetricBasis } from "./gachaPacksCache";
+import { classifyIP } from "./ipCatalog";
 
 /** Below this many realized pulls, a measured number is "thin" (badge it). */
 export const THIN_N = 10;
@@ -23,11 +24,102 @@ export function leadEv(p: GachaPack): Lead | null {
 }
 
 /** The TYPICAL outcome (median value-back multiple) — less skewed than the mean
- *  EV. Realized only (Beezie/CC have no per-pull distribution). */
+ *  EV. Realized only, and only when it passes the plausibility gate. */
 export function leadMedian(p: GachaPack): Lead | null {
-  return p.medianReturn != null
-    ? { value: p.medianReturn, basis: "realized", n: p.realizedN }
-    : null;
+  if (p.medianReturn == null || plausibilityGate(p).withheld) return null;
+  return { value: p.medianReturn, basis: "realized", n: p.realizedN };
+}
+
+// ─────────────────────────── Mixed pools ───────────────────────────
+
+/** A game needs this many prizes in a pool to count toward "mixed": one keyword misread is not a second game. */
+export const MIXED_POOL_MIN_PRIZES = 2;
+
+/**
+ * A prize's game: its own category where the venue tags each prize (Beezie's
+ * category trait), else the IP its name and traits classify to. Null when
+ * neither names a game ("other" is not a game).
+ */
+export function prizeGame(p: Pick<GachaPrize, "category" | "name" | "traits">): string | null {
+  if (p.category) return p.category;
+  const ip = classifyIP([p.name ?? undefined, ...(p.traits ?? [])]);
+  return ip.key === "other" ? null : ip.key;
+}
+
+/**
+ * True only when a pack's pool prizes span more than one game, each with at
+ * least MIXED_POOL_MIN_PRIZES prizes. Pure. A pack whose prizes name no game,
+ * or one game, is not mixed.
+ */
+export function isMixedPool(prizes: Pick<GachaPrize, "category" | "name" | "traits">[]): boolean {
+  const counts = new Map<string, number>();
+  for (const p of prizes) {
+    const g = prizeGame(p);
+    if (g) counts.set(g, (counts.get(g) ?? 0) + 1);
+  }
+  return [...counts.values()].filter((n) => n >= MIXED_POOL_MIN_PRIZES).length > 1;
+}
+
+/** Every pack with `mixedPool` set from the prizes the finder lists for it (pool and pulled). Pure. */
+export function withMixedPool(packs: GachaPack[], prizes: Pick<GachaPrize, "packId" | "category" | "name" | "traits">[]): GachaPack[] {
+  const byPack = new Map<string, Pick<GachaPrize, "category" | "name" | "traits">[]>();
+  for (const p of prizes) {
+    const arr = byPack.get(p.packId);
+    if (arr) arr.push(p);
+    else byPack.set(p.packId, [p]);
+  }
+  return packs.map((p) => ({ ...p, mixedPool: isMixedPool(byPack.get(p.id) ?? []) }));
+}
+
+// ─────────────────────────── Plausibility gate ───────────────────────────
+
+/** A realized median above this multiple of the stated EV is withheld. */
+export const MEDIAN_MAX_OVER_STATED_EV = 1.5;
+/**
+ * A realized median above this multiple of its own mean is withheld. Not 1.0: a
+ * low-variance pack's median honestly sits a hair above its mean (DYLI's Pack
+ * Ripper 1.02× vs 1.00×, n=67, Oct 7), and the rule exists for the right-skewed
+ * artifact (CC PKMN 50 read 2.36× vs 1.90×), which 10% still catches.
+ */
+export const MEDIAN_MAX_OVER_MEAN = 1.1;
+
+export type PlausibilityVerdict = { withheld: boolean; reason: string | null };
+
+/**
+ * Does a pack's realized median survive a plausibility check? A gacha payout is
+ * right-skewed — most pulls return under the price, a few return many times it
+ * — so its median sits BELOW its mean, and well inside the venue's own stated
+ * EV. A realized median above the realized mean, or above
+ * MEDIAN_MAX_OVER_STATED_EV × the stated EV, says the sample is not the
+ * machine (the Oct 7 headline: CC's PKMN 50 at a 2.36× median on 25 pulls of a
+ * tier-stratified slice). Such a median is withheld with the reason, and the
+ * hero never headlines it. Pure.
+ */
+export function plausibilityGate(p: GachaPack): PlausibilityVerdict {
+  const med = p.medianReturn;
+  if (med == null) return { withheld: false, reason: null };
+  if (p.evRealized != null && med > MEDIAN_MAX_OVER_MEAN * p.evRealized) {
+    return {
+      withheld: true,
+      reason: `realized median ${med.toFixed(2)}× is more than ${Math.round((MEDIAN_MAX_OVER_MEAN - 1) * 100)}% above its own mean ${p.evRealized.toFixed(2)}× (n=${p.realizedN ?? "?"})`,
+    };
+  }
+  if (p.evStated != null && p.evStated > 0 && med > MEDIAN_MAX_OVER_STATED_EV * p.evStated) {
+    return {
+      withheld: true,
+      reason: `realized median ${med.toFixed(2)}× is above ${MEDIAN_MAX_OVER_STATED_EV}× the venue's stated EV ${p.evStated.toFixed(2)}× (n=${p.realizedN ?? "?"})`,
+    };
+  }
+  return { withheld: false, reason: null };
+}
+
+/**
+ * The pack as the payload ships it: a median that fails the gate is nulled and
+ * its reason carried in `medianWithheld`, so no surface can print it.
+ */
+export function gatePack(p: GachaPack): GachaPack {
+  const v = plausibilityGate(p);
+  return v.withheld ? { ...p, medianReturn: null, medianWithheld: v.reason } : { ...p, medianWithheld: null };
 }
 
 /** Chance of a "good pull" (≥ stake value / rare tier) + basis. */

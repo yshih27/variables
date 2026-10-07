@@ -5,12 +5,11 @@
  * grade, rarity (from CC tier, with a value fallback for non-CC platforms),
  * relative time, and a chain badge.
  *
- * BACKEND DEPENDENCIES (flagged for the data chat):
- *   • A true 24h window: the warmer currently aggregates a longer window, so
- *     `mapBigHits` prefers the last 24h and falls back to "recent" when too few
- *     hits land in 24h. Provide 24h-windowed big hits to make this exact.
- *   • `pull` (pack price paid) + `mult` (return multiple): need pull→prize
- *     linkage on-chain; until then the detail panel shows them as "soon".
+ * The payload's hits are windowed to the last 7 days and carry their own `at`
+ * timestamps, with `hitsSource` ("live" listener while its heartbeat is under
+ * 15 minutes old, else the 6-hourly warmers) and `hitsAsOf` (fetchGacha
+ * `chooseHits`). `mapBigHits` prefers the last 24h and falls back to "recent"
+ * when too few hits land in it.
  */
 import { proxyImg } from "@/lib/img";
 import { parseGrade } from "@/lib/card/grade";

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { GACHA_ENABLED } from "@/lib/flags";
+import { GACHA_ENABLED, VAULT_ENABLED } from "@/lib/flags";
 
 /**
  * Mobile navigation (SHELL_V2 S1) — below 1024, where a 240px rail cannot exist
@@ -19,7 +19,7 @@ const TABS = [
   { href: "/ips", label: "Categories", match: "/ip" },
   { href: "/platforms", label: "Platforms", match: "/platform" },
   { href: "/report", label: "Report" },
-  { href: "/vault", label: "Vault" },
+  ...(VAULT_ENABLED ? [{ href: "/vault", label: "Vault" }] : []),
 ];
 
 const MORE = [

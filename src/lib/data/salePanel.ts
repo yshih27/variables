@@ -11,6 +11,9 @@
  *                       "other"/null, so it prices no identity yet)
  *   • Beezie          — the /activity rows every core run keeps, plus its backfill;
  *                       the live warm-time /activity request is gone
+ *   • Renaiss         — its own index API, from the `renaiss_sales` row store the
+ *                       sales warmer fills (full history, hygiene-cleaned); every
+ *                       sale carries its cert and card, so its `cards` rows key it
  *   • Phygitals       — omitted: no clean row-level secondary feed (its sales API is
  *                       gacha-dominated). Add when a Phygitals secondary query lands.
  *
@@ -28,6 +31,9 @@ import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
 import { readStoreFeed } from "./salesStore";
 import { cleanSecondarySales } from "./secondaryHygiene";
+import { readRenaissSales } from "../renaiss/sales";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { readCardDims, type CardPlatform } from "./cards";
 import { identityKey, legacyIdentityKey } from "./traits";
 import type { NormalizedSale } from "../rarible/queries";
@@ -108,10 +114,15 @@ export async function readSaleFeed(opts: { sinceMs?: number; source?: PanelSourc
     // every venue's whole history: an empty leg would not be a quieter month, it
     // would re-derive the published chain without that venue and overwrite it.
     // Throwing leaves the previous blob standing, which is the honest state.
-    const [cc, cy, bz] = await Promise.all([
+    //
+    // Renaiss has its own row store (`renaiss_sales`, full history since its
+    // first sale, hygiene applied in readRenaissSales): the store build reads it
+    // like the others, and a failed read fails the build the same way.
+    const [cc, cy, bz, rn] = await Promise.all([
       readStoreFeed("collector-crypt", { sinceMs }).then((r) => cleanSecondarySales(r).sales),
       readStoreFeed("courtyard", { sinceMs }).then((r) => cleanSecondarySales(r).sales),
       readStoreFeed("beezie", { sinceMs }),
+      readRenaissForStore(sinceMs),
     ]);
     const problem = storeHistoryProblem(bz, sinceMs);
     if (problem) throw new Error(problem);
@@ -119,23 +130,29 @@ export async function readSaleFeed(opts: { sinceMs?: number; source?: PanelSourc
       ...cleanPlatform("collector-crypt", cc, sinceMs),
       ...cleanPlatform("courtyard", cy, sinceMs),
       ...cleanPlatform("beezie", bz, sinceMs),
+      ...cleanPlatform("renaiss", rn, sinceMs),
     ];
   }
   // Beezie's window is derived from `sinceMs` when given (plus a day of slack for
   // clock skew at the boundary), else ~all history for the panel.
   const beezieWindowMs = sinceMs != null ? Math.max(Date.now() - sinceMs, 0) + DAY_MS : 800 * DAY_MS;
   // A request-path caller (the tape) takes a shorter feed over none; the index
-  // build (`strict`) must not: see buildSalePanel.
-  const leg = (label: string, p: Promise<NormalizedSale[]>): Promise<NormalizedSale[]> =>
-    opts.strict
+  // build (`strict`) must not: see buildSalePanel. A venue held out of the panel
+  // (PANEL_VENUES_PENDING_RESTATEMENT) stays lenient even under `strict`: the
+  // index does not read it, so its failure must not stop a close. It turns
+  // strict the day its restatement lands and it leaves that set.
+  const leg = (venue: CardPlatform, p: Promise<NormalizedSale[]>): Promise<NormalizedSale[]> =>
+    opts.strict && !PANEL_VENUES_PENDING_RESTATEMENT.has(venue)
       ? p.catch((e: unknown) => {
-          throw new Error(`sale panel: the ${label} leg failed (${e instanceof Error ? e.message : String(e)}); nothing was written, the previous index stands`);
+          throw new Error(`sale panel: the ${venue} leg failed (${e instanceof Error ? e.message : String(e)}); nothing was written, the previous index stands`);
         })
       : p.catch(() => [] as NormalizedSale[]);
-  const [cc, cy, bz] = await Promise.all([
+  const [cc, cy, bz, rn] = await Promise.all([
     leg("collector-crypt", readSecondarySales("collector-crypt")),
     leg("courtyard", readSecondarySales("courtyard")),
     leg("beezie", fetchBeezieSales(beezieWindowMs)),
+    // The row store, never the API: no request path reads Renaiss's API.
+    leg("renaiss", readRenaissSales({ sinceMs }).then((r) => r.sales)),
   ]);
   if (opts.strict && !bz.length) {
     throw new Error("sale panel: Beezie's /activity returned no sales; nothing was written, the previous index stands");
@@ -144,10 +161,34 @@ export async function readSaleFeed(opts: { sinceMs?: number; source?: PanelSourc
     ...cleanPlatform("collector-crypt", cc, sinceMs),
     ...cleanPlatform("courtyard", cy, sinceMs),
     ...cleanPlatform("beezie", bz, sinceMs),
+    ...cleanPlatform("renaiss", rn, sinceMs),
   ];
 }
 
 const DAY_MS = 86_400_000;
+
+/** The local verification file for Renaiss under SALES_STORE_LOCAL_DIR: a NormalizedSale[] as readRenaissSales returns it. */
+export const RENAISS_LOCAL_FILE = "renaiss_sales.json";
+
+/**
+ * Renaiss for the store build: its own row store (`renaiss_sales`, read through
+ * readRenaissSales with its hygiene). Under SALES_STORE_LOCAL_DIR (local
+ * verification and the tests) the whole store build is local, Renaiss
+ * included: `<dir>/renaiss_sales.json` when present, never Postgres. A local
+ * dir without the file builds with no Renaiss sales and SAYS so, so a local
+ * shadow can never drop a venue silently.
+ */
+async function readRenaissForStore(sinceMs?: number): Promise<NormalizedSale[]> {
+  const dir = process.env.SALES_STORE_LOCAL_DIR;
+  if (!dir) return (await readRenaissSales({ sinceMs })).sales;
+  const file = join(dir, RENAISS_LOCAL_FILE);
+  if (!existsSync(file)) {
+    console.warn(`[sale panel] local store: no ${file}; this build reads no Renaiss sales`);
+    return [];
+  }
+  const all = JSON.parse(readFileSync(file, "utf8")) as NormalizedSale[];
+  return sinceMs == null ? all : all.filter((s) => Date.parse(s.date) >= sinceMs);
+}
 
 /**
  * How deep the store's Beezie history must reach before the index may read it.
@@ -206,6 +247,26 @@ async function tagPlatform(platform: CardPlatform, sales: UntaggedSale[], legacy
 }
 
 /**
+ * Venues the LEGS build keeps OUT of the panel: the method as published up to
+ * v4.2, and the shadow build's "before" (`warm-sale-panel --shadow-venues`).
+ * The STORE build (v4.3, the panel's default) reads every venue, Renaiss
+ * included, so Collector Crypt's and Courtyard's histories and Renaiss join the
+ * index in ONE restatement with ONE method-ledger entry, which the shadow
+ * measures against exactly this set.
+ *
+ * ⚠️ RENAISS RESTATES THE PUBLISHED INDEX. Its backfill (Oct 5 2026, 18,304
+ * sales since Jan 9) nearly doubles the panel (21,523 → 39,459 sales), and most
+ * of it is January to April. Measured on a local --out build that day: the base
+ * month moves from February to January, three set indices start publishing, and
+ * the published September close moves from 151.2 to 129.2 on V-MKT (149.3 →
+ * 126.6 on V-PKM), with May to August 21 to 29 points lower.
+ *
+ * The tape and the grade/set feeds read `readSaleFeed` (legs) directly and keep
+ * Renaiss in them; Renaiss's volumes come from its own row stores.
+ */
+export const PANEL_VENUES_PENDING_RESTATEMENT: ReadonlySet<CardPlatform> = new Set<CardPlatform>(["renaiss"]);
+
+/**
  * Build the full cross-platform sale-price panel, from the store by default.
  * On the store a failed read, or a Beezie history the backfill has not filled,
  * THROWS (readSaleFeed): the warmer then writes nothing. On "legs" (the shadow
@@ -223,7 +284,11 @@ export async function buildSalePanel(opts: { legacyIdentity?: boolean; source?: 
   const source = opts.source ?? "store";
   // Every venue comes from rows runCoreWarm (and the backfill) already stored:
   // no Dune read, no live request. Only warmers/core touches Dune for these feeds.
-  const feed = await readSaleFeed({ source, strict: opts.strict });
+  // The hold applies to the legs build only (the method before v4.3; see
+  // PANEL_VENUES_PENDING_RESTATEMENT): the store build reads every venue.
+  const feed = (await readSaleFeed({ source, strict: opts.strict })).filter(
+    (s) => source === "store" || !PANEL_VENUES_PENDING_RESTATEMENT.has(s.platform),
+  );
   const byPlatform = new Map<CardPlatform, UntaggedSale[]>();
   for (const s of feed) {
     const cur = byPlatform.get(s.platform);

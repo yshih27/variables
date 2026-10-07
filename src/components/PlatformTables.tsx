@@ -15,6 +15,13 @@ import { cardHref, cardSupported } from "@/lib/card/ids";
 
 
 
+/**
+ * The window a platform's tables cover: the 24h, or the trailing 7 days for a
+ * thin venue (PlatformDetail.salesWindow). Every label below reads it; the 24h
+ * strings are unchanged.
+ */
+export type SalesWindow = "24h" | "7d";
+
 type SectionProps = {
   title: string;
   /** How to read it (see <ReadMe>) — above the coverage note, never instead of it. */
@@ -103,18 +110,21 @@ export function PlatformIPsTable({
   rows,
   maxRows,
   seeAllHref,
+  salesWindow = "24h",
 }: {
   rows: PlatformIPRow[];
   maxRows?: number;
   seeAllHref?: string;
+  salesWindow?: SalesWindow;
 }) {
   if (rows.length === 0) return null;
   const visible = maxRows ? rows.slice(0, maxRows) : rows;
+  const week = salesWindow === "7d";
   return (
     <Section
       title="Top IPs on this platform"
-      readMe="which IPs carry this platform's trading — ranked by 24h volume"
-      sub={`24h breakdown · ${rows.length} IP${rows.length === 1 ? "" : "s"} tracked`}
+      readMe={week ? "which IPs carry this platform's trading — ranked by volume over 7 days" : "which IPs carry this platform's trading — ranked by 24h volume"}
+      sub={`${week ? "7 days" : "24h"} breakdown · ${rows.length} IP${rows.length === 1 ? "" : "s"} tracked`}
       seeAllHref={seeAllHref}
       totalRows={rows.length}
       visibleRows={visible.length}
@@ -126,8 +136,8 @@ export function PlatformIPsTable({
             <Th>IP / Category</Th>
             <Th align="right">Cards</Th>
             <Th align="right">Holders</Th>
-            <Th align="right">Buyers (24h)</Th>
-            <Th align="right">24h Vol</Th>
+            <Th align="right">{week ? "Buyers (7d)" : "Buyers (24h)"}</Th>
+            <Th align="right">{week ? "7d Vol" : "24h Vol"}</Th>
             <Th align="right">Avg Trade</Th>
             <Th>Top Card</Th>
           </tr>
@@ -195,18 +205,25 @@ export function PlatformTopCardsTable({
   rows,
   maxRows,
   seeAllHref,
+  salesWindow = "24h",
 }: {
   rows: PlatformCardRow[];
   maxRows?: number;
   seeAllHref?: string;
+  salesWindow?: SalesWindow;
 }) {
   if (rows.length === 0) return null;
   const visible = maxRows ? rows.slice(0, maxRows) : rows;
+  const week = salesWindow === "7d";
   return (
     <Section
       title="Top Cards"
-      readMe="the individual cards moving this platform's money today"
-      sub={`Highest 24h volume cards on this platform · ${rows.length} total`}
+      readMe={week ? "the individual cards moving this platform's money over the last 7 days" : "the individual cards moving this platform's money today"}
+      sub={
+        week
+          ? `Highest volume cards on this platform · 7 days · ${rows.length} total`
+          : `Highest 24h volume cards on this platform · ${rows.length} total`
+      }
       seeAllHref={seeAllHref}
       totalRows={rows.length}
       visibleRows={visible.length}
@@ -220,7 +237,7 @@ export function PlatformTopCardsTable({
             <Th>Grade</Th>
             <Th>IP</Th>
             <Th align="right">Trades</Th>
-            <Th align="right">24h Vol</Th>
+            <Th align="right">{week ? "7d Vol" : "24h Vol"}</Th>
             <Th align="right">Top Sale</Th>
           </tr>
         </thead>
@@ -296,6 +313,7 @@ export function RecentSalesTable({
   maxRows,
   seeAllHref,
   salesTotal,
+  salesWindow = "24h",
 }: {
   rows: RecentSaleRow[];
   maxRows?: number;
@@ -304,17 +322,19 @@ export function RecentSalesTable({
    *  the label reads "N of M sales enriched" rather than restating N as the 24h
    *  sale count — some tokens have no metadata row yet (M2). */
   salesTotal?: number;
+  salesWindow?: SalesWindow;
 }) {
   if (rows.length === 0) return null;
   const visible = maxRows ? rows.slice(0, maxRows) : rows;
+  const week = salesWindow === "7d";
   return (
     <Section
       title="Recent Sales"
-      readMe="the live tape — what cleared, at what price, just now"
+      readMe={week ? "the tape — what cleared, at what price, over the last 7 days" : "the live tape — what cleared, at what price, just now"}
       sub={
         salesTotal != null
-          ? `Chronological · ${rows.length} of ${salesTotal} sales enriched · 24h`
-          : `Chronological · ${rows.length} sale${rows.length === 1 ? "" : "s"} in last 24h`
+          ? `Chronological · ${rows.length} of ${salesTotal} sales enriched · ${week ? "7 days" : "24h"}`
+          : `Chronological · ${rows.length} sale${rows.length === 1 ? "" : "s"} in last ${week ? "7 days" : "24h"}`
       }
       seeAllHref={seeAllHref}
       totalRows={rows.length}

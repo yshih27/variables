@@ -6,6 +6,8 @@ import { ChartActions } from "../ChartActions";
 import { ReceiptsLink } from "./ReceiptsLink";
 import { MethodLine } from "./MethodLine";
 import type { MethodLedger } from "@/lib/data/methodChanges";
+import type { IndexProvisional } from "@/lib/data/indices";
+import { provisionalWords } from "@/lib/indices/readingWords";
 
 /**
  * Published index levels for a family of entities — the grade indices, or one
@@ -38,6 +40,9 @@ export type LevelSeries = {
   name: string;
   color: string;
   points: { ts: string; value: number; n?: number }[];
+  /** The running month's reading (withProvisional). Above its floor it is drawn
+   *  after the last close — dashed, a hollow marker — and never joins the line. */
+  provisional?: IndexProvisional | null;
 };
 
 const PLOT_H = 200;
@@ -86,16 +91,23 @@ export function IndexLevelsChart({
     const rebased = live.map((s) => {
       const b = base ? s.points.find((p) => p.ts === base)?.value : undefined;
       const f = b && b > 0 ? 100 / b : 100 / s.points[0].value;
-      return { ...s, ownBase: !b, points: s.points.map((p) => ({ ...p, value: p.value * f })) };
+      // Placed at its asOf on the time axis; a reading with no asOf is not drawn.
+      const pv = s.provisional && "value" in s.provisional && s.provisional.asOf ? s.provisional : null;
+      // Rescaled by the series' own factor, so it sits on the line it extends.
+      const prov = pv ? { ts: pv.asOf as string, value: pv.value * f, lo: pv.lo * f, hi: pv.hi * f, words: provisionalWords(pv) } : null;
+      return { ...s, ownBase: !b, points: s.points.map((p) => ({ ...p, value: p.value * f })), prov };
     });
 
     const all = rebased.flatMap((s) => s.points);
-    const lo = Math.min(...all.map((p) => p.value)) * 0.96;
-    const hi = Math.max(...all.map((p) => p.value)) * 1.04;
+    const provVals = rebased.flatMap((s) => (s.prov ? [s.prov.value, s.prov.lo, s.prov.hi] : [])).filter((v) => Number.isFinite(v));
+    const lo = Math.min(...all.map((p) => p.value), ...provVals) * 0.96;
+    const hi = Math.max(...all.map((p) => p.value), ...provVals) * 1.04;
     const span = hi - lo || 1;
     const times = [...new Set(all.map((p) => p.ts))].sort();
     const t0 = Date.parse(times[0]);
-    const t1 = Date.parse(times[times.length - 1]);
+    // The axis runs to the newest provisional when there is one, so its marker
+    // sits on the plot rather than past its edge.
+    const t1 = Math.max(Date.parse(times[times.length - 1]), ...rebased.map((s) => (s.prov ? Date.parse(s.prov.ts) : -Infinity)));
     const dt = t1 - t0 || 1;
     const x = (iso: string) => PAD_L + ((Date.parse(iso) - t0) / dt) * (VIEW_W - PAD_L - PAD_R);
     const y = (v: number) => PAD_T + (1 - (v - lo) / span) * (PLOT_H - PAD_T - PAD_B);
@@ -123,7 +135,11 @@ export function IndexLevelsChart({
               key: s.id,
               label: `${s.ticker} ${s.name}`,
               color: s.color,
-              points: s.points.map((p) => ({ ts: p.ts, value: p.value })),
+              points: [
+                ...s.points.map((p) => ({ ts: p.ts, value: p.value })),
+                // The running month rides as its own row, flagged.
+                ...(s.prov ? [{ ts: s.prov.ts, value: s.prov.value, flag: `${s.ticker}: provisional · ${s.prov.words.chip.replace(/ · provisional$/, "")} · ${s.prov.words.receipt}` }] : []),
+              ],
             }))}
             svgRef={svgRef}
             plotHeight={PLOT_H}
@@ -181,6 +197,35 @@ export function IndexLevelsChart({
                     <title>{`${s.name} · ${monthLabel(p.ts)}: ${p.value.toFixed(1)}${p.n ? ` · ${p.n} identities` : ""}`}</title>
                   </circle>
                 ))}
+                {s.prov ? (
+                  <g data-provisional={s.id}>
+                    {(() => {
+                      const last = s.points.at(-1)!;
+                      return (
+                        <>
+                          <path
+                            d={`M${shaped.x(last.ts)} ${shaped.y(last.value)} L${shaped.x(s.prov.ts)} ${shaped.y(s.prov.hi)} L${shaped.x(s.prov.ts)} ${shaped.y(s.prov.lo)} Z`}
+                            fill={s.color}
+                            fillOpacity={0.08}
+                            data-provisional-band
+                          />
+                          <path
+                            d={`M${shaped.x(last.ts)} ${shaped.y(last.value)} L${shaped.x(s.prov.ts)} ${shaped.y(s.prov.value)}`}
+                            fill="none"
+                            stroke={s.color}
+                            strokeWidth="1.6"
+                            strokeDasharray="5 4"
+                            vectorEffect="non-scaling-stroke"
+                            data-provisional-segment
+                          />
+                        </>
+                      );
+                    })()}
+                    <circle cx={shaped.x(s.prov.ts)} cy={shaped.y(s.prov.value)} r="3" fill="var(--color-bg-1)" stroke={s.color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" data-provisional-marker>
+                      <title>{`${s.name} · ${s.prov.words.chip}: ${s.prov.value.toFixed(1)} · ${s.prov.words.receipt}`}</title>
+                    </circle>
+                  </g>
+                ) : null}
               </g>
             ))}
           </svg>

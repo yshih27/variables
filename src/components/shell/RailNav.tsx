@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RailModel, RailNode } from "@/lib/types";
-import { GACHA_ENABLED } from "@/lib/flags";
+import { GACHA_ENABLED, VAULT_ENABLED } from "@/lib/flags";
 import { RailSpark } from "./RailSpark";
 import { DisclosureChevron } from "@/components/DisclosureChevron";
 import { RailFlyout, useFlyout } from "./RailFlyout";
@@ -268,7 +268,7 @@ export function RailNav({ model }: Props) {
         ))}
 
         <RailSectionLabel collapsed={collapsed}>More</RailSectionLabel>
-        {TAIL.filter((t) => !t.gated || GACHA_ENABLED).map((t) => (
+        {TAIL.filter((t) => (!t.gated || GACHA_ENABLED) && (VAULT_ENABLED || t.key !== "vault")).map((t) => (
           <RailLink
             key={t.key}
             node={{ key: t.key, name: t.name, short: t.short, railCode: t.railCode, href: t.href, spark: null, deltaPct: null, deltaWindow: "24h" }}

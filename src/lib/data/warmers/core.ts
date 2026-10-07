@@ -16,6 +16,9 @@
  *                       whole on-chain secondary picture. api.courtyard.io stays
  *                       WAF-blocked to servers.
  *   • dyli            → its own public /sales feed (marketplace lane only)
+ *   • renaiss         → its own index API, read from the `renaiss_sales` and
+ *                       `renaiss_pulls` row stores its two warmers fill (resale,
+ *                       and pack spend as the gacha fields)
  *
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
  * last cached results (0 credits) instead of forcing a fresh execution.
@@ -50,6 +53,10 @@ import {
   type StoredSecondarySale,
 } from "../salesStore";
 import { fetchDyliLaneWindows } from "../../dyli/sales";
+import { readRenaissSales } from "../../renaiss/sales";
+import { SALES_TABLE_MIN } from "../coreVolumeCache";
+import { packWindows, readPackSpend } from "../../renaiss/pulls";
+import { feedIsCurrent, readRenaissFeeds } from "../../renaiss/feedState";
 import {
   readCoreVolume,
   writeCoreVolume,
@@ -90,7 +97,7 @@ function statsFromSaleList(collectionId: string, sales: NormalizedSale[]): Colle
  * windows OVER the list, so a longer (full-history) list is fine — only the partial
  * 24h day stored in `sales24h` is kept; older rows just feed the window sums.
  */
-function buildPlatform(
+export function buildPlatform(
   key: string,
   source: CorePlatformVolume["source"],
   allSales: NormalizedSale[],
@@ -102,10 +109,13 @@ function buildPlatform(
   const sumUsd = (xs: NormalizedSale[]) => xs.reduce((s, x) => s + x.priceUsd, 0);
 
   const s24 = within(1).sort((a, b) => b.date.localeCompare(a.date));
+  // A thin 24h: carry the week too, for the platform page's tables (fetchPlatform).
+  const s7 = s24.length < SALES_TABLE_MIN && spanDays >= 7 ? within(7).sort((a, b) => b.date.localeCompare(a.date)) : null;
   return {
     source,
     stats24h: statsFromSaleList(key, s24),
     sales24h: s24,
+    ...(s7 ? { sales7d: s7 } : {}),
     vol7dUsd: spanDays >= 7 ? sumUsd(within(7)) : null,
     vol30dUsd: spanDays >= 30 ? sumUsd(within(30)) : null,
     sales7dCount: spanDays >= 7 ? within(7).length : null,
@@ -418,6 +428,44 @@ export async function runCoreWarm(
     );
   } catch (err) {
     log(`→ dyli (native /sales) FAILED: ${(err as Error).message}`);
+  }
+
+  // ── Renaiss: its own index API, paged into `renaiss_sales` (resale) and
+  //    `renaiss_pulls` (packs) by warm-renaiss-sales / warm-renaiss-pulls. The core
+  //    batch runs those beside the DYLI step, after this one, so this reads the
+  //    previous batch's writes, as the DYLI entry above does. Resale goes through
+  //    the same hygiene as every feed (readRenaissSales).
+  //    ⚠️ ONLY WHILE THE FEED IS CURRENT: a store that stopped filling (no key
+  //    yet, a failed run, a backfill still under way) would read as a quiet 24h,
+  //    so unless its last run reached the present within 12h the entry is left
+  //    out and the board shows "—", never $0. The pack figures follow the same
+  //    rule on the pulls feed. ──
+  try {
+    const t0 = Date.now();
+    const feeds = (await readRenaissFeeds())?.feeds ?? {};
+    if (!feedIsCurrent(feeds.sales)) {
+      log(`→ renaiss (native index API) left out: its sales feed last reached the present ${feeds.sales?.caughtUpAt ?? "never"}`);
+    } else {
+      const { sales, stats } = await readRenaissSales({ sinceMs: Date.now() - 30 * DAY });
+      const line = formatHygiene("renaiss-secondary", stats);
+      if (line) log(line);
+      platforms["renaiss"] = buildPlatform("renaiss", "renaiss", sales, 30);
+      let packs = "packs left out (the pulls feed is not current)";
+      if (feedIsCurrent(feeds.pulls)) {
+        const w = packWindows(await readPackSpend(new Date(Date.now() - 7 * DAY).toISOString()));
+        platforms["renaiss"].gachaVol24Usd = w.gachaVol24Usd;
+        platforms["renaiss"].gachaVol7Usd = w.gachaVol7Usd;
+        platforms["renaiss"].gachaSales24h = w.gachaSales24h;
+        packs = `packs 24h $${Math.round(w.gachaVol24Usd).toLocaleString()} / 7d $${Math.round(w.gachaVol7Usd).toLocaleString()}`;
+      }
+      log(
+        `→ renaiss (native index API) ${sales.length} resale sales/30d · 24h $${Math.round(
+          platforms["renaiss"].stats24h.volumeUsd,
+        ).toLocaleString()} · ${packs} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
+      );
+    }
+  } catch (err) {
+    log(`→ renaiss (native index API) FAILED: ${(err as Error).message}`);
   }
 
   const snap: CoreVolumeSnapshot = {
