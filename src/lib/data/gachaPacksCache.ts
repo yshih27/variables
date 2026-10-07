@@ -108,6 +108,13 @@ export type GachaPack = {
   /** True when pulls24h is a rate ESTIMATE (complete window < 24h), not a count. */
   pulls24hEstimated?: boolean;
 
+  /**
+   * PR B item 1 (the plausibility gate): when the backend withholds the
+   * realized figures, it says why here and leaves them null. OPTIONAL until
+   * that PR lands; the UI prints "—" with this as its tooltip.
+   */
+  realizedWithheld?: string | null;
+
   // ── Provenance ──
   evBasis: MetricBasis; // basis of the EV the UI should lead with
   oddsBasis: MetricBasis;
@@ -139,6 +146,9 @@ export type GachaPrize = {
   /** True = ALREADY WON (CC pulled example — pool not published, so its top
    *  pulls stand in). Badged in the UI; never presented as available. */
   pulled?: boolean;
+  /** When a PULLED prize was pulled (PR B: CC, Renaiss, DYLI). Absent → the
+   *  badge says "pulled" without a date rather than inventing one. */
+  pulledAt?: string | null;
   /** The pack holding it — joins GachaPack.id so the UI can open its drawer. */
   packId: string;
   platform: string;

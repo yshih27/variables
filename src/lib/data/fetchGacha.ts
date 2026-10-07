@@ -135,6 +135,25 @@ export type GachaPayload = {
   prizes: GachaPrize[];
   /** Biggest hits (high-FMV prizes), ranked desc. */
   bigHits: GachaBigHit[];
+  /**
+   * brief-backend-gacha-renaiss.md PR B, item 7: every venue with a primary
+   * product, its kind and whether the matrix covers it (with the reason when it
+   * does not). OPTIONAL until that PR lands; the page derives its rows from the
+   * packs when absent and prints no coverage line.
+   */
+  venues?: GachaVenueRecord[];
+  /** PR B item 6: when the hits were read, and from which feed. Absent → the
+   *  page says "as of" the payload's generatedAt and never claims "live". */
+  hitsAsOf?: string | null;
+  hitsSource?: "live" | "warmers" | null;
+};
+
+export type GachaVenueRecord = {
+  key: string;
+  name: string;
+  kind: "pack" | "machine" | "claw" | "box";
+  covered: boolean;
+  reason?: string | null;
 };
 
 function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): GachaPlatformRow {
