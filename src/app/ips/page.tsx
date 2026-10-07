@@ -4,6 +4,7 @@ import { NavBar } from "@/components/NavBar";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { CategoryStatBar } from "@/components/CategoryStatBar";
 import { IndexStudio } from "@/components/IndexStudio";
+import { readStudioProvisional } from "@/lib/studio/provisional";
 import { readStudioSeed } from "@/lib/studio/seed";
 import { CategoryTreemap } from "@/components/CategoryTreemap";
 import { CompositionChart } from "@/components/CompositionChart";
@@ -286,7 +287,7 @@ export default async function AllIPsPage() {
           {/* §7: items-stretch (default). The rail is sized by the studio beside it. */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[264px_minmax(0,1fr)]">
             <OverviewMetricColumn rows={overviewRows} />
-            <IndexStudio seed={studioSeed}  ledger={ledger}/>
+            <IndexStudio provisional={await readStudioProvisional(studioSeed)} seed={studioSeed}  ledger={ledger}/>
           </div>
 
           {/* ZONE 2 — three daily cards, each with its own D|W|M grain. Volume and cards traded are flows

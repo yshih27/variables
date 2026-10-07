@@ -16,6 +16,8 @@ import { INDEX_DESCRIPTOR } from "@/lib/indices/naming";
 // ⚠️ ONE ACCESSOR, TWO SURFACES. /embed/home-index renders the same chart from
 // this exact read, so the embed cannot drift from the page it was copied from.
 import { getHomeIndexChart } from "@/lib/data/homeIndex";
+import { readIndexProvisional } from "@/lib/data/indices";
+import { indexReading } from "@/lib/indices/reading";
 import { getPlatformSeries, platformVolumeBands } from "@/lib/data/platformSeries";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
 
@@ -73,7 +75,7 @@ export const revalidate = 1800;
 
 
 export default async function Home() {
-  const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries, ledger] =
+  const [data, gacha, marketIdx, benchCloses, trending24, mktSeries, gachaSeries, ledger, marketProv] =
     await Promise.all([
       getHomepageData(),
       getGachaData(),
@@ -83,6 +85,9 @@ export default async function Home() {
       getPlatformSeries("volume_usd"),
       getPlatformSeries("gacha_volume_usd"),
       readMethodChanges(),
+      // The running month's reading, on the same axis as the series above (the
+      // venues behind every published step ride on the series' own points).
+      readIndexProvisional("market", "total", { from: "2000-01-01" }).catch(() => null),
     ]);
 
   // X6 — a thin 24h window on 1-of-1 slabs ties whole tables at "2 trades", so
@@ -139,6 +144,9 @@ export default async function Home() {
   // never typed: the resale skew is the holding-period spread the builder
   // measured, the cap anchor is the tracked-cap change over the series' span.
   const indexChart = await getHomeIndexChart();
+  // What the V leads with: the provisional when it clears the floor, else the
+  // close — every value from the backend's objects, rescaled by the hero's base.
+  const reading = indexReading("market", marketIdx, marketProv, { base: idxBase });
   const receipt = indexChart.receipt;
 
   const marketIndex = {
@@ -158,6 +166,8 @@ export default async function Home() {
       // The index is MONTHLY → no 24h resolution; null renders "—" rather than
       // mislabeling a monthly move as a 24h change (X3).
       { label: "24h", pct: null },
+      // "MTD": the provisional's step against the last close, only while it leads.
+      ...(reading.lead === "provisional" ? [{ label: "MTD", pct: reading.stepPct }] : []),
       // "1m": one month-over-month step between the last two COMPLETE months —
       // the same two points the weekly report uses. The old 30d row is gone: on a
       // monthly series it was the same number under a second name.
@@ -168,6 +178,7 @@ export default async function Home() {
     // the bootstrap band (lo/hi) so the chart can draw it, plus the cap anchor.
     series: indexChart.points,
     anchorSeries: indexChart.anchor,
+    reading,
   };
 
   // 24h volume split — each platform row carries the components, so the homepage

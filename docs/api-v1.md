@@ -67,9 +67,21 @@ The rebased index series (100 = value at `from`).
 | `freq` | `daily` \| `weekly` (mcap only; price is natively weekly) | `daily` |
 
 `data.ticker` + `data.indexName` identify the index (e.g. `V-PKM`, "The Variable
-Pokémon Index"). `data.points` = `[{ ts, value, n?, lo?, hi? }]` (price points carry
-sample size + IQR band). `data.stats` (price only) = 30/90d return + beta/correlation
-vs BTC.
+Pokémon Index"). `data.points` = `[{ ts, value, n?, lo?, hi?, thin?, venues? }]` (price
+points carry sample size, the bootstrap band and the venues behind the step's sample:
+`venues = { byVenue: { <venue>: { identities, sales } }, identities, sales, multiVenue }`,
+where an identity sold on two venues counts on both).
+
+`data.provisional` (price only) is the running month's reading, never a point: on the
+same rebased axis, `{ month, asOf, value, stepPct, n, lo, hi, thin, spansMonths, venues }`
+when the month's step clears the floor, or `{ month, asOf, n, floor, reason, stepPct }`
+(`reason` = `below-floor` | `step-limit`) when it does not. It is replaced by the month's
+close when the month ends; null when the index does not publish.
+
+`data.stats` (price only) = 30/90-day and 1/3-month returns, and β and correlation of the
+index's MONTHLY returns vs BTC's month-end closes. A stat that cannot be computed is
+`null`, never 0, with its reason in `stats.reasons` (β and correlation need 12 aligned
+monthly returns; `stats.betaMonths` says how many there are).
 
 ### GET /api/v1/benchmarks
 

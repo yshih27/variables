@@ -16,7 +16,8 @@ import { PRICE_INDEX_HOLD, applyPriceIndexHold } from "@/lib/indices/hold";
 import type { IndexEntity } from "@/lib/indices/naming";
 import { readSnapshot } from "../db/snapshots";
 import { ipsInCategory, type IPCategory } from "./ipCatalog";
-import { completeWeeksOnly, resampleWeekly, completeMonthsOnly } from "@/lib/chart/period";
+import { completeWeeksOnly, resampleWeekly, completeMonthsOnly, monthStartUtc } from "@/lib/chart/period";
+import { monthlyBetaVsBtc } from "@/lib/indices/monthlyBeta";
 
 export type IndexPoint = {
   ts: string;
@@ -28,7 +29,60 @@ export type IndexPoint = {
    *  THIN_MONTH_IDENTITIES. Published, not withheld — the tooltip and CSV say
    *  "thin month · n identities". Absent on non-identity series. */
   thin?: boolean;
+  /** The venues behind this point's step — see StepVenues. Identity indices only. */
+  venues?: StepVenues;
 };
+
+/**
+ * The venue behind a step: which venues the step's sample sold on.
+ *
+ * ⚠️ AN IDENTITY SOLD ON TWO VENUES COUNTS ON BOTH. `byVenue[v].identities`
+ * counts the step's identities with at least one sale on `v` in either month,
+ * so the per-venue identities can sum past `identities`; `multiVenue` says by
+ * how many identities. Sales add up exactly: every sale is on one venue.
+ */
+export type StepVenues = {
+  byVenue: Record<string, { identities: number; sales: number }>;
+  /** Distinct identities in the step's sample (the step's n). */
+  identities: number;
+  /** Sales behind the sample, both months. */
+  sales: number;
+  /** Identities with sales on more than one venue across the two months. */
+  multiVenue: number;
+};
+
+/**
+ * The running month's reading — the step for the month in progress, which the
+ * chain computes and HOLDS (`running-month`). Never chained, never a `series`
+ * point, never a receipts month; replaced by the month's close when it ends.
+ *
+ * A reading: `value` = the last published close × exp(step), `lo`/`hi` = the
+ * chain's variance plus this step's bootstrap, `asOf` = the newest sale in the
+ * step's sample, `spansMonths` > 1 when the months between the last close and
+ * this one did not publish. Below the floor (or past the ±25% limit on a thin
+ * sample): no level, only what the sample is and why it is not one.
+ */
+export type IndexProvisional =
+  | {
+      month: string;
+      asOf: string | null;
+      value: number;
+      stepPct: number;
+      n: number;
+      lo: number;
+      hi: number;
+      thin: boolean;
+      spansMonths: number;
+      venues: StepVenues;
+    }
+  | {
+      month: string;
+      asOf: string | null;
+      n: number;
+      floor: number;
+      reason: "below-floor" | "step-limit";
+      stepPct: number | null;
+    };
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -151,6 +205,7 @@ export function rebaseWithBands(series: IndexPoint[], from: string, rebaseTo = 1
     lo: p.lo != null ? p.lo * f : undefined,
     hi: p.hi != null ? p.hi * f : undefined,
     thin: p.thin,
+    ...(p.venues ? { venues: p.venues } : {}),
   }));
 }
 
@@ -206,6 +261,7 @@ export type PriceIndexEntityMeta = {
 
 type PriceIndexBlob = PriceIndexSnapshot & {
   cadence?: "monthly" | "weekly";
+  provisional?: Record<string, IndexProvisional>;
   biasTests?: {
     invariance?: { spreadPP: number; pass: boolean };
     entities?: Record<string, { selectionPremiumPP: number | null; heldReason?: "selection-premium" | null; anchorPct?: number | null; anchorSince?: string | null }>;
@@ -294,66 +350,98 @@ export async function readIndexSeries(
   return opts.freq === "weekly" ? rebaseWithBands(resampleWeekly(daily), opts.from) : daily;
 }
 
-function betaCorr(x: number[], y: number[]): { beta: number; corr: number } {
-  const n = Math.min(x.length, y.length);
-  if (n < 2) return { beta: 0, corr: 0 };
-  const mean = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
-  const mx = mean(x.slice(0, n)), my = mean(y.slice(0, n));
-  let cov = 0, vx = 0, vy = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = x[i] - mx, dy = y[i] - my;
-    cov += dx * dy; vx += dx * dx; vy += dy * dy;
-  }
-  return { beta: vy > 0 ? cov / vy : 0, corr: vx > 0 && vy > 0 ? cov / Math.sqrt(vx * vy) : 0 };
+/**
+ * The running month's reading for an entity, on the same axis `readIndexSeries`
+ * returns (rebased so the first published point at/after `from` is 100), or
+ * null when the entity does not publish, is held, or the blob's reading is for
+ * a month that has since closed (a stale blob must not serve last month's
+ * running reading as this month's).
+ */
+export async function readIndexProvisional(
+  entity: IndexEntity,
+  key: string,
+  opts: { from?: string; nowMs?: number } = {},
+): Promise<IndexProvisional | null> {
+  if (PRICE_INDEX_HOLD.active) return null;
+  const snap = await readSnapshot<PriceIndexBlob>("price-index");
+  if (snap?.cadence !== "monthly") return null;
+  const id = `${entity}:${key}`;
+  if (snap.biasTests?.entities?.[id]?.heldReason) return null;
+  const prov = snap.provisional?.[id];
+  if (!prov) return null;
+  if (prov.month !== monthStartUtc(opts.nowMs ?? Date.now()).slice(0, 7)) return null;
+  if (!("value" in prov)) return prov;
+  const fromMs = opts.from ? Date.parse(opts.from) : -Infinity;
+  const fromDayMs = Number.isFinite(fromMs) ? Date.parse(dayStartUtc(fromMs)) : -Infinity;
+  const first = (snap.series?.[id] ?? [])
+    .filter((p) => p.value > 0 && Date.parse(p.ts) >= fromDayMs)
+    .sort((a, b) => a.ts.localeCompare(b.ts))[0];
+  if (!first) return null;
+  const f = 100 / first.value;
+  return { ...prov, value: prov.value * f, lo: prov.lo * f, hi: prov.hi * f };
 }
 
 /**
- * Scorecard stats for the PRICE index: 30/90d return + beta & correlation of its
- * weekly returns vs BTC. NaN-safe (0s when history is too thin to compute).
+ * Scorecard stats for the PRICE index: 30/90-day and 1/3-month returns, and β and
+ * correlation of its MONTHLY returns vs BTC's month-end closes (monthlyBeta.ts).
+ *
+ * ⚠️ NULL, NEVER 0, WHEN A STAT CANNOT BE COMPUTED, with the reason in
+ * `reasons`. A 0 used to stand in for "not enough history" (β and correlation
+ * were 0 on every call: a monthly index joined to weekly BTC closes by
+ * timestamp never aligned), and a 0 reads as a measurement.
  */
 export async function indexStats(
   entity: "market" | "category" | "ip",
   key: string,
   opts: { from: string },
 ): Promise<{
-  return30d: number;
-  return90d: number;
+  return30d: number | null;
+  return90d: number | null;
   /** Monthly-native windows (added, never renamed): last 1 / 3 complete months. */
-  return1m: number;
-  return3m: number;
-  betaVsBtc: number;
-  corrVsBtc: number;
+  return1m: number | null;
+  return3m: number | null;
+  betaVsBtc: number | null;
+  corrVsBtc: number | null;
+  /** Aligned monthly returns β and correlation rest on. */
+  betaMonths: number;
+  /** stat → why it is null. */
+  reasons: Partial<Record<"return30d" | "return90d" | "return1m" | "return3m" | "betaVsBtc" | "corrVsBtc", string>>;
 }> {
-  const idx = await readIndexSeries(entity, key, { kind: "price", from: opts.from, freq: "weekly" });
-  const retMonths = (n: number): number => {
-    if (idx.length < n + 1) return 0;
+  const idx = await readIndexSeries(entity, key, { kind: "price", from: opts.from });
+  const reasons: Partial<Record<"return30d" | "return90d" | "return1m" | "return3m" | "betaVsBtc" | "corrVsBtc", string>> = {};
+  const retMonths = (n: number, name: "return1m" | "return3m"): number | null => {
+    if (idx.length < n + 1) {
+      reasons[name] = `${idx.length} published month${idx.length === 1 ? "" : "s"}; ${n + 1} needed`;
+      return null;
+    }
     const last = idx[idx.length - 1], prev = idx[idx.length - 1 - n];
-    return prev.value > 0 ? last.value / prev.value - 1 : 0;
+    return prev.value > 0 ? last.value / prev.value - 1 : null;
   };
-  const ret = (days: number): number => {
-    if (idx.length < 2) return 0;
+  const ret = (days: number, name: "return30d" | "return90d"): number | null => {
+    if (idx.length < 2) {
+      reasons[name] = `${idx.length} published month${idx.length === 1 ? "" : "s"}; 2 needed`;
+      return null;
+    }
     const last = idx[idx.length - 1];
     const targetMs = Date.parse(last.ts) - days * DAY;
-    let prev = idx[0];
-    for (const p of idx) {
-      if (Date.parse(p.ts) <= targetMs) prev = p;
-      else break;
+    const prev = [...idx].reverse().find((p) => Date.parse(p.ts) <= targetMs);
+    if (!prev) {
+      reasons[name] = `no published point ${days} days before the latest`;
+      return null;
     }
-    return prev.value > 0 ? last.value / prev.value - 1 : 0;
+    return prev.value > 0 ? last.value / prev.value - 1 : null;
   };
-  const btcWeekly = resampleWeekly(
-    rebaseSeries(await readMetricSeries("benchmark", "BTC", "close"), opts.from),
-  );
-  const btcByWk = new Map(btcWeekly.map((p) => [p.ts, p.value]));
-  const rIdx: number[] = [], rBtc: number[] = [];
-  for (let i = 1; i < idx.length; i++) {
-    const a = idx[i - 1], b = idx[i];
-    const ba = btcByWk.get(a.ts), bb = btcByWk.get(b.ts);
-    if (a.value > 0 && b.value > 0 && ba && bb && ba > 0 && bb > 0) {
-      rIdx.push(b.value / a.value - 1);
-      rBtc.push(bb / ba - 1);
-    }
-  }
-  const { beta, corr } = betaCorr(rIdx, rBtc);
-  return { return30d: ret(30), return90d: ret(90), return1m: retMonths(1), return3m: retMonths(3), betaVsBtc: beta, corrVsBtc: corr };
+  const b = monthlyBetaVsBtc(idx, await readMetricSeries("benchmark", "BTC", "close"));
+  if (b.beta == null) reasons.betaVsBtc = b.reason;
+  if (b.corr == null) reasons.corrVsBtc = b.reason;
+  return {
+    return30d: ret(30, "return30d"),
+    return90d: ret(90, "return90d"),
+    return1m: retMonths(1, "return1m"),
+    return3m: retMonths(3, "return3m"),
+    betaVsBtc: b.beta,
+    corrVsBtc: b.corr,
+    betaMonths: b.months,
+    reasons,
+  };
 }

@@ -7,6 +7,8 @@ import type { MethodLedger } from "@/lib/data/methodChanges";
 import { IPIcon } from "./IPIcon";
 import { Sparkline } from "./Sparkline";
 import { MarketIndexChart } from "./MarketIndexChart";
+import { IndexReadingBlock } from "./indices/IndexReadingBlock";
+import type { IndexReading } from "@/lib/indices/reading";
 import { MetricInfo } from "./MetricInfo";
 import { tickerOf } from "@/lib/indices/naming";
 import type { MetricKey } from "@/lib/metrics/glossary";
@@ -61,6 +63,8 @@ export type MarketIndex = {
   /** Full rebased-to-100 daily index series for the header's middle-band chart
    *  (QA-5); the desktop chart hides when this has <2 points. */
   series?: { ts: string; value: number }[];
+  /** What the V leads with — provisional or close — and its lines (indexReading). */
+  reading?: IndexReading;
 };
 
 export function MarketHeader({
@@ -146,6 +150,18 @@ export function MarketHeader({
           <div className="mt-2.5">
             <Label info="marketCap">Total market cap</Label>
           </div>
+          {index.reading ? (
+            // The V block: provisional or close leads, the close is never hidden,
+            // the sample is a receipt line — every string from indexReading.
+            <IndexReadingBlock
+              ticker={tickerOf("market", "total")}
+              reading={index.reading}
+              sinceInception={sinceInception}
+              sinceLabel={index.inceptionLabel}
+              info={<MetricInfo metric="variableIndex" />}
+              className="mt-2 text-[12.5px] text-ink-3"
+            />
+          ) : (
           <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12.5px] text-ink-3">
             {index.value != null && Number.isFinite(index.value) ? (
               <>
@@ -165,6 +181,7 @@ export function MarketHeader({
               <span className="text-ink-4">rebased index building</span>
             )}
           </div>
+          )}
         </div>
 
         {/* Market-index chart — fills the middle band on wide screens only. */}
@@ -174,6 +191,7 @@ export function MarketHeader({
               points={index.series!}
               anchor={index.anchorSeries ?? []}
               receipt={index.receipt ?? null}
+              provisional={index.reading?.provisional?.state === "leads" ? index.reading.provisional : null}
             />
             <ReadMe className="mt-2">
               {index.descriptor ?? "resale comparables index"} — follows what resells, so it runs warmer

@@ -88,16 +88,16 @@ async function main() {
     console.log(`  ${(s.key as string).padEnd(24)} ${fmtAge(ageMs).padStart(4)} ago`);
   }
 
-  // ── Indices-batch derived blobs — the panel, the identity index (+ slabs)
+  // ── Index-build derived blobs — the panel, the identity index (+ slabs)
   //    and the character rollups are written by warm-sale-panel in the SAME run
-  //    as price-index, and the identity / character pages read ONLY them. They
-  //    record no source_freshness row of their own, so their staleness rule is
-  //    price-index's (daily; stale past 2×), applied to the blob's own
-  //    generated_at, and a missing blob is as dead as a stale one. Folded into
-  //    the gate whenever price-index is required. ──
+  //    as price-index (the core batch, every 6 h), and the identity / character
+  //    pages read ONLY them. They record no source_freshness row of their own, so
+  //    their staleness rule is price-index's (6 h; stale past 2×), applied to the
+  //    blob's own generated_at, and a missing blob is as dead as a stale one.
+  //    Folded into the gate whenever price-index is required. ──
   const DERIVED = [SALE_PANEL_SNAPSHOT_KEY, IDENTITY_INDEX_SNAPSHOT_KEY, IDENTITY_SLABS_SNAPSHOT_KEY, CHARACTER_ROLLUPS_SNAPSHOT_KEY];
   const derivedDead: string[] = [];
-  console.log("\nINDICES-BATCH DERIVED BLOBS (price-index staleness rule)");
+  console.log("\nINDEX-BUILD DERIVED BLOBS (price-index staleness rule)");
   for (const key of DERIVED) {
     const row = (snaps ?? []).find((x) => x.key === key);
     const { state, ageMs } = freshnessState("price-index", row ? { source: key, generated_at: row.generated_at as string, status: "ok", rows_written: null, duration_ms: null, error: null, next_expected_at: null } : undefined);

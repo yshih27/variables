@@ -43,6 +43,8 @@ import { chartFocusProps, useChartFocus } from "./shell/ChartFocus";
 import { ReceiptsLink } from "./indices/ReceiptsLink";
 import { MethodLine } from "./indices/MethodLine";
 import type { MethodLedger } from "@/lib/data/methodChanges";
+import type { IndexProvisional } from "@/lib/data/indices";
+import { belowFloorWords, provisionalWords, sampleLine } from "@/lib/indices/readingWords";
 
 type Mode = "rebase" | "abs";
 
@@ -116,16 +118,18 @@ const httpChartLoader: ChartLoader = {
  * endpoint is unavailable, so an old deploy or a failed bundle degrades to slow
  * rather than broken.
  */
-async function loadFullCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]> }> {
+async function loadFullCatalog(): Promise<{ items: CatalogItem[]; data: Map<string, SeriesPoint[]>; provisional: Record<string, IndexProvisional> }> {
   try {
     const d = await fetchChart("bundle", {});
     const items = (d.items as CatalogItem[]) ?? [];
     const raw = (d.data as Record<string, SeriesPoint[]>) ?? {};
-    if (items.length) return { items, data: new Map(Object.entries(raw)) };
+    const provisional = (d.provisional as Record<string, IndexProvisional> | undefined) ?? {};
+    if (items.length) return { items, data: new Map(Object.entries(raw)), provisional };
   } catch {
     /* fall through to the per-endpoint build */
   }
-  return buildStudioCatalog(httpChartLoader);
+  // The per-endpoint fallback carries no provisional: it draws closes only.
+  return { ...(await buildStudioCatalog(httpChartLoader)), provisional: {} };
 }
 
 
@@ -282,11 +286,19 @@ export function IndexStudio({
   seed,
   scope,
   ledger,
+  provisional,
 }: {
   seed?: StudioSeed | null;
   scope?: StudioScope;
   /** The method ledger — the line under the foot. Omit and no line renders. */
   ledger?: MethodLedger;
+  /**
+   * The running month's reading per index line ("idx:market:total" → object),
+   * read by the page server-side for the seeded lines so the first paint is
+   * current; the catalog bundle fills in every other index line. Never a point
+   * in the series: drawn as a dashed segment to a hollow marker.
+   */
+  provisional?: Record<string, IndexProvisional>;
 } = {}) {
   // ⚠️ SEEDED STATE IS THE WHOLE FIX. These four used to start empty and the
   // component held "Loading market data…" behind ~30 same-origin requests. Now
@@ -300,6 +312,7 @@ export function IndexStudio({
   const [loadError, setLoadError] = useState(false);
   /** True until the FULL catalog has replaced the seed — the picker says so. */
   const [catalogPartial, setCatalogPartial] = useState(!!seed?.items?.length);
+  const [provMap, setProvMap] = useState<Record<string, IndexProvisional>>(() => provisional ?? {});
 
   // Only honor a hash written for THIS page. One left in the URL by a client-side
   // nav from another studio carries a different `sc` and is discarded, so the page
@@ -368,9 +381,12 @@ export function IndexStudio({
   useEffect(() => {
     let alive = true;
     loadFullCatalog()
-      .then(({ items, data }) => {
+      .then(({ items, data, provisional: prov }) => {
         if (!alive) return;
         setCatalogPartial(false);
+        // The page's server read wins for the lines it sent (it is fresher than a
+        // CDN-cached bundle); the bundle fills in every other index line.
+        setProvMap((cur) => ({ ...prov, ...cur }));
         const scoped = scope ? items.filter((it) => inScope(it.id, scope)) : items;
         setSeriesData(data);
         setCatalog(scoped);
@@ -666,7 +682,21 @@ export function IndexStudio({
         pathPts = [{ ms: s, v: rebase(b), raw: b, lo: undefined, hi: undefined, n: undefined, thin: undefined }, ...pts];
       }
 
-      return { id, item, pts, pathPts, step: medianStep(pts) };
+      // The running month's reading, for an index line whose provisional clears
+      // its floor and falls in the window — rebased with the line's own factor
+      // and drawn from the last real point. Geometry and tooltip only: it is not
+      // in `pts`, so nothing that reads closes (snap, receipts) can mistake it
+      // for one.
+      const pv = id.startsWith("idx:") ? provMap[id] : undefined;
+      // Placed at its asOf (the newest sale in its sample); none without one.
+      const pvMs = pv && "value" in pv && pv.asOf ? Date.parse(pv.asOf) : NaN;
+      const last = pts.at(-1);
+      const prov =
+        pv && "value" in pv && Number.isFinite(pvMs) && last && pvMs > last.ms && pvMs <= e + DAY
+          ? { ms: pvMs, v: rebase(pv.value), lo: rebase(pv.lo), hi: rebase(pv.hi), n: pv.n, from: last, words: provisionalWords(pv) }
+          : null;
+
+      return { id, item, pts, pathPts, step: medianStep(pts), prov };
     });
 
     // Flow series (volume / trades / gacha rips) render as grouped BARS in
@@ -682,6 +712,8 @@ export function IndexStudio({
     let lo = Infinity;
     let hi = -Infinity;
     for (const c of cols) for (const p of c.pathPts) if (Number.isFinite(p.v)) { lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); }
+    // The provisional and its band must fit the plot too.
+    for (const c of cols) if (c.prov) for (const v of [c.prov.v, c.prov.lo, c.prov.hi]) if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     if (!Number.isFinite(lo)) { lo = 0; hi = 100; }
     if (mode === "rebase") { lo = Math.min(lo, 100); hi = Math.max(hi, 100); }
     const padv = (hi - lo) * 0.1 || 1;
@@ -742,7 +774,7 @@ export function IndexStudio({
     // eslint-disable-next-line react-hooks/purity -- guarded opt-in profiler (see above)
     if (__t0 >= 0) recordRebuild(performance.now() - __t0);
     return { s, e, span, plotW, plotH, lo, hi, X, Y, lines, bars, hasBars, unionTs, primary: lines[0] ?? null };
-  }, [window0, visible, byId, mode, w, parsed]);
+  }, [window0, visible, byId, mode, w, parsed, provMap]);
 
   // Live mirrors for the rAF flush and the native wheel listener. Both are
   // attached/created once per mount and would otherwise close over a stale
@@ -1025,6 +1057,25 @@ export function IndexStudio({
     return { entityId, ticker: primary.item.ticker, ts: new Date(ms).toISOString() };
   }, [model, snapped, hoverTs]);
 
+  /**
+   * The primary index line's running month, as a receipt line under the plot:
+   * "V-MKT October so far · provisional · 63 identities · closes Nov 1 · as of …"
+   * and its sample by venue; or, under the floor, why it is not drawn.
+   */
+  const primaryReading = useMemo(() => {
+    const primary = model?.lines.find((L) => L.id.startsWith("idx:"));
+    const pv = primary ? provMap[primary.id] : undefined;
+    if (!primary || !pv) return null;
+    const entity = primary.id.split(":")[1] ?? "market";
+    if ("reason" in pv) return { receipt: `${primary.item.ticker} · ${belowFloorWords(entity, pv)}`, sample: null };
+    const words = provisionalWords(pv);
+    const sample = sampleLine(pv.venues);
+    return {
+      receipt: `${primary.item.ticker} ${words.chip} · ${words.receipt}`,
+      sample: sample ? `${sample.line}${sample.note ? ` · ${sample.note}` : ""}` : null,
+    };
+  }, [model, provMap]);
+
   // ── export ────────────────────────────────────────────────────────────────
   const shareUrl = () => {
     navigator.clipboard?.writeText(window.location.href).then(
@@ -1057,6 +1108,14 @@ export function IndexStudio({
         .filter(Boolean)
         .join("; ");
       rows.push(`${new Date(ms).toISOString().slice(0, 10)},${cells.join(",")},${notes.replace(/,/g, " ")}`);
+    }
+    // The provisional readings, one row each, flagged — a downloaded CSV must
+    // never let a running-month reading pass for a close.
+    for (const c of cols) {
+      if (!c.prov) continue;
+      const cells = cols.map((o) => (o.id === c.id ? (mode === "rebase" ? c.prov!.v.toFixed(3) : (provMap[c.id] as { value: number }).value.toFixed(2)) : ""));
+      const note = `${c.item.ticker}: provisional · ${c.prov.words.chip.replace(/ · provisional$/, "")} · ${c.prov.words.receipt}`;
+      rows.push(`${new Date(c.prov.ms).toISOString().slice(0, 10)},${cells.join(",")},${note.replace(/,/g, " ")}`);
     }
     const blob = new Blob([rows.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -1499,6 +1558,32 @@ export function IndexStudio({
                   {/* Bootstrap band: soft enough to read as uncertainty around the line, never a highlight box — lime at 12% over the plot read as a block over three monthly points. */}
                   {band && <path d={band} fill={L.item.color} fillOpacity={0.07} stroke="none" />}
                   <path d={L.path} fill="none" stroke={L.item.color} strokeWidth={isPrim ? 2.3 : 1.7} strokeDasharray={L.item.dash ? "5 4" : undefined} strokeOpacity={L.item.dash ? 0.9 : 1} strokeLinejoin="round" strokeLinecap="round" filter={isPrim ? "url(#is-glow)" : undefined} />
+                  {/* The provisional — the running month, never chained: a lighter
+                      band, a dashed segment from the last close, a hollow marker.
+                      Same colour token as its line. */}
+                  {L.prov ? (
+                    <g data-provisional={L.id}>
+                      {Number.isFinite(L.prov.lo) && Number.isFinite(L.prov.hi) ? (
+                        <path
+                          d={`M${model.X(L.prov.from.ms)} ${model.Y(L.prov.from.hi ?? L.prov.from.v)} L${model.X(L.prov.ms)} ${model.Y(L.prov.hi)} L${model.X(L.prov.ms)} ${model.Y(L.prov.lo)} L${model.X(L.prov.from.ms)} ${model.Y(L.prov.from.lo ?? L.prov.from.v)} Z`}
+                          fill={L.item.color}
+                          fillOpacity={0.06}
+                          stroke="none"
+                          data-provisional-band
+                        />
+                      ) : null}
+                      <path
+                        d={`M${model.X(L.prov.from.ms)} ${model.Y(L.prov.from.v)} L${model.X(L.prov.ms)} ${model.Y(L.prov.v)}`}
+                        fill="none"
+                        stroke={L.item.color}
+                        strokeWidth={isPrim ? 2 : 1.5}
+                        strokeDasharray="4 4"
+                        strokeLinecap="round"
+                        data-provisional-segment
+                      />
+                      <circle cx={model.X(L.prov.ms)} cy={model.Y(L.prov.v)} r={3.6} fill="var(--color-bg-1)" stroke={L.item.color} strokeWidth={1.6} data-provisional-marker />
+                    </g>
+                  ) : null}
                   {end && !hollow && <circle cx={model.X(end.ms)} cy={model.Y(end.v)} r={isPrim ? 3.2 : 2.5} fill={L.item.color} stroke="#0a0a0c" strokeWidth={1.3} />}
                   {end && hollow && (
                     <circle
@@ -1636,6 +1721,23 @@ export function IndexStudio({
                   </span>
                 </div>
               ))}
+            {/* The provisional, when the crosshair is nearer it than the last close:
+                said as a reading, with its n, its as-of and the date it closes. */}
+            {model.lines
+              .filter((L) => L.prov && hoverMs != null && Math.abs(hoverMs - L.prov.ms) < Math.abs(hoverMs - L.prov.from.ms))
+              .map((L) => (
+                <div key={`${L.id}:prov`} className="mt-1 border-t border-line pt-1" data-provisional-tooltip>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-none border" style={{ borderColor: L.item.color }} />
+                      <span className="font-mono text-[11px] text-ink-2">{L.item.ticker}</span>
+                    </span>
+                    <span className="font-mono font-semibold tabular text-ink">{L.prov!.v.toFixed(1)}</span>
+                  </div>
+                  <div className="font-mono text-[10px] text-ink-3">{L.prov!.words.chip}</div>
+                  <div className="font-mono text-[10px] text-ink-4">{L.prov!.words.receipt}</div>
+                </div>
+              ))}
           </div>
         )}
 
@@ -1673,6 +1775,12 @@ export function IndexStudio({
           the plot), so a link inside it could not be clicked. This one follows
           the crosshair instead: it names the hovered month of the primary index
           series, and falls back to that series' latest published point. */}
+      {primaryReading && (
+        <div className="flex flex-col gap-0.5 px-4 pt-1 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-studio-reading>
+          <span data-index-receipt>{primaryReading.receipt}</span>
+          {primaryReading.sample ? <span data-index-sample>{primaryReading.sample}</span> : null}
+        </div>
+      )}
       {receiptsFor && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pb-1 pt-1 sm:px-5">
           <ReceiptsLink entityId={receiptsFor.entityId} ts={receiptsFor.ts} label={`${receiptsFor.ticker} receipts`} />
@@ -1689,6 +1797,14 @@ export function IndexStudio({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 pb-4 pt-1 text-[11.5px] text-ink-3 sm:px-5">
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-ink-3" /> solid = index / metric</span>
         <span className="inline-flex items-center gap-1.5"><span className="inline-block h-0 w-4 border-t-2 border-dashed border-ink-3" /> dashed = benchmark</span>
+        {/* Only when a provisional is drawn: an index line's dashed tail to a
+            hollow marker is the running month, not a benchmark. */}
+        {model?.lines.some((L) => L.prov) ? (
+          <span className="inline-flex items-center gap-1.5" data-provisional-legend>
+            <span className="inline-block h-0 w-3 border-t-2 border-dashed border-ink-3" />
+            <span className="inline-block h-2 w-2 rounded-full border border-ink-3" /> = this month so far, provisional
+          </span>
+        ) : null}
         <span>baseline 100 = window start</span>
         <span className="ml-auto font-mono text-[10.5px] text-ink-4">drag the brush to zoom · scroll to zoom · right-click for options · click a ticker to hide</span>
       </div>
