@@ -14,6 +14,27 @@ import { ChartActions } from "./ChartActions";
  */
 type Point = { ts: string; value: number; lo?: number; hi?: number; n?: number; thin?: boolean };
 
+/**
+ * The running month's PROVISIONAL reading, rebased on the chart's base (from
+ * `indexReading`). Drawn after the last close as a dashed segment to a hollow
+ * marker with a lighter band — never joined into the solid line of closes,
+ * because it is never chained and is replaced when the month closes.
+ */
+export type ChartProvisional = {
+  value: number;
+  lo: number;
+  hi: number;
+  n: number;
+  /** Newest sale in the sample; null when the backend names none. */
+  asOf: string | null;
+  /** "2026-10" — the month the reading is for (the CSV row's date when asOf is null). */
+  month: string;
+  /** "October so far · provisional". */
+  chip: string;
+  /** "63 identities · closes Nov 1 · as of Oct 14 09:12 UTC". */
+  receipt: string;
+};
+
 const H = 92;
 const PAD = { top: 12, right: 8, bottom: 10, left: 8 };
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -38,8 +59,11 @@ export function MarketIndexChart({
   anchor = [],
   receipt,
   actions = true,
+  provisional = null,
 }: {
   points: Point[];
+  /** The provisional reading when it clears the floor; null draws closes only. */
+  provisional?: ChartProvisional | null;
   anchor?: Point[];
   /**
    * The disclosure receipt (`indexReceipt()`), verbatim from the page.
@@ -72,6 +96,9 @@ export function MarketIndexChart({
     const clean = points.filter((p) => Number.isFinite(p.value));
     const n = clean.length;
     if (n < 2) return null;
+    // The provisional takes one more column after the last close.
+    const prov = provisional && Number.isFinite(provisional.value) ? provisional : null;
+    const N = n + (prov ? 1 : 0);
     const vals = clean.map((p) => p.value);
     // The anchor is drawn on the index's x positions: snap each index point to the
     // anchor's last reading on or before that stamp (the anchor is daily, the
@@ -91,12 +118,13 @@ export function MarketIndexChart({
     const bandHi = clean.map((p) => p.hi).filter((v): v is number => v != null && Number.isFinite(v));
     // Always frame the 100 baseline so "above / below inception" is legible; the
     // band and the anchor must fit too or they would draw off-canvas.
-    const lo = Math.min(100, ...vals, ...bandLo, ...anchorVals);
-    const hi = Math.max(100, ...vals, ...bandHi, ...anchorVals);
+    const provVals = prov ? [prov.value, prov.lo, prov.hi].filter((v) => Number.isFinite(v)) : [];
+    const lo = Math.min(100, ...vals, ...bandLo, ...anchorVals, ...provVals);
+    const hi = Math.max(100, ...vals, ...bandHi, ...anchorVals, ...provVals);
     const span = hi - lo || 1;
     const plotW = w - PAD.left - PAD.right;
     const plotH = H - PAD.top - PAD.bottom;
-    const x = (i: number) => PAD.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+    const x = (i: number) => PAD.left + (N <= 1 ? 0 : (i / (N - 1)) * plotW);
     const y = (v: number) => PAD.top + (1 - (v - lo) / span) * plotH;
     const line = clean.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.value).toFixed(1)}`).join(" ");
     const area = `${line} L${x(n - 1).toFixed(1)} ${(PAD.top + plotH).toFixed(1)} L${x(0).toFixed(1)} ${(PAD.top + plotH).toFixed(1)} Z`;
@@ -114,13 +142,23 @@ export function MarketIndexChart({
       anchorVals.length >= 2
         ? anchorAt.map((v, i) => (v == null ? null : `${x(i).toFixed(1)} ${y(v).toFixed(1)}`)).filter(Boolean).map((seg, i) => `${i ? "L" : "M"}${seg}`).join(" ")
         : null;
-    return { clean, n, x, y, line, area, last, up, baseY: y(100), plotH, band, anchorLine, anchorAt, anchorLast: anchorVals.at(-1) ?? null };
-  }, [points, anchor, w]);
+    // The provisional: a dashed segment from the last close, and a lighter band
+    // from the close's interval (or its level) to the provisional's lo–hi.
+    const lastPt = clean[n - 1];
+    const provLine = prov ? `M${x(n - 1).toFixed(1)} ${y(lastPt.value).toFixed(1)} L${x(n).toFixed(1)} ${y(prov.value).toFixed(1)}` : null;
+    const provBand =
+      prov && Number.isFinite(prov.lo) && Number.isFinite(prov.hi)
+        ? `M${x(n - 1).toFixed(1)} ${y(lastPt.hi ?? lastPt.value).toFixed(1)} L${x(n).toFixed(1)} ${y(prov.hi).toFixed(1)} ` +
+          `L${x(n).toFixed(1)} ${y(prov.lo).toFixed(1)} L${x(n - 1).toFixed(1)} ${y(lastPt.lo ?? lastPt.value).toFixed(1)} Z`
+        : null;
+    return { clean, n, N, x, y, line, area, last, up, baseY: y(100), plotH, band, anchorLine, anchorAt, anchorLast: anchorVals.at(-1) ?? null, prov, provLine, provBand };
+  }, [points, anchor, w, provisional]);
 
   if (!model) return null;
   const stroke = model.up ? "var(--color-green)" : "var(--color-red)";
   const gradId = model.up ? "mkt-idx-up" : "mkt-idx-down";
   const hi = hover != null ? model.clean[hover] : null;
+  const hoverProv = hover != null && model.prov && hover === model.n ? model.prov : null;
 
   return (
     <>
@@ -148,7 +186,14 @@ export function MarketIndexChart({
                 key: "v-mkt",
                 label: "V-MKT (index)",
                 color: stroke,
-                points: model.clean.map((p) => ({ ts: p.ts, value: p.value })),
+                // The provisional rides as its own row, flagged — a CSV must not
+                // let a running-month reading pass for a close.
+                points: [
+                  ...model.clean.map((p) => ({ ts: p.ts, value: p.value })),
+                  ...(model.prov
+                    ? [{ ts: model.prov.asOf ?? model.prov.month, value: model.prov.value, flag: `provisional · ${model.prov.chip.replace(/ · provisional$/, "")} · ${model.prov.receipt}` }]
+                    : []),
+                ],
               },
               // ⚠️ THE ANCHOR IS EXPORTED AS THE CHART DRAWS IT — snapped to the
               // index's month-end stamps, not as its own daily series. Pivoting a
@@ -184,7 +229,7 @@ export function MarketIndexChart({
       onMouseMove={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const frac = Math.max(0, Math.min(1, (e.clientX - rect.left - PAD.left) / (w - PAD.left - PAD.right)));
-        setHover(Math.round(frac * (model.n - 1)));
+        setHover(Math.round(frac * (model.N - 1)));
       }}
     >
       <svg ref={svgRef} width={w} height={H} className="block">
@@ -219,14 +264,23 @@ export function MarketIndexChart({
           <path d={model.anchorLine} fill="none" stroke="var(--color-ink-4)" strokeWidth={1} strokeDasharray="2 3" strokeLinejoin="round" />
         )}
         <path d={model.line} fill="none" stroke={stroke} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
+        {/* The provisional — dashed, a lighter band, a hollow marker: a reading,
+            not a close. Same stroke token as the line; half the band's weight. */}
+        {model.provBand && <path d={model.provBand} fill={stroke} fillOpacity={0.35 * 0.35 * 0.5} stroke="none" data-provisional-band />}
+        {model.provLine && (
+          <path d={model.provLine} fill="none" stroke={stroke} strokeWidth={1.5} strokeDasharray="3 3" strokeLinecap="round" data-provisional-segment />
+        )}
 
-        {hover != null && model.clean[hover] && (
+        {hover != null && (model.clean[hover] || (model.prov && hover === model.n)) && (
           <>
             <line x1={model.x(hover)} x2={model.x(hover)} y1={PAD.top} y2={PAD.top + model.plotH} stroke="var(--color-line-2)" />
-            <circle cx={model.x(hover)} cy={model.y(model.clean[hover].value)} r={3} fill={stroke} stroke="var(--color-bg-1)" strokeWidth={1.5} />
+            <circle cx={model.x(hover)} cy={model.y(model.clean[hover]?.value ?? model.prov!.value)} r={3} fill={stroke} stroke="var(--color-bg-1)" strokeWidth={1.5} />
           </>
         )}
         <circle cx={model.x(model.n - 1)} cy={model.y(model.last)} r={2.6} fill={stroke} />
+        {model.prov && (
+          <circle cx={model.x(model.n)} cy={model.y(model.prov.value)} r={3} fill="var(--color-bg-1)" stroke={stroke} strokeWidth={1.5} data-provisional-marker />
+        )}
         {model.anchorLine && (
           <text x={PAD.left} y={PAD.top + 8} fontSize={9} fill="var(--color-ink-4)" fontFamily="var(--font-jetbrains-mono), monospace">
             ┄ cap anchor{model.anchorLast != null ? ` ${model.anchorLast.toFixed(0)}` : ""}
@@ -234,6 +288,18 @@ export function MarketIndexChart({
         )}
       </svg>
 
+      {hoverProv && (
+        <div
+          className="pointer-events-none absolute top-0 z-10 rounded-md border border-line-2 bg-bg-2/95 px-2 py-1 font-mono text-[10.5px] shadow-lg backdrop-blur"
+          style={{ left: Math.max(0, Math.min(w - 230, model.x(hover!) - 200)) }}
+          data-provisional-tooltip
+        >
+          <div className="text-ink-3">{hoverProv.chip}</div>
+          <span className="font-semibold tabular text-ink">{hoverProv.value.toFixed(1)}</span>
+          <span className="text-ink-4"> ({hoverProv.lo.toFixed(0)}–{hoverProv.hi.toFixed(0)})</span>
+          <div className="text-ink-4">{hoverProv.receipt}</div>
+        </div>
+      )}
       {hi && (
         <div
           className="pointer-events-none absolute top-0 z-10 rounded-md border border-line-2 bg-bg-2/95 px-2 py-1 font-mono text-[10.5px] shadow-lg backdrop-blur"

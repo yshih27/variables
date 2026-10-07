@@ -5,6 +5,7 @@ import { StatCard, StatCardRow } from "@/components/StatCard";
 import { SetTopSales } from "@/components/sets/SetTopSales";
 import { SetCardsTable } from "@/components/sets/SetCardsTable";
 import { IndexLevelsChart } from "@/components/indices/IndexLevelsChart";
+import { withProvisional } from "@/lib/indices/levelProvisional";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { readMethodChanges } from "@/lib/data/methodChanges";
 import { getIPDetail } from "@/lib/data/fetchIP";
@@ -102,7 +103,7 @@ export default async function IPSetDetailPage({
           <IndexLevelsChart
             series={
               entity && points.length >= 2
-                ? [{ id: entity.id, ticker: entity.ticker, name: entity.name, color: "var(--color-yellow)", points }]
+                ? await withProvisional([{ id: entity.id, ticker: entity.ticker, name: entity.name, color: "var(--color-yellow)", points }])
                 : []
             }
             title="Price index"

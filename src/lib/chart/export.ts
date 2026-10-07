@@ -34,7 +34,13 @@ export const FOOTER_H = 24;
  *  (src/lib/site.ts); a hardcoded export would point at the old one forever. */
 export const EXPORT_HOST = SITE_ORIGIN.replace(/^https?:\/\//, "");
 
-export type ExportPoint = { ts: string; value: number };
+/**
+ * `flag` marks a point that is not like the others in its series — the index's
+ * PROVISIONAL reading (the running month, never chained, replaced at the close).
+ * A CSV with any flagged point gains a trailing `note` column carrying the flags
+ * for that row; a CSV without one is byte-identical to before.
+ */
+export type ExportPoint = { ts: string; value: number; flag?: string };
 export type ExportSeries = { key: string; label: string; color?: string; points: ExportPoint[] };
 
 /** What an artefact has to be able to say about itself. */
@@ -118,9 +124,16 @@ export function csvFromSeries(series: ExportSeries[], meta: ExportMeta): string 
     return m;
   });
 
-  const rows = [`date,${series.map((s) => cell(s.label)).join(",")}`];
+  const flags = new Map<string, string[]>();
+  for (const s of series)
+    for (const p of s.points)
+      if (p.flag && Number.isFinite(p.value)) flags.set(p.ts.slice(0, 10), [...(flags.get(p.ts.slice(0, 10)) ?? []), p.flag]);
+  const noted = flags.size > 0;
+
+  const rows = [`date,${series.map((s) => cell(s.label)).join(",")}${noted ? ",note" : ""}`];
   for (const d of days) {
-    rows.push(`${d},${at.map((m) => (m.has(d) ? String(m.get(d)) : "")).join(",")}`);
+    const note = noted ? `,${cell((flags.get(d) ?? []).join("; "))}` : "";
+    rows.push(`${d},${at.map((m) => (m.has(d) ? String(m.get(d)) : "")).join(",")}${note}`);
   }
   return [...head, ...rows].join("\n");
 }

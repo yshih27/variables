@@ -13,7 +13,17 @@
  * the same card identity (set, number, name, grade) priced in consecutive months.
  *   n        = identities in that month's step (NOT trades, NOT pairs)
  *   lo / hi  = bootstrap band over identities
+ *   venues   = the venues behind the step's sample (identities and sales per venue)
  *   cadence  = "monthly"
+ *
+ * `provisional` (price only): the RUNNING month's reading, never a point —
+ * { month, asOf, value, stepPct, n, lo, hi, thin, spansMonths, venues } on the
+ * same rebased axis, or { month, asOf, n, floor, reason, stepPct } below the
+ * floor. Null when the index does not publish.
+ *
+ * `stats`: β and correlation are on MONTHLY returns vs BTC's month-end closes,
+ * and any stat that cannot be computed is null with its reason in
+ * `stats.reasons` — never 0.
  * Fields are only ever ADDED here, never renamed. Mcap points keep their daily /
  * week-end (Sunday) stamping.
  *
@@ -22,7 +32,7 @@
  *
  * Auth: Authorization: Bearer <key> (or ?api_key=). Attribution required — see meta.terms.
  */
-import { readIndexSeries, indexStats } from "@/lib/data/indices";
+import { readIndexSeries, indexStats, readIndexProvisional } from "@/lib/data/indices";
 import { requireApiKey } from "@/lib/api/auth";
 import { v1Ok, v1Error, v1Options, pickParam } from "@/lib/api/v1";
 import { tickerOf, indexDisplayName } from "@/lib/indices/naming";
@@ -49,6 +59,7 @@ export async function GET(req: Request) {
   const points = await readIndexSeries(entity, key, { kind, from, freq });
   // Scorecard stats only exist for the constant-quality price index.
   const stats = kind === "price" ? await indexStats(entity, key, { from }) : null;
+  const provisional = kind === "price" ? await readIndexProvisional(entity, key, { from }) : null;
 
   return v1Ok(
     {
@@ -61,6 +72,7 @@ export async function GET(req: Request) {
       freq,
       rebasedTo: 100,
       points,
+      provisional,
       stats,
     },
     auth,

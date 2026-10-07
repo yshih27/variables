@@ -73,6 +73,18 @@ jobs:
       - name: Core volume (cached Dune + Rarible)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts --cached
+      # The price index, the sale panel, the identity index + slabs and the
+      # character rollups — every 6 h, not once a day. Moved here from the 06:00
+      # indices job, whose cron fires hours late and is cancelled when it queues
+      # behind this one on the `warm` group: a month's close now lands within one
+      # core cycle of month end, and the running month's provisional reading and
+      # the identity and character pages refresh four times a day. After Listings
+      # and Core volume, which it reads. The index invariants gate it at the end of
+      # this job; benchmarks, the weekly-report recompose and the full gate stay
+      # at 06:00.
+      - name: Price index + sale panel (warm-sale-panel)
+        continue-on-error: true
+        run: npx tsx scripts/warm-sale-panel.ts
       - name: Courtyard primary
         continue-on-error: true
         run: npx tsx scripts/warm-courtyard-primary.ts
@@ -133,7 +145,13 @@ jobs:
       # to run and fail. Combined with the stale/untracked fix in check-freshness,
       # this is what closes the "6 days dead behind green runs" hole.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,renaiss-sales,renaiss-pulls,homepage,studio-seed,metric-snapshots,weekly-report
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,renaiss-sales,renaiss-pulls,price-index,homepage,studio-seed,metric-snapshots,weekly-report
+      # The index this job just published, gated in the same job (INV-7/11/12/13
+      # and INV-14, the running month's reading): no index point goes out without
+      # them. Runs even when the health gate fails, so both verdicts show.
+      - name: Index invariants
+        if: always()
+        run: npx tsx scripts/check-invariants.ts --only=index
 
   # ── Daily — holders, beezie traits, fresh gacha + time-series spine ──
   daily:
@@ -254,14 +272,13 @@ jobs:
       - name: Benchmarks (CoinGecko BTC/ETH + FRED SP500/NASDAQ)
         continue-on-error: true
         run: npx tsx scripts/warm-benchmarks.ts
-      - name: Price index (sale panel → stratified-median indices)
-        continue-on-error: true
-        run: npx tsx scripts/warm-sale-panel.ts
+      # The price index is built by the core job every 6 h now (see the step there);
+      # this job keeps the benchmarks, the weekly-report recompose and the full gate.
       # M1 — rebuild the report whenever the index REVISES. The stratified median
-      # recomputes here as late sales land, so a report frozen at Monday drifts from
-      # the live homepage for the same week ("+1.3% WoW" vs "+18.5%"). Recomposing
-      # right after the index keeps them on one set of numbers; the week it covers is
-      # derived from the clock, so this refreshes figures, it doesn't move the window.
+      # recomputes as late sales land, so a report frozen at Monday drifts from the
+      # live homepage for the same week ("+1.3% WoW" vs "+18.5%"). Recomposing
+      # daily keeps them on one set of numbers; the week it covers is derived from
+      # the clock, so this refreshes figures, it doesn't move the window.
       - name: Weekly report (recompose against the revised index)
         continue-on-error: true
         run: npx tsx scripts/warm-weekly-report.ts
@@ -288,10 +305,9 @@ jobs:
       - name: Homepage payload precompute # re-derive so the gate compares like for like
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
-      # Data-integrity gate — the price index was just rewritten above. INV-7 (HARD)
-      # fails the run if any index series published a FUTURE-dated point or the
-      # IN-PROGRESS week (the post-#44 completeness regression), so a thin partial-week
-      # spike can never silently reach the chart again.
+      # Data-integrity gate — the full set, including the index invariants the core
+      # job also runs after each rebuild. INV-7 (HARD) fails the run if any index
+      # series published a FUTURE-dated point or the IN-PROGRESS month.
       - name: Invariants gate (index completeness + no future points)
         run: npx tsx scripts/check-invariants.ts
 

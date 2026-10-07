@@ -142,7 +142,7 @@ export function CategoryTrendChart({
     const labels = allLabels.slice(start);
     const sliced = view.data.datasets
       .filter((d) => active.has(d.group))
-      .map((d) => ({ group: d.group, color: d.color, benchmark: !!d.benchmark, points: d.points.slice(start) }));
+      .map((d) => ({ group: d.group, color: d.color, benchmark: !!d.benchmark, points: d.points.slice(start), provisional: d.provisional }));
     const n = labels.length;
     if (n < 2 || sliced.length === 0) return { empty: true as const };
     const x = (i: number) => PAD.left + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
@@ -150,11 +150,21 @@ export function CategoryTrendChart({
     if (mode === "rebased") {
       const rebased = sliced.map((d) => {
         const base = d.points.find((p) => Number.isFinite(p) && p > 0);
+        // The provisional: its column, rebased by the line's own base, and the
+        // last finite point it is drawn from.
+        const pi = d.provisional ? labels.indexOf(d.provisional.ts) : -1;
+        let from = -1;
+        for (let i = pi - 1; i >= 0; i--) if (Number.isFinite(d.points[i])) { from = i; break; }
+        const prov =
+          d.provisional && base && pi >= 0 && from >= 0
+            ? { i: pi, from, v: (d.provisional.value / base) * 100, chip: d.provisional.chip, receipt: d.provisional.receipt }
+            : null;
         return {
           group: d.group,
           color: d.color,
           benchmark: d.benchmark,
           points: d.points.map((p) => (base && Number.isFinite(p) ? (p / base) * 100 : NaN)),
+          prov,
         };
       });
       // Robust range: percentile bounds (not raw min/max) so a glitchy early
@@ -181,7 +191,7 @@ export function CategoryTrendChart({
           const v = d.points[i];
           if (Number.isFinite(v)) pts.push([x(i), y(v)]);
         }
-        return { group: d.group, color: d.color, benchmark: d.benchmark, points: d.points, path: monotonePath(pts) };
+        return { group: d.group, color: d.color, benchmark: d.benchmark, points: d.points, path: monotonePath(pts), prov: d.prov };
       });
       return { empty: false as const, mode: "rebased" as const, labels, n, x, y, lo, hi, lines, datasets: rebased };
     }
@@ -368,6 +378,25 @@ export function CategoryTrendChart({
                 />
               ))}
 
+              {/* The running month: dashed from the last close to a hollow marker,
+                  the line's own colour — a reading, not a close. */}
+              {model.lines.map((L) =>
+                L.prov ? (
+                  <g key={`${L.group}:prov`} data-provisional={L.group}>
+                    <path
+                      d={`M${model.x(L.prov.from)} ${model.y(L.points[L.prov.from])} L${model.x(L.prov.i)} ${model.y(L.prov.v)}`}
+                      fill="none"
+                      stroke={L.color}
+                      strokeWidth={1.8}
+                      strokeDasharray="3 3"
+                      strokeLinecap="round"
+                      data-provisional-segment
+                    />
+                    <circle cx={model.x(L.prov.i)} cy={model.y(L.prov.v)} r={3.4} fill="var(--color-bg-1)" stroke={L.color} strokeWidth={1.6} data-provisional-marker />
+                  </g>
+                ) : null,
+              )}
+
               {hover != null && (
                 <>
                   <line x1={model.x(hover)} x2={model.x(hover)} y1={PAD.top} y2={PAD.top + plotH} stroke="var(--color-line-2)" />
@@ -462,6 +491,22 @@ export function CategoryTrendChart({
                   </span>
                 </div>
               ))}
+              {model.mode === "rebased" &&
+                model.lines
+                  .filter((L) => L.prov && L.prov.i === hover)
+                  .map((L) => (
+                    <div key={`${L.group}:prov`} className="mt-1 border-t border-line pt-1" data-provisional-tooltip>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="flex items-center gap-1.5 text-ink-2">
+                          <span className="h-1.5 w-1.5 rounded-none border" style={{ borderColor: L.color }} />
+                          {L.group}
+                        </span>
+                        <span className="font-mono font-semibold tabular text-ink">{L.prov!.v.toFixed(1)}</span>
+                      </div>
+                      <div className="font-mono text-[10px] text-ink-3">{L.prov!.chip}</div>
+                      <div className="font-mono text-[10px] text-ink-4">{L.prov!.receipt}</div>
+                    </div>
+                  ))}
               {model.mode === "stacked" && (
                 <div className="mt-1 flex items-center justify-between gap-4 border-t border-line pt-1">
                   <span className="text-ink-3">Total</span>
