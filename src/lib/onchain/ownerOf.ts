@@ -16,7 +16,8 @@
  * mainnet.base.org 10 calls per batch, drpc 3 on the free plan). One multicall
  * is one call, whatever it carries.
  *
- * Multicall3 lives at the same address on Base and Polygon.
+ * Multicall3 lives at the same address on Base, Polygon and BNB Smart Chain
+ * (verified on BSC Oct 7: 3,808 bytes of code at 0xca11…ca11).
  */
 import { RPCS } from "./tokenUri";
 
@@ -31,39 +32,56 @@ export type OwnerMap = Map<string, string>;
 const word = (hex: string) => hex.padStart(64, "0");
 const u256 = (n: number | bigint) => BigInt(n).toString(16).padStart(64, "0");
 
-/** ABI-encode `aggregate3((address,bool,bytes)[])` of `ownerOf(id)` calls. */
-export function encodeOwnerOfMulticall(contract: string, tokenIds: string[]): string {
+/** The chains Multicall3 reads run on. */
+export type EvmChain = "polygon" | "base" | "bnb";
+
+/**
+ * ABI-encode `aggregate3((address,bool,bytes)[])` of one-`uint256`-argument
+ * calls of `selector` (ownerOf, tokenByIndex, …), each allowed to fail alone.
+ */
+export function encodeUint256Multicall(contract: string, selector: string, args: (string | number | bigint)[]): string {
   const target = word(contract.toLowerCase().replace(/^0x/, ""));
-  const n = tokenIds.length;
+  const n = args.length;
   // Each tuple: target, allowFailure, offset-to-bytes (0x60), bytes length (36),
   // 36 bytes of call data padded to 64 → 6 words.
   const TUPLE_WORDS = 6;
   let out = SEL_AGGREGATE3 + u256(0x20) + u256(n);
   for (let i = 0; i < n; i++) out += u256(n * 32 + i * TUPLE_WORDS * 32);
-  for (const id of tokenIds) {
-    const data = SEL_OWNER_OF + u256(BigInt(id));
+  for (const a of args) {
+    const data = selector + u256(BigInt(a));
     out += target + u256(1) + u256(0x60) + u256(36) + data.padEnd(128, "0");
   }
   return `0x${out}`;
 }
 
-/** Decode `(bool success, bytes returnData)[]` into owners / "none". */
-export function decodeOwnerOfMulticall(result: string, tokenIds: string[]): OwnerMap {
+/** Decode `(bool success, bytes returnData)[]` into each call's first return word (hex, no 0x), or null when it reverted. */
+export function decodeMulticallWords(result: string, expected: number): (string | null)[] {
   const hex = result.replace(/^0x/, "");
   const at = (byteOff: number) => BigInt(`0x${hex.slice(byteOff * 2, byteOff * 2 + 64) || "0"}`);
-  const out: OwnerMap = new Map();
   const arr = Number(at(0));
   const n = Number(at(arr));
-  if (n !== tokenIds.length) throw new Error(`multicall returned ${n} results for ${tokenIds.length} calls`);
+  if (n !== expected) throw new Error(`multicall returned ${n} results for ${expected} calls`);
   const base = arr + 32;
+  const out: (string | null)[] = [];
   for (let i = 0; i < n; i++) {
     const t = base + Number(at(base + i * 32));
     const success = at(t) === BigInt(1);
     const b = t + Number(at(t + 32));
     const len = Number(at(b));
-    const data = hex.slice((b + 32) * 2, (b + 32 + len) * 2);
-    out.set(tokenIds[i], success && len >= 32 ? `0x${data.slice(24, 64)}` : "none");
+    out.push(success && len >= 32 ? hex.slice((b + 32) * 2, (b + 32) * 2 + 64) : null);
   }
+  return out;
+}
+
+/** ABI-encode `aggregate3((address,bool,bytes)[])` of `ownerOf(id)` calls. */
+export function encodeOwnerOfMulticall(contract: string, tokenIds: string[]): string {
+  return encodeUint256Multicall(contract, SEL_OWNER_OF, tokenIds);
+}
+
+/** Decode `(bool success, bytes returnData)[]` into owners / "none". */
+export function decodeOwnerOfMulticall(result: string, tokenIds: string[]): OwnerMap {
+  const out: OwnerMap = new Map();
+  decodeMulticallWords(result, tokenIds.length).forEach((w, i) => out.set(tokenIds[i], w ? `0x${w.slice(24, 64)}` : "none"));
   return out;
 }
 
@@ -99,7 +117,7 @@ async function ethCall(rpc: string, to: string, data: string, timeoutMs: number)
  * deadline is left out of the map — the caller decides what unknown means.
  */
 export async function ownersOf(
-  chain: "polygon" | "base",
+  chain: EvmChain,
   contract: string,
   tokenIds: string[],
   opts: { deadline?: number; chunk?: number } = {},
@@ -126,4 +144,51 @@ export async function ownersOf(
     }),
   );
   return { owners, calls };
+}
+
+const SEL_TOKEN_BY_INDEX = "4f6ccce7";
+
+/**
+ * ERC721Enumerable `tokenByIndex(i)` for many indices, chunked and raced across
+ * the chain's RPCs exactly as `ownersOf`. Index → token id (decimal string);
+ * an index that reverted, or that no RPC answered before the deadline, is
+ * absent.
+ */
+export async function tokensByIndex(
+  chain: EvmChain,
+  contract: string,
+  indices: number[],
+  opts: { deadline?: number; chunk?: number } = {},
+): Promise<{ tokens: Map<number, string>; calls: number }> {
+  const tokens = new Map<number, string>();
+  const chunk = opts.chunk ?? 300;
+  const deadline = opts.deadline ?? Date.now() + 10_000;
+  let calls = 0;
+  const slices = Array.from({ length: Math.ceil(indices.length / chunk) }, (_, i) => indices.slice(i * chunk, (i + 1) * chunk));
+  await Promise.all(
+    slices.map(async (slice) => {
+      const data = encodeUint256Multicall(contract, SEL_TOKEN_BY_INDEX, slice);
+      const left = deadline - Date.now();
+      if (left <= 0) return;
+      const attempts = RPCS[chain].map(async (rpc) => {
+        calls++;
+        const r = await ethCall(rpc, MULTICALL3, data, Math.min(left, 8_000));
+        if (!r) throw new Error("no answer");
+        return decodeMulticallWords(r, slice.length);
+      });
+      const words = await Promise.any(attempts).catch(() => null);
+      if (words) words.forEach((w, i) => w && tokens.set(slice[i], BigInt(`0x${w}`).toString()));
+    }),
+  );
+  return { tokens, calls };
+}
+
+/** A plain `eth_call` raced across the chain's RPCs; the first non-empty answer (hex), or null. */
+export async function ethCallAny(chain: EvmChain, to: string, data: string, timeoutMs = 8_000): Promise<string | null> {
+  const attempts = RPCS[chain].map(async (rpc) => {
+    const r = await ethCall(rpc, to, data, timeoutMs);
+    if (!r) throw new Error("no answer");
+    return r;
+  });
+  return Promise.any(attempts).catch(() => null);
 }

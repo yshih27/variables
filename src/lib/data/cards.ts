@@ -450,6 +450,35 @@ export async function readCardMeta(
   return out;
 }
 
+/**
+ * Metadata plus the stored `ip_key` for many tokenIds of one platform. For a
+ * venue whose `ip_key` is set from a feed field rather than keywords (Renaiss:
+ * the catalog image's game, renaiss/cards.ts) the stored key is the IP — the
+ * keyword classifier would misread a card name ("Sunflora" → football).
+ */
+export async function readCardsWithIp(
+  platform: CardPlatform,
+  tokenIds: string[],
+): Promise<Map<string, { meta: TokenMetadata; ipKey: string }>> {
+  const out = new Map<string, { meta: TokenMetadata; ipKey: string }>();
+  const ids = [...new Set(tokenIds)].filter(Boolean);
+  if (ids.length === 0) return out;
+  const CHUNK = inChunk(ids);
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await db()
+      .from("cards")
+      .select("token_id,name,image,image_fallback,attributes,ip_key")
+      .eq("platform", platform)
+      .in("token_id", ids.slice(i, i + CHUNK));
+    if (error) {
+      console.warn(`[cards] read failed: ${error.message}`);
+      continue;
+    }
+    for (const row of data ?? []) out.set(row.token_id as string, { meta: metaFromRow(row), ipKey: String(row.ip_key ?? "other") });
+  }
+  return out;
+}
+
 /** Read metadata for many tokenIds of one platform (cache-only). */
 export async function readCards(
   platform: CardPlatform,

@@ -5,7 +5,7 @@ import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/i
 import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
 import { PLATFORM_SOURCES, type PlatformSource } from "@/lib/data/sources";
-import { PULLS_REREAD_DAYS } from "@/lib/renaiss/constants";
+import { PULLS_REREAD_DAYS, RENAISS_MACHINE_WINDOW_DAYS, STATED_MCAP_MIN_COVERAGE } from "@/lib/renaiss/constants";
 import { readMethodChanges, type MethodLedger } from "@/lib/data/methodChanges";
 import { labelFor } from "@/lib/indices/entityLabels";
 import { receiptsHref } from "@/lib/indices/receiptRoute";
@@ -407,13 +407,13 @@ const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
   },
   renaiss: {
     resale:
-      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since its first sale, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid.",
+      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since its first sale, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid. When a day holds fewer sales than the tables need, the platform page's sales tables read the trailing seven days and say so.",
     listings:
-      "No source. The API publishes no active listings, so the floor and the market cap read as withheld, never as zero.",
+      "No source. Renaiss's asks are signed off-chain and its API does not publish them, so the floor and listings read as withheld, never as zero.",
     holders:
-      "Not counted; no ownership read is wired for its card contract. A card's metadata (set, number, grade, cert, language) is kept the first time the card sells, so a card seen only as a pack prize has no card page.",
+      `Counted on-chain on BNB Chain: every live token of its card contract and its owner, read through Multicall3 over public endpoints. Wallets the contract itself names as Renaiss's (its owner, its treasury, and the holders of its admin, minter and burner roles) and the zero and burn addresses are not holders. A token that came through a pack or a sale and no longer exists has been burned, which most likely means redeemed for the card, and is counted as burned, not as redeemed. The market cap is the prize value Renaiss stated for each held token at its pull: the venue's own appraisal, like Collector Crypt's insured value, not a price. A held token with no stated value is a gap, never a zero, and the market cap is withheld unless stated values cover ${Math.round(STATED_MCAP_MIN_COVERAGE * 100)}% of held tokens. A card's metadata (set, number, grade, cert, language) is kept the first time the card sells, so a card seen only as a pack prize has no card page.`,
     primary:
-      `Pack pulls from the same API: each checkout with its buyer, price and transaction, and the prize once Renaiss names it, which for its V3 packs happens when the set sells out, so the last ${PULLS_REREAD_DAYS} days are re-read on every run and a pull is written again only when it is new or has changed: its prize named, or its checkout matched. The prize value is the one Renaiss states. A draw seen on its public list but not yet matched to a checkout is kept and never counted as spend. Its pulls are kept apart from the other venues' pull records, so the player analysis does not cover it. No payout wallet is known, so net revenue is withheld with that reason.`,
+      `Pack pulls from the same API: each checkout with its buyer, price and transaction, the machine's name, and the prize once Renaiss names it, which for its V3 packs happens when the set sells out, so the last ${PULLS_REREAD_DAYS} days are re-read on every run and a pull is written again only when it is new or has changed: its prize named, or its checkout matched. The prize value is the one Renaiss states. A draw seen on its public list but not yet matched to a checkout is kept and never counted as spend. Its pulls are kept apart from the other venues' pull records and aggregated per wallet in the database, so its player analysis is covered without adding it to the other venues' scan; its machines are read over the last ${RENAISS_MACHINE_WINDOW_DAYS} complete days, with value back and hit share measured in Renaiss's stated prize value. No payout wallet is known, so net revenue is withheld with that reason.`,
   },
 };
 

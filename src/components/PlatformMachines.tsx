@@ -168,7 +168,7 @@ export function PlatformMachines({
       right={
         // The denominator, once. Every share in the table is against this.
         <span className="whitespace-nowrap font-mono text-[11px] text-ink-3">
-          <span className="tabular text-ink-2">{board.attributedSpendPct.toFixed(1)}%</span> of spend
+          <span className="tabular text-ink-2">{(board.attributedSpendPct ?? 0).toFixed(1)}%</span> of spend
           attributed
         </span>
       }
@@ -242,7 +242,7 @@ function MachinesSummary({ board, asOf }: { board: MachineBoard; asOf: string })
       {" · "}
       <span className="tabular text-ink-2">{formatCompactUsd(spend)}</span> spend
       {" · "}
-      <span className="tabular text-ink-2">{board.attributedSpendPct.toFixed(1)}%</span> of spend attributed
+      <span className="tabular text-ink-2">{(board.attributedSpendPct ?? 0).toFixed(1)}%</span> of spend attributed
       {" · "}
       through <span className="tabular text-ink-2">{asOf}</span>
     </p>
@@ -354,7 +354,7 @@ function TopPartner({ row, colors }: { row: MachineRow; colors: Map<string, stri
 function SplitBar({ row, colors }: { row: MachineRow; colors: Map<string, string> }) {
   const total = row.spendUsd;
   if (!(total > 0)) return <span className="text-ink-4">—</span>;
-  const segs = row.partners.filter((p) => p.spendUsd > 0);
+  const segs = (row.partners ?? []).filter((p) => p.spendUsd > 0);
   return (
     <span className="flex h-2.5 w-full overflow-hidden rounded-none bg-bg-2">
       {segs.map((p) => (
@@ -368,7 +368,7 @@ function SplitBar({ row, colors }: { row: MachineRow; colors: Map<string, string
       <span
         className="h-full flex-1"
         style={{ background: UNATTRIBUTED_FILL }}
-        title={`Unattributed · ${formatCompactUsd(row.unattributedUsd)} · no memo_slug on these pulls`}
+        title={`Unattributed · ${formatCompactUsd(row.unattributedUsd ?? 0)} · no memo_slug on these pulls`}
       />
     </span>
   );

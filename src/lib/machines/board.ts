@@ -15,7 +15,8 @@ export type MachineSortKey = "name" | "price" | "spend" | "pulls" | "spend7d" | 
 
 /** A machine's attributed share of its OWN spend. NaN (→ "—") when it took none. */
 export function attributedPct(r: MachineRow): number {
-  return r.spendUsd > 0 ? (r.attributedUsd / r.spendUsd) * 100 : NaN;
+  // Undefined on a board with no partner split (Renaiss): "—", like a machine that took none.
+  return r.spendUsd > 0 && r.attributedUsd != null ? (r.attributedUsd / r.spendUsd) * 100 : NaN;
 }
 
 export function valueFor(r: MachineRow, key: MachineSortKey): number {
@@ -83,7 +84,7 @@ export function shortKey(key: string): string {
 export function colorBySlug(rows: MachineRow[]): Map<string, string> {
   const total = new Map<string, number>();
   for (const r of rows) {
-    for (const p of r.partners) total.set(p.slug, (total.get(p.slug) ?? 0) + p.spendUsd);
+    for (const p of r.partners ?? []) total.set(p.slug, (total.get(p.slug) ?? 0) + p.spendUsd);
   }
   return new Map(
     [...total.entries()]

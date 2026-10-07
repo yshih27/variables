@@ -80,6 +80,8 @@ export type PlatformPlayerAnalytics = {
   };
   tiers: SpendTierRow[];
   monthly: MonthlySpendRow[];
+  /** Why `monthly` is empty when the venue's spend exists (Renaiss: its aggregate is per wallet, not per month). */
+  monthlyReason?: string;
   concentration: ConcentrationStats;
 };
 
@@ -174,33 +176,60 @@ export type MachinePartnerShare = {
 };
 
 export type MachineRow = {
-  /** `product_id`, e.g. "collector-crypt:pokemon_5000". */
+  /** `product_id`, e.g. "collector-crypt:pokemon_5000" (Renaiss: its machine id). */
   key: string;
   /** Catalog display name; falls back to the key when the catalog lacks it. */
   name: string;
   /** Catalog price. Null when the machine is not in the current catalog (rotated
    *  off the menu) — never inferred from the pulls, which would turn a mixed-price
-   *  history into a fake sticker price. */
+   *  history into a fake sticker price. Renaiss publishes no catalog: its price
+   *  is the one its newest checkout in the window paid (renaiss/machines.ts). */
   priceUsd: number | null;
   pulls: number;
   spendUsd: number;
   spend7dUsd: number;
   pulls24h: number;
+  // ── Partner split: Collector Crypt's machines only (its pulls carry memo_slug).
+  //    Absent on a venue whose pulls name no partner (Renaiss), never zero. ──
   /** Σ spend on pulls carrying a memo_slug. The denominator for every share. */
-  attributedUsd: number;
+  attributedUsd?: number;
   /** Desc by spend. `cc` is a partner surface like any other and is included. */
-  partners: MachinePartnerShare[];
+  partners?: MachinePartnerShare[];
   /** Null when attributedUsd = 0 — there is no top partner of nothing. */
-  topPartner: { slug: string; label: string; sharePct: number } | null;
-  unattributedUsd: number;
+  topPartner?: { slug: string; label: string; sharePct: number } | null;
+  unattributedUsd?: number;
+  // ── The venue's own stated prize value: Renaiss's machines only. Labelled
+  //    with the board's `valueBasis` wherever it travels; never a price. ──
+  /** Σ stated value of the prizes pulled, over the pulls that carry one. */
+  statedValueUsd?: number;
+  /** Σ stated value ÷ Σ price paid, as a percent, over pulls carrying BOTH. Null when none does. */
+  valueBackPct?: number | null;
+  /** Share of pulls whose stated prize value ≥ the price paid (0-100), over `hitN`. Null when hitN = 0. */
+  hitSharePct?: number | null;
+  /** Pulls carrying both a price and a stated value: the n behind the two figures above. */
+  hitN?: number;
+  /** The pull with the highest stated value in the window. */
+  topPrize?: MachinePrize | null;
+};
+
+/** One prize as a board or a biggest-pulls list shows it. */
+export type MachinePrize = {
+  cardName: string | null;
+  grade: string | null;
+  valueUsd: number;
+  image: string | null;
+  pulledAt: string;
 };
 
 export type MachineBoard = {
   windowDays: number;
   /** Last COMPLETE day covered (ISO). Today is excluded — it is still filling. */
   asOf: string;
-  /** Attributed ÷ total spend over the whole window (0-100). */
-  attributedSpendPct: number;
+  /** Attributed ÷ total spend over the whole window (0-100). Collector Crypt only. */
+  attributedSpendPct?: number;
+  /** What `statedValueUsd` / `valueBackPct` / `hitSharePct` are measured in
+   *  ("Renaiss's stated prize value"). Absent on a board that carries none. */
+  valueBasis?: string;
   /** Every machine with ≥1 pull in the window, desc by spend. */
   rows: MachineRow[];
 };
@@ -590,7 +619,7 @@ export async function aggregatePlayerAnalytics(opts: {
   log(
     machineBoard
       ? `· machines: ${machineBoard.rows.length} over ${MACHINE_WINDOW_DAYS} complete days · ` +
-        `$${Math.round(machSpendTotal).toLocaleString()} spend · ${machineBoard.attributedSpendPct.toFixed(1)}% attributed`
+        `$${Math.round(machSpendTotal).toLocaleString()} spend · ${(machineBoard.attributedSpendPct ?? 0).toFixed(1)}% attributed`
       : `· machines: none (no complete-day CC pulls in the window)`,
   );
 
@@ -607,7 +636,44 @@ export async function aggregatePlayerAnalytics(opts: {
 }
 
 function buildPlatform(platform: string, acc: PlatformAcc): PlatformPlayerAnalytics {
-  const spends = [...acc.wallets.values()].map((w) => w.spend).sort((a, b) => b - a);
+  const { tiers, concentration } = tiersAndConcentration(acc.wallets.values());
+
+  const monthly: MonthlySpendRow[] = [...acc.monthly.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, m]) => ({
+      month,
+      byPrice: Object.fromEntries([...m.byPrice.entries()].sort((a, b) => a[0] - b[0]).map(([p, v]) => [String(p), v])),
+      totalUsd: m.total,
+      pulls: m.pulls,
+    }));
+
+  return {
+    platform,
+    coverage: {
+      rows: acc.rows,
+      walletAttributedRows: acc.walletRows,
+      pricedRows: acc.pricedRows,
+      firstPullAt: acc.first,
+      lastPullAt: acc.last,
+    },
+    tiers,
+    monthly,
+    concentration,
+  };
+}
+
+/**
+ * Spend tiers and concentration from per-wallet lifetime spend — pure, and the
+ * ONE copy of the rule: the gacha_pulls scan above and Renaiss's database-side
+ * aggregate (renaiss/players.ts) both come through here, so the two venues'
+ * tiers can never be cut two ways.
+ */
+export function tiersAndConcentration(
+  wallets: Iterable<{ spend: number; lastAt: number }>,
+  nowMs: number = Date.now(),
+): { tiers: SpendTierRow[]; concentration: ConcentrationStats } {
+  const all = [...wallets];
+  const spends = all.map((w) => w.spend).sort((a, b) => b - a);
   const totalSpend = spends.reduce((s, v) => s + v, 0);
   const n = spends.length;
 
@@ -640,30 +706,12 @@ function buildPlatform(platform: string, acc: PlatformAcc): PlatformPlayerAnalyt
     return (sum / totalSpend) * 100;
   };
 
-  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const cutoff = nowMs - 30 * 24 * 60 * 60 * 1000;
   let active30 = 0;
-  for (const w of acc.wallets.values()) if (w.lastAt >= cutoff) active30 += 1;
-
-  const monthly: MonthlySpendRow[] = [...acc.monthly.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([month, m]) => ({
-      month,
-      byPrice: Object.fromEntries([...m.byPrice.entries()].sort((a, b) => a[0] - b[0]).map(([p, v]) => [String(p), v])),
-      totalUsd: m.total,
-      pulls: m.pulls,
-    }));
+  for (const w of all) if (w.lastAt >= cutoff) active30 += 1;
 
   return {
-    platform,
-    coverage: {
-      rows: acc.rows,
-      walletAttributedRows: acc.walletRows,
-      pricedRows: acc.pricedRows,
-      firstPullAt: acc.first,
-      lastPullAt: acc.last,
-    },
     tiers,
-    monthly,
     concentration: {
       totalWallets: n,
       totalSpendUsd: totalSpend,

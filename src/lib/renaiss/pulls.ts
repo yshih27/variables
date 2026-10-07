@@ -73,6 +73,10 @@ export type RenaissStoredPull = {
   prize_grade_label: string | null;
   prize_cert: string | null;
   prize_language: string | null;
+  /** The machine's name as the feed prints it ("PANDORA 28"); migration 20261007000001. */
+  machine_name: string | null;
+  /** The prize's image (the feed's `imageUrl`, else its catalog card's); migration 20261007000001. */
+  prize_image_url: string | null;
 };
 
 /**
@@ -120,6 +124,8 @@ export function toPullRow(p: RenaissPullRow, prize: PrizeFields | null): Renaiss
     prize_grade_label: prize ? prize.grade_label : null,
     prize_cert: prize?.cert ?? null,
     prize_language: prize?.language ?? null,
+    machine_name: p.machineName?.trim() || null,
+    prize_image_url: p.imageUrl ?? p.catalogCard?.imageUrl ?? null,
   };
 }
 
@@ -211,12 +217,43 @@ export async function readStoredPullStates(since: string): Promise<Map<string, S
 
 // ── Row store (`renaiss_pulls`) ──────────────────────────────────────────────
 
-/** Upsert on `pull_id`: a pull whose prize was named since updates in place. */
+/** The two columns migration 20261007000001 adds. */
+const NEW_COLUMNS = ["machine_name", "prize_image_url"] as const;
+/** Set once a write learns the columns are not there yet, so later chunks skip the failed attempt. */
+let newColumnsMissing = false;
+
+/** True when PostgREST refused a write for one of the two new columns. */
+export function isMissingNewColumn(message: string): boolean {
+  return NEW_COLUMNS.some((c) => message.includes(c)) && /column|schema cache/i.test(message);
+}
+
+/**
+ * Upsert on `pull_id`: a pull whose prize was named since updates in place.
+ *
+ * ⚠️ WORKS BEFORE AND AFTER MIGRATION 20261007000001. PostgREST refuses a write
+ * that names a column it does not know, so until the migration is applied a
+ * chunk that fails on `machine_name` / `prize_image_url` is written again
+ * without them, and the rest of the run skips them. The pulls feed keeps
+ * filling either way; the columns' history is the refill's job.
+ */
 export async function upsertRenaissPulls(rows: RenaissStoredPull[]): Promise<number> {
   if (!rows.length) return 0;
   const CHUNK = 500;
+  const strip = (r: RenaissStoredPull) => {
+    const out: Partial<RenaissStoredPull> = { ...r };
+    for (const c of NEW_COLUMNS) delete out[c];
+    return out;
+  };
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const { error } = await db().from("renaiss_pulls").upsert(rows.slice(i, i + CHUNK), { onConflict: "pull_id" });
+    const chunk = rows.slice(i, i + CHUNK);
+    let { error } = await db()
+      .from("renaiss_pulls")
+      .upsert(newColumnsMissing ? chunk.map(strip) : chunk, { onConflict: "pull_id" });
+    if (error && !newColumnsMissing && isMissingNewColumn(error.message)) {
+      newColumnsMissing = true;
+      console.warn("[renaiss_pulls] machine_name / prize_image_url not in the table yet (migration 20261007000001); writing without them");
+      ({ error } = await db().from("renaiss_pulls").upsert(chunk.map(strip), { onConflict: "pull_id" }));
+    }
     if (error) throw new Error(`[renaiss_pulls] upsert failed: ${error.message}`);
   }
   return rows.length;
@@ -231,6 +268,13 @@ async function edgePulledAt(ascending: boolean): Promise<string | null> {
     .maybeSingle();
   if (error) throw new Error(`[renaiss_pulls] ${ascending ? "oldest" : "cursor"} read failed: ${error.message}`);
   return (data?.pulled_at as string | undefined) ?? null;
+}
+
+/** How many pulls the store holds (a planner's count, read once). */
+export async function countStoredPulls(): Promise<number> {
+  const { count, error } = await db().from("renaiss_pulls").select("pull_id", { count: "exact", head: true });
+  if (error) throw new Error(`[renaiss_pulls] count failed: ${error.message}`);
+  return count ?? 0;
 }
 
 /** Newest stored `pulled_at` — the incremental cursor. Null when none is stored. */
