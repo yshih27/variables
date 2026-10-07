@@ -56,7 +56,8 @@
     "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts src/lib/renaiss/platform.test.ts",
     "test:index-current": "tsx --test src/lib/indices/indexCurrent.test.ts",
     "test:gacha": "tsx --test src/lib/data/gacha.test.ts",
-    "test:sales-store": "tsx --test src/lib/data/salesStore.test.ts"
+    "test:sales-store": "tsx --test src/lib/data/salesStore.test.ts",
+    "test:every-venue": "tsx --test src/lib/data/everyVenue.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

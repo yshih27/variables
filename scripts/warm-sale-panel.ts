@@ -17,6 +17,15 @@
  *       (price-index.v4.1.json), rekey-report.json + rekey-report.md (the level-by-
  *       level diff, the merge review and the fragment counts the PR body carries)
  *       and the method-changes snapshot the methodology page renders from.
+ *   npx tsx --env-file=.env.local scripts/warm-sale-panel.ts --out=/tmp/blob --shadow-venues
+ *       THE EVERY-VENUE SHADOW BUILD (brief-backend-index-every-venue B2). Requires
+ *       --out. The run builds on the `secondary_sales` store, as every run now does,
+ *       then builds the SAME index on today's legs (the 30-day snapshot windows and
+ *       Beezie's live /activity) and writes, beside the new blob: the legs blob
+ *       (price-index.legs.json), venues-report.json + venues-report.md (per entity
+ *       per month: identities by venue, step and level, holds, thin flags, old →
+ *       new) and method-changes.json under the next ledger version. Pair it with
+ *       SALES_STORE_LOCAL_DIR=<dir> to build on a store a backfill's --out wrote.
  *
  * WHAT IS IN THE BLOB, AND WHY EVERY SURFACE READS IT RATHER THAN TYPING ANYTHING:
  *   series[entity]           month-END-stamped IndexPoints, n = identities in the
@@ -58,7 +67,10 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
+import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, PANEL_VENUES_PENDING_RESTATEMENT, PANEL_MIN_PRICE_USD, type SaleRow } from "../src/lib/data/salePanel";
+import type { CardPlatform } from "../src/lib/data/cards";
+import { PLATFORM_META } from "../src/lib/card/ids";
+import { diffVenues, nextMethodVersion, venuesTable, type VenueEntityDiff } from "../src/lib/data/venuesReport";
 import { chainIdentityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, type IndexHold, type StepObs } from "../src/lib/data/identityIndex";
 import type { IndexPoint, IndexProvisional, StepVenues } from "../src/lib/data/indices";
 import type { StepObsTuple } from "../src/lib/data/indexReceipts";
@@ -82,6 +94,8 @@ const OUT_DIR = process.argv.find((a) => a.startsWith("--out="))?.split("=")[1] 
  * production would have performed the cutover it was meant to preview.
  */
 const SHADOW = process.argv.includes("--shadow-rekey");
+/** The every-venue shadow: legs → store. `--out`-only, for the same reason. */
+const SHADOW_VENUES = process.argv.includes("--shadow-venues");
 /** The identity keying these levels were built under — carried in the blob. */
 const METHOD = "v4.2" as const;
 const PREVIOUS_METHOD = "v4.1" as const;
@@ -451,8 +465,215 @@ async function writeShadowRekey(ctx: {
   console.log(`  wrote rekey-report.json + rekey-report.md + price-index.${PREVIOUS_METHOD}.json + method-changes.json → ${ctx.dir}`);
 }
 
+/** Per venue: panel rows, rows that resolve to an identity, identities, first → last sale. */
+function panelVenues(panel: SaleRow[]): Record<string, { sales: number; resolved: number; identities: number; first: string | null; last: string | null }> {
+  const out: Record<string, { sales: number; resolved: number; ids: Set<string>; first: string | null; last: string | null }> = {};
+  for (const r of panel) {
+    const v = (out[r.platform] ??= { sales: 0, resolved: 0, ids: new Set(), first: null, last: null });
+    v.sales++;
+    if (r.identity) {
+      v.resolved++;
+      v.ids.add(r.identity);
+    }
+    if (!v.first || r.ts < v.first) v.first = r.ts;
+    if (!v.last || r.ts > v.last) v.last = r.ts;
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, { sales: v.sales, resolved: v.resolved, identities: v.ids.size, first: v.first, last: v.last }]));
+}
+
+/**
+ * THE EVERY-VENUE SHADOW BUILD — the same index on today's legs and on the
+ * store, differenced. Writes, all under `--out` and nothing else:
+ *   price-index.legs.json   the legs-built blob (series, holds, provisional)
+ *   venues-report.json      every number below, machine-readable
+ *   venues-report.md        the tables the PR body carries
+ *   method-changes.json     the ledger record the cutover run publishes with
+ *                           `--method-changes=<this file>`
+ *
+ * ⚠️ THE ACCEPTANCE IS COMPUTED HERE, NOT ASSERTED IN THE PR: a month that
+ * published on the legs must still publish on the store, and on no fewer
+ * identities. A store that loses either is missing history the legs had.
+ */
+async function writeShadowVenues(ctx: {
+  dir: string;
+  now: string;
+  panel: SaleRow[];
+  after: Record<string, IndexPoint[]>;
+  holds: Record<string, IndexHold[]>;
+  provisional: Record<string, IndexProvisional>;
+  mktSales: SaleRow[];
+}): Promise<{ pass: boolean }> {
+  const t0 = Date.now();
+  console.log(`\n── shadow venues (legs → store) ─────────────────────────────────────────`);
+  const legsPanel = await buildSalePanel({ source: "legs", strict: true });
+  // ⚠️ A "BEFORE" MISSING A VENUE WOULD MAKE EVERY MONTH LOOK GAINED. Measured
+  // Oct 1, before the legs were strict: a live Beezie /activity failure left the
+  // legs panel at 3,281 sales and the legs index publishing no month at all,
+  // and this report read "+42 months, PASS". Strict catches Beezie; this catches
+  // any venue the store resolves to identities and the legs returned nothing for.
+  const legsVenues = panelVenues(legsPanel);
+  // A venue held out of the legs build BY DESIGN (PANEL_VENUES_PENDING_RESTATEMENT:
+  // the published method keeps it out, this restatement adds it) is joining,
+  // not missing: it is named, and the check still catches any other venue.
+  const joining = Object.keys(panelVenues(ctx.panel)).filter((v) => PANEL_VENUES_PENDING_RESTATEMENT.has(v as CardPlatform));
+  if (joining.length) console.log(`  joining with this restatement (held out of the legs build by design): ${joining.join(", ")}`);
+  const missing = Object.entries(panelVenues(ctx.panel))
+    .filter(([v, x]) => x.resolved > 0 && !legsVenues[v] && !PANEL_VENUES_PENDING_RESTATEMENT.has(v as CardPlatform))
+    .map(([v]) => v);
+  if (missing.length) throw new Error(`shadow venues: the legs build returned no ${missing.join(", ")} rows (a feed failed); the comparison would be meaningless, so nothing was reported. Rerun.`);
+  // ⚠️ A TRUNCATED LEG PASSES THE CHECK ABOVE. Measured Oct 7 11:50 UTC: the live
+  // Beezie /activity answered 17 sales (the last 7 hours) instead of its ~18,400
+  // row history, the legs index published nothing, and this report read "+90
+  // months, PASS". Beezie's legs read is its whole history, as the store's is,
+  // so a legs Beezie under half the store's means the request was cut short.
+  const legsBz = legsVenues["beezie"]?.sales ?? 0;
+  const storeBz = panelVenues(ctx.panel)["beezie"]?.sales ?? 0;
+  if (storeBz > 0 && legsBz < storeBz / 2) {
+    throw new Error(`shadow venues: the legs build's Beezie feed returned ${legsBz} sales against ${storeBz} in the store (a truncated /activity response); nothing was reported. Rerun.`);
+  }
+  const before = buildSeriesSet(legsPanel);
+  const ids = [...new Set([...Object.keys(before.series), ...Object.keys(ctx.after)])].filter((id) => !id.startsWith("premium:"));
+  const diffs: VenueEntityDiff[] = ids
+    .map((id) => diffVenues(id, { points: before.series[id] ?? [], holds: before.holds[id] ?? [] }, { points: ctx.after[id] ?? [], holds: ctx.holds[id] ?? [] }))
+    .sort((a, b) => {
+      if (a.id === "market:total") return -1;
+      if (b.id === "market:total") return 1;
+      return b.months.length - a.months.length || a.id.localeCompare(b.id);
+    });
+
+  const invBefore = holdingPeriodInvariance(before.mktSales, { grain: "month" });
+  const invAfter = holdingPeriodInvariance(ctx.mktSales, { grain: "month" });
+  const venues = { legs: legsVenues, store: panelVenues(ctx.panel) };
+  const lost = diffs.flatMap((d) => d.monthsLost.map((m) => `${d.id} ${m}`));
+  const fewer = diffs.flatMap((d) => d.fewerIdentities.map((m) => `${d.id} ${m}`));
+  const baseChanged = diffs.flatMap((d) => d.baseIdentitiesChanged.map((m) => `${d.id} ${m}`));
+  const gained = diffs.flatMap((d) => d.monthsGained.map((m) => `${d.id} ${m}`));
+  const entitiesLost = ids.filter((id) => before.series[id] && !ctx.after[id]);
+  const entitiesNew = ids.filter((id) => ctx.after[id] && !before.series[id]);
+  const pass = !lost.length && !fewer.length && !entitiesLost.length;
+
+  // The ledger record, under the next version AT THIS RUN (run the shadow at merge).
+  const ledger = (await readSnapshot<{ changes?: MethodChange[] }>(METHOD_CHANGES_SNAPSHOT_KEY))?.changes ?? [];
+  const version = nextMethodVersion([...ledger.map((c) => c.version), METHOD]);
+  const moved = diffs.flatMap((d) => d.months).filter((m) => m.levelBefore != null && m.levelAfter != null && Math.abs(m.levelAfter - m.levelBefore) >= 0.05);
+  const maxMove = Math.max(0, ...moved.map((m) => Math.abs((m.levelAfter as number) - (m.levelBefore as number))));
+  // ⚠️ A VENUE THE STORE READS IS NOT A VENUE THE INDEX USES. Measured Oct 7:
+  // Courtyard's 2,950 stored sales resolve to no identity (no card traits), so
+  // they move no level. The ledger names only the venues whose sales reach a
+  // step, and says which were read and contributed nothing.
+  const label = (v: string) => PLATFORM_META[v as CardPlatform]?.label ?? v;
+  const byShare = Object.entries(venues.store).sort((a, b) => b[1].resolved - a[1].resolved);
+  const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  const venueList = andList(
+    byShare.filter(([, x]) => x.resolved > 0).map(([v, x]) => `${label(v)} (from ${x.first?.slice(0, 10) ?? "—"})`),
+  );
+  const unresolved = byShare.filter(([, x]) => x.resolved === 0 && x.sales > 0);
+  const unresolvedLine = unresolved.length
+    ? `${andList(unresolved.map(([v, x]) => `${label(v)}'s ${x.sales.toLocaleString("en-US")} sales`))} are read but resolve to no card identity, so they move no level. `
+    : "";
+  const changes: MethodChange[] = [
+    {
+      version,
+      date: ctx.now,
+      summary:
+        `The index reads full resale history from one store instead of 30-day windows: ${venueList}. ` +
+        unresolvedLine +
+        `A sale under $${PANEL_MIN_PRICE_USD} no longer counts as a price. ` +
+        // Measured, never asserted: the outcome sentence is whatever this run found.
+        (gained.length || lost.length
+          ? `${gained.length} month${gained.length === 1 ? "" : "s"} now publish that did not before, and ${lost.length} that published ${lost.length === 1 ? "is" : "are"} now withheld; `
+          : `No month gained or lost publication; `) +
+        `${moved.length} published level${moved.length === 1 ? "" : "s"} moved, by at most ${maxMove.toFixed(1)} points.`,
+      entities: diffs.flatMap((d) =>
+        d.months
+          .filter((m) => m.levelBefore != null || m.levelAfter != null)
+          .map((m) => ({ id: d.id, month: m.month, levelBefore: m.levelBefore, levelAfter: m.levelAfter, identitiesBefore: m.identitiesBefore, identitiesAfter: m.identitiesAfter })),
+      ),
+    },
+  ];
+  writeFileSync(join(ctx.dir, "method-changes.json"), JSON.stringify({ generatedAt: ctx.now, changes }, null, 2));
+  writeFileSync(
+    join(ctx.dir, "price-index.legs.json"),
+    JSON.stringify({ generatedAt: ctx.now, cadence: "monthly", method: METHOD, source: "legs", series: before.series, holds: before.holds, provisional: before.provisional }),
+  );
+
+  const report = {
+    generatedAt: ctx.now,
+    version,
+    panel: { legs: legsPanel.length, store: ctx.panel.length },
+    venues,
+    invariance: { before: { spreadPP: invBefore.spreadPP, buckets: invBefore.buckets }, after: { spreadPP: invAfter.spreadPP, buckets: invAfter.buckets } },
+    acceptance: { pass, monthsLost: lost, fewerIdentities: fewer, entitiesLost },
+    baseIdentitiesChanged: baseChanged,
+    monthsGained: gained,
+    entitiesNew,
+    entities: diffs,
+  };
+  writeFileSync(join(ctx.dir, "venues-report.json"), JSON.stringify(report, null, 2));
+
+  const vline = (v: (typeof venues)["legs"]) =>
+    Object.entries(v)
+      .sort((a, b) => b[1].sales - a[1].sales)
+      .map(([k, x]) => `| ${k} | ${x.sales.toLocaleString()} | ${x.resolved.toLocaleString()} | ${x.identities.toLocaleString()} | ${x.first?.slice(0, 16) ?? "—"} → ${x.last?.slice(0, 16) ?? "—"} |`);
+  const headline = ["market:total", "ip:pokemon", "category:tcg"];
+  const md = [
+    `## Shadow build: legs → store`,
+    ``,
+    `Panel: ${legsPanel.length.toLocaleString()} sales on the legs → ${ctx.panel.length.toLocaleString()} on the store. Ledger record: \`${version}\`.`,
+    ``,
+    `| venue (legs) | sales | resolved to an identity | identities | first → last |`,
+    `| --- | --- | --- | --- | --- |`,
+    ...vline(venues.legs),
+    ``,
+    `| venue (store) | sales | resolved to an identity | identities | first → last |`,
+    `| --- | --- | --- | --- | --- |`,
+    ...vline(venues.store),
+    ``,
+    `**Acceptance:** ${pass ? "PASS" : "FAIL"}. Months that published on the legs and not on the store: ${lost.length ? lost.join(", ") : "none"}. ` +
+      `Months whose step rests on fewer identities: ${fewer.length ? fewer.join(", ") : "none"}. Entities lost: ${entitiesLost.length ? entitiesLost.join(", ") : "none"}.`,
+    ``,
+    `Base months (a series' first point, no step) whose identity count changed: ${baseChanged.length ? baseChanged.join(", ") : "none"}.`,
+    ``,
+    `Months that now publish: ${gained.length ? gained.join(", ") : "none"}. New entities: ${entitiesNew.length ? entitiesNew.join(", ") : "none"}.`,
+    ``,
+    `Holding-period invariance (V-MKT): spread ${invBefore.spreadPP.toFixed(2)} pp → ${invAfter.spreadPP.toFixed(2)} pp.`,
+    ``,
+    `Across ${diffs.length} entities: holds that appear ${diffs.reduce((a, d) => a + d.holdsAppear.length, 0)}, holds that clear ${diffs.reduce((a, d) => a + d.holdsClear.length, 0)}, ` +
+      `thin flags that clear ${diffs.reduce((a, d) => a + d.thinCleared.length, 0)}, thin flags that appear ${diffs.reduce((a, d) => a + d.thinAppeared.length, 0)}, ` +
+      `published levels that moved ≥ 0.05 ${moved.length} (at most ${maxMove.toFixed(1)} points).`,
+    ``,
+    ...headline.flatMap((id) => {
+      const d = diffs.find((x) => x.id === id);
+      return d ? [`### \`${id}\``, ``, venuesTable(d), ``] : [];
+    }),
+    `### Every other entity with a change`,
+    ``,
+    ...diffs
+      .filter((d) => !headline.includes(d.id))
+      .filter((d) => d.monthsGained.length || d.monthsLost.length || d.holdsAppear.length || d.holdsClear.length || d.thinCleared.length || d.fewerIdentities.length || d.baseIdentitiesChanged.length || d.months.some((m) => m.identitiesBefore !== m.identitiesAfter))
+      .map(
+        (d) =>
+          `- \`${d.id}\`: identities ${d.months.filter((m) => m.identitiesBefore !== m.identitiesAfter && m.identitiesBefore != null && m.identitiesAfter != null).map((m) => `${m.month} ${m.identitiesBefore}→${m.identitiesAfter}`).join(", ") || "unchanged"}` +
+          `${d.monthsGained.length ? `; gains ${d.monthsGained.join(", ")}` : ""}${d.monthsLost.length ? `; LOSES ${d.monthsLost.join(", ")}` : ""}` +
+          `${d.holdsClear.length ? `; clears ${d.holdsClear.join(", ")}` : ""}${d.holdsAppear.length ? `; new hold ${d.holdsAppear.join(", ")}` : ""}` +
+          `${d.thinCleared.length ? `; thin clears ${d.thinCleared.join(", ")}` : ""}`,
+      ),
+    ``,
+  ].join("\n");
+  writeFileSync(join(ctx.dir, "venues-report.md"), md);
+
+  console.log(
+    `  panel ${legsPanel.length.toLocaleString()} → ${ctx.panel.length.toLocaleString()} · months +${gained.length}/−${lost.length} · fewer-identity steps ${fewer.length} · base months changed ${baseChanged.length} · ` +
+      `invariance ${invBefore.spreadPP.toFixed(2)} → ${invAfter.spreadPP.toFixed(2)} pp · ${version} · acceptance ${pass ? "PASS" : "FAIL"} · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
+  );
+  console.log(`  wrote venues-report.json + venues-report.md + price-index.legs.json + method-changes.json → ${ctx.dir}`);
+  return { pass };
+}
+
 async function main() {
   if (SHADOW && !OUT_DIR) throw new Error("--shadow-rekey requires --out=<dir>: a shadow build never writes production");
+  if (SHADOW_VENUES && !OUT_DIR) throw new Error("--shadow-venues requires --out=<dir>: a shadow build never writes production");
+  if (SHADOW && SHADOW_VENUES) throw new Error("one shadow build per run: --shadow-rekey or --shadow-venues");
   // Strict: a failed or empty feed throws here, before anything is written.
   const panel = await buildSalePanel({ legacyIdentity: SHADOW, strict: true });
   const { series, salesOf, holds, provisional, gated, mktSales } = buildSeriesSet(panel);
@@ -639,6 +860,10 @@ async function main() {
     }
   }
 
+  if (SHADOW_VENUES && OUT_DIR) {
+    const { pass } = await writeShadowVenues({ dir: OUT_DIR, now, panel, after: series, holds, provisional, mktSales });
+    if (!pass) process.exitCode = 1;
+  }
   if (SHADOW && OUT_DIR) {
     await writeShadowRekey({ dir: OUT_DIR, now, panel, after: series, afterSalesOf: salesOf, holds, identityIdx, charactersAfter: { characters: nChars, indexed: nIndexed, coverage: rollups.coverage }, premiumsAfter: premiums });
   }

@@ -54,7 +54,7 @@ weeks.
 | `gacha-live-all-platforms.sql` | `gacha-live-{cc,beezie,phygitals,courtyard}` (7642633 / 7642705 / 7642707 / 7642710) |
 | `gacha-daily-all-platforms.sql` | `gacha-daily-{cc,beezie,phygitals,courtyard}` (7845475 / 7845392 / 7845484 / 7845479) |
 | `buyback-all-platforms.sql` | `buyback-{cc,phygitals}` (7644128 / 7644129) — ⚠️ **both IDs RECLAIMED**, see below |
-| Rarible activity index (`src/lib/data/warmers/core.ts`, no Dune) | `courtyard-secondary` (7845248) — retired 2026-09-22: every row it decoded was an OpenSea trade Rarible already indexes, free and same-day; the query stays on Dune unexecuted |
+| Rarible activity index (`src/lib/data/warmers/core.ts`, no Dune) | `courtyard-secondary` (7845248) — retired 2026-09-22: every row it decoded was an OpenSea trade Rarible already indexes, free and same-day; ⚠️ the ID was RECLAIMED Oct 7 2026 for `cc-secondary-history-count.sql` (its SQL stays in `superseded/`) |
 
 ## One-shot / diagnostic
 
@@ -68,8 +68,13 @@ those two IDs no longer hold it.
 |---|---|---|---|---|
 | `r3-buyback-reconciliation.sql` | 7644128 | 35d | **once**, 2026-08-19 (107.6 cr) | §6 R3 measured — payouts counted only where the recipient spent in, beside current counting |
 | `r3-recipient-drilldown.sql` | 7644129 | 35d | **never** (~100 cr if run) | top-40 recipients per platform with `is_spender` / `not_excluded` — the named evidence behind §3d |
+| `cc-secondary-history-count.sql` | **7845248** (`DUNE_CC_SECONDARY_HISTORY_COUNT_QUERY_ID`; the retired Courtyard slot, reclaimed Oct 7 2026) | `[{{start}}, {{end}})` | **never**; once, before the backfill | `backfill-secondary-sales --platform=collector-crypt --count`: Collector Crypt resale sales and volume per month, one row a month. Its execution's measured compute plus the export its counts imply is the backfill's cost, which the owner approves before any history is bought |
+| `cc-secondary-history.sql` | **7644129** (`DUNE_CC_SECONDARY_HISTORY_QUERY_ID`; reclaimed Oct 7 2026, its previous "R3 variant A" SQL backed up as `superseded/r3-variant-a.7644129.sql`) | one calendar month per execution | **never**; once per month of history, after that approval | `backfill-secondary-sales --platform=collector-crypt --paid`: 7675297's logic plus `tx_id`, into the `secondary_sales` store. ⚠️ PAID |
 
 Results and interpretation: `docs/roadmap/net-gacha-reconciliation.md` Addendum A.
+The two `cc-secondary-history*` queries take two `datetime` parameters, `start`
+and `end`; saving them meets the same private-query cap, so each may have to
+reclaim a dormant slot the way these two did.
 ⚠️ **Do not put either on a schedule.** Each costs ~100 cr because R3 needs BOTH
 the inflow and outflow scans — roughly 3.6× the one-scan estimate the findings doc
 assumed. Re-run by hand only when the rule itself changes.
