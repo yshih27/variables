@@ -6,6 +6,12 @@
  *   npm run warm-dyli-boxes -- --backfill         # walk each box to its end
  *   npm run warm-dyli-boxes -- --max-pages 200    # cap the history budget
  *   npm run warm-dyli-boxes -- --dry-run          # fetch + map, write NOTHING
+ *   npm run warm-dyli-boxes -- --out=<dir>        # like --dry-run, plus <dir>/dyli:box-prizes.json
+ *
+ * Also keeps the `dyli:box-prizes` snapshot (src/lib/dyli/boxPrizes.ts): each live
+ * box's advertised chase list (GET /boxes/{boxId}, one request per live box, ~22)
+ * and its recent pulls BY NAME — the `title` /history returns and gacha_pulls has
+ * no column for — so the gacha comparison can name DYLI prizes.
  *
  * Writes:
  *   • gacha_products   one row per box — price, DECLARED EV, odds buckets
@@ -50,13 +56,17 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { fetchAllBoxes, fetchBoxHistoryPage, type DyliBox, type DyliPull } from "../src/lib/dyli/boxes";
+import { fetchAllBoxes, fetchBoxDetail, fetchBoxHistoryPage, type DyliBox, type DyliPull } from "../src/lib/dyli/boxes";
+import { chaseOf, mergeRecent, readDyliBoxPrizes, writeDyliBoxPrizes, DYLI_BOX_PRIZES_KEY, type DyliBoxPrizesSnapshot, type DyliRecentPull } from "../src/lib/dyli/boxPrizes";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { dyliCallCount } from "../src/lib/dyli/client";
 import { db } from "../src/lib/db/client";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 const argv = process.argv;
-const dryRun = argv.includes("--dry-run");
+const OUT = argv.find((a) => a.startsWith("--out="))?.split("=")[1] ?? null;
+const dryRun = argv.includes("--dry-run") || OUT != null;
 const catalogOnly = argv.includes("--catalog-only");
 const backfill = argv.includes("--backfill");
 
@@ -191,6 +201,8 @@ async function run() {
   // ── 2. Realized pulls, newest-first per box, stopping at what we hold. ─────
   let pagesUsed = 0;
   let pullsWritten = 0;
+  /** Named pulls seen this run, per box — for the box-prizes snapshot. */
+  const named = new Map<number, DyliRecentPull[]>();
   let boxesTouched = 0;
   const truncated: number[] = [];
 
@@ -212,6 +224,13 @@ async function run() {
       const page = await fetchBoxHistoryPage(b.box_id, cursor);
       pagesUsed++;
       if (!page.pulls.length) break;
+      const seen = named.get(b.box_id) ?? [];
+      for (const p of page.pulls) {
+        if (p.title && Number.isFinite(p.pull_id) && p.pulled_at) {
+          seen.push({ pullId: p.pull_id, collectibleId: p.collectible_id, title: p.title, image: p.image, fmvUsd: p.fmv_usd, tier: p.tier, pulledAt: p.pulled_at });
+        }
+      }
+      named.set(b.box_id, seen);
 
       // Newest-first: everything at or below the newest id we already stored is
       // already ours. Take the fresh prefix and stop — no need to walk history
@@ -250,6 +269,36 @@ async function run() {
         `Deep history below this run's oldest page needs an explicit --backfill.`,
     );
   }
+  // ── 3. Box prizes: the advertised chase list of each live box, and its recent
+  //       pulls by name, merged into the previous snapshot. ──────────────────
+  const prev = await readDyliBoxPrizes().catch(() => null);
+  const prizes: DyliBoxPrizesSnapshot = { generatedAt: new Date().toISOString(), boxes: {} };
+  let chaseCards = 0;
+  for (const b of boxes.filter((x) => x.live && !x.out_of_stock)) {
+    const d = await fetchBoxDetail(b.box_id).catch((e: unknown) => {
+      console.warn(`    box ${b.box_id} detail failed: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    });
+    const chase = d ? chaseOf(d.chase) : (prev?.boxes[String(b.box_id)]?.chase ?? []);
+    chaseCards += chase.length;
+    prizes.boxes[String(b.box_id)] = {
+      name: d?.name ?? b.name,
+      image: d?.image ?? prev?.boxes[String(b.box_id)]?.image ?? null,
+      brand: d?.brand ?? b.brand,
+      type: d?.type ?? b.type,
+      chase,
+      recent: mergeRecent(prev?.boxes[String(b.box_id)]?.recent ?? [], named.get(b.box_id) ?? []),
+    };
+  }
+  const recentNamed = Object.values(prizes.boxes).reduce((n, x) => n + x.recent.length, 0);
+  console.log(`DYLI box prizes — ${Object.keys(prizes.boxes).length} live box(es) · ${chaseCards} chase cards · ${recentNamed} named recent pulls`);
+  if (OUT) {
+    mkdirSync(OUT, { recursive: true });
+    writeFileSync(join(OUT, `${DYLI_BOX_PRIZES_KEY}.json`), JSON.stringify(prizes));
+    console.log(`  wrote LOCAL ${join(OUT, `${DYLI_BOX_PRIZES_KEY}.json`)} (production untouched)`);
+  } else if (!dryRun) {
+    await writeDyliBoxPrizes(prizes);
+  }
   console.log(`  DYLI API calls this run: ${dyliCallCount()}`);
 
   return {
@@ -260,4 +309,12 @@ async function run() {
   };
 }
 
-runWarmer("dyli-boxes", run);
+// A dry run (or --out) must not stamp source_freshness: it would advertise a warm
+// that wrote nothing.
+(dryRun ? run() : runWarmer("dyli-boxes", run)).then(
+  () => process.exit(0),
+  (e) => {
+    console.error(e);
+    process.exit(1);
+  },
+);

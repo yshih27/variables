@@ -31,6 +31,11 @@
  *                            readIndexReceipts prints it.
  *   holds[entity]            the months that did NOT publish, each with the gate
  *                            that held it — so a gap explains itself from data.
+ *   provisional[entity]      the running month's reading: the step the chain
+ *                            computes and holds, as last close × exp(step) with
+ *                            its band and `asOf`, or a below-floor record. Never a
+ *                            series point; replaced when the month closes.
+ *   series[e][i].venues      the venues behind each published step's sample.
  *   biasTests.invariance     the holding-period test for V-MKT (INV-12).
  *   biasTests.entities[e]    selectionPremiumPP (the disclosed resale skew), the
  *                            market-cap anchor over the series' span, and
@@ -55,7 +60,7 @@ config({ path: ".env.local" });
 
 import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
 import { chainIdentityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, type IndexHold, type StepObs } from "../src/lib/data/identityIndex";
-import type { IndexPoint } from "../src/lib/data/indices";
+import type { IndexPoint, IndexProvisional, StepVenues } from "../src/lib/data/indices";
 import type { StepObsTuple } from "../src/lib/data/indexReceipts";
 import { slugOfKey, legacySlugOfKey, ruleSplit, fragmentsOfKeys, keysOf, mergeReview, diffEntity, shadowTable, mergeTable, type EntityDiff } from "../src/lib/data/rekeyReport";
 import { ipsInCategory, type IPCategory } from "../src/lib/data/ipCatalog";
@@ -151,6 +156,8 @@ type SeriesSet = {
   salesOf: Record<string, SaleRow[]>;
   /** entity → the months it withheld, with the gate that withheld each. */
   holds: Record<string, IndexHold[]>;
+  /** entity → the running month's reading (every entity that publishes has one). */
+  provisional: Record<string, IndexProvisional>;
   gated: string[];
   mktSales: SaleRow[];
 };
@@ -167,9 +174,10 @@ function buildSeriesSet(panel: SaleRow[]): SeriesSet {
   const series: Record<string, IndexPoint[]> = {};
   const salesOf: Record<string, SaleRow[]> = {};
   const holds: Record<string, IndexHold[]> = {};
+  const provisional: Record<string, IndexProvisional> = {};
   const gated: string[] = [];
   const chain = (id: string, sales: SaleRow[], minIdentities: number, listWhenGated: boolean, label = id) => {
-    const { points, holds: held } = chainIdentityIndex(sales, { minIdentities, grain: "month" });
+    const { points, holds: held, provisional: prov } = chainIdentityIndex(sales, { minIdentities, grain: "month" });
     if (!points.length) {
       if (listWhenGated) gated.push(`${label}(${sales.length})`); // too few priced identities — publish nothing
       return;
@@ -177,6 +185,7 @@ function buildSeriesSet(panel: SaleRow[]): SeriesSet {
     series[id] = points;
     salesOf[id] = sales;
     if (held.length) holds[id] = held;
+    if (prov) provisional[id] = prov;
   };
 
   // Group sales by IP (skip "other" — no publishable single-IP index).
@@ -227,7 +236,28 @@ function buildSeriesSet(panel: SaleRow[]): SeriesSet {
   const mktSales = panel.filter((r) => r.ip !== "other");
   chain("market:total", mktSales, MIN_IDENTITIES_BROAD, false);
 
-  return { series, salesOf, holds, gated, mktSales };
+  return { series, salesOf, holds, provisional, gated, mktSales };
+}
+
+/** "Beezie 806 identities / 1,000 sales · collector-crypt 2,018 / 2,879" — a sample as a receipt line. */
+function venuesLine(v: StepVenues | undefined): string {
+  if (!v) return "—";
+  const parts = Object.entries(v.byVenue)
+    .sort((a, b) => b[1].sales - a[1].sales)
+    .map(([venue, x]) => `${venue} ${x.identities} id / ${x.sales} sales`);
+  return `${parts.join(" · ")} (${v.identities} identities, ${v.sales} sales${v.multiVenue ? `, ${v.multiVenue} on 2+ venues` : ""})`;
+}
+
+/** The running-month reading as one line. */
+function provisionalLine(p: IndexProvisional | undefined): string {
+  if (!p) return "none (the entity does not publish)";
+  if ("value" in p) {
+    return (
+      `${p.month} ${p.value.toFixed(1)} (${p.stepPct >= 0 ? "+" : ""}${p.stepPct.toFixed(2)}% on ${p.n} identities${p.thin ? ", thin" : ""}` +
+      `${p.spansMonths > 1 ? `, spans ${p.spansMonths} months` : ""}) band ${p.lo.toFixed(1)}–${p.hi.toFixed(1)} · asOf ${p.asOf ?? "—"} · ${venuesLine(p.venues)}`
+    );
+  }
+  return `${p.month} ${p.reason} (${p.n} of ${p.floor} identities${p.stepPct != null ? `, step ${p.stepPct >= 0 ? "+" : ""}${p.stepPct.toFixed(2)}%` : ""}) · asOf ${p.asOf ?? "—"}`;
 }
 
 /**
@@ -423,8 +453,9 @@ async function writeShadowRekey(ctx: {
 
 async function main() {
   if (SHADOW && !OUT_DIR) throw new Error("--shadow-rekey requires --out=<dir>: a shadow build never writes production");
-  const panel = await buildSalePanel({ legacyIdentity: SHADOW });
-  const { series, salesOf, holds, gated, mktSales } = buildSeriesSet(panel);
+  // Strict: a failed or empty feed throws here, before anything is written.
+  const panel = await buildSalePanel({ legacyIdentity: SHADOW, strict: true });
+  const { series, salesOf, holds, provisional, gated, mktSales } = buildSeriesSet(panel);
 
   // INV-12 input + the disclosure receipt, per entity. The invariance spread IS
   // the "resale skew" every surface prints; past the hard limit the entity is
@@ -492,8 +523,18 @@ async function main() {
   for (const pts of Object.values(series)) for (const pt of pts) if (pt.thin) thinPts++;
   console.log(`  thin points (overlap < THIN_MONTH_IDENTITIES): ${thinPts} across ${Object.keys(series).length} series`);
 
+  // The running month and the venues behind every published step, for the
+  // headline entities — what the run log (and an --out build's report) states.
+  for (const id of ["market:total", "ip:pokemon", "category:tcg"]) {
+    console.log(`  provisional ${id.padEnd(14)} ${provisionalLine(provisional[id])}`);
+    for (const pt of series[id] ?? []) {
+      if (pt.venues) console.log(`    ${pt.ts.slice(0, 7)} step on ${venuesLine(pt.venues)}`);
+    }
+  }
+  console.log(`  provisional readings: ${Object.values(provisional).filter((p) => "value" in p).length} with a level, ${Object.values(provisional).filter((p) => !("value" in p)).length} below the floor or the step limit`);
+
   const now = new Date().toISOString();
-  const blob = { generatedAt: now, cadence: "monthly" as const, method: METHOD, series, biasTests: { invariance, entities }, stepObs, holds };
+  const blob = { generatedAt: now, cadence: "monthly" as const, method: METHOD, series, biasTests: { invariance, entities }, stepObs, holds, provisional };
   console.log(`  receipts: ${nObs.toLocaleString()} identity observations across ${Object.keys(stepObs).length} series · ${nHolds} withheld months carry their gate`);
   // Persist the panel this run already built, so the identity reader and the
   // palette never build it on a request path (see salePanel.ts). Written FIRST:

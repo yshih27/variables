@@ -7,14 +7,15 @@
  *   • /api/getAllWinners   — realized pulls with prize NFT + insuredValue,
  *                            `?perTier=N` = most-recent-N per (machine × tier).
  *
- * ⚠️ STRATIFIED SAMPLE. perTier serves equal-depth slices per tier, so commons
- * (75–80% of real pulls) and epics (1%) arrive in equal counts. Aggregating
- * naively would wildly overstate EV. The honest fix used here: per pack, find
- * the COMPLETE-coverage window — a tier's slice is truncated only when it hit
- * the perTier cap, so coverage is complete from max(oldest-of-truncated-tiers)
- * to now — and compute EV/median/odds ONLY inside that window, where the data
- * is a complete census, not a sample. Hot packs get short windows (small n,
- * flagged thin downstream); slow packs get weeks.
+ * ⚠️ REALIZED STATS COME FROM THE SPINE, NOT THE WINNERS SAMPLE. The winners
+ * feed is a tier-stratified slice (commons, 75–80% of real pulls, arrive in
+ * about the same counts as epics) and ignores perTier, so the old "complete-
+ * coverage window" never engaged and the slice was read as a census — the Oct 7
+ * 2.36× median on PKMN 50. EV, median, odds and value bands are now computed
+ * from `gacha_pulls` over the intervals the listener captured continuously
+ * (ccRealized.ts); without such coverage they are withheld. The sample still
+ * supplies each machine's top hit and showcase examples, which a value-ranked
+ * cut of any slice answers honestly.
  *
  * Also ingests every pull into the durable gacha_pulls spine (idempotent), same
  * accumulate pattern as the Phygitals warmer. One known loss: a pack×tier doing
@@ -42,6 +43,12 @@ import {
 import { readGachaDune, type GachaBigHit } from "../gachaDuneCache";
 import { PHYGITALS_VALUE_BANDS } from "../phygitalsGachaCache";
 import { db } from "../../db/client";
+import {
+  coverageSegments,
+  readCCSpinePulls,
+  statsFromCoveredPulls,
+  CC_REALIZED_DAYS,
+} from "../ccRealized";
 
 const DEFAULT_PER_TIER = 100;
 const MAX_BIG_HITS = 15;
@@ -310,6 +317,8 @@ export async function ingestCCPulls(winners: CCWinner[], priceByCode: Map<string
 }
 
 export type CCGachaWarmResult = {
+  /** The snapshot built — returned so an `out` run can write it locally. */
+  snapshot?: CCGachaSnapshot;
   machines: number;
   publicPacks: number;
   sampledPulls: number;
@@ -321,7 +330,12 @@ export type CCGachaWarmResult = {
 };
 
 export async function runCCGachaWarm(
-  opts: { perTier?: number; log?: (m: string) => void } = {},
+  opts: {
+    perTier?: number;
+    log?: (m: string) => void;
+    /** Build only: no gacha_pulls ingest, no snapshot write (`--out`). */
+    out?: boolean;
+  } = {},
 ): Promise<CCGachaWarmResult> {
   const log = opts.log ?? (() => {});
   const startedAt = Date.now();
@@ -334,7 +348,7 @@ export async function runCCGachaWarm(
 
   // 2. Spine ingest — every pull, private machines included (data is data).
   const priceByCode = new Map(catalog.map((m) => [m.code, priceOf(m)]));
-  await ingestCCPulls(winners, priceByCode);
+  if (!opts.out) await ingestCCPulls(winners, priceByCode);
 
   // 3. Realized stats for EVERY machine — private ones too, so the Dune
   //    apportionment below splits each price tier across its true pull pool.
@@ -352,18 +366,45 @@ export async function runCCGachaWarm(
     if (Number.isFinite(t) && t > (lastPullByCode.get(w.packCode) ?? 0)) lastPullByCode.set(w.packCode, t);
   }
   const liveCutoff = startedAt - LIVE_WINDOW_HOURS * 3_600_000;
+  // The spine over the listener's continuous coverage (ccRealized.ts): every
+  // machine's pulls in the window, one coverage map across all of them.
+  const spine = await readCCSpinePulls(
+    catalog.map((m) => m.code),
+    startedAt - CC_REALIZED_DAYS * 86_400_000,
+  );
+  const segments = coverageSegments([...spine.byCode.values()].flatMap((rows) => rows.map((r) => r.t)));
+  const coveredHours = segments.reduce((h, [a, b]) => h + (b - a), 0) / 3_600_000;
+  log(
+    `spine: ${[...spine.byCode.values()].reduce((n, r) => n + r.length, 0).toLocaleString()} CC pulls over ${CC_REALIZED_DAYS}d in ${spine.queries} queries · ` +
+      `${segments.length} continuous segment(s), ${coveredHours.toFixed(1)}h covered`,
+  );
   const realizedByCode = new Map<string, ReturnType<typeof realizedFor>>();
   for (const m of catalog) {
-    realizedByCode.set(
-      m.code,
-      realizedFor(
-        { code: m.code, priceUsd: priceOf(m) },
-        byCode.get(m.code) ?? [],
-        perTier,
-        startedAt,
-        prevTopByCode.get(m.code) ?? null,
-      ),
+    // The sample: top hit + showcase examples only.
+    const sample = realizedFor(
+      { code: m.code, priceUsd: priceOf(m) },
+      byCode.get(m.code) ?? [],
+      perTier,
+      startedAt,
+      prevTopByCode.get(m.code) ?? null,
     );
+    const stats = statsFromCoveredPulls(
+      { priceUsd: priceOf(m), tierRanges: m.tierRanges },
+      spine.byCode.get(m.code) ?? [],
+      segments,
+      startedAt,
+    );
+    if (!sample && !stats) {
+      realizedByCode.set(m.code, null);
+      continue;
+    }
+    const base = sample?.topHit ? emptyRealized(sample.topHit) : emptyRealized({ mint: "", name: null, image: null, valueUsd: 0, at: "" });
+    realizedByCode.set(m.code, {
+      ...base,
+      topHit: sample?.topHit ?? null,
+      examples: sample?.examples ?? [],
+      ...(stats ?? {}),
+    });
   }
 
   // Re-anchor sub-24h popularity estimates on Dune's exact per-price totals.
@@ -448,6 +489,13 @@ export async function runCCGachaWarm(
   const generatedAt = new Date().toISOString();
   const snap: CCGachaSnapshot = {
     generatedAt,
+    coverage: {
+      days: CC_REALIZED_DAYS,
+      segments: segments.length,
+      hours: coveredHours,
+      fromISO: segments.length ? new Date(segments[0][0]).toISOString() : null,
+      toISO: segments.length ? new Date(segments[segments.length - 1][1]).toISOString() : null,
+    },
     sample: {
       pulls: winners.length,
       perTier,
@@ -457,7 +505,7 @@ export async function runCCGachaWarm(
     packs,
     bigHits,
   };
-  await writeCCGacha(snap);
+  if (!opts.out) await writeCCGacha(snap);
 
   const withRealized = packs.filter((p) => (p.realized?.n ?? 0) > 0).length;
   const topHitUsd = bigHits[0]?.valueUsd ?? 0;
@@ -472,6 +520,7 @@ export async function runCCGachaWarm(
   }
 
   return {
+    snapshot: snap,
     machines: catalog.length,
     publicPacks: packs.length,
     sampledPulls: winners.length,

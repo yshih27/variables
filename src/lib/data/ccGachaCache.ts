@@ -27,7 +27,7 @@ export type CCOddsBand = {
 };
 
 export type CCRealized = {
-  /** Pulls inside the complete-coverage window (all carry insuredValue). */
+  /** Pulls inside the listener's continuous coverage (all carry insuredValue). */
   n: number;
   windowHours: number | null;
   fromISO: string | null;
@@ -81,6 +81,13 @@ export type CCGachaPack = {
 
 export type CCGachaSnapshot = {
   generatedAt: string;
+  /**
+   * The listener coverage the realized stats rest on (ccRealized.ts): the
+   * continuous segments of the last `days`. Absent on snapshots written before
+   * realized stats moved to the spine (Oct 7 2026) — those rest on the
+   * winners sample and are not comparable.
+   */
+  coverage?: { days: number; segments: number; hours: number; fromISO: string | null; toISO: string | null };
   /** The raw winners sample this run drew (provenance, not a claim of coverage). */
   sample: { pulls: number; perTier: number; fromISO: string | null; toISO: string | null };
   /** Public machines only (private ones aren't purchasable). */

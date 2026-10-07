@@ -183,30 +183,44 @@ export type PhygitalsChaseItem = {
   fmv: number; // USD
 };
 
-/** A pack in the Phygitals catalog. Category here is authoritative (from the
- *  catalog), not inferred. Two Pokémon packs share $500 (Base Set + Platinum). */
+/**
+ * A pack in the Phygitals catalog, as the gacha comparison carries it. Built
+ * from `/api/vm/available` on every run (`phygitalsCatalog`), never typed: the
+ * venue runs dozens of packs across games and rotates them, and a hard-coded
+ * list (13 slugs until Oct 7 2026) silently dropped every pack it did not name.
+ */
 export type PhygitalsPackDef = {
   slug: string;
   name: string;
   priceUsd: number;
-  category: "pokemon" | "one_piece";
+  /** pokemon | one_piece | sports; null when the slug names no game we tab (riftbound,
+   *  dragonball, yugioh) or carries a rotation hash we cannot attribute. */
+  category: string | null;
 };
 
-export const PHYGITALS_PACK_CATALOG: PhygitalsPackDef[] = [
-  { slug: "trainer-pack", name: "Trainer", priceUsd: 10, category: "pokemon" },
-  { slug: "rookie-pack", name: "Rookie", priceUsd: 25, category: "pokemon" },
-  { slug: "elite-pack", name: "Elite", priceUsd: 50, category: "pokemon" },
-  { slug: "sealed-pack", name: "Sealed", priceUsd: 100, category: "pokemon" },
-  { slug: "legend-pack", name: "Legend", priceUsd: 250, category: "pokemon" },
-  { slug: "base-set-pack", name: "Base Set", priceUsd: 500, category: "pokemon" },
-  { slug: "platinum-pack", name: "Platinum", priceUsd: 500, category: "pokemon" },
-  { slug: "mythic-pack", name: "Mythic", priceUsd: 1000, category: "pokemon" },
-  { slug: "black-pack", name: "Black", priceUsd: 2500, category: "pokemon" },
-  { slug: "diamond-pack", name: "Diamond", priceUsd: 5000, category: "pokemon" },
-  { slug: "starter-one-piece-pack", name: "Starter", priceUsd: 25, category: "one_piece" },
-  { slug: "elite-one-piece-pack", name: "Elite", priceUsd: 50, category: "one_piece" },
-  { slug: "legend-one-piece-pack", name: "Legend", priceUsd: 250, category: "one_piece" },
-];
+/**
+ * A slug's game. The plain names (trainer, rookie, elite, …) are the Pokémon
+ * line; the rest say their game in the slug. A slug with a rotation hash
+ * (`legend-pack-1dpaec`, `black-pack-jjnfuk`) is a variant whose game the slug
+ * does not say: null, not guessed.
+ */
+export function phygitalsCategoryOfSlug(slug: string): string | null {
+  const s = slug.toLowerCase();
+  if (/one-piece|pirate|east-blue/.test(s)) return "one_piece";
+  if (/sport|football|baseball|soccer|basketball/.test(s)) return "sports";
+  if (/riftbound|dragonball|yugioh|lorcana|magic/.test(s)) return null;
+  if (/-[a-z0-9]{6}$/.test(s) && /\d/.test(s.slice(-6))) return null; // a rotation hash
+  if (/^(trainer|rookie|elite|sealed|legend|base-set|platinum|mythic|black|diamond|starter)-pack(-\d+)?$/.test(s)) return "pokemon";
+  return null;
+}
+
+/** The live packs `/vm/available` reports, as catalog entries. Pure. */
+export function phygitalsCatalog(available: Map<string, PhygitalsPackOdds>): PhygitalsPackDef[] {
+  return [...available.values()]
+    .filter((o) => isPhygitalsLive(o) && o.priceUsd > 0)
+    .map((o) => ({ slug: o.slug, name: o.name.replace(/\s+Pack$/i, "").trim() || o.name, priceUsd: o.priceUsd, category: phygitalsCategoryOfSlug(o.slug) }))
+    .sort((a, b) => a.priceUsd - b.priceUsd || a.slug.localeCompare(b.slug));
+}
 
 /** A pack's advertised top prizes, value-desc. Empty array if the pack is inactive. */
 export async function fetchPhygitalsChase(slug: string): Promise<PhygitalsChaseItem[]> {

@@ -6,6 +6,10 @@ import { StatCard, StatCardRow } from "@/components/StatCard";
 import { THIN_MONTH_IDENTITIES } from "@/lib/data/identityIndex";
 import { ReceiptsTable } from "@/components/indices/ReceiptsTable";
 import { MethodLine } from "@/components/indices/MethodLine";
+import { SampleLine } from "@/components/indices/IndexReadingBlock";
+import { readIndexSeries } from "@/lib/data/indices";
+import type { IndexEntity } from "@/lib/indices/naming";
+import { sampleLine } from "@/lib/indices/readingWords";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { readIndexReceipts, readIndexMonths } from "@/lib/data/indexReceipts";
 import { readMethodChanges } from "@/lib/data/methodChanges";
@@ -68,11 +72,16 @@ export default async function IndexReceiptsPage({ params }: { params: Promise<{ 
   const parsed = parsePath(path);
   if (!parsed) notFound();
 
-  const [receipts, months, ledger, ticker] = await Promise.all([
+  const sep = parsed.entityId.indexOf(":");
+  const [receipts, months, ledger, ticker, venues] = await Promise.all([
     readIndexReceipts(parsed.entityId, parsed.month),
     readIndexMonths(parsed.entityId),
     readMethodChanges(),
     buildMarketTicker(),
+    // The published points carry the venues behind each step — this month's
+    // is printed as the page's sample line. (The premium entities are not an
+    // index series and have none.)
+    readIndexSeries(parsed.entityId.slice(0, sep) as IndexEntity, parsed.entityId.slice(sep + 1), { kind: "price", from: "2000-01-01" }).catch(() => []),
   ]);
   // Null means the entity publishes no series at all — nothing to explain.
   if (!receipts) notFound();
@@ -110,6 +119,8 @@ export default async function IndexReceiptsPage({ params }: { params: Promise<{ 
               How the index is built →
             </Link>
           </p>
+          {/* What this step rests on, by venue — a receipt line, from the blob. */}
+          <SampleLine sample={sampleLine(venues.find((p) => p.ts.slice(0, 7) === parsed.month)?.venues)} className="mt-2" />
         </header>
 
         <div className="space-y-3">
