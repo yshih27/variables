@@ -67,8 +67,9 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, PANEL_VENUES_PENDING_RESTATEMENT, type SaleRow } from "../src/lib/data/salePanel";
+import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, PANEL_VENUES_PENDING_RESTATEMENT, PANEL_MIN_PRICE_USD, type SaleRow } from "../src/lib/data/salePanel";
 import type { CardPlatform } from "../src/lib/data/cards";
+import { PLATFORM_META } from "../src/lib/card/ids";
 import { diffVenues, nextMethodVersion, venuesTable, type VenueEntityDiff } from "../src/lib/data/venuesReport";
 import { chainIdentityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, type IndexHold, type StepObs } from "../src/lib/data/identityIndex";
 import type { IndexPoint, IndexProvisional, StepVenues } from "../src/lib/data/indices";
@@ -556,19 +557,31 @@ async function writeShadowVenues(ctx: {
   const version = nextMethodVersion([...ledger.map((c) => c.version), METHOD]);
   const moved = diffs.flatMap((d) => d.months).filter((m) => m.levelBefore != null && m.levelAfter != null && Math.abs(m.levelAfter - m.levelBefore) >= 0.05);
   const maxMove = Math.max(0, ...moved.map((m) => Math.abs((m.levelAfter as number) - (m.levelBefore as number))));
-  const venueList = Object.entries(venues.store)
-    .sort((a, b) => b[1].sales - a[1].sales)
-    .map(([v, x]) => `${v} from ${x.first?.slice(0, 10) ?? "—"}`)
-    .join(", ");
+  // ⚠️ A VENUE THE STORE READS IS NOT A VENUE THE INDEX USES. Measured Oct 7:
+  // Courtyard's 2,950 stored sales resolve to no identity (no card traits), so
+  // they move no level. The ledger names only the venues whose sales reach a
+  // step, and says which were read and contributed nothing.
+  const label = (v: string) => PLATFORM_META[v as CardPlatform]?.label ?? v;
+  const byShare = Object.entries(venues.store).sort((a, b) => b[1].resolved - a[1].resolved);
+  const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  const venueList = andList(
+    byShare.filter(([, x]) => x.resolved > 0).map(([v, x]) => `${label(v)} (from ${x.first?.slice(0, 10) ?? "—"})`),
+  );
+  const unresolved = byShare.filter(([, x]) => x.resolved === 0 && x.sales > 0);
+  const unresolvedLine = unresolved.length
+    ? `${andList(unresolved.map(([v, x]) => `${label(v)}'s ${x.sales.toLocaleString("en-US")} sales`))} are read but resolve to no card identity, so they move no level. `
+    : "";
   const changes: MethodChange[] = [
     {
       version,
       date: ctx.now,
       summary:
-        `The index reads every venue's full resale history from one store instead of 30-day windows: ${venueList}. ` +
+        `The index reads full resale history from one store instead of 30-day windows: ${venueList}. ` +
+        unresolvedLine +
+        `A sale under $${PANEL_MIN_PRICE_USD} no longer counts as a price. ` +
         // Measured, never asserted: the outcome sentence is whatever this run found.
         (gained.length || lost.length
-          ? `${gained.length} month${gained.length === 1 ? "" : "s"} that were withheld now publish and ${lost.length} that published are now withheld; `
+          ? `${gained.length} month${gained.length === 1 ? "" : "s"} now publish that did not before, and ${lost.length} that published ${lost.length === 1 ? "is" : "are"} now withheld; `
           : `No month gained or lost publication; `) +
         `${moved.length} published level${moved.length === 1 ? "" : "s"} moved, by at most ${maxMove.toFixed(1)} points.`,
       entities: diffs.flatMap((d) =>

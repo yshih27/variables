@@ -75,11 +75,21 @@ export type UntaggedSale = {
   platform: CardPlatform;
 };
 
+/**
+ * ⚠️ A SALE UNDER A DOLLAR IS NOT A PRICE. Measured Oct 7 on the store: 3,056
+ * Renaiss sales under $1 (2,918 under $0.05), 2,821 of them in Feb–Mar 2026, on
+ * 231 tokens (one card traded 940 times in a month). A PSA 9 identity whose
+ * month median is $0.01 turns a step into −99.9%. The floor matches DYLI's dust
+ * rule; on the legs it removes 11 Courtyard rows, none of which resolve to an
+ * identity, so the published method's levels do not move.
+ */
+export const PANEL_MIN_PRICE_USD = 1;
+
 /** Apply the wash + price filter to one platform's feed. The ONE copy of that rule. */
 function cleanPlatform(platform: CardPlatform, sales: NormalizedSale[], sinceMs?: number): UntaggedSale[] {
   const out: UntaggedSale[] = [];
   for (const s of sales) {
-    if (!(s.priceUsd > 0)) continue;
+    if (!(s.priceUsd >= PANEL_MIN_PRICE_USD)) continue;
     if (s.buyer && s.seller && s.buyer === s.seller) continue; // self-trade / wash
     if (sinceMs != null) {
       const t = Date.parse(s.date);

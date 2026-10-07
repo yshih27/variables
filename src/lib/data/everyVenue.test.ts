@@ -11,7 +11,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readStoredSales, readStoreFeed, storedFromSnapshot, storedFromCC, dedupeNatural, storedToSale, writeLocalStore, type StoredSecondarySale } from "./salesStore";
-import { readSaleFeed, storeHistoryProblem, STORE_MIN_BEEZIE_HISTORY_DAYS } from "./salePanel";
+import { readSaleFeed, storeHistoryProblem, STORE_MIN_BEEZIE_HISTORY_DAYS, PANEL_MIN_PRICE_USD } from "./salePanel";
 import { monthWindows, lastCompleteMonth, splitByMonth, duneDatetime, parseCountRows, estimateHistoryCost, CC_HISTORY_COLUMNS, CC_HISTORY_BYTES_PER_ROW } from "./salesBackfill";
 import { diffVenues, nextMethodVersion } from "./venuesReport";
 import type { IndexPoint } from "./indices";
@@ -89,6 +89,23 @@ test("the panel reads the store: hygiene at read, as the legs had it", async () 
     const by = (p: string) => feed.filter((r) => r.platform === p).map((r) => r.tokenId).sort();
     assert.deepEqual(by("beezie"), ["b1", "b2"]);
     assert.deepEqual(by("collector-crypt"), ["c1"]);
+  });
+});
+
+test("the dust floor: a sale under a dollar never reaches the panel, on any venue", async () => {
+  const now = Date.now();
+  const iso = (daysAgo: number) => new Date(now - daysAgo * DAY).toISOString();
+  const rows = [
+    storedFromSnapshot("beezie", sale("b-deep", iso(200), 100)),
+    // Oct 7: a Renaiss PSA 9 traded hundreds of times at $0.01 in one month.
+    storedFromSnapshot("beezie", sale("b-dust", iso(3), 0.01)),
+    storedFromSnapshot("beezie", sale("b-dollar", iso(3), PANEL_MIN_PRICE_USD)),
+    storedFromSnapshot("courtyard", sale("cy-dust", iso(2), 0.99, "x", "y")),
+    storedFromSnapshot("courtyard", sale("cy-ok", iso(2), 12, "x", "y")),
+  ];
+  await withLocalStore(rows, async () => {
+    const feed = await readSaleFeed({ source: "store" });
+    assert.deepEqual(feed.map((r) => r.tokenId).sort(), ["b-deep", "b-dollar", "cy-ok"]);
   });
 });
 
