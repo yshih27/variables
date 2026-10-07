@@ -48,7 +48,7 @@ export type PrimaryWalletConfig = {
 };
 
 export type PlatformSource = {
-  key: "courtyard" | "beezie" | "collector-crypt" | "phygitals" | "dyli";
+  key: "courtyard" | "beezie" | "collector-crypt" | "phygitals" | "dyli" | "renaiss";
   name: string;
   short: string;
   /**
@@ -189,6 +189,15 @@ const PHYGITALS_INTERNAL_EXCLUSIONS: string[] = [
 // Auth is `x-api-key`; 30 req/min (see src/lib/dyli/client.ts for the pacer).
 const DYLI_API_BASE = "https://www.dyli.io/api/public/v1";
 
+// ─── Renaiss (BNB Smart Chain) ────────────────────────────────────────
+// Read from its own index API: every marketplace sale and every pack pull,
+// cursor-paged, with the cert and the card identity on each row. Auth is
+// X-Api-Key + X-Api-Secret, 10,000 requests a day per key; the anonymous tier is
+// 10 a day per IP and no warmer may run on it (src/lib/renaiss/client.ts).
+export const RENAISS_API_BASE = "https://api.renaissos.com/v1";
+/** The ERC-721 card contract — the `contract` on every row of the sales feed. */
+export const RENAISS_COLLECTION = "0xF8646A3Ca093e97Bb404c3b25e675C0394DD5b30";
+
 // ─── Phygitals collection mints (Solana cNFT) ─────────────────────────
 // Two compressed-NFT collection trees. Verified-by-use: the marketplace
 // listings endpoint (api.phygitals.com/marketplace-listings) returns real
@@ -305,5 +314,31 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     // No `primary` wallet config: DYLI's first-sale revenue comes from its own
     // /sales feed (classified per channel), not from watching USDC inflows to a
     // receiver set. See src/lib/dyli/lanes.ts.
+  },
+  {
+    key: "renaiss",
+    name: "Renaiss",
+    short: "RN",
+    railCode: "RN",
+    chain: "BNB Chain",
+    // Renaiss vaults the physical cards, but the custodian is not stated in any
+    // source we read. "—" rather than a vault we haven't verified.
+    vault: null,
+    kind: "native",
+    apiBase: RENAISS_API_BASE,
+    collectionAddress: RENAISS_COLLECTION,
+    // The marketplace: the contract that emits the `TradeExecutedV2` log each
+    // sale's id (`{txHash}:{logIndex}`) names. Read off the receipts (BscScan,
+    // https://bscscan.com/tx/0xd2b2330b2175fd9c2d701e8be9d17f694237502055d2fb8c240b357156950a5f,
+    // over a public BSC RPC): the feed's oldest sale, id …0a5f:342 (2026-01-09,
+    // block 74,572,501), and its newest on Sep 30, id 0x439751bb…39a4:130 (block
+    // 124,823,662) — in both, the log at the id's index is emitted by this address
+    // (topic0 0x89dace909271d76078ac99dcc8a24e8d911d0cf6f005a2dfc17c82492ae7640e)
+    // and it is the transaction's `to`. Settlement is BSC-USD (USDT,
+    // 0x55d398326f99059fF775485246999027B3197955) moving in the same transaction.
+    marketplace: "0xAE3e7268EF5A062946216A44f58A8F685fFD11d0",
+    // No `primary` wallet config: pack spend comes from Renaiss's own pulls feed
+    // (src/lib/renaiss/pulls.ts), and no payout wallet is known, so the economics
+    // page holds its net with "no payout source".
   },
 ];

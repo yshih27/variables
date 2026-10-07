@@ -65,6 +65,7 @@ const VENUE: Record<string, string> = {
   courtyard: "Courtyard",
   phygitals: "Phygitals",
   dyli: "DYLI",
+  renaiss: "Renaiss",
 };
 
 /**

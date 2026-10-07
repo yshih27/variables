@@ -15,7 +15,7 @@ import type { CollectionStats, NormalizedSale } from "../rarible/queries";
 
 export type CorePlatformVolume = {
   /** Where this platform's volume came from, for provenance. */
-  source: "dune" | "rarible" | "beezie" | "dyli";
+  source: "dune" | "rarible" | "beezie" | "dyli" | "renaiss";
   /** 24h aggregate stats (volume, count, unique buyers/sellers, avg). */
   stats24h: CollectionStats;
   /** 24h sale-level rows (powers Top Sales + per-IP aggregation). */
@@ -26,8 +26,9 @@ export type CorePlatformVolume = {
   sales7dCount: number | null;
   sales30dCount: number | null;
   /**
-   * Rolling GACHA-lane volume, for platforms whose gacha arrives through this
-   * feed rather than the Dune gacha snapshot (DYLI). Optional and absent
+   * Rolling GACHA-lane volume, for platforms whose gacha arrives through a
+   * native feed rather than the Dune gacha snapshot (DYLI's box sales, Renaiss's
+   * pack pulls). Optional and absent
    * everywhere else — `fetchPlatform` prefers the gacha snapshot and only falls
    * back here, so a platform present in both keeps its existing numbers.
    */
@@ -38,7 +39,7 @@ export type CorePlatformVolume = {
 
 export type CoreVolumeSnapshot = {
   generatedAt: string;
-  /** Keyed by platform key (collector-crypt | beezie | courtyard). */
+  /** Keyed by platform key (collector-crypt | beezie | courtyard | dyli | renaiss). */
   platforms: Record<string, CorePlatformVolume>;
 };
 

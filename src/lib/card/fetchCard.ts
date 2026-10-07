@@ -14,6 +14,7 @@
 import { getCCMetadata } from "@/lib/data/ccTraits";
 import { getBeezieMetadata } from "@/lib/data/beezieTraits";
 import { readCards, readCardMeta } from "@/lib/data/cards";
+import { RENAISS_COLLECTION } from "@/lib/data/sources";
 import { identitySlug } from "@/lib/card/identity";
 import { characterOf, characterHref } from "@/lib/card/character";
 import { normalizeTraits, gradeLabel, type NormalizedTraits } from "@/lib/data/traits";
@@ -59,6 +60,8 @@ function explorerUrlFor(platform: CardPlatform, tokenId: string): string | null 
       return `https://solscan.io/token/${tokenId}`;
     case "beezie":
       return `https://basescan.org/nft/${BEEZIE_CONTRACT}/${tokenId}`;
+    case "renaiss":
+      return `https://bscscan.com/nft/${RENAISS_COLLECTION}/${tokenId}`;
     case "courtyard":
       return null;
     default:
@@ -73,6 +76,8 @@ async function metaFor(
   if (platform === "collector-crypt") return getCCMetadata(tokenId);
   if (platform === "beezie") return getBeezieMetadata(tokenId);
   if (platform === "phygitals") return (await readCards("phygitals", [tokenId])).get(tokenId) ?? null;
+  // Renaiss's `cards` row is written by its own feed (src/lib/renaiss/cards.ts).
+  if (platform === "renaiss") return (await readCards("renaiss", [tokenId])).get(tokenId) ?? null;
   // courtyard has no per-card metadata reader yet.
   return null;
 }

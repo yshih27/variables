@@ -80,6 +80,10 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "gacha-packs": 6 * HOUR_MS,
   // DYLI native sales feed — incremental page from the stored cursor.
   "dyli-sales": 6 * HOUR_MS,
+  // Renaiss's own index API: marketplace sales (incremental from the stored
+  // cursor) and pack pulls (the trailing 14 days re-read every run).
+  "renaiss-sales": 6 * HOUR_MS,
+  "renaiss-pulls": 6 * HOUR_MS,
   // DYLI active book (~2 requests) → floor + market cap. Daily: the book is
   // small and slow-moving, and the mcap it feeds is a daily stock reading.
   "dyli-listings": DAY_MS,

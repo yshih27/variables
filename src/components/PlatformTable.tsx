@@ -18,6 +18,7 @@ const CHAIN_DOT: Record<Chain, string> = {
   Base: "var(--color-blue)",
   Ethereum: "#9aa6ff",
   Abstract: "#5ee6a8", // DYLI settles on Abstract (chain_id 2741)
+  "BNB Chain": "#F0B90B", // Renaiss settles on BNB Smart Chain; BNB Chain's own brand yellow
 };
 
 type Props = {

@@ -1,0 +1,53 @@
+{
+ "_note": "CONSTRUCTED for src/lib/renaiss/renaiss.test.ts, not saved from the API: the Sep 30 samples hold no unlinked sale and no observed pull. unlinkedSale = sales-week.json's first row with slab and catalogCard nulled (the shape the OpenAPI spec gives an unlinked row). observedPull = pulls-week.json's first row as the spec describes kind 'observed': card and value kept; buyer, checkoutId, transaction and pricePaid null; id marked constructed.",
+ "unlinkedSale": {
+  "id": "0x9c78b9a5e8a30fe0bffd5e750e05413109a4db2c5f52a91ee08e11fa0ec2f159:407",
+  "txHash": "0x9c78b9a5e8a30fe0bffd5e750e05413109a4db2c5f52a91ee08e11fa0ec2f159",
+  "logIndex": 407,
+  "blockNumber": 123479822,
+  "soldAt": "2026-09-23T01:48:49.000Z",
+  "contract": "0xF8646A3Ca093e97Bb404c3b25e675C0394DD5b30",
+  "tokenId": "113757318348960414942592688873593389704640898241327860006056415795621363972786",
+  "seller": "0x9a2eaffdb0949618fc2383d67868f5a11eea8ba8",
+  "buyer": "0xece5eb9ea26bb344f3a90f0f547e098a42ef1d5b",
+  "currency": "USDT",
+  "price": "150",
+  "priceUsdCents": 15000,
+  "slab": null,
+  "catalogCard": null
+ },
+ "observedPull": {
+  "id": "constructed-observed-ac6f08a218287ab2",
+  "kind": "observed",
+  "machineId": "4c3263d7-8aab-4498-af7b-2c8a7c484a55",
+  "machineName": "PANDORA 28",
+  "pulledAt": "2026-09-23T00:00:36.000Z",
+  "buyer": null,
+  "checkoutId": null,
+  "transaction": null,
+  "pricePaid": null,
+  "prizeValue": {
+   "amount": "20.5",
+   "currency": "USD"
+  },
+  "tokenId": "41785753935738003706912798666147225881328441141649267885865457434455850251879",
+  "slab": {
+   "cert": "PSA142678133",
+   "company": "PSA",
+   "grade": "8 NM-MT"
+  },
+  "catalogCard": {
+   "id": "3cc36b49-0799-415a-ab5d-3e76ebbe35e9",
+   "renaissItemId": "cbad48db-a442-4105-93e8-f530951ac5ad",
+   "name": "Larvitar",
+   "setName": "Ruler of the Black Flame",
+   "setCode": "SV3",
+   "cardNumber": "114",
+   "year": 2023,
+   "language": "Japanese",
+   "imageUrl": "https://bhshyxmgzwogzgcf.public.blob.vercel-storage.com/cards/pokemon_sv3_114_ja_3cc36b490799415aab5d3e76ebbe35e9_lg.png?v=5e08b43b"
+  },
+  "imageUrl": "https://8nothtoc5ds7a0x3.public.blob.vercel-storage.com/graded-cards-renders/PSA142678133/nft_image_silver.jpg",
+  "platform": "renaiss"
+ }
+}
