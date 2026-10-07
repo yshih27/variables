@@ -78,7 +78,10 @@ export function provisionalWords(p: Extract<IndexProvisional, { value: number }>
   return {
     chip: `${monthName(p.month)} so far · provisional`,
     // asOf is the newest sale in the sample; null when the backend has none to name.
-    receipt: `${p.n} identit${p.n === 1 ? "y" : "ies"} · closes ${closeDateOf(p.month)}${p.asOf ? ` · as of ${asOfStamp(p.asOf)}` : ""}`,
+    // `thin` is the builder's flag (n under THIN_MONTH_IDENTITIES): a published
+    // thin month says "thin month · n identities", and the reading that leads
+    // the page says it too.
+    receipt: `${p.n} identit${p.n === 1 ? "y" : "ies"}${p.thin ? " · thin sample" : ""} · closes ${closeDateOf(p.month)}${p.asOf ? ` · as of ${asOfStamp(p.asOf)}` : ""}`,
     closeDate: closeDateOf(p.month),
   };
 }
