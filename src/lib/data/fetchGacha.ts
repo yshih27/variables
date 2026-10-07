@@ -1,14 +1,13 @@
 /**
  * Gacha-page payload builder.
  *
- * Reads .cache/gacha-dune.json (populated by `npm run warm-gacha-dune` from
- * the Dune backend) and joins it with PLATFORM_SOURCES so the /gacha route
- * gets one ready-to-render object: per-platform totals + pack-price breakdown
- * + aggregate stats.
- *
- * Dune replaced the old RPC-derived primary-revenue numbers — the free RPC
- * tier severely undercounted (it hit pagination caps); Dune scans the full
- * chain in seconds.
+ * Reads the warmed snapshots — `gacha-dune` (per-platform pull volume and
+ * buyback, from Dune), `gacha:phygitals`, `gacha:cc`, `gacha:packs` (the
+ * pack-centric catalog every venue's packs, machines, claw and boxes land in)
+ * and `gacha:live` (the listener's real-time hits) — and joins them with
+ * PLATFORM_SOURCES into one object for /gacha: per-platform totals, the pack
+ * catalog behind the plausibility gate, the prize index, the venue list, and
+ * the hits with their source and age.
  */
 import { unstable_cache } from "next/cache";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
@@ -29,7 +28,9 @@ import {
   type GachaPacksSnapshot,
   type GachaPrize,
 } from "./gachaPacksCache";
-import { leadMedian, THIN_N } from "./gachaPackView";
+import { gatePack, leadMedian, withMixedPool, THIN_N } from "./gachaPackView";
+import { gachaVenues, type GachaVenue } from "./gachaVenues";
+import type { GachaLiveSnapshot } from "./gachaLiveCache";
 import type { Chain } from "@/lib/types";
 
 /** Max price tiers surfaced per platform (Phygitals alone has 157). */
@@ -114,7 +115,7 @@ export type GachaPayload = {
     platformsWithData: number;
     topPlatformName: string | null;
     topPlatformVolUsd: number;
-    /** Will populate once NFT-matching warmer ships. */
+    /** The biggest hit of the last BIG_HIT_WINDOW_DAYS (7) — never an older one. */
     biggestHitUsd: number | null;
     /** Best measured TYPICAL return (median × buyback, non-thin sample) across
      *  the pack catalog — any platform with realized per-pack data. */
@@ -130,12 +131,71 @@ export type GachaPayload = {
   packs: GachaPack[];
   /** Honest window the realized side of `packs` rests on. */
   packsWindow: GachaPacksSnapshot["window"] | null;
-  /** Every prize in an ADVERTISED pool (Phygitals chase + Beezie grail tiers) —
-   *  the searchable "find your chase" index. CC publishes no pool. */
-  prizes: GachaPrize[];
-  /** Biggest hits (high-FMV prizes), ranked desc. */
+  /**
+   * The finder's prizes are NOT in the payload: they are most of its weight
+   * (1.70 MB of 2.18 MB on Oct 7, 4,063 prizes) and pushed the cached payload
+   * past Next's 2 MB `unstable_cache` limit, so it was never cached. They are
+   * cached per venue (`getGachaPrizes`) and served on demand by
+   * `prizesRoute` (GET /api/internal/gacha/prizes[?venue=<key>]). These say
+   * how many each venue has, so the finder can size itself before it loads.
+   */
+  prizesByVenue: Record<string, number>;
+  prizesTotal: number;
+  prizesRoute: string;
+  /** Biggest hits (high-FMV prizes) of the last 7 days, ranked desc. Each carries its `at` timestamp:
+   *  ages are computed by the reader, never pre-formatted (the page is cached for an hour). */
   bigHits: GachaBigHit[];
+  /** Where `bigHits` came from: the listener's live feed while its heartbeat is under
+   *  LIVE_HEARTBEAT_MAX_MS old, else the 6-hourly warmers' big hits. */
+  hitsSource: "live" | "warmers";
+  /** When that source last read its feed (ISO): the live heartbeat, or the newest warmer snapshot. */
+  hitsAsOf: string | null;
+  /** Every venue with a gacha, its kind, and whether the catalog covers it (with the reason when not). */
+  venues: GachaVenue[];
 };
+
+/** The listener's hits count as live only while its newest poll is this recent. */
+export const LIVE_HEARTBEAT_MAX_MS = 15 * 60_000;
+/** The hits band and "Biggest Hit 7d" cover this many days. */
+export const BIG_HIT_WINDOW_DAYS = 7;
+
+/** The listener's heartbeat: its newest successful poll across sources (ms), else its snapshot time. */
+export function liveHeartbeatMs(live: Pick<GachaLiveSnapshot, "generatedAt" | "sources"> | null): number | null {
+  if (!live) return null;
+  const polls = Object.values(live.sources ?? {}).map((v) => Date.parse(v)).filter(Number.isFinite);
+  const t = polls.length ? Math.max(...polls) : Date.parse(live.generatedAt);
+  return Number.isFinite(t) ? t : null;
+}
+
+/** Hits from the last `days`, by their own timestamps. Pure. */
+export function hitsWithinDays(hits: GachaBigHit[], days: number, nowMs: number): GachaBigHit[] {
+  const from = nowMs - days * 86_400_000;
+  return hits.filter((h) => {
+    const t = Date.parse(h.at);
+    return Number.isFinite(t) && t >= from && t <= nowMs + 60_000;
+  });
+}
+
+/**
+ * Which hits the payload carries, pure. The live feed (a launchd job on one
+ * Mac) only while its heartbeat is fresh; otherwise the warmers' big hits, so a
+ * sleeping laptop shows "as of <time>" instead of a frozen "live" band.
+ */
+export function chooseHits(input: {
+  live: GachaLiveSnapshot | null;
+  warmerHits: GachaBigHit[];
+  warmerAsOf: string | null;
+  nowMs: number;
+}): { hits: GachaBigHit[]; hitsSource: "live" | "warmers"; hitsAsOf: string | null } {
+  const beat = liveHeartbeatMs(input.live);
+  const fresh = beat != null && input.nowMs - beat <= LIVE_HEARTBEAT_MAX_MS && (input.live?.hits?.length ?? 0) > 0;
+  const hits = fresh ? dedupeHits([...input.live!.hits, ...input.warmerHits]) : input.warmerHits;
+  return {
+    hits: hitsWithinDays(hits, BIG_HIT_WINDOW_DAYS, input.nowMs),
+    hitsSource: fresh ? "live" : "warmers",
+    hitsAsOf: fresh ? new Date(beat!).toISOString() : input.warmerAsOf,
+  };
+}
 
 function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): GachaPlatformRow {
   const kind = entry?.kind ?? "gacha";
@@ -161,7 +221,7 @@ function rowFor(source: PlatformSource, entry: GachaDunePlatform | undefined): G
 
   let warning: string | undefined;
   if (!entry) {
-    warning = "Not yet populated — run `npm run warm-gacha-dune`.";
+    warning = "No pull data for this platform in the gacha snapshot.";
   } else if (kind === "tokenization") {
     warning = "Tokenization, not a randomized pull.";
   } else if (byAmount24h.length === 0 && !entry.odds && pulls24h > 0) {
@@ -277,7 +337,7 @@ function mergePhygitals(
 
 /** Highest-value-per-mint dedupe — CC hits arrive from BOTH Dune and the native
  *  winners feed; the same prize NFT must appear once in the coverflow. */
-function dedupeHits(hits: GachaBigHit[]): GachaBigHit[] {
+export function dedupeHits(hits: GachaBigHit[]): GachaBigHit[] {
   const byMint = new Map<string, GachaBigHit>();
   for (const h of hits) {
     const key = h.mint || `${h.platform}:${h.name}:${h.at}`;
@@ -290,22 +350,27 @@ function dedupeHits(hits: GachaBigHit[]): GachaBigHit[] {
 /**
  * The pack to headline as "best value": highest TYPICAL return (median × buyback,
  * the same number the explorer's value column leads with — never the
- * jackpot-skewed mean) among packs whose realized sample clears THIN_N.
+ * jackpot-skewed mean) among packs whose realized sample clears THIN_N, whose
+ * median passes the plausibility gate (`leadMedian` returns null otherwise),
+ * and whose buyback is known. ⚠️ A pack with no stated buyback (Renaiss) has
+ * no net figure: ranking its gross median beside everyone else's net would
+ * headline it for publishing less.
  */
-function bestTypicalPack(
+export function bestTypicalPack(
   packs: GachaPack[],
 ): { pack: GachaPack; typicalNet: number } | null {
   let best: { pack: GachaPack; typicalNet: number } | null = null;
   for (const p of packs) {
     const med = leadMedian(p);
-    if (med == null || med.n == null || med.n < THIN_N) continue;
-    const typicalNet = med.value * (p.buybackPct ?? 1);
+    if (med == null || med.n == null || med.n < THIN_N || p.buybackPct == null) continue;
+    const typicalNet = med.value * p.buybackPct;
     if (!best || typicalNet > best.typicalNet) best = { pack: p, typicalNet };
   }
   return best;
 }
 
-async function buildGacha(): Promise<GachaPayload> {
+/** The payload, uncached (scripts/gacha-payload.ts runs it outside Next, where unstable_cache throws). */
+export async function buildGacha(): Promise<GachaPayload> {
   const [baseSnap, pg, packsSnap, ccSnap] = await Promise.all([
     readGachaDune(),
     readPhygitalsGacha(),
@@ -330,7 +395,17 @@ async function buildGacha(): Promise<GachaPayload> {
   const packBuckets = packsFromRows(rows.filter((r) => r.kind === "gacha"));
   // CC's native winners feed overlaps Dune's big-hits query → dedupe by mint.
   const bigHits = dedupeHits([...(snap?.bigHits ?? []), ...(ccSnap?.bigHits ?? [])]);
-  const bestTypical = bestTypicalPack(packsSnap?.packs ?? []);
+  // Every pack's median through the plausibility gate before anything reads it:
+  // a withheld median is null here, so neither the matrix nor the hero can print it.
+  // Mixed pools from the prizes (recomputed, so a snapshot older than the
+  // field ships it too), then every median through the plausibility gate.
+  const allPrizes = packsSnap?.prizes ?? [];
+  const packs = withMixedPool(packsSnap?.packs ?? [], allPrizes).map(gatePack);
+  const prizesByVenue: Record<string, number> = {};
+  for (const p of allPrizes) prizesByVenue[p.platform] = (prizesByVenue[p.platform] ?? 0) + 1;
+  const bestTypical = bestTypicalPack(packs);
+  const warmerAsOf = [snap?.generatedAt, ccSnap?.generatedAt, pg?.generatedAt].filter((x): x is string => !!x).sort().pop() ?? null;
+  const recent = hitsWithinDays(bigHits, BIG_HIT_WINDOW_DAYS, Date.now());
 
   return {
     generatedAt: snap?.generatedAt ?? null,
@@ -341,7 +416,7 @@ async function buildGacha(): Promise<GachaPayload> {
       platformsWithData: gacha.length,
       topPlatformName: top?.name ?? null,
       topPlatformVolUsd: top?.vol24Usd ?? 0,
-      biggestHitUsd: bigHits[0]?.valueUsd ?? null,
+      biggestHitUsd: recent[0]?.valueUsd ?? null,
       // Best TYPICAL return we can actually measure (median × buyback over a
       // non-thin realized sample) — the mean is jackpot-skewed, so it never leads.
       bestEvPackId: bestTypical?.pack.name ?? null,
@@ -350,42 +425,76 @@ async function buildGacha(): Promise<GachaPayload> {
     },
     platforms: rows,
     packBuckets,
-    packs: packsSnap?.packs ?? [],
+    packs,
     packsWindow: packsSnap?.window ?? null,
-    prizes: packsSnap?.prizes ?? [],
-    bigHits,
+    prizesByVenue,
+    prizesTotal: allPrizes.length,
+    prizesRoute: GACHA_PRIZES_ROUTE,
+    bigHits: recent,
+    hitsSource: "warmers",
+    hitsAsOf: warmerAsOf,
+    venues: gachaVenues(packs),
   };
 }
 
 export const getGachaData = unstable_cache(
   async () => buildGacha(),
-  ["gacha:v18"],
+  // v19: + venues / hitsSource / hitsAsOf, packs through the plausibility gate,
+  // DYLI and Renaiss packs, hits windowed to 7 days.
+  // v20: prizes out of the payload (cached per venue, getGachaPrizes), + mixedPool.
+  ["gacha:v20"],
   { revalidate: 3600, tags: ["gacha", "platform-buckets"] },
 );
 
+/** Where the finder loads its prizes from (src/app/api/internal/gacha/prizes/route.ts). */
+export const GACHA_PRIZES_ROUTE = "/api/internal/gacha/prizes";
+
+/** One venue's finder prizes, value-desc, uncached. */
+export async function buildVenuePrizes(venue: string): Promise<GachaPrize[]> {
+  const snap = await readGachaPacks();
+  return (snap?.prizes ?? []).filter((p) => p.platform === venue);
+}
+
+/**
+ * One venue's prizes, cached on their own: one `unstable_cache` entry per
+ * venue, so no entry nears the 2 MB limit as pools grow (Phygitals, the
+ * largest, measured 3,279 prizes and ~1.37 MB on Oct 7).
+ */
+const getVenuePrizes = unstable_cache(
+  async (venue: string) => buildVenuePrizes(venue),
+  ["gacha-prizes:v1"],
+  { revalidate: 3600, tags: ["gacha"] },
+);
+
+/**
+ * The finder's prizes: one venue's, or every venue's (assembled from the
+ * per-venue entries, value-desc). Venues come from the payload's own counts,
+ * so a venue with prizes is never missed.
+ */
+export async function getGachaPrizes(venue?: string | null): Promise<GachaPrize[]> {
+  if (venue) return getVenuePrizes(venue);
+  const { prizesByVenue } = await getGachaData();
+  const lists = await Promise.all(Object.keys(prizesByVenue).map((v) => getVenuePrizes(v)));
+  return lists.flat().sort((a, b) => b.fmvUsd - a.fmvUsd);
+}
+
 /**
  * Page-facing payload: the cached aggregate ({@link getGachaData}) with the
- * always-on listener's live hits overlaid on top. The listener (scripts/
- * listen-gacha.ts) writes the `gacha:live` snapshot every poll cycle (~minutes
- * fresh); we read it UNCACHED so the hits band reflects the latest pulls on
- * every request, while the heavy per-pack / per-platform aggregation stays on
- * the 1h cache (it only moves when the 6h warmers run). Without this overlay the
- * listener's real-time data never reached the page — the page read only the
- * warmer snapshots. dedupeHits keeps the highest-value row per mint, so the live
- * feed and the warmer's big-hits list reconcile cleanly.
+ * hits chosen at read time. The listener (scripts/listen-gacha.ts) writes
+ * `gacha:live` every poll cycle — but it is a launchd job on one Mac and stops
+ * when the Mac sleeps, so its hits are used ONLY while its heartbeat is under
+ * LIVE_HEARTBEAT_MAX_MS old (`chooseHits`); otherwise the 6-hourly warmers'
+ * big hits stand, and `hitsSource` / `hitsAsOf` say which and how old. Every
+ * hit is windowed to 7 days, and "Biggest Hit 7d" is the biggest of those.
  */
-export async function getGachaPayload(): Promise<GachaPayload> {
-  const [data, live] = await Promise.all([getGachaData(), readGachaLive()]);
-  if (!live?.hits?.length) return data;
-  const bigHits = dedupeHits([...live.hits, ...data.bigHits]);
+export async function getGachaPayload(nowMs: number = Date.now(), load: () => Promise<GachaPayload> = getGachaData): Promise<GachaPayload> {
+  const [data, live] = await Promise.all([load(), readGachaLive().catch(() => null)]);
+  const chosen = chooseHits({ live, warmerHits: data.bigHits, warmerAsOf: data.hitsAsOf, nowMs });
   return {
     ...data,
-    bigHits,
-    // "As of" should reflect the freshest input — usually the live snapshot.
-    generatedAt:
-      data.generatedAt && data.generatedAt > live.generatedAt
-        ? data.generatedAt
-        : live.generatedAt,
-    hero: { ...data.hero, biggestHitUsd: bigHits[0]?.valueUsd ?? data.hero.biggestHitUsd },
+    bigHits: chosen.hits,
+    hitsSource: chosen.hitsSource,
+    hitsAsOf: chosen.hitsAsOf,
+    hero: { ...data.hero, biggestHitUsd: chosen.hits.reduce<number | null>((m, h) => (m == null || h.valueUsd > m ? h.valueUsd : m), null) },
   };
 }

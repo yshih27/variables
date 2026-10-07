@@ -1,6 +1,6 @@
 /**
  * Pack-catalog warmer — assembles the cross-platform GachaPack[] the /gacha
- * comparison reads. Pulls three sources into ONE honest model:
+ * comparison reads. Every venue with a gacha, into ONE honest model:
  *
  *   • Beezie  — GET /claw: advertised odds + vendor EV + grail pool + floor +
  *               buyback (from swapFees) + stock. All STATED.
@@ -8,8 +8,14 @@
  *               REALIZED odds/EV/median/biggest-pull from our gacha_pulls spine
  *               by (category, price) — NOT clawId (which rotates and differs
  *               between the advertised and realized feeds).
- *   • Collector Crypt — Dune: only PLATFORM-WIDE rarity odds + popularity exist
- *               per price tier; flagged notDirectlyComparable (no per-pack pool).
+ *   • Collector Crypt — its machine catalog (stated odds, buyback) + realized
+ *               stats from the gacha:cc snapshot (the spine over listener
+ *               coverage, ccRealized.ts); Dune platform-grain shells only as a fallback.
+ *   • DYLI    — its boxes: declared EV/odds/buyback, the advertised chase list,
+ *               realized pulls at DYLI's FMV mark (gachaPacksVenues.ts).
+ *   • Renaiss — every machine active in 72 h, realized in Renaiss's STATED prize
+ *               value; no stated odds/EV/buyback exist, so none are assumed.
+ *   • Courtyard — none: it publishes no pack catalog (gachaVenues.ts).
  *
  * Every metric carries its basis (stated|realized|platform) so the UI never
  * ranks a vendor number above a measured one. Writes the gacha:packs snapshot
@@ -25,8 +31,8 @@ import type { CCGachaPack } from "../ccGachaCache";
 import {
   fetchPhygitalsChase,
   fetchPhygitalsAvailable,
-  isPhygitalsLive,
-  PHYGITALS_PACK_CATALOG,
+  phygitalsCatalog,
+  type PhygitalsPackDef,
   type PhygitalsChaseItem,
   type PhygitalsPackOdds,
 } from "../../phygitals/client";
@@ -41,11 +47,17 @@ import {
   type PackHit,
 } from "../gachaPacksCache";
 import { getBeezieMetadataBatch } from "../beezieTraits";
+import { dyliPacks, readDyliProducts, readDyliPulls, readRenaissPackPulls, renaissPacks } from "./gachaPacksVenues";
+import { readDyliBoxPrizes } from "../../dyli/boxPrizes";
+import { withMixedPool } from "../gachaPackView";
 import { db } from "../../db/client";
 import type { Chain } from "@/lib/types";
 import { parseGrade } from "@/lib/card/grade";
 
 const TOP_HITS = 12;
+const CHASE_GAP_MS = 1_200;
+const CHASE_RETRY_MS = 10_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Grade parsing lives in @/lib/card/grade. NOTE: BECKETT now folds to BGS —
  *  same grader, two names in the feeds — so this warmer's output labels change
  *  from "BECKETT 9.5" to "BGS 9.5". */
@@ -246,39 +258,87 @@ function catFromProductId(pid: string): string | null {
   return null; // unknown themed packs (all-or-nothing, mini-villain, …) → unattributed, not guessed
 }
 
-/** Realized per-(category,price) stats from the gacha_pulls spine (last `days`). */
-async function phygitalsRealizedGroups(days = 7): Promise<Map<string, RealizedGroup>> {
-  const sinceISO = new Date(Date.now() - days * 86_400_000).toISOString();
-  const dayAgo = Date.now() - 86_400_000;
-  const { data, error } = await db()
-    .from("gacha_pulls")
-    .select("product_id, price_usd, prize_value_usd, prize_instance_id, pulled_at")
-    .eq("platform_id", "phygitals")
-    .gte("pulled_at", sinceISO)
-    .limit(8000);
-  if (error) throw new Error(`gacha_pulls readback: ${error.message}`);
+/** The live slug a realized product id belongs to: the longest slug it is, or starts with ("<slug>-<hash>"). */
+export function slugOfProduct(productId: string, slugs: string[]): string | null {
+  const pid = productId.replace(/^phygitals:/, "").toLowerCase();
+  let best: string | null = null;
+  for (const s of slugs) {
+    if ((pid === s || pid.startsWith(`${s}-`)) && (!best || s.length > best.length)) best = s;
+  }
+  return best;
+}
 
+/**
+ * Realized stats from the gacha_pulls spine over the last `days`, keyed by the
+ * live pack each pull belongs to (`slug:<slug>`, by its product id) and, for a
+ * pull no live slug claims, by (category, price) as before.
+ *
+ * ⚠️ EVERY PULL OF THE WINDOW. The old read was `.limit(8000)` with no order,
+ * which kept an arbitrary 8,000 of the window's pulls. This pages them all, in
+ * a stable order, over the (product_id, pulled_at) index.
+ */
+async function phygitalsRealizedGroups(
+  days: number,
+  catalog: PhygitalsPackDef[],
+): Promise<{ groups: Map<string, RealizedGroup>; window: { fromISO: string | null; toISO: string | null; hours: number | null; pulls: number }; queries: number }> {
+  const PAGE = 1000;
+  const now = Date.now();
+  const dayAgo = now - 86_400_000;
+  const slugs = catalog.map((p) => p.slug);
   type Acc = { ms: number[]; prices: number[]; mults: number[]; pulls24h: number; topUsd: number; topMint: string | null };
   const groups = new Map<string, Acc>();
-  for (const r of data ?? []) {
-    const cat = catFromProductId(String(r.product_id ?? ""));
-    if (!cat) continue;
-    const price = Math.round(Number(r.price_usd) || 0);
-    if (price <= 0) continue;
-    const fmv = r.prize_value_usd != null ? Number(r.prize_value_usd) : null;
-    const key = `${cat}:${price}`;
-    const g =
-      groups.get(key) ?? { ms: [], prices: [], mults: [], pulls24h: 0, topUsd: 0, topMint: null };
-    if (fmv != null && fmv > 0) {
-      g.mults.push(fmv / price);
-      if (fmv > g.topUsd) {
-        g.topUsd = fmv;
-        g.topMint = r.prize_instance_id ? String(r.prize_instance_id).replace(/^pg-/, "") : null;
+  let queries = 0;
+  let pulls = 0;
+  let first = Infinity;
+  let last = -Infinity;
+  // One stream over the (product_id, pulled_at) index: every Phygitals product
+  // id ("phygitals:<claw id>") sorts from "phygitals:" to below "phygitalt", so the
+  // product range is an index range scan with the window as its second key.
+  // ⚠️ Not "phygitals;" as the bound: the column sorts by a linguistic collation
+  // that ignores punctuation, so ":" < ";" does not hold there (measured: 0 rows).
+  // ⚠️ Not `.eq("platform_id")` + a pulled_at range: no index covers that pair,
+  // and measured Oct 7 it scanned the table per query (21 queries, 456 s).
+  const since = new Date(now - days * 86_400_000).toISOString();
+  for (let off = 0; ; off += PAGE) {
+    const { data, error } = await db()
+      .from("gacha_pulls")
+      .select("pull_id, product_id, price_usd, prize_value_usd, prize_instance_id, pulled_at")
+      .gte("product_id", "phygitals:")
+      .lt("product_id", "phygitalt")
+      .gte("pulled_at", since)
+      .order("product_id", { ascending: true })
+      .order("pulled_at", { ascending: true })
+      .order("pull_id", { ascending: true })
+      .range(off, off + PAGE - 1);
+    queries++;
+    if (error) throw new Error(`gacha_pulls readback: ${error.message}`);
+    const rows = data ?? [];
+    for (const r of rows) {
+      const pid = String(r.product_id ?? "");
+      const price = Math.round(Number(r.price_usd) || 0);
+      if (price <= 0) continue;
+      const slug = slugOfProduct(pid, slugs);
+      const cat = slug ? null : catFromProductId(pid);
+      if (!slug && !cat) continue;
+      const key = slug ? `slug:${slug}` : `${cat}:${price}`;
+      const t = Date.parse(String(r.pulled_at));
+      pulls++;
+      if (t < first) first = t;
+      if (t > last) last = t;
+      const fmv = r.prize_value_usd != null ? Number(r.prize_value_usd) : null;
+      const g = groups.get(key) ?? { ms: [], prices: [], mults: [], pulls24h: 0, topUsd: 0, topMint: null };
+      if (fmv != null && fmv > 0) {
+        g.mults.push(fmv / price);
+        if (fmv > g.topUsd) {
+          g.topUsd = fmv;
+          g.topMint = r.prize_instance_id ? String(r.prize_instance_id).replace(/^pg-/, "") : null;
+        }
       }
+      g.prices.push(price);
+      if (t >= dayAgo) g.pulls24h++;
+      groups.set(key, g);
     }
-    g.prices.push(price);
-    if (Date.parse(String(r.pulled_at)) >= dayAgo) g.pulls24h++;
-    groups.set(key, g);
+    if (rows.length < PAGE) break;
   }
 
   const out = new Map<string, RealizedGroup>();
@@ -309,7 +369,11 @@ async function phygitalsRealizedGroups(days = 7): Promise<Map<string, RealizedGr
       topMint: g.topMint,
     });
   }
-  return out;
+  const window =
+    pulls > 0
+      ? { fromISO: new Date(first).toISOString(), toISO: new Date(last).toISOString(), hours: (last - first) / 3_600_000, pulls }
+      : { fromISO: null, toISO: null, hours: null, pulls: 0 };
+  return { groups: out, window, queries };
 }
 
 /** Phygitals' full chase pools (~60 per pack, named + art + FMV) as prizes.
@@ -317,12 +381,8 @@ async function phygitalsRealizedGroups(days = 7): Promise<Map<string, RealizedGr
  *  don't linger in the finder. */
 function phygitalsPrizes(
   chaseBySlug: Map<string, PhygitalsChaseItem[]>,
-  oddsBySlug: Map<string, PhygitalsPackOdds>,
+  catalog: PhygitalsPackDef[],
 ): GachaPrize[] {
-  const catalog =
-    oddsBySlug.size === 0
-      ? PHYGITALS_PACK_CATALOG
-      : PHYGITALS_PACK_CATALOG.filter((p) => isPhygitalsLive(oddsBySlug.get(p.slug)));
   const out: GachaPrize[] = [];
   for (const p of catalog) {
     for (const c of chaseBySlug.get(p.slug) ?? []) {
@@ -367,15 +427,11 @@ function phygitalsPacks(
   chaseBySlug: Map<string, PhygitalsChaseItem[]>,
   realized: Map<string, RealizedGroup>,
   oddsBySlug: Map<string, PhygitalsPackOdds>,
+  catalog: PhygitalsPackDef[],
   asOf: string,
 ): GachaPack[] {
-  // Drop archived packs: keep only those /available reports as live (enabled +
-  // stocked or still pulling). If the odds fetch failed (empty map), don't
-  // filter — degrade to showing all rather than hiding everything.
-  const catalog =
-    oddsBySlug.size === 0
-      ? PHYGITALS_PACK_CATALOG
-      : PHYGITALS_PACK_CATALOG.filter((p) => isPhygitalsLive(oddsBySlug.get(p.slug)));
+  // `catalog` is every pack /available reports live (enabled, and stocked or
+  // still pulling): archived packs never reach it.
 
   // (category,price) keys shared by >1 catalog pack can't be attributed to one
   // pack from realized data alone → don't attach realized to those.
@@ -394,8 +450,10 @@ function phygitalsPacks(
       fmvUsd: c.fmv,
       grade: gradeOf(c.name),
     }));
+    // By the pack's own slug first; by (category, price) only when no slug claimed
+    // the pulls and the key is the pack's alone.
     const key = `${p.category}:${p.priceUsd}`;
-    const r = keyCount.get(key) === 1 ? realized.get(key) : undefined;
+    const r = realized.get(`slug:${p.slug}`) ?? (p.category && keyCount.get(key) === 1 ? realized.get(key) : undefined);
 
     // Phygitals' PUBLISHED odds + EV (captured from /api/vm/available) — stated.
     const o = oddsBySlug.get(p.slug);
@@ -442,6 +500,7 @@ function phygitalsPacks(
       medianReturn: r?.medianReturn ?? null,
       realizedN: r?.n ?? null,
       realizedWindow: r ? "7d" : null,
+      realizedValueBasis: "Phygitals FMV",
       // Prefer realized 24h count; else a 7d→24h estimate from the published feed.
       pulls24h: r?.pulls24h ?? (o ? Math.round(o.pulls7d / 7) : null),
       pulls24hEstimated: r?.pulls24h == null && o != null,
@@ -551,6 +610,7 @@ function ccPacksNative(ccPacks: CCGachaPack[], asOf: string): GachaPack[] {
       medianReturn: r?.medianReturn ?? null,
       realizedN: r?.n ?? null,
       realizedWindow: windowLabel(r?.windowHours ?? null),
+      realizedValueBasis: "Collector Crypt's insured value",
       pulls24h: r?.pulls24h ?? null,
       pulls24hEstimated: r?.pulls24hEstimated ?? false,
       evBasis: r?.evMultiple != null ? "realized" : "stated",
@@ -643,6 +703,7 @@ function ccPackShell(price: number, asOf: string): GachaPack {
 }
 
 export type GachaPacksWarmResult = {
+  snapshot?: GachaPacksSnapshot;
   packs: number;
   byPlatform: Record<string, number>;
   topHitMax: number;
@@ -652,7 +713,11 @@ export type GachaPacksWarmResult = {
 };
 
 export async function runGachaPacksWarm(
-  opts: { log?: (m: string) => void } = {},
+  opts: {
+    log?: (m: string) => void;
+    /** Build only: return the snapshot, write nothing (`--out`). */
+    out?: boolean;
+  } = {},
 ): Promise<GachaPacksWarmResult> {
   const log = opts.log ?? (() => {});
   const asOf = new Date().toISOString();
@@ -674,35 +739,86 @@ export async function runGachaPacksWarm(
     log(`beezie FAILED: ${(err as Error).message}`);
   }
 
-  // Phygitals — advertised chase per slug + realized join + chase prizes.
+  // Phygitals — every LIVE pack /vm/available reports (stated odds + EV), its
+  // advertised chase pool, and the realized join from the spine.
+  let phWindow: GachaPacksSnapshot["window"] = { fromISO: null, toISO: null, hours: null, pulls: 0 };
   try {
+    const availOdds = await fetchPhygitalsAvailable();
+    const catalog = phygitalsCatalog(availOdds);
     const chaseBySlug = new Map<string, PhygitalsChaseItem[]>();
-    for (const p of PHYGITALS_PACK_CATALOG) {
-      try {
-        chaseBySlug.set(p.slug, await fetchPhygitalsChase(p.slug));
-      } catch (e) {
-        log(`  chase ${p.slug} failed: ${(e as Error).message}`);
-        chaseBySlug.set(p.slug, []);
+    let chaseFailed = 0;
+    // Paced: Phygitals answers 429 after ~25 back-to-back chase reads (measured
+    // Oct 7, 30 of 55 refused). One read every CHASE_GAP_MS, and a 429 waits
+    // CHASE_RETRY_MS and retries, at most twice.
+    for (const p of catalog) {
+      let items: PhygitalsChaseItem[] | null = null;
+      for (let attempt = 0; attempt < 3 && items == null; attempt++) {
+        try {
+          items = await fetchPhygitalsChase(p.slug);
+        } catch (e) {
+          const msg = (e as Error).message;
+          if (/429/.test(msg) && attempt < 2) {
+            await sleep(CHASE_RETRY_MS);
+            continue;
+          }
+          chaseFailed++;
+          log(`  chase ${p.slug} failed: ${msg}`);
+          break;
+        }
       }
+      chaseBySlug.set(p.slug, items ?? []);
+      await sleep(CHASE_GAP_MS);
     }
-    const realized = await phygitalsRealizedGroups(7);
-    let availOdds = new Map<string, PhygitalsPackOdds>();
-    try {
-      availOdds = await fetchPhygitalsAvailable();
-    } catch (e) {
-      log(`  phygitals available (stated odds/EV) failed — falling back to realized: ${(e as Error).message}`);
-    }
-    const pp = phygitalsPacks(chaseBySlug, realized, availOdds, asOf);
+    const t0 = Date.now();
+    const realized = await phygitalsRealizedGroups(7, catalog);
+    phWindow = realized.window;
+    const pp = phygitalsPacks(chaseBySlug, realized.groups, availOdds, catalog, asOf);
     packs.push(...pp);
-    const phPrizes = phygitalsPrizes(chaseBySlug, availOdds);
+    const phPrizes = phygitalsPrizes(chaseBySlug, catalog);
     prizes.push(...phPrizes);
-    const withStated = pp.filter((p) => p.oddsStated != null).length;
+    const withRealized = pp.filter((p) => (p.realizedN ?? 0) > 0).length;
     log(
-      `phygitals: ${pp.length} packs (${withStated} with stated odds+EV, ${realized.size} realized groups) · ${phPrizes.length} chase prizes`,
+      `phygitals: ${availOdds.size} packs in /vm/available, ${catalog.length} live · ${pp.length} packs (${withRealized} with realized) · ` +
+        `${phPrizes.length} chase prizes (${chaseFailed} chase fetches failed) · realized read ${realized.window.pulls.toLocaleString()} pulls / 7d in ${realized.queries} queries, ${((Date.now() - t0) / 1000).toFixed(0)}s`,
     );
   } catch (err) {
-    log(`phygitals FAILED: ${(err as Error).message}`);
+    log(`phygitals FAILED (no live catalog, so no Phygitals packs): ${(err as Error).message}`);
   }
+
+  // DYLI — its active boxes: declared EV, odds and buyback (gacha_products), the
+  // advertised chase list and named recent pulls (dyli:box-prizes), realized pulls.
+  try {
+    const products = await readDyliProducts();
+    const active = products.filter((p) => p.active);
+    const dyPulls = await readDyliPulls(active.map((p) => p.product_id), Date.now() - 7 * 86_400_000);
+    const boxPrizes = await readDyliBoxPrizes().catch(() => null);
+    const dy = dyliPacks(products, dyPulls.rows, boxPrizes, Date.now(), asOf);
+    packs.push(...dy.packs);
+    prizes.push(...dy.prizes);
+    log(
+      `dyli: ${products.length} boxes, ${active.length} active · ${dy.packs.length} packs · ${dyPulls.rows.length.toLocaleString()} pulls / 7d in ${dyPulls.queries} queries · ` +
+        `${dy.prizes.length} pool prizes${boxPrizes ? "" : " (no dyli:box-prizes snapshot yet: no pool, no names)"}`,
+    );
+  } catch (err) {
+    log(`dyli FAILED: ${(err as Error).message}`);
+  }
+
+  // Renaiss — every machine active in the last 72 h, from renaiss_pulls (7 days).
+  try {
+    const t0 = Date.now();
+    const rn = await readRenaissPackPulls(7);
+    const built = renaissPacks(rn.rows, Date.now(), asOf);
+    packs.push(...built.packs);
+    prizes.push(...built.prizes);
+    log(
+      `renaiss: ${built.packs.length} packs active in 72h · ${rn.rows.length.toLocaleString()} pulls / 7d in ${rn.queries} queries, ${((Date.now() - t0) / 1000).toFixed(0)}s` +
+        `${rn.preMigration ? " (pre-migration: names are machine ids, no images)" : ""} · ${built.prizes.length} named prizes shown, ${built.unnamed.toLocaleString()} unnamed pulls counted, not shown`,
+    );
+  } catch (err) {
+    log(`renaiss FAILED: ${(err as Error).message}`);
+  }
+
+  // Courtyard — no pack catalog is published (gachaVenues.ts says why), so no rows.
 
   // Collector Crypt — native per-pack data (gacha:cc) when warmed; Dune
   // platform-grain shells only as a degraded fallback.
@@ -748,34 +864,15 @@ export async function runGachaPacksWarm(
     log(`collector-crypt FAILED: ${(err as Error).message}`);
   }
 
-  // Honest realized window = span of the phygitals pull spine we read.
-  let win = { fromISO: null as string | null, toISO: null as string | null, hours: null as number | null, pulls: 0 };
-  try {
-    const { data } = await db()
-      .from("gacha_pulls")
-      .select("pulled_at")
-      .eq("platform_id", "phygitals")
-      .order("pulled_at", { ascending: false })
-      .limit(8000);
-    const times = (data ?? []).map((r) => Date.parse(String(r.pulled_at))).filter(Number.isFinite);
-    if (times.length) {
-      const from = Math.min(...times);
-      const to = Math.max(...times);
-      win = {
-        fromISO: new Date(from).toISOString(),
-        toISO: new Date(to).toISOString(),
-        hours: (to - from) / 3_600_000,
-        pulls: times.length,
-      };
-    }
-  } catch {
-    // window is best-effort metadata
-  }
+  // Honest realized window = the span of the Phygitals pulls the realized read
+  // actually paged (every pull of the 7 days, not an arbitrary 8,000).
+  const win = phWindow;
 
   packs.sort((a, b) => a.priceUsd - b.priceUsd || a.platform.localeCompare(b.platform));
   prizes.sort((a, b) => b.fmvUsd - a.fmvUsd);
-  const snap: GachaPacksSnapshot = { generatedAt: asOf, window: win, packs, prizes };
-  await writeGachaPacks(snap);
+  const snap: GachaPacksSnapshot = { generatedAt: asOf, window: win, packs: withMixedPool(packs, prizes), prizes };
+  log(`mixed pools: ${snap.packs.filter((p) => p.mixedPool).map((p) => `${p.platform}:${p.name}`).join(", ") || "none"}`);
+  if (!opts.out) await writeGachaPacks(snap);
 
   const byPlatform: Record<string, number> = {};
   for (const p of packs) byPlatform[p.platform] = (byPlatform[p.platform] ?? 0) + 1;
@@ -788,5 +885,5 @@ export async function runGachaPacksWarm(
   }
 
   log(`done: ${packs.length} packs ${JSON.stringify(byPlatform)} · top hit $${Math.round(topHitMax).toLocaleString()}`);
-  return { packs: packs.length, byPlatform, topHitMax, generatedAt: asOf, rowsWritten: packs.length };
+  return { snapshot: snap, packs: packs.length, byPlatform, topHitMax, generatedAt: asOf, rowsWritten: packs.length };
 }

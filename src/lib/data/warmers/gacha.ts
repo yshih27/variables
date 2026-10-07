@@ -3,9 +3,8 @@
  *
  * Runs the per-platform Dune queries, transforms the rows, writes the snapshot
  * to the `snapshots` table (key='gacha') via writeGachaDune(), and records a
- * `source_freshness` row. Shared by both the CLI script
- * (scripts/warm-gacha-dune.ts) and the cron Route Handler
- * (app/api/cron/gacha/route.ts) so there is exactly one implementation.
+ * `source_freshness` row. Run by the CLI script (scripts/warm-gacha-dune.ts),
+ * which warm.yml runs; the old cron Route Handler is removed (nothing called it).
  *
  * NOTE: big-hit enrichment uses getCCMetadataCachedOnly, which reads the CC
  * trait cache. Until that cache is migrated to Postgres (Phase 2), run this
@@ -151,7 +150,7 @@ export type GachaWarmResult = {
 /**
  * Run the gacha warm: execute the Dune queries, build the snapshot, persist it
  * to Postgres. Freshness is recorded by the runWarmer wrapper at each entry point
- * (CLI script + cron route); a 0-platform result THROWS so that wrapper logs an
+ * (the CLI script); a 0-platform result THROWS so that wrapper logs an
  * error row. Pass `cachedOnly` to read Dune's last cached results.
  *
  * Two of the four inputs are no longer fetched on every run, because Dune bills
