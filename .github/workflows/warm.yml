@@ -46,6 +46,10 @@ env:
   RIP_API_KEY: ${{ secrets.RIP_API_KEY }}
   RARIBLE_API_KEY: ${{ secrets.RARIBLE_API_KEY }}
   FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+  # Etherscan V2 (the primary-revenue fallback legs: Courtyard on Polygon, the
+  # Claw on Base). Keyless calls stopped being served on Sep 17 2026; the secret
+  # was added Oct 7 but never reached a job until this line.
+  ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
   SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
   SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
