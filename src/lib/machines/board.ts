@@ -11,7 +11,7 @@ import { PALETTE } from "@/lib/studio/catalog";
  * only way to know it works before the day it fires.
  */
 
-export type MachineSortKey = "name" | "price" | "spend" | "pulls" | "spend7d" | "attributed";
+export type MachineSortKey = "name" | "price" | "spend" | "pulls" | "spend7d" | "attributed" | "valueBack" | "hitShare";
 
 /** A machine's attributed share of its OWN spend. NaN (→ "—") when it took none. */
 export function attributedPct(r: MachineRow): number {
@@ -31,6 +31,11 @@ export function valueFor(r: MachineRow, key: MachineSortKey): number {
       return r.spend7dUsd;
     case "attributed":
       return attributedPct(r);
+    // A board in the venue's stated value (Renaiss): null → NaN → "—", sinks.
+    case "valueBack":
+      return r.valueBackPct ?? NaN;
+    case "hitShare":
+      return r.hitSharePct ?? NaN;
     case "name":
       return NaN; // string-compared in sortMachines
   }

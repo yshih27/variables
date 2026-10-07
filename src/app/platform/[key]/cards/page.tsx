@@ -37,7 +37,7 @@ export default async function PlatformCardsPage({
         <div className="mb-8 text-[13px] text-ink-3">
           {detail.topCards.length} card{detail.topCards.length === 1 ? "" : "s"} traded on {detail.source.name} in the last 24h ({detail.salesEnriched} of {detail.salesTotal} sales enriched), ranked by volume.
         </div>
-        <PlatformTopCardsTable rows={detail.topCards} />
+        <PlatformTopCardsTable rows={detail.topCards} salesWindow={detail.salesWindow ?? "24h"} />
       </div>
     </>
   );

@@ -37,7 +37,7 @@ export default async function PlatformIPsPage({
         <div className="mb-8 text-[13px] text-ink-3">
           {detail.ips.length} IP{detail.ips.length === 1 ? "" : "s"} tracked on {detail.source.name}.
         </div>
-        <PlatformIPsTable rows={detail.ips} />
+        <PlatformIPsTable rows={detail.ips} salesWindow={detail.salesWindow ?? "24h"} />
       </div>
     </>
   );

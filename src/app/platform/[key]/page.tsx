@@ -17,6 +17,9 @@ import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
 import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
 import { PlatformMachines } from "@/components/PlatformMachines";
 import { PlatformPlayers } from "@/components/PlatformPlayers";
+import { PlatformBiggestPulls } from "@/components/PlatformBiggestPulls";
+import { readVenueMachineBoard, readVenuePlayers } from "@/lib/data/venueBoards";
+import { unsourcedLeg } from "@/lib/methodology/venueLegs";
 import { monthlyPullCoverage, overallPullCoverage } from "@/lib/metrics/pullCoverage";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
 import {
@@ -61,7 +64,7 @@ export default async function PlatformDetailPage({
   const { key } = await params;
   // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
   // round-trips per request (R2-B1).
-  const [detail, series, playersSnap, studioSeed, ledger] = await Promise.all([
+  const [detail, series, playersSnap, studioSeed, ledger, machineBoard, venuePlayer] = await Promise.all([
     getPlatformDetail(key),
     getPlatformActivitySeries(key),
     // Snapshot read; degrades to null (readSnapshot never throws), so a missing
@@ -71,6 +74,10 @@ export default async function PlatformDetailPage({
     // chart paints with no client fetch. Null degrades to the old API path.
     readStudioSeed({ entity: "platform", key }),
     readMethodChanges(),
+    // The venue's own machine board and player analytics, or null for a venue
+    // without one — the sections below gate on these existing, never on a key.
+    readVenueMachineBoard(key),
+    readVenuePlayers(key),
   ]);
   if (!detail) notFound();
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
@@ -95,7 +102,19 @@ export default async function PlatformDetailPage({
   // ⚠️ TIER MIX: the levels are LIVE (rolling-24h blobs) while these deltas come
   // from the CHART tier (complete calendar days, excludes today). That is the
   // same pairing /ips uses; the "24h"/"7d" suffix is what keeps it honest.
-  const railRows: OverviewMetricRow[] = [
+  // Market cap's basis, and for a venue's own stated value its coverage: how
+  // many of the tokens counted carry a value (Renaiss). Below its floor the
+  // figure is withheld and the reason says why, from data.
+  const mcapBasis = MCAP_BASIS[detail.source.key];
+  const mcapSub = !Number.isFinite(detail.mcapUsd)
+    ? (detail.mcapReason ?? (mcapBasis ? MCAP_BASIS_LABEL[mcapBasis] : undefined))
+    : mcapBasis === "stated" && detail.mcapCoveragePct != null
+      ? `${MCAP_BASIS_LABEL[mcapBasis]} · covers ${detail.mcapCoveragePct.toFixed(1)}% of held tokens`
+      : mcapBasis
+        ? MCAP_BASIS_LABEL[mcapBasis]
+        : undefined;
+  const railRows: OverviewMetricRow[] = (
+    [
     {
       label: "24h Marketplace Vol",
       metric: "marketplace",
@@ -134,7 +153,7 @@ export default async function PlatformDetailPage({
       // Say WHICH kind of cap this is, right next to it. Phygitals' floor×supply
       // lower bound rendered identically to Collector Crypt's vault appraisal,
       // and the reader had nothing to go on.
-      sub: MCAP_BASIS[detail.source.key] ? MCAP_BASIS_LABEL[MCAP_BASIS[detail.source.key]] : undefined,
+      sub: mcapSub,
     },
     {
       label: "Holders",
@@ -143,6 +162,8 @@ export default async function PlatformDetailPage({
       unit: "count",
       deltaPct: pctChange(holdersS, 7),
       window: "7d",
+      // "—" says nothing on its own: the reason comes from the holders snapshot.
+      sub: Number.isFinite(detail.holders) ? undefined : (detail.holdersReason ?? undefined),
     },
     {
       label: "24h Trades",
@@ -152,8 +173,19 @@ export default async function PlatformDetailPage({
       deltaPct: pctChange(tradesS, 1),
       window: "24h",
     },
-  ];
+    ] satisfies OverviewMetricRow[]
+  ).map((r) =>
+    // ⚠️ A delta never sits beside a level of 0 or "—". The level is the live 24h
+    // and the delta compares complete days, so "$0.00 · −47.7%" read as a
+    // contradiction rather than two windows.
+    !Number.isFinite(r.value) || r.value === 0 ? { ...r, deltaPct: null } : r,
+  );
 
+  // The listings leg the venue has no source for (Renaiss), as the registry
+  // states it: one receipt line in place of a floor or a listings count.
+  const listingsLeg = unsourcedLeg(detail.source.key, "listings");
+  // Which window the IP rows and both tables cover (Renaiss reads a week).
+  const salesWindow = detail.salesWindow ?? "24h";
 
   // IP composition — real per-IP volume/trades/mcap/cards/holders. Top N + an
   // "Other" bucket so the donut and dominance stay honest (sum to 100%) without
@@ -302,8 +334,8 @@ export default async function PlatformDetailPage({
   // Player analytics for THIS platform. A platform the snapshot excluded (no
   // wallet-attributed rows) simply isn't in `platforms`, so this is null and the
   // panel renders nothing — the exclusion is surfaced in the snapshot itself.
-  const player = playersSnap?.platforms.find((p) => p.platform === key) ?? null;
-  const playersData = player && playersSnap ? { player, generatedAt: playersSnap.generatedAt } : null;
+  const player = venuePlayer;
+  const playersData = player ? { player } : null;
 
   // ── Pull-capture completeness ───────────────────────────────────────────────
   // Player analytics comes from `gacha_pulls`; `gachaS` is the SAME flow measured
@@ -329,7 +361,7 @@ export default async function PlatformDetailPage({
     <>
       <NavBar ticker={await buildMarketTicker()} />
       <div className="px-8 pt-6 pb-20 font-sans">
-        <PlatformOverviewHeader detail={detail} />
+        <PlatformOverviewHeader detail={detail} listingsWithheld={listingsLeg != null} />
 
         <div className="space-y-3">
           {/* ZONE 1 — platform levels + the Index Studio scoped to this platform. */}
@@ -357,6 +389,11 @@ export default async function PlatformDetailPage({
               />
             ))}
           </StatCardRow>
+          {listingsLeg ? (
+            <p className="font-mono text-[10.5px] leading-snug text-ink-4" data-listings-leg>
+              Listings · floor <span className="text-ink-3">—</span> · {listingsLeg}
+            </p>
+          ) : null}
           {/* Studio ‖ the three 14d cards. Different questions, so they may share a
               row (terminal-ux-study §3): the studio is an INTERACTIVE series you
               compose and brush, the cards are an AT-A-GLANCE 14-day read of three
@@ -394,7 +431,7 @@ export default async function PlatformDetailPage({
                 surface={`cards:platform:${key}`}
                 unit="count"
                 variant="line"
-                emptyDetail="forward-only series — no backfill"
+                emptyDetail={detail.holdersReason ?? "forward-only series — no backfill"}
               />
             </div>
           </div>
@@ -459,12 +496,17 @@ export default async function PlatformDetailPage({
           {/* ⚠️ Gated HERE, not only inside the component. PlatformMachines is a
               client component, so a `board` prop reaches the RSC payload even
               when the component returns null — every other platform's HTML was
-              carrying all 48 of Collector Crypt's machines for nothing. The
-              component keeps its own key guard as well; this one keeps the
-              payload honest. */}
-          {key === "collector-crypt" && (
-            <PlatformMachines board={playersSnap?.machines} platformKey={key} />
+              carrying all 48 of Collector Crypt's machines for nothing. The gate
+              is the venue's own board existing (readVenueMachineBoard returns null
+              for a venue without one); a venue without a board sends nothing. */}
+          {machineBoard && machineBoard.rows.length > 0 && (
+            <PlatformMachines board={machineBoard} platformKey={key} />
           )}
+
+          {/* Biggest pulls — the 12 most valuable prizes over 30 days, each value
+              in its venue's basis. After Machines: that answers "where the money
+              goes", this "what came out". Full width; nothing beside it. */}
+          <PlatformBiggestPulls pulls={detail.biggestPulls} />
 
           {/* Player analytics — only for platforms the snapshot covers. */}
           <PlatformPlayers
@@ -481,7 +523,8 @@ export default async function PlatformDetailPage({
         <IPByPlatform
           rows={ipRows}
           title="By IP"
-          readMe="this platform's 24h activity by IP"
+          readMe={salesWindow === "7d" ? "this platform's activity by IP over the last 7 days" : "this platform's 24h activity by IP"}
+          salesWindow={salesWindow}
           entityHeader="IP"
           donutTitle="IP share"
           showChain={false}
@@ -502,8 +545,8 @@ export default async function PlatformDetailPage({
           (terminal-ux-study §4) — crushing one to satisfy a layout pattern inverts
           the point of the doctrine, and pairing is not a goal in itself. Volume mix ‖
           Top partners above is this page's consolidation win. Both stay full-width. */}
-      <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} />
-      <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} />
+      <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} salesWindow={salesWindow} />
+      <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} salesWindow={salesWindow} />
         </div>
       </div>
     </>
