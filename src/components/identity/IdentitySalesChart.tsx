@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Section } from "../Section";
 import { ChartActions } from "../ChartActions";
 import { GetTheChip } from "../price/GetTheChip";
+import { PRICE_CHIP_ENABLED } from "@/lib/flags";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "../ChartTooltip";
 import type { IdentityMonthly, IdentitySale } from "@/lib/data/identityDetail";
 import { formatCompactUsd } from "@/lib/format";
@@ -198,7 +199,7 @@ export function IdentitySalesChart({
           legend={legend}
         />
         {/* The fourth action: the price of THIS card, on someone else's page. */}
-        <GetTheChip slug={canonicalSlug} name={title} />
+        {PRICE_CHIP_ENABLED && <GetTheChip slug={canonicalSlug} name={title} />}
         </>
       }
     >

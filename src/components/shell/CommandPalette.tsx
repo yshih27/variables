@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { GroupedSearchResponse, SearchGroup } from "@/lib/types";
-import { GACHA_ENABLED } from "@/lib/flags";
+import { GACHA_ENABLED, VAULT_ENABLED } from "@/lib/flags";
 import { pushRecent, readRecents, type RecentEntry } from "@/lib/shellPrefs";
 import { useRailModel } from "./RailModelContext";
 import type { RailModel } from "@/lib/types";
@@ -53,8 +53,12 @@ const STATIC_PAGES: PaletteItem[] = [
   { label: "Stats", sub: "the market in citable numbers", href: "/stats" },
   { label: "Weekly Report", href: "/report" },
   { label: "Watchlist", href: "/watchlist" },
-  { label: "Vault", sub: "a wallet's slabs, valued", href: "/vault" },
-  { label: "Value a wallet", sub: "paste a Solana, Polygon or Base address", href: "/vault", focus: "vault-address" },
+  ...(VAULT_ENABLED
+    ? [
+        { label: "Vault", sub: "a wallet's slabs, valued", href: "/vault" },
+        { label: "Value a wallet", sub: "paste a Solana, Polygon or Base address", href: "/vault", focus: "vault-address" },
+      ]
+    : []),
   { label: "Data status", sub: "freshness of every source", href: "/status" },
   { label: "Methodology", href: "/methodology" },
   ...(GACHA_ENABLED ? [{ label: "Gacha", href: "/gacha" }] : []),
