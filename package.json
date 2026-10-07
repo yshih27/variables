@@ -52,7 +52,8 @@
     "test:invariants": "tsx --test src/lib/indices/completeness.test.ts",
     "test:names": "tsx --test src/lib/data/traits.test.ts",
     "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts",
-    "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts"
+    "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts",
+    "test:gacha": "tsx --test src/lib/data/gacha.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",
