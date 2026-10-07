@@ -23,7 +23,7 @@
  * Pins persist to localStorage (cap 5, FIFO) keyed by durable pack ids.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Section } from "./Section";
 import { formatCompactUsd, formatInt } from "@/lib/format";
@@ -41,15 +41,39 @@ import {
   AUDIT_MIN_N,
   type Lead,
 } from "@/lib/data/gachaPackView";
+import { KIND_WORD, coverageLine, type GachaVenue, type VenueKind } from "@/lib/gacha/venueView";
 
 /* ───────────────────────── meta ───────────────────────── */
 
-const PLATFORM_ORDER = ["collector-crypt", "phygitals", "beezie"];
-const PLATFORM_COLOR: Record<string, string> = {
-  "collector-crypt": "#2bd6a0",
-  phygitals: "#ffd23d",
-  beezie: "#5b9bff",
+/**
+ * ⚠️ VENUES COME FROM DATA. Rows, their order, names, monograms and kinds are the
+ * `venues` list the page derives from the payload (src/lib/gacha/venueView.ts) —
+ * never a hard-coded three. The matrix provides it; every nested component (the
+ * finder, the drawer, the prize modal, the compare overlay) reads the same list.
+ */
+type VenueIndex = {
+  coveredKeys: string[];
+  byKey: (key: string) => GachaVenue | undefined;
+  order: (key: string) => number;
+  name: (key: string) => string;
+  /** "Claw" / "Machine" / "Pack" / "Box" — the venue's own word, or null when the payload does not say. */
+  kind: (key: string) => VenueKind | null;
 };
+function indexOf(venues: GachaVenue[]): VenueIndex {
+  const byKey = (key: string) => venues.find((v) => v.key === key);
+  return {
+    coveredKeys: venues.filter((v) => v.covered).map((v) => v.key),
+    byKey,
+    order: (key) => {
+      const i = venues.findIndex((v) => v.key === key);
+      return i < 0 ? venues.length : i;
+    },
+    name: (key) => byKey(key)?.name ?? key,
+    kind: (key) => byKey(key)?.kind ?? null,
+  };
+}
+const VenuesCtx = createContext<VenueIndex>(indexOf([]));
+const useVenues = () => useContext(VenuesCtx);
 type Tab = { key: string; label: string };
 const TABS: Tab[] = [
   { key: "pokemon", label: "Pokémon" },
@@ -79,13 +103,17 @@ function pct(n: number | null, dp = 1): string {
   return `${parseFloat(v.toFixed(v < 10 ? dp : 0))}%`;
 }
 function basisColor(b: MetricBasis): string {
-  return b === "realized" ? "#6cf48a" : b === "stated" ? "#8a8a8a" : "#5a5a5a";
+  return b === "realized" ? "var(--color-green)" : b === "stated" ? "var(--color-ink-3)" : "var(--color-ink-4)";
 }
 function basisTitle(b: MetricBasis, n?: number | null): string {
   if (b === "realized") return `Measured on-chain${n != null ? ` · ${n} pull${n === 1 ? "" : "s"}` : ""}`;
   if (b === "stated") return "Platform-advertised — vendor claim, unverified";
   if (b === "assumed") return "Unverified estimate, no source";
-  return "Platform-wide only — not specific to this pack";
+  return "Platform-wide only — not specific to this product";
+}
+/** The venue's own word for one product, lower-case; "product" when the payload does not say. */
+function kindNoun(k: VenueKind | null): string {
+  return k ? KIND_WORD[k].one.toLowerCase() : "product";
 }
 function Dot({ basis, n }: { basis: MetricBasis; n?: number | null }) {
   return (
@@ -94,18 +122,21 @@ function Dot({ basis, n }: { basis: MetricBasis; n?: number | null }) {
       className="inline-block h-[5px] w-[5px] shrink-0 rounded-none"
       style={{
         background: basis === "assumed" ? "transparent" : basisColor(basis),
-        border: basis === "assumed" ? "1px dashed #6a6a6a" : undefined,
+        border: basis === "assumed" ? "1px dashed var(--color-ink-4)" : undefined,
       }}
     />
   );
 }
+/** The venue's two-character registry monogram on a neutral tile — the rail's
+ *  own vocabulary, never a one-letter badge or a per-venue colour. */
 function Avatar({ platform, short, size }: { platform: string; short: string; size: number }) {
+  const code = useVenues().byKey(platform)?.code ?? short;
   return (
     <span
-      className="grid shrink-0 place-items-center rounded-none font-bold text-black"
-      style={{ background: PLATFORM_COLOR[platform] ?? "#888", width: size, height: size, fontSize: size * 0.34 }}
+      className="grid shrink-0 place-items-center rounded-none border border-line-2 bg-bg-3 font-mono font-bold text-ink-2"
+      style={{ width: size, height: size, fontSize: size * 0.34 }}
     >
-      {short}
+      {code}
     </span>
   );
 }
@@ -133,7 +164,8 @@ function valueBack(p: GachaPack): Lead | null {
 
 /* ───────────────────────── component ───────────────────────── */
 
-export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes: GachaPrize[] }) {
+export function GachaPackMatrix({ packs, prizes, venues }: { packs: GachaPack[]; prizes: GachaPrize[]; venues: GachaVenue[] }) {
+  const vi = useMemo(() => indexOf(venues), [venues]);
   // CC Dune-fallback shells aren't pack-attributable — the matrix is pack-grain.
   const usable = useMemo(() => packs.filter((p) => !p.notDirectlyComparable && p.priceUsd > 0), [packs]);
   const byId = useMemo(() => new Map(usable.map((p) => [p.id, p])), [usable]);
@@ -173,6 +205,25 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
     }
   }, [pins]);
 
+  // #pack=<id> — a link into one pack's drawer (the page's headline figures use it).
+  useEffect(() => {
+    const open = () => {
+      const m = /(?:^|[#&])pack=([^&]+)/.exec(window.location.hash);
+      const id = m ? decodeURIComponent(m[1]) : null;
+      if (id && byId.has(id)) {
+        const p = byId.get(id)!;
+        setTab(tabOf(p));
+        setDrawerId(id);
+      }
+    };
+    const t = setTimeout(open, 0);
+    window.addEventListener("hashchange", open);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("hashchange", open);
+    };
+  }, [byId]);
+
   const togglePin = useCallback((id: string) => {
     setPins((cur) => {
       if (cur.includes(id)) return cur.filter((x) => x !== id);
@@ -189,7 +240,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
   const model = useMemo(() => {
     const inTab = usable.filter((p) => tabOf(p) === tab || (tab !== "mixed" && p.category === null));
     const prices = [...new Set(inTab.map((p) => p.priceUsd))].sort((a, b) => a - b);
-    const platforms = PLATFORM_ORDER.filter((key) => inTab.some((p) => p.platform === key)).map((key) => {
+    const platforms = venues.map((v) => v.key).filter((key) => inTab.some((p) => p.platform === key)).map((key) => {
       const mine = inTab.filter((p) => p.platform === key);
       const cells = new Map<number, GachaPack[]>();
       for (const p of mine) {
@@ -201,7 +252,8 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
         arr.sort((a, b) => (leadHitOdds(b)?.value ?? -1) - (leadHitOdds(a)?.value ?? -1));
       const sample = mine[0];
       const mixedPool = tab !== "mixed" && mine.every((p) => p.category === null);
-      return { key, name: sample.platformName, short: sample.platformShort, chain: sample.chain, cells, mixedPool };
+      const v = vi.byKey(key);
+      return { key, name: v?.name ?? sample.platformName, short: sample.platformShort, chain: v?.chain || sample.chain, kind: v?.kind ?? null, cells, mixedPool };
     });
     // best displayed odds per price column (the lead pack of each cell competes)
     const best = new Map<number, number>();
@@ -215,7 +267,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
       best.set(price, mx);
     }
     return { prices, platforms, best, inTab };
-  }, [usable, tab]);
+  }, [usable, tab, venues, vi]);
 
   // drawer stepping order: every pack at the SAME price in the open pack's own
   // game (+ mixed pools) — independent of the matrix tab, so packs opened from
@@ -230,11 +282,11 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
       )
       .sort(
         (a, b) =>
-          PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform) ||
+          vi.order(a.platform) - vi.order(b.platform) ||
           (leadHitOdds(b)?.value ?? -1) - (leadHitOdds(a)?.value ?? -1),
       )
       .map((p) => p.id);
-  }, [usable, drawerPack]);
+  }, [usable, drawerPack, vi]);
 
   // keyboard: Esc closes (compare first, then drawer); ←/→ step the drawer
   useEffect(() => {
@@ -255,37 +307,55 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
 
   const pinned = pins.map((id) => byId.get(id)).filter(Boolean) as GachaPack[];
 
+  // Mobile (below md): one-hand list, grouped by game then price; each row is a
+  // pack and opens the drawer (a bottom sheet at that width).
+  const mobileGroups = useMemo(
+    () =>
+      TABS.map((t) => ({
+        tab: t,
+        rows: usable
+          .filter((p) => tabOf(p) === t.key)
+          .sort((a, b) => a.priceUsd - b.priceUsd || vi.order(a.platform) - vi.order(b.platform)),
+      })).filter((g) => g.rows.length),
+    [usable, vi],
+  );
+  const coverage = coverageLine(venues);
+
   return (
-    <section className="mt-10">
-      {/* One shared Section frame (D1); the IP tabs ride the header's right slot. */}
+    <VenuesCtx.Provider value={vi}>
+    <section className="mt-6 scroll-mt-24" id="matrix">
+      {/* One shared Section frame (D1). The game tabs live INSIDE the frame, above
+          the grid — in the header's right slot they pushed past the viewport. */}
       <Section
-        title="Compare packs across platforms"
-        subtitle="Compare hit odds, top prizes, and expected returns by price tier."
-        right={
-          <div className="flex gap-1 rounded-xl border border-line bg-bg-2 p-1">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setTab(t.key)}
-                className={`rounded-xl px-[15px] py-2 text-[13px] transition-colors ${
-                  tab === t.key ? "bg-yellow font-bold text-black" : "font-medium text-ink-3 hover:text-ink"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        }
+        title="Every venue, by price"
+        readMe="hit odds, top prizes and returns at each price, side by side"
+        subtitle="Each cell is one venue's pack, machine, claw or box at that price"
       >
+      <div role="tablist" aria-label="Game" className="mb-3 hidden flex-wrap gap-1 md:flex" data-game-tabs>
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            data-tab={t.key}
+            onClick={() => setTab(t.key)}
+            className={`rounded-xl px-[15px] py-2 text-[13px] transition-colors ${
+              tab === t.key ? "bg-yellow font-bold text-black" : "border border-line bg-bg-2 font-medium text-ink-3 hover:text-ink"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
       {/* matrix — pinned platform rail + scrollable tier grid. Uniform fixed
           row heights keep the two panes aligned; the scrollbar is hidden and a
           right-edge fade signals the overflow instead. The rail + fade masks
           match the Section card surface (bg-1). */}
-      <div className="flex pt-1">
+      <div className="hidden pt-1 md:flex" data-matrix>
         <div className="z-[1] shrink-0 bg-bg-1 pr-4">
           <div className="flex h-[34px] items-end pb-2">
-            <span className="text-[10.5px] uppercase tracking-[0.12em] text-ink-4">Platform</span>
+            <span className="text-[10.5px] uppercase tracking-[0.12em] text-ink-4">Venue</span>
           </div>
           {model.platforms.map((pl) => (
             <div key={pl.key} className="mt-[7px] flex h-[92px] items-center gap-[11px]">
@@ -293,6 +363,8 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
               <div>
                 <div className="whitespace-nowrap text-[14px] font-bold">{pl.name}</div>
                 <div className="mt-[3px] flex items-center gap-1.5 whitespace-nowrap text-[10px] text-ink-3">
+                  {pl.kind ? <span className="text-ink-2" data-venue-kind={pl.key}>{KIND_WORD[pl.kind].one}</span> : null}
+                  {pl.kind ? <span aria-hidden>·</span> : null}
                   {pl.chain}
                   {pl.mixedPool && (
                     <span
@@ -352,6 +424,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
                         extra={0}
                         best={leadOdds != null && leadOdds === colBest}
                         pinned={pins.includes(lead.id)}
+                        kind={pl.kind}
                         onOpen={() => setDrawerId(lead.id)}
                         onPin={() => togglePin(lead.id)}
                       />
@@ -364,13 +437,59 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
           <div className="pointer-events-none absolute right-0 top-0 h-full w-10 bg-gradient-to-l from-bg-1 to-transparent" />
         </div>
       </div>
+
+      {/* Mobile: the same packs as a list, grouped by game then price. */}
+      <div className="md:hidden" data-matrix-list>
+        {mobileGroups.map((g) => (
+          <div key={g.tab.key} className="mb-4 last:mb-0">
+            <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3">{g.tab.label}</h3>
+            <ul className="divide-y divide-line/60 border border-line">
+              {g.rows.map((p) => {
+                const o = leadHitOdds(p);
+                const thinO = isThin(o);
+                const ceiling = chaseUsd(p);
+                const k = vi.kind(p.platform);
+                return (
+                  <li key={p.id}>
+                    <button type="button" onClick={() => setDrawerId(p.id)} data-list-pack={p.id} className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-bg-2">
+                      <Avatar platform={p.platform} short={p.platformShort} size={26} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-semibold text-ink">{p.name}</span>
+                        <span className="block truncate text-[11px] text-ink-3">
+                          {vi.name(p.platform)}
+                          {k ? ` · ${KIND_WORD[k].one}` : ""} · <span className="tabular">{tierLabel(p.priceUsd)}</span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right font-mono">
+                        <span className={`block text-[15px] font-bold tabular ${thinO ? "text-ink-3" : "text-ink"}`}>{o ? pct(o.value, 0) : "—"}</span>
+                        <span className="block text-[10px] text-ink-4">top {ceiling != null ? formatCompactUsd(ceiling) : "—"}</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* The basis of every figure, said once; and who is not here, and why. */}
+      <div className="mt-3 flex flex-col gap-1 border-t border-line pt-2.5 font-mono text-[10.5px] leading-snug text-ink-4" data-matrix-receipts>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-1.5"><Dot basis="realized" /> measured on-chain, with its sample size</span>
+          <span className="inline-flex items-center gap-1.5"><Dot basis="stated" /> the venue&apos;s own claim, unverified</span>
+          <span className="inline-flex items-center gap-1.5"><Dot basis="assumed" /> unverified estimate</span>
+          <span>grey = a sample under the floor · — = not published or withheld (hover for why)</span>
+        </p>
+        {coverage ? <p data-coverage-line>not compared: {coverage}</p> : null}
+      </div>
       </Section>
 
       <PrizeFinder prizes={prizes} packsById={byId} onOpenPack={(id) => setDrawerId(id)} />
 
       {/* tray */}
       <div
-        className={`fixed bottom-[22px] left-1/2 z-[45] flex max-w-[94vw] items-center gap-3.5 rounded-2xl border border-line-2 bg-bg-2 py-3 pl-[18px] pr-3.5 shadow-[0_18px_50px_rgba(0,0,0,.55)] transition-transform duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
+        className={`fixed bottom-[78px] left-1/2 z-[45] lg:bottom-[22px] flex max-w-[94vw] items-center gap-3.5 rounded-2xl border border-line-2 bg-bg-2 py-3 pl-[18px] pr-3.5 shadow-[0_18px_50px_rgba(0,0,0,.55)] transition-transform duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
           pins.length > 0 ? "-translate-x-1/2" : "-translate-x-1/2 translate-y-[150%]"
         }`}
       >
@@ -395,6 +514,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
           type="button"
           disabled={pins.length < 2}
           onClick={() => setCmpOpen(true)}
+          data-compare-open
           className={`h-[38px] shrink-0 rounded-xl px-4 text-[12.5px] font-bold ${
             pins.length >= 2 ? "bg-yellow text-black" : "cursor-default bg-bg-3 text-ink-4"
           }`}
@@ -442,6 +562,7 @@ export function GachaPackMatrix({ packs, prizes }: { packs: GachaPack[]; prizes:
         />
       )}
     </section>
+    </VenuesCtx.Provider>
   );
 }
 
@@ -466,6 +587,7 @@ function PrizeFinder({
   packsById: Map<string, GachaPack>;
   onOpenPack: (packId: string) => void;
 }) {
+  const vi = useVenues();
   const [q, setQ] = useState("");
   const [game, setGame] = useState<string>("all");
   const [platform, setPlatform] = useState<string>("all");
@@ -484,11 +606,13 @@ function PrizeFinder({
     return () => document.removeEventListener("mousedown", onDown);
   }, [openMenu]);
 
+  // Every covered venue is a filter option — including one with no prizes, so
+  // the reader can see that it publishes none rather than not find it at all.
   const platforms = useMemo(
-    () => [...new Set(prizes.map((p) => p.platform))].sort(
-      (a, b) => PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b),
+    () => [...new Set([...prizes.map((p) => p.platform), ...vi.coveredKeys])].sort(
+      (a, b) => vi.order(a) - vi.order(b),
     ),
-    [prizes],
+    [prizes, vi],
   );
   const games = useMemo(() => {
     const present = new Set(prizes.map((p) => p.category ?? "mixed"));
@@ -544,8 +668,8 @@ function PrizeFinder({
   const shown = groups.slice(0, visible);
   const gameLabel = game === "all" ? "All" : TABS.find((t) => t.key === game)?.label ?? game;
   const platformLabel =
-    platform === "all" ? "All" : platform === "phygitals" ? "Phygitals" : platform === "beezie" ? "Beezie" : "Collector Crypt";
-  const sortLabel = sort === "value" ? "Top value" : sort === "cheapest" ? "Cheapest pack" : "A–Z";
+    platform === "all" ? "All" : vi.name(platform);
+  const sortLabel = sort === "value" ? "Top value" : sort === "cheapest" ? "Cheapest pull" : "A–Z";
 
   if (prizes.length === 0) return null;
 
@@ -556,11 +680,11 @@ function PrizeFinder({
           Find your <em className="not-italic text-yellow">chase</em>
         </>
       }
-      subtitle="Every advertised pool prize — follow a card to the pack that pays it"
+      subtitle="Prizes each venue advertises in its pool, and recent pulls where it publishes none · follow a card to what pays it"
       right={
         <span className="text-[11px] tabular text-ink-3">
           {groups.length === totalCards
-            ? `${formatInt(totalCards)} cards in pools`
+            ? `${formatInt(totalCards)} cards`
             : `${formatInt(groups.length)} of ${formatInt(totalCards)} cards`}
         </span>
       }
@@ -593,7 +717,7 @@ function PrizeFinder({
           }}
         />
         <FilterPill
-          label="Platform"
+          label="Venue"
           value={platformLabel}
           open={openMenu === "platform"}
           onToggle={() => setOpenMenu((m) => (m === "platform" ? null : "platform"))}
@@ -601,7 +725,7 @@ function PrizeFinder({
             { key: "all", label: "All" },
             ...platforms.map((key) => ({
               key,
-              label: key === "phygitals" ? "Phygitals" : key === "beezie" ? "Beezie" : "Collector Crypt",
+              label: vi.name(key),
               avatar: key,
             })),
           ]}
@@ -619,7 +743,7 @@ function PrizeFinder({
           onToggle={() => setOpenMenu((m) => (m === "sort" ? null : "sort"))}
           options={[
             { key: "value", label: "Top value" },
-            { key: "cheapest", label: "Cheapest pack" },
+            { key: "cheapest", label: "Cheapest pull" },
             { key: "name", label: "A–Z" },
           ]}
           selected={sort}
@@ -639,8 +763,10 @@ function PrizeFinder({
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-line/70 px-6 py-12 text-center text-[12.5px] leading-relaxed text-ink-3">
-          No prize matches{q ? ` “${q}”` : " these filters"} — try fewer words.
+        <div className="rounded-xl border border-dashed border-line/70 px-6 py-12 text-center text-[12.5px] leading-relaxed text-ink-3" data-finder-empty>
+          {platform !== "all" && !prizes.some((p) => p.platform === platform)
+            ? `No prize from ${vi.name(platform)} in this read: it advertises no pool here, and no recent pull of its was read.`
+            : `No prize matches${q ? ` “${q}”` : " these filters"}. Try fewer words.`}
         </div>
       )}
 
@@ -698,7 +824,7 @@ function FilterPill({
   onSelect: (key: string) => void;
 }) {
   return (
-    <div className="relative shrink-0" data-pill>
+    <div className="relative shrink-0" data-pill={label}>
       <button
         type="button"
         onClick={onToggle}
@@ -718,6 +844,7 @@ function FilterPill({
               key={o.key}
               type="button"
               onClick={() => onSelect(o.key)}
+              data-pill-option={o.key}
               className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors hover:bg-bg-3 ${
                 selected === o.key ? "font-semibold text-ink" : "text-ink-2"
               }`}
@@ -754,6 +881,7 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
         role="button"
         tabIndex={0}
         onClick={onExpand}
+        data-prize-card={group.packs.length}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -771,22 +899,27 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
               prize.platform === "phygitals" ? "origin-[50%_38%] scale-[1.75] object-contain" : "object-contain p-2"
             }`}
           />
-          {!multi && prize.tier && (
-            <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-2">
-              {prize.tier}
-            </span>
-          )}
-          {prize.pulled && (
+          {/* What this prize IS: still in an advertised pool, or a recent pull. */}
+          {prize.pulled ? (
             <span
-              title="Already won — an example of what this machine pays (Collector Crypt doesn't publish its pools)"
+              title="A recent realized prize: what a pull paid, not a prize still in the pool"
+              data-prize-badge="pulled"
               className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-3"
             >
-              Pulled
+              Pulled{pulledDay(prize.pulledAt) ? ` ${pulledDay(prize.pulledAt)}` : ""}
+            </span>
+          ) : (
+            <span
+              title="Advertised by the venue as in its pool"
+              data-prize-badge="pool"
+              className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.06em] text-ink-2"
+            >
+              In the pool{!multi && prize.tier ? ` · ${prize.tier}` : ""}
             </span>
           )}
           {/* explicit, discoverable CTA — click expands the card + its packs */}
           <span className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-gradient-to-t from-black/85 via-black/55 to-transparent pb-2 pt-7 text-[11px] font-bold text-yellow opacity-0 transition-opacity group-hover:opacity-100">
-            {multi ? `Win it · ${group.packs.length} packs` : "Win this card"} <span aria-hidden>→</span>
+            {multi ? `Win it · ${group.packs.length} pools` : "Win this card"} <span aria-hidden>→</span>
           </span>
         </div>
         <div className="p-3">
@@ -808,7 +941,7 @@ function PrizeCard({ group, onExpand }: { group: PrizeGroup; onExpand: () => voi
                     return <Avatar key={pl} platform={pl} short={sample.platformShort} size={14} />;
                   })}
                 </span>
-                <span className="min-w-0 truncate">{group.packs.length} packs</span>
+                <span className="min-w-0 truncate">{group.packs.length} pools</span>
                 <span className="ml-auto shrink-0 font-semibold text-ink-2 tabular">from {tierLabel(group.minPrice)}</span>
                 <span className="shrink-0 text-ink-4 transition-colors group-hover:text-yellow" aria-hidden>→</span>
               </>
@@ -850,6 +983,7 @@ function PrizeModal({
   onOpenPack: (packId: string) => void;
   onClose: () => void;
 }) {
+  const vi = useVenues();
   const prize = group.top;
   // B1 (design-r1): card-page link disabled — `prize.id` is a pool/prize id, not a
   // resolvable card token (cardHref 404s). Re-enable with a verified backend card id.
@@ -891,7 +1025,7 @@ function PrizeModal({
   };
   const rows: Row[] = [
     {
-      label: "Pack price",
+      label: "Price",
       best: "min",
       num: (c) => c.prize.priceUsd,
       render: (c) => <span className="tabular font-semibold text-ink">{tierLabel(c.prize.priceUsd)}</span>,
@@ -903,9 +1037,9 @@ function PrizeModal({
         c.prize.tier ? (
           <span className="font-semibold text-ink">{c.prize.tier} tier</span>
         ) : c.prize.pulled ? (
-          <span className="text-ink-3">pulled example</span>
+          <span className="text-ink-3">pulled{pulledDay(c.prize.pulledAt) ? ` ${pulledDay(c.prize.pulledAt)}` : ""}</span>
         ) : (
-          <span className="text-ink-3">chase pool</span>
+          <span className="text-ink-3">in the pool</span>
         ),
     },
     {
@@ -933,7 +1067,7 @@ function PrizeModal({
         return v != null ? (
           <span className="tabular font-semibold">
             ${formatInt(Math.round(v))}
-            <span className="ml-1 text-[10px] text-ink-4">/pack</span>
+            <span className="ml-1 text-[10px] text-ink-4">/pull</span>
           </span>
         ) : (
           <span className="text-ink-4">—</span>
@@ -961,7 +1095,7 @@ function PrizeModal({
         ),
     },
     {
-      label: "Pack's top hit",
+      label: "Top prize",
       best: "max",
       num: (c) => (c.pack ? chaseUsd(c.pack) : null),
       render: (c) => {
@@ -990,7 +1124,7 @@ function PrizeModal({
         return a.verdict === "match" ? (
           <span className="font-semibold text-green">✓ matches</span>
         ) : (
-          <span className="font-semibold text-[#ffd23d]">{`⚠ ${a.deltaPts > 0 ? "+" : ""}${a.deltaPts.toFixed(1)}pts`}</span>
+          <span className="font-semibold text-amber">{`⚠ ${a.deltaPts > 0 ? "+" : ""}${a.deltaPts.toFixed(1)}pts`}</span>
         );
       },
     },
@@ -1015,6 +1149,7 @@ function PrizeModal({
       <div
         role="dialog"
         aria-modal="true"
+        data-prize-modal
         aria-label={`Win ${prize.name ?? "this card"}`}
         className="fixed left-1/2 top-1/2 z-[61] flex max-h-[90vh] w-[min(94vw,1040px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-line-2 bg-bg shadow-[0_30px_80px_rgba(0,0,0,.6)]"
       >
@@ -1041,7 +1176,7 @@ function PrizeModal({
 
             <div className="min-w-0 flex-1">
               <div className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-ink-4">
-                {prize.pulled ? "An example this machine paid" : "Win this card"}
+                {prize.pulled ? `A recent pull${pulledDay(prize.pulledAt) ? ` · ${pulledDay(prize.pulledAt)}` : ""}` : "In the pool"}
               </div>
               <div className="mt-2 flex items-baseline gap-3">
                 <span className="tabular text-[30px] font-bold leading-none text-yellow">{formatCompactUsd(prize.fmvUsd)}</span>
@@ -1053,13 +1188,15 @@ function PrizeModal({
                   token; re-enable when the backend provides a verified card id. */}
               <div className="mt-5 text-[12.5px] text-ink-2">
                 {prize.pulled ? (
-                  <>Collector Crypt doesn&apos;t publish its pools — this is a real pull from the machine below.</>
+                  <>
+                    A prize {vi.name(prize.platform)} paid on a recent pull, not one still in a pool. It came from:
+                  </>
                 ) : multi ? (
                   <>
-                    In <span className="font-semibold text-ink">{cols.length} packs</span> — compare where to open:
+                    In <span className="font-semibold text-ink">{cols.length} pools</span> — compare where to pull it:
                   </>
                 ) : (
-                  <>Win it by opening this pack:</>
+                  <>Win it from this {kindNoun(vi.kind(prize.platform))}:</>
                 )}
               </div>
             </div>
@@ -1079,7 +1216,7 @@ function PrizeModal({
                     <Avatar platform={c.prize.platform} short={c.prize.platformShort} size={20} />
                     <div className="min-w-0">
                       <div className="truncate text-[13px] font-bold text-ink">{c.prize.packName}</div>
-                      <div className="text-[10px] text-ink-4">{platformName(c.prize.platform)}</div>
+                      <div className="text-[10px] text-ink-4">{vi.name(c.prize.platform)}</div>
                     </div>
                   </div>
                 </div>
@@ -1131,7 +1268,7 @@ function PrizeModal({
                     onClick={() => onOpenPack(c.prize.packId)}
                     className="w-full rounded-lg bg-yellow px-3 py-2 text-[12px] font-bold text-black transition-[filter] hover:brightness-110"
                   >
-                    Open full pack →
+                    Open full details →
                   </button>
                 </div>
               ))}
@@ -1174,7 +1311,7 @@ function LiveOddsBands({ pack }: { pack: GachaPack | null }) {
             <div className="mt-1 h-1 overflow-hidden rounded-none bg-bg-3">
               <i
                 className="block h-full rounded-none"
-                style={{ width: `${Math.max(2, Math.min(100, b.pct * 100))}%`, background: b.hit ? "var(--color-yellow)" : "#3a3a3a" }}
+                style={{ width: `${Math.max(2, Math.min(100, b.pct * 100))}%`, background: b.hit ? "var(--color-yellow)" : "var(--color-line-2)" }}
               />
             </div>
           </div>
@@ -1184,8 +1321,12 @@ function LiveOddsBands({ pack }: { pack: GachaPack | null }) {
   );
 }
 
-function platformName(key: string): string {
-  return key === "phygitals" ? "Phygitals" : key === "beezie" ? "Beezie" : key === "collector-crypt" ? "Collector Crypt" : key;
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Oct 3" — a pulled prize's date, from the payload; "" when it carries none. */
+function pulledDay(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : `${MON3[d.getUTCMonth()]} ${d.getUTCDate()}`;
 }
 function catLabelOf(cat: string | null): string {
   if (cat === "pokemon") return "Pokémon";
@@ -1201,6 +1342,7 @@ function MatrixCell({
   extra,
   best,
   pinned,
+  kind,
   onOpen,
   onPin,
 }: {
@@ -1208,6 +1350,8 @@ function MatrixCell({
   extra: number;
   best: boolean;
   pinned: boolean;
+  /** The venue's word for this product (Claw, Machine, Pack, Box), from the payload. */
+  kind: VenueKind | null;
   onOpen: () => void;
   onPin: () => void;
 }) {
@@ -1226,11 +1370,13 @@ function MatrixCell({
           onOpen();
         }
       }}
-      title={`${pack.name} · ${pack.platformName}${extra > 0 ? ` (+${extra} more at this price — open to step through)` : ""}`}
+      data-cell={pack.id}
+      data-cell-venue={pack.platform}
+      title={`${pack.name} · ${pack.platformName}${extra > 0 ? ` (+${extra} more at this price — open to step through)` : ""}${pack.realizedValueBasis ? ` · measured values in ${pack.realizedValueBasis}` : ""}${pack.medianWithheld ? ` · median withheld: ${pack.medianWithheld}` : ""}`}
       className={`group relative h-[92px] w-[140px] shrink-0 cursor-pointer rounded-xl border px-[13px] py-[11px] text-left font-mono transition-[border-color,transform,background] duration-100 hover:-translate-y-0.5 ${
         pinned ? "border-yellow" : best ? "border-yellow" : "border-line bg-bg-1 hover:border-line-2"
       }`}
-      style={best ? { background: "linear-gradient(180deg, rgba(243,255,66,.10), transparent 78%)" } : undefined}
+      style={best ? { background: "linear-gradient(180deg, rgba(191,239,1,.10), transparent 78%)" } : undefined}
     >
       <button
         type="button"
@@ -1239,6 +1385,7 @@ function MatrixCell({
           onPin();
         }}
         title={pinned ? "Remove from compare" : "Add to compare"}
+        data-pin={pack.id}
         className={`absolute right-2 top-2 grid h-5 w-5 place-items-center rounded-md border text-[13px] leading-none transition-opacity ${
           pinned
             ? "border-yellow bg-yellow font-bold text-black opacity-100"
@@ -1263,7 +1410,7 @@ function MatrixCell({
           </span>
         )}
       </div>
-      <div className="mt-1 text-[8.5px] uppercase tracking-[0.08em] text-ink-4">hit odds</div>
+      <div className="mt-1 text-[8.5px] uppercase tracking-[0.08em] text-ink-4">{kind ? `${KIND_WORD[kind].one} · ` : ""}hit odds</div>
       <div className="mt-[9px] flex items-end justify-between gap-2">
         <span className="min-w-0 truncate text-[11px] text-ink-2">
           <span className="text-[9px] uppercase text-ink-4">top </span>
@@ -1311,9 +1458,9 @@ function MatrixCellMulti({
       className={`relative flex h-[92px] w-[140px] shrink-0 flex-col rounded-xl border px-2 py-2 ${
         cellBest ? "border-yellow" : "border-line bg-bg-1"
       }`}
-      style={cellBest ? { background: "linear-gradient(180deg, rgba(243,255,66,.10), transparent 78%)" } : undefined}
+      style={cellBest ? { background: "linear-gradient(180deg, rgba(191,239,1,.10), transparent 78%)" } : undefined}
     >
-      <div className="mb-1 px-1 text-[8.5px] uppercase tracking-[0.08em] text-ink-4">{packs.length} packs</div>
+      <div className="mb-1 px-1 text-[8.5px] uppercase tracking-[0.08em] text-ink-4">{packs.length} at this price</div>
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-0.5">
         {shown.map((p) => {
           const o = leadHitOdds(p);
@@ -1363,7 +1510,7 @@ function AuditLine({ pack }: { pack: GachaPack }) {
       title={`Published hit odds ${pct(a.stated)} · measured ${pct(a.measured)} over ${a.n} pulls (95% confidence)`}
     >
       <span className="text-ink-3">Odds audit</span>
-      <span className={`font-semibold ${off ? "text-[#ffd23d]" : "text-green"}`}>
+      <span className={`font-semibold ${off ? "text-amber" : "text-green"}`}>
         {off ? `⚠ ${a.deltaPts > 0 ? "+" : ""}${a.deltaPts.toFixed(1)}pts vs stated` : "✓ matches stated"}
         <span className="ml-1.5 font-normal text-ink-4">n={a.n}</span>
       </span>
@@ -1390,6 +1537,7 @@ function PackDrawer({
 }) {
   // keep the last pack rendered during the slide-out transition — the
   // render-phase "adjust state when props change" pattern from the React docs
+  const vi = useVenues();
   const [lastPack, setLastPack] = useState<GachaPack | null>(null);
   if (pack && pack !== lastPack) setLastPack(pack);
   const d = pack ?? lastPack;
@@ -1430,15 +1578,17 @@ function PackDrawer({
     <>
       <div
         onClick={onClose}
-        className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] transition-opacity duration-250 ${
+        className={`fixed inset-0 z-[51] bg-black/60 backdrop-blur-[3px] transition-opacity duration-250 ${
           open ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
+      {/* Below lg a bottom sheet (thumb reach, one hand); at lg a side drawer. */}
       <aside
         ref={scrollRef}
         aria-hidden={!open}
-        className={`fixed right-0 top-0 z-50 h-screen w-[540px] max-w-[94vw] overflow-y-auto border-l border-line-2 bg-bg-1 transition-transform duration-300 ease-[cubic-bezier(.22,1,.36,1)] ${
-          open ? "translate-x-0" : "translate-x-full"
+        data-pack-drawer={open ? d.id : ""}
+        className={`fixed inset-x-0 bottom-0 z-[55] h-[88vh] w-full overflow-y-auto rounded-t-xl border-t border-line-2 bg-bg-1 transition-transform duration-300 ease-[cubic-bezier(.22,1,.36,1)] lg:inset-x-auto lg:bottom-auto lg:right-0 lg:top-0 lg:h-screen lg:w-[540px] lg:max-w-[94vw] lg:rounded-none lg:border-l lg:border-t-0 ${
+          open ? "translate-y-0 lg:translate-x-0" : "translate-y-full lg:translate-y-0 lg:translate-x-full"
         }`}
       >
         {/* sticky header */}
@@ -1448,9 +1598,22 @@ function PackDrawer({
             <div>
               <div className="text-[15px] font-bold">{d.name}</div>
               <div className="mt-0.5 text-[11px] text-ink-3">
-                {tierLabel(d.priceUsd)}
-                {` · ${d.categoryLabel} · ${d.platformName}`}
+                <span className="tabular">{tierLabel(d.priceUsd)}</span>
+                {` · ${d.categoryLabel} · ${vi.name(d.platform)}${vi.kind(d.platform) ? ` · ${KIND_WORD[vi.kind(d.platform)!].one}` : ""}`}
               </div>
+              {/* Whose value a measured return is priced in: every venue's realized
+                  figures rest on its own value marks (insured value, FMV, stated
+                  prize value), never on an outside price. */}
+              {d.realizedValueBasis ? (
+                <div className="mt-1 font-mono text-[10.5px] text-ink-4" data-value-basis>
+                  measured values in {d.realizedValueBasis}
+                </div>
+              ) : null}
+              {d.medianWithheld ? (
+                <div className="mt-1 font-mono text-[10.5px] text-ink-4" data-withheld>
+                  median withheld · {d.medianWithheld}
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="ml-auto flex gap-1">
@@ -1577,14 +1740,14 @@ function PackDrawer({
                     <span className="flex items-center gap-[9px] text-ink">
                       <span
                         className="h-[7px] w-[7px] rounded-none"
-                        style={{ background: b.hit ? "#ffd23d" : "var(--color-ink-4)" }}
+                        style={{ background: b.hit ? "var(--color-amber)" : "var(--color-ink-4)" }}
                       />
                       {b.label}
                     </span>
                     <span className="h-[5px] overflow-hidden rounded-md bg-bg-3">
                       <i
                         className="block h-full"
-                        style={{ width: `${Math.min(100, b.pct * 100)}%`, background: b.hit ? "#ffd23d" : "var(--color-ink-4)" }}
+                        style={{ width: `${Math.min(100, b.pct * 100)}%`, background: b.hit ? "var(--color-amber)" : "var(--color-ink-4)" }}
                       />
                     </span>
                     <span className="text-right tabular text-ink-2">
@@ -1630,7 +1793,7 @@ function PackDrawer({
 
           {/* this pack */}
           <div className="mt-[26px]">
-            <h4 className="mb-3.5 text-[10.5px] font-medium uppercase tracking-[0.13em] text-ink-3">This pack</h4>
+            <h4 className="mb-3.5 text-[10.5px] font-medium uppercase tracking-[0.13em] text-ink-3">This {kindNoun(vi.kind(d.platform))}</h4>
             {d.topHitRealizedUsd != null && (
               <KV k="Biggest pulled so far" v={formatCompactUsd(d.topHitRealizedUsd)} lime basis="realized" n={d.realizedN} />
             )}
@@ -1896,6 +2059,10 @@ function CompareOverlay({
     <>
       <div onClick={onClose} className="fixed inset-0 z-[60] bg-black/55 backdrop-blur-[3px]" />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Compare"
+        data-compare-modal
         onMouseDown={(e) => {
           if (pickerOpen && !(e.target as HTMLElement).closest("[data-picker]")) setPickerOpen(false);
         }}
@@ -1904,7 +2071,7 @@ function CompareOverlay({
         {/* header */}
         <div className="flex flex-none items-center gap-4 border-b border-line bg-bg-1 px-[22px] py-4">
           <div className="text-[15px] font-bold">
-            Compare <span className="ml-2 text-[12.5px] font-medium text-ink-3">{packs.length} packs side by side</span>
+            Compare <span className="ml-2 text-[12.5px] font-medium text-ink-3">{packs.length} side by side</span>
           </div>
           <div className="flex-1" />
           <div className="flex gap-[3px] rounded-xl border border-line-2 bg-bg-2 p-[3px]">
@@ -1939,7 +2106,7 @@ function CompareOverlay({
               <div className="absolute right-0 top-11 z-[70] max-h-[62vh] w-[300px] overflow-y-auto rounded-xl border border-line-2 bg-bg-2 p-2 shadow-[0_22px_50px_rgba(0,0,0,.6)]">
                 {packs.length >= MAX_COMPARE ? (
                   <div className="px-3 py-4 text-center text-[12px] text-ink-4">
-                    Max {MAX_COMPARE} packs. Remove one to add another.
+                    Max {MAX_COMPARE}. Remove one to add another.
                   </div>
                 ) : (
                   TABS.filter((t) => available.some((p) => tabOf(p) === t.key)).map((t) => (
@@ -2104,7 +2271,7 @@ function CmpGroupRows({ group, packs }: { group: CmpGroup; packs: GachaPack[] })
                   className="border-b border-l border-line px-[18px] pb-[13px] pt-[11px] align-middle group-hover/r:bg-bg-1"
                 >
                   <div className="flex items-baseline gap-[7px]">
-                    <span className={`text-[15px] font-bold tracking-[-0.01em] tabular ${isWin ? "text-yellow" : c.tone === "good" ? "text-green" : c.tone === "warn" ? "text-[#ffd23d]" : c.raw == null ? "text-ink-4" : "text-ink"}`}>
+                    <span className={`text-[15px] font-bold tracking-[-0.01em] tabular ${isWin ? "text-yellow" : c.tone === "good" ? "text-green" : c.tone === "warn" ? "text-amber" : c.raw == null ? "text-ink-4" : "text-ink"}`}>
                       {c.text}
                       {c.unit && <span className="ml-px text-[11px] font-medium text-ink-3">{c.unit}</span>}
                     </span>
