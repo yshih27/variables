@@ -1,6 +1,5 @@
 import { unstable_cache } from "next/cache";
 import type { IPRow, PlatformRow, RailModel, RailNode } from "@/lib/types";
-import { GACHA_ENABLED } from "@/lib/flags";
 import { tickerOf } from "@/lib/indices/naming";
 import { railCodeOf, RAIL_CODES } from "./railCode";
 import { categoryOf, type IPCategory } from "./ipCatalog";
@@ -298,7 +297,3 @@ export const buildRailModel: () => Promise<RailModel> = unstable_cache(
   ["shell-rail-model:v1"],
   { revalidate: 1800, tags: ["platform-buckets"] },
 );
-
-/** Whether the rail should offer the Gacha node. Kept here so the component
- *  doesn't import the flag directly and the rule stays with the model. */
-export const RAIL_SHOWS_GACHA = GACHA_ENABLED;

@@ -102,9 +102,21 @@ export type GachaPack = {
   valueBands: OddsBand[] | null;
   evRealized: number | null; // mean(fmv)/price
   medianReturn: number | null; // median(fmv/price) — the TYPICAL outcome, not the mean
+  /** Why `medianReturn` is null when a realized median existed: it failed the
+   *  plausibility gate (gachaPackView `plausibilityGate`). Set by the payload. */
+  medianWithheld?: string | null;
   realizedN: number | null; // sample size behind the realized numbers
   realizedWindow: string | null; // e.g. "7d"
   pulls24h: number | null; // popularity / liquidity
+  /** Pulls over the trailing 7 days, where the venue's feed gives a count (DYLI, Renaiss). */
+  pulls7d?: number | null;
+  /**
+   * What the realized figures (evRealized, medianReturn, valueBands, hit odds,
+   * top hit) are measured IN: the venue's own value mark, never a price —
+   * "Collector Crypt's insured value", "Phygitals FMV", "DYLI's FMV mark",
+   * "Renaiss's stated prize value". Absent on rows built before Oct 7 2026.
+   */
+  realizedValueBasis?: string | null;
   /** True when pulls24h is a rate ESTIMATE (complete window < 24h), not a count. */
   pulls24hEstimated?: boolean;
 
@@ -113,6 +125,16 @@ export type GachaPack = {
   oddsBasis: MetricBasis;
   /** True for CC: only platform-wide data exists; render in a "not pack-attributable" lane. */
   notDirectlyComparable: boolean;
+  /**
+   * True only when the pack's pool prizes span more than one game (Beezie's
+   * claws). A pack with no category and `mixedPool: false` is a SINGLE-game pack
+   * whose game has no tab (CC's DRGNBLL / RFTBND / WATCH, DYLI's Watch Box), and
+   * belongs in one place, not every game tab. Computed from the prizes
+   * (gachaPackView `isMixedPool`): the pack warmer writes it, and the payload
+   * recomputes it for every pack, so a snapshot that predates the field still
+   * ships it. Optional only on stored snapshots older than Oct 7 2026.
+   */
+  mixedPool?: boolean;
   asOf: string; // ISO — when this pack's data was sourced
   sources: { advertised: string | null; realized: string | null };
 };
@@ -139,6 +161,10 @@ export type GachaPrize = {
   /** True = ALREADY WON (CC pulled example — pool not published, so its top
    *  pulls stand in). Badged in the UI; never presented as available. */
   pulled?: boolean;
+  /** When a `pulled` prize was pulled (ISO), where the feed says. */
+  pulledAt?: string | null;
+  /** What `fmvUsd` is: the venue's own value mark (see GachaPack.realizedValueBasis). */
+  valueBasis?: string | null;
   /** The pack holding it — joins GachaPack.id so the UI can open its drawer. */
   packId: string;
   platform: string;

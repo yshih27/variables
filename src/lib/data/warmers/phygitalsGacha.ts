@@ -18,7 +18,7 @@
  *
  * Writes: the page-facing snapshot (snapshots key='gacha:phygitals') + the
  * normalized spine (gacha_products / gacha_pulls / gacha_metrics, per DATA_MODEL).
- * Shared by the CLI (scripts/warm-phygitals-gacha.ts) and the cron route.
+ * Run by the CLI (scripts/warm-phygitals-gacha.ts).
  */
 import { fetchPhygitalsClawFeed, type PhygitalsPull } from "../../phygitals/client";
 import {

@@ -2,11 +2,14 @@ import { unstable_cache } from "next/cache";
 import {
   readIndexSeries,
   readIndexMeta,
+  readIndexProvisional,
   completeMonthsOnly,
   type IndexPoint,
 } from "./indices";
 import { indexReceipt } from "@/lib/indices/naming";
 import { formatMonthDayUtc } from "@/lib/format";
+import { provisionalWords } from "@/lib/indices/readingWords";
+import type { ChartProvisional } from "@/components/MarketIndexChart";
 
 /**
  * The homepage index chart's three inputs — points, cap anchor, receipt — as ONE
@@ -61,19 +64,30 @@ export type HomeIndexChart = {
   receipt: string;
   /** Month-end of the latest published point, or null. */
   asOf: string | null;
+  /** The running month's reading when it clears the floor, on the SAME base as
+   *  `points` — so the embed draws exactly what the homepage draws. */
+  provisional: ChartProvisional | null;
 };
 
-const EMPTY: HomeIndexChart = { points: [], anchor: [], receipt: "", asOf: null };
+const EMPTY: HomeIndexChart = { points: [], anchor: [], receipt: "", asOf: null, provisional: null };
 
 async function build(): Promise<HomeIndexChart> {
   const raw = await readIndexSeries("market", "total", { kind: "price", from: "2000-01-01" });
   const fromTs = raw[0]?.ts ?? null;
   if (!fromTs) return EMPTY;
 
-  const [meta, anchor] = await Promise.all([
+  const [meta, anchor, prov] = await Promise.all([
     readIndexMeta("market", "total").catch(() => null),
     readIndexSeries("market", "total", { kind: "mcap", from: fromTs }).catch(() => [] as IndexPoint[]),
+    readIndexProvisional("market", "total", { from: "2000-01-01" }).catch(() => null),
   ]);
+  // The same factor rebaseIndexWithBands applies to the points.
+  const base = raw.find((p) => Number.isFinite(p.value) && p.value > 0)?.value ?? null;
+  const f = base ? 100 / base : 1;
+  const provisional: ChartProvisional | null =
+    prov && "value" in prov
+      ? { value: prov.value * f, lo: prov.lo * f, hi: prov.hi * f, n: prov.n, asOf: prov.asOf, month: prov.month, ...provisionalWords(prov) }
+      : null;
 
   const complete = completeMonthsOnly(raw);
   const latestMonthEnd = complete.length ? formatMonthDayUtc(complete[complete.length - 1].ts) : null;
@@ -88,6 +102,7 @@ async function build(): Promise<HomeIndexChart> {
       anchorSince: meta?.anchorSince ?? null,
     }),
     asOf: complete.at(-1)?.ts ?? raw.at(-1)?.ts ?? null,
+    provisional,
   };
 }
 
@@ -100,6 +115,6 @@ export const getHomeIndexChart: () => Promise<HomeIndexChart> = unstable_cache(
       return EMPTY;
     }
   },
-  ["home-index-chart:v1"],
+  ["home-index-chart:v2"],
   { revalidate: 1800, tags: ["homepage"] },
 );

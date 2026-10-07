@@ -6,8 +6,7 @@
  *   npm run warm-gacha-dune -- --big-hits    # ALSO refresh the Notable Pulls feed
  *
  * Writes the snapshot to Postgres (snapshots table, key='gacha') + records
- * source_freshness. The actual logic lives in src/lib/data/warmers/gacha.ts so
- * the cron Route Handler (app/api/cron/gacha) can share it.
+ * source_freshness. The actual logic lives in src/lib/data/warmers/gacha.ts.
  *
  * Cadence: every ~6h is plenty (gacha volume moves slowly at that scale).
  * `--big-hits` runs WEEKLY only (Monday, after cc-traits and before the report
