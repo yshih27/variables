@@ -221,7 +221,9 @@ export async function readRenaissBiggestPulls(days: number, nowMs: number = Date
     valueUsd: Number(r.prize_value_usd),
     image: r.prize_image_url ?? null,
     pulledAt: new Date(r.pulled_at).toISOString(),
-    machine: r.machine_name ?? r.product_id ?? null,
+    // The feed's name or nothing: a raw machine id is not a name (BiggestPull.machine
+    // is "where the feed names one"); the page prints "—" until the refill names it.
+    machine: r.machine_name ?? null,
   }));
 }
 
