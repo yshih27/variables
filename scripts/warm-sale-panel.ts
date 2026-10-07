@@ -520,6 +520,16 @@ async function writeShadowVenues(ctx: {
     .filter(([v, x]) => x.resolved > 0 && !legsVenues[v] && !PANEL_VENUES_PENDING_RESTATEMENT.has(v as CardPlatform))
     .map(([v]) => v);
   if (missing.length) throw new Error(`shadow venues: the legs build returned no ${missing.join(", ")} rows (a feed failed); the comparison would be meaningless, so nothing was reported. Rerun.`);
+  // ⚠️ A TRUNCATED LEG PASSES THE CHECK ABOVE. Measured Oct 7 11:50 UTC: the live
+  // Beezie /activity answered 17 sales (the last 7 hours) instead of its ~18,400
+  // row history, the legs index published nothing, and this report read "+90
+  // months, PASS". Beezie's legs read is its whole history, as the store's is,
+  // so a legs Beezie under half the store's means the request was cut short.
+  const legsBz = legsVenues["beezie"]?.sales ?? 0;
+  const storeBz = panelVenues(ctx.panel)["beezie"]?.sales ?? 0;
+  if (storeBz > 0 && legsBz < storeBz / 2) {
+    throw new Error(`shadow venues: the legs build's Beezie feed returned ${legsBz} sales against ${storeBz} in the store (a truncated /activity response); nothing was reported. Rerun.`);
+  }
   const before = buildSeriesSet(legsPanel);
   const ids = [...new Set([...Object.keys(before.series), ...Object.keys(ctx.after)])].filter((id) => !id.startsWith("premium:"));
   const diffs: VenueEntityDiff[] = ids
