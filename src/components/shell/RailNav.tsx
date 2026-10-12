@@ -185,11 +185,20 @@ export function RailNav({ model }: Props) {
       onMouseLeave={flyout.closeAll}
       /* `rail-shell` carries the hairline affordance: the right border brightens
          on hover of the RAIL, so a collapsed column of codes reads as an edge you
-         can act on. overflow-visible in icons mode (see globals.css) so a flyout
-         can escape the 56px column. */
-      className="rail-shell scroll-y sticky top-[var(--shell-chrome-h,var(--shell-topbar-h))] hidden h-[calc(100dvh-var(--shell-chrome-h,var(--shell-topbar-h)))] min-h-0 flex-col overflow-y-auto border-r border-line/70 transition-colors lg:flex"
+         can act on. Flyouts portal out (RailFlyout), so nothing here needs to
+         overflow the column.
+
+         ⚠️ THE LIST SCROLLS, NOT THE NAV. The nav used to be the scroll container
+         with a `flex-1 min-h-0` list inside it and a sticky footer after it. The
+         list shrank to the window, its tiles overflowed past its box, and the
+         footer sat at the end of the SHRUNK box: measured Oct 12 at 1440×800 with
+         the rail collapsed (824px of tiles in 712px), scrolled to the bottom, the
+         footer stood at y 639-688 over RP and ★, with GC and SY spilling below
+         it. Now the list is the scroll area and the footer is a plain row under
+         it, so the two can never overlap. */
+      className="rail-shell sticky top-[var(--shell-chrome-h,var(--shell-topbar-h))] hidden h-[calc(100dvh-var(--shell-chrome-h,var(--shell-topbar-h)))] min-h-0 flex-col overflow-hidden border-r border-line/70 transition-colors lg:flex"
     >
-      <div className={`flex min-h-0 flex-1 flex-col py-2 ${collapsed ? "items-center gap-1.5" : "gap-px"}`}>
+      <div className={`scroll-y flex min-h-0 flex-1 flex-col overflow-y-auto py-2 ${collapsed ? "items-center gap-1.5" : "gap-px"}`}>
         {/* The expand control is a TILE, at the top under the brand mark — where
             a collapsed rail's reader looks first. Only where there is a choice. */}
         {collapsed && (
@@ -286,7 +295,7 @@ export function RailNav({ model }: Props) {
           out of reach. Collapsed it is the SAME tile as everything above it, not a
           bare glyph. */}
       <div
-        className={`sticky bottom-0 border-t border-line/70 bg-bg/90 backdrop-blur-xl ${
+        className={`shrink-0 border-t border-line/70 bg-bg ${
           collapsed ? "hidden justify-center p-1.5 xl:flex" : "hidden p-2 xl:block"
         }`}
       >
