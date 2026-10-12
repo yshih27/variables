@@ -23,8 +23,12 @@
  * the same normalized fields, so the read-time hygiene's first pass (the
  * natural-key dedupe in secondaryHygiene.ts) collapses them, exactly as it
  * collapses a feed's own duplicates today. No new natural-key row is written
- * for a sale whose feed row carries an id.
+ * for a sale whose feed row carries an id. The reader (`readStoreFeed`) applies
+ * that same natural-key dedupe itself, so a venue read without the hygiene pass
+ * (Beezie, as today) cannot double-count a sale either.
  */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { db } from "../db/client";
 import type { NormalizedSale } from "../rarible/queries";
 import type { RaribleAssetType, RaribleSellActivity } from "../rarible/types";
@@ -69,14 +73,18 @@ function base(platform: StorePlatform, sale: NormalizedSale): Omit<StoredSeconda
   };
 }
 
-/** Collector Crypt, from a row of Dune query 7675297. */
-export function storedFromCC(o: ObservedSale<Record<string, unknown>>): StoredSecondarySale {
+/**
+ * Collector Crypt, from a row of Dune query 7675297 — or of the history query
+ * (dune/cc-secondary-history.sql, the same logic and columns), whose id the
+ * backfill passes as `source`.
+ */
+export function storedFromCC(o: ObservedSale<Record<string, unknown>>, source = `dune:${CC_SECONDARY_QUERY_ID}`): StoredSecondarySale {
   const tx = typeof o.raw.tx_id === "string" && o.raw.tx_id ? o.raw.tx_id : null;
   return {
     sale_id: tx ? `collector-crypt:${tx}:0` : naturalSaleId("collector-crypt", o.sale),
     ...base("collector-crypt", o.sale),
     currency: "USDC",
-    source: `dune:${CC_SECONDARY_QUERY_ID}`,
+    source,
     raw: o.raw,
   };
 }
@@ -202,4 +210,96 @@ export async function writeSalesStore(rows: StoredSecondarySale[]): Promise<stri
     if (missingTable(msg)) return "secondary_sales: table not created yet (migration 20261001000001 not applied), store write skipped";
     return `secondary_sales: store write FAILED, the snapshot is unaffected: ${msg.slice(0, 200)}`;
   }
+}
+
+// ── Reading the store (the panel's legs, brief-backend-index-every-venue B2) ──
+
+/** A stored row as the shape every reader takes. */
+export function storedToSale(r: Pick<StoredSecondarySale, "sold_at" | "token_id" | "buyer" | "seller" | "price_usd">): NormalizedSale {
+  return {
+    date: new Date(r.sold_at).toISOString(),
+    tokenId: r.token_id,
+    buyer: r.buyer ?? "",
+    seller: r.seller ?? "",
+    priceUsd: Number(r.price_usd),
+  };
+}
+
+/** The natural-key dedupe: one sale stored under two keys (salesStore's header) reads once. */
+export function dedupeNatural(sales: NormalizedSale[]): NormalizedSale[] {
+  const seen = new Set<string>();
+  const out: NormalizedSale[] = [];
+  for (const s of sales) {
+    const k = `${s.tokenId}|${s.date}|${s.buyer}|${s.seller}|${s.priceUsd}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * LOCAL VERIFICATION ONLY. When SALES_STORE_LOCAL_DIR is set, the store is read
+ * from `<dir>/secondary_sales.jsonl` (one stored row per line, written by
+ * `backfill-secondary-sales --out=<dir>`) instead of Postgres — so the panel can
+ * be built on the store as a backfill WOULD leave it, without writing it. The
+ * `SNAPSHOT_LOCAL_DIR` pattern. Never set in Vercel or Actions.
+ */
+export const SALES_STORE_LOCAL_FILE = "secondary_sales.jsonl";
+function readLocalFile(file: string): StoredSecondarySale[] {
+  if (!existsSync(file)) return [];
+  return readFileSync(file, "utf8")
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as StoredSecondarySale);
+}
+function readLocalStore(): StoredSecondarySale[] | null {
+  const dir = process.env.SALES_STORE_LOCAL_DIR;
+  return dir ? readLocalFile(join(dir, SALES_STORE_LOCAL_FILE)) : null;
+}
+
+/**
+ * LOCAL VERIFICATION ONLY: what an `--apply` would upsert, applied to
+ * `<dir>/secondary_sales.jsonl` instead of Postgres — keyed on `sale_id` like
+ * the table, so a re-run and a second venue merge exactly as upserts would.
+ * Returns the file's row count after the merge.
+ */
+export function writeLocalStore(dir: string, rows: StoredSecondarySale[]): { file: string; rows: number; added: number } {
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, SALES_STORE_LOCAL_FILE);
+  const byId = new Map(readLocalFile(file).map((r) => [r.sale_id, r]));
+  const before = byId.size;
+  for (const r of rows) byId.set(r.sale_id, r);
+  writeFileSync(file, [...byId.values()].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  return { file, rows: byId.size, added: byId.size - before };
+}
+
+/** One venue's stored rows since `sinceMs` (all when omitted), oldest first, paged past the 1,000-row cap. */
+export async function readStoredSales(platform: StorePlatform, opts: { sinceMs?: number } = {}): Promise<StoredSecondarySale[]> {
+  const since = opts.sinceMs != null ? new Date(opts.sinceMs).toISOString() : null;
+  const local = readLocalStore();
+  if (local) return local.filter((r) => r.platform === platform && (!since || r.sold_at >= since)).sort((a, b) => a.sold_at.localeCompare(b.sold_at));
+  const PAGE = 1000;
+  const out: StoredSecondarySale[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let q = db()
+      .from("secondary_sales")
+      .select("sale_id, platform, sold_at, token_id, buyer, seller, price_usd, currency, source")
+      .eq("platform", platform)
+      .order("sold_at", { ascending: true })
+      .order("sale_id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (since) q = q.gte("sold_at", since);
+    const { data, error } = await q;
+    if (error) throw new Error(`[secondary_sales] read failed: ${error.message}`);
+    const rows = (data ?? []) as StoredSecondarySale[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+/** A venue's sales from the store, as the panel takes them: natural-key deduped, no hygiene. */
+export async function readStoreFeed(platform: StorePlatform, opts: { sinceMs?: number } = {}): Promise<NormalizedSale[]> {
+  return dedupeNatural((await readStoredSales(platform, opts)).map(storedToSale));
 }

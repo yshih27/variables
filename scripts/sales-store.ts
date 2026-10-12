@@ -5,6 +5,8 @@
  *   npx tsx scripts/sales-store.ts --seed-from-snapshot                    # DRY RUN: what it would write
  *   npx tsx scripts/sales-store.ts --seed-from-snapshot --apply            # writes
  *   npx tsx scripts/sales-store.ts --seed-from-snapshot --platform=collector-crypt --apply
+ *   npx tsx scripts/sales-store.ts --seed-from-snapshot --out=<dir>            # LOCAL: <dir>/secondary_sales.jsonl
+ *       (what --apply would leave, for a `SALES_STORE_LOCAL_DIR=<dir>` shadow build)
  *
  * ⚠️ RUN IT THE DAY migration 20261001000001 IS APPLIED. The snapshot is a
  * 30-day window every core run overwrites; each day before the seed loses that
@@ -29,13 +31,15 @@ import {
   planStoreWrite,
   storedFromSnapshot,
   upsertSecondarySales,
+  writeLocalStore,
   STORE_PLATFORMS,
   type StorePlatform,
   type StoredSecondarySale,
 } from "../src/lib/data/salesStore";
 
 const argv = process.argv.slice(2);
-const APPLY = argv.includes("--apply") && !argv.includes("--dry-run");
+const OUT_DIR = argv.find((a) => a.startsWith("--out="))?.split("=")[1] ?? null;
+const APPLY = argv.includes("--apply") && !argv.includes("--dry-run") && !OUT_DIR;
 const SEED = argv.includes("--seed-from-snapshot");
 const ONLY = argv.find((a) => a.startsWith("--platform="))?.split("=")[1] ?? null;
 
@@ -58,7 +62,7 @@ async function main(): Promise<number> {
   }
   console.log(
     `secondary_sales seed from the secondary-sales snapshot (generated ${snap.generatedAt}, ${snap.windowDays}-day window)` +
-      `${ONLY ? ` · ${ONLY} only` : ""}${APPLY ? "" : " · DRY RUN (no writes)"}`,
+      `${ONLY ? ` · ${ONLY} only` : ""}${OUT_DIR ? ` · LOCAL → ${OUT_DIR} (production untouched)` : APPLY ? "" : " · DRY RUN (no writes)"}`,
   );
 
   const rows: StoredSecondarySale[] = [];
@@ -90,9 +94,12 @@ async function main(): Promise<number> {
     );
   }
   const dupes = rows.length - plan.length;
-  console.log(`\n  ${APPLY ? "Writing" : "Would write"} ${plan.length.toLocaleString()} rows (${dupes} duplicate natural keys in the snapshot collapsed)`);
+  console.log(`\n  ${APPLY ? "Writing" : OUT_DIR ? "Writing locally" : "Would write"} ${plan.length.toLocaleString()} rows (${dupes} duplicate natural keys in the snapshot collapsed)`);
 
-  if (APPLY) {
+  if (OUT_DIR) {
+    const r = writeLocalStore(OUT_DIR, plan);
+    console.log(`  ✓ wrote ${r.file}: ${r.rows.toLocaleString()} rows (+${r.added.toLocaleString()})`);
+  } else if (APPLY) {
     const n = await upsertSecondarySales(plan);
     console.log(`  ✓ upserted ${n.toLocaleString()} rows into secondary_sales`);
   }
