@@ -155,8 +155,8 @@ export const COURTYARD_SECONDARY_QUERY_ID = 7845248;
  * replacing four (7845475 CC / 7845392 Beezie / 7845484 Phygitals / 7845479
  * Courtyard, now dormant). Rows: `{ platform, day, pack_price, pulls,
  * volume_usd }`. Powers the spine's `gacha_volume_usd` metric; the warmer groups
- * by platform+day and sums across pack_price. CC price list = the live
- * /api/gachas/all catalog (incl. Rarible's $151 `pokemon_151`, plus 2500/5000);
+ * by platform+day and sums across pack_price. CC = every non-team payment of $1
+ * or more into its sinks (a price list dropped 17.8% of 30-day spend, Oct 12);
  * Phygitals excludes sub-$1 dust; Courtyard = tokenization (primary); Beezie =
  * the Claw. (Beezie secondary is its own API, not Dune.)
  *

@@ -9,10 +9,9 @@
 --   • Courtyard              → ONE row, pack_price NULL (it has no pack tiers;
 --     the old query called these txns_* — normalised to pulls_* here).
 --
--- ⚠️ Every branch's FROM/WHERE is copied VERBATIM from its original query. In
--- particular CC's pack-price allowlist is NARROWER here than in the daily query
--- (no 151 / 2500 / 5000) — that asymmetry is pre-existing. Do not "harmonise"
--- these lists without re-checking the loaders; it would move published numbers.
+-- ⚠️ CC counts every non-team payment of $1 or more into its sinks, in this
+-- query and the daily one alike (Oct 12: the old price lists kept 50.8% and 82.2%
+-- of the spend). The published pull prices only label packs in the UI.
 
 SELECT 'collector-crypt' AS platform,
        CAST(amount/power(10,6) AS INTEGER) AS pack_price,
@@ -25,7 +24,9 @@ SELECT 'collector-crypt' AS platform,
 FROM tokens_solana.transfers
 WHERE to_owner IN ('GachazZscHZ5bn3vnq1yEC4zpYdhAYJBzuKJwSJksc9z','GachaNgyXTU3zFogQ8Z5jR2BLXs8215X2AtEH18VxJq3','96DULv1BqYfe5wyMr6pVUNC6Uyrtj6yr3tNi6VtfwW9s') AND from_owner NOT IN ('BAxTk97HsaJqbnbFmTiQTaL4KSRvJ8Y65ArZCsP6vA5M','21KhtC7y2JGYvwc8dcGqTdbrudbM8fgMPJsVwxRQqdY8','DFEstpYN3fsz93AC9v2ujzPPngPgodqH2xxopuyfSsAE','HW2HRqN1pXQGH9GfP9xet4XwqtLqFyYGDNRKjUAVgh9u','HighJBfnAaqH9cKkeMErQFJZ4ATxQJwxqFupX6zaKTns','LGNDXqcm6U57QQ6Ad7icZ6oizkAVKRWrw97KwZy5nVf','EpicWWZspT1trKndbDDr29ULViN56rN5vofWSKZp8ePF','Mid9NeCpPNxP59fAdsLgMLy7BYexxXFw52ZP58Jrney','Lowq9dkpY43VpjfYeRjtKfGA6JtB7HaMmwQgXkjHLvN','Low6UekJP3QrFVMfNRTL8CPK2SiGFhvp57sgF2pkmVu','miDtj3vgdxVykHzRyFwyG8MXpvK8eQqamSLVdBr7WPt','HiGHqwYddP5N2waqUmXPdaASpMpUEvfqPr2fSawctEb','epiC3zkqa1RfcPMMM1Kc8m3GZGDwF2RmjbfA3g1BBjn','LGNDfXQFMiRMz3qqTNAREmRFQutMvazqqRrzn5i98uj','SPrT7eFrCM9UJ4j7Xf9iktKCoBwJjfykFbiNbRsKQm8')
   AND token_mint_address = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
-  AND amount/power(10,6) IN (50,100,250,25,75,80,1000) AND block_time > now() - interval '30' day
+  -- EVERY non-team payment of a dollar or more (see the daily query). This list
+  -- (50,100,250,25,75,80,1000) kept 50.8% of 30-day spend: no 2,500, no 5,000.
+  AND amount >= 1000000 AND block_time > now() - interval '30' day
 GROUP BY CAST(amount/power(10,6) AS INTEGER)
 
 UNION ALL

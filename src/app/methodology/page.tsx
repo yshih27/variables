@@ -193,7 +193,8 @@ export default async function MethodologyPage() {
 {`primary_revenue = Σ ( USDC inflow into platform.gacha_receivers
                       from senders NOT in platform.internal_exclusions )
 
-For Collector Crypt: only transfers at a published pull price [${ccPullLadder()}]
+For Collector Crypt: every inbound transfer of $1 or more (its published pull prices,
+  [${ccPullLadder()}], label packs; they no longer filter spend)
 For Phygitals: every inbound transfer above dust, treasury excluded as a sender
 For Courtyard and the Claw: every inbound transfer.`}
           </pre>
@@ -221,9 +222,10 @@ For Courtyard and the Claw: every inbound transfer.`}
         <Section title="Gacha — Pulls, Volume, Pack Prices">
           <p>
             A pull is a USDC payment into a platform&apos;s gacha-receiver
-            wallet. We bucket pulls by exact amount: for platforms with a
-            published price ladder we filter to that ladder; for others we
-            round to the nearest dollar.
+            wallet from a wallet that is not the platform&apos;s own. We count
+            every payment of a dollar or more and bucket it by exact amount; a
+            platform&apos;s published price ladder only labels which amounts are
+            its listed packs.
           </p>
           <p className="mt-3">
             <span className="font-semibold text-ink">EV (coming soon)</span>{" "}

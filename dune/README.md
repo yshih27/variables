@@ -66,7 +66,8 @@ those two IDs no longer hold it.
 
 | File | Query | Window | Executed | Purpose |
 |---|---|---|---|---|
-| `r3-buyback-reconciliation.sql` | 7644128 | 35d | **once**, 2026-08-19 (107.6 cr) | §6 R3 measured — payouts counted only where the recipient spent in, beside current counting |
+| `coverage-cc-amounts.sql` | **7644128** (reclaimed Oct 12 2026; its R3 SQL stays in this folder) | 30 complete days | **once**, 2026-10-12 (23.7 cr, 581 dp) | every amount paid into CC's sinks, flagged by the old price lists: $147.4M paid, the daily list kept 82.2%, the live list 50.8% |
+| `r3-buyback-reconciliation.sql` | ~~7644128~~ (slot reclaimed Oct 12; rerun means reapplying this file) | 35d | **once**, 2026-08-19 (107.6 cr) | §6 R3 measured — payouts counted only where the recipient spent in, beside current counting |
 | `r3-recipient-drilldown.sql` | 7644129 | 35d | **never** (~100 cr if run) | top-40 recipients per platform with `is_spender` / `not_excluded` — the named evidence behind §3d |
 | `cc-secondary-history-count.sql` | **7845248** (`DUNE_CC_SECONDARY_HISTORY_COUNT_QUERY_ID`; the retired Courtyard slot, reclaimed Oct 7 2026) | `[{{start}}, {{end}})` | **never**; once, before the backfill | `backfill-secondary-sales --platform=collector-crypt --count`: Collector Crypt resale sales and volume per month, one row a month. Its execution's measured compute plus the export its counts imply is the backfill's cost, which the owner approves before any history is bought |
 | `cc-secondary-history.sql` | **7644129** (`DUNE_CC_SECONDARY_HISTORY_QUERY_ID`; reclaimed Oct 7 2026, its previous "R3 variant A" SQL backed up as `superseded/r3-variant-a.7644129.sql`) | one calendar month per execution | **never**; once per month of history, after that approval | `backfill-secondary-sales --platform=collector-crypt --paid`: 7675297's logic plus `tx_id`, into the `secondary_sales` store. ⚠️ PAID |
