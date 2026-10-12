@@ -57,7 +57,8 @@
     "test:index-current": "tsx --test src/lib/indices/indexCurrent.test.ts",
     "test:gacha": "tsx --test src/lib/data/gacha.test.ts",
     "test:sales-store": "tsx --test src/lib/data/salesStore.test.ts",
-    "test:every-venue": "tsx --test src/lib/data/everyVenue.test.ts"
+    "test:every-venue": "tsx --test src/lib/data/everyVenue.test.ts",
+    "test:panel-guard": "tsx --test src/lib/data/panelShrink.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",
