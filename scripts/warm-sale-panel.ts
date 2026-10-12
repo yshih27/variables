@@ -17,6 +17,9 @@
  *       (price-index.v4.1.json), rekey-report.json + rekey-report.md (the level-by-
  *       level diff, the merge review and the fragment counts the PR body carries)
  *       and the method-changes snapshot the methodology page renders from.
+ *   --allow-panel-shrink
+ *       Write even when a venue's panel sales fell below half of the last
+ *       published panel's (see assertPanelNotShort). Only for a method change.
  *
  * WHAT IS IN THE BLOB, AND WHY EVERY SURFACE READS IT RATHER THAN TYPING ANYTHING:
  *   series[entity]           month-END-stamped IndexPoints, n = identities in the
@@ -58,7 +61,8 @@
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
-import { buildSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
+import { shortVenues } from "../src/lib/data/panelShrink";
+import { buildSalePanel, readSalePanel, writeSalePanel, packSalePanel, SALE_PANEL_SNAPSHOT_KEY, type SaleRow } from "../src/lib/data/salePanel";
 import { chainIdentityIndex, MIN_IDENTITIES_BROAD, MIN_IDENTITIES_IP, type IndexHold, type StepObs } from "../src/lib/data/identityIndex";
 import type { IndexPoint, IndexProvisional, StepVenues } from "../src/lib/data/indices";
 import type { StepObsTuple } from "../src/lib/data/indexReceipts";
@@ -451,10 +455,32 @@ async function writeShadowRekey(ctx: {
   console.log(`  wrote rekey-report.json + rekey-report.md + price-index.${PREVIOUS_METHOD}.json + method-changes.json → ${ctx.dir}`);
 }
 
+/** Write anyway when a venue's panel sales fell below half (only for a method change). */
+const ALLOW_PANEL_SHRINK = process.argv.includes("--allow-panel-shrink");
+
+/** Throws before any write when a venue's feed came back short (panelShrink.ts). */
+async function assertPanelNotShort(panel: SaleRow[]): Promise<void> {
+  const prev = await readSalePanel();
+  if (!prev) return;
+  const short = shortVenues(prev.rows, panel);
+  if (!short.length) return;
+  const line = short.map((v) => `${v.venue} ${v.after.toLocaleString()} sales against ${v.before.toLocaleString()}`).join(", ");
+  if (ALLOW_PANEL_SHRINK) {
+    console.warn(`  --allow-panel-shrink: ${line} in the panel published ${prev.generatedAt}; writing anyway`);
+    return;
+  }
+  throw new Error(
+    `sale panel: ${line} in the panel published ${prev.generatedAt}. A venue's feed came back short; nothing was written. ` +
+      `Rerun, or pass --allow-panel-shrink when a method change removes the sales on purpose.`,
+  );
+}
+
 async function main() {
   if (SHADOW && !OUT_DIR) throw new Error("--shadow-rekey requires --out=<dir>: a shadow build never writes production");
   // Strict: a failed or empty feed throws here, before anything is written.
   const panel = await buildSalePanel({ legacyIdentity: SHADOW, strict: true });
+  // A short feed throws here, before anything is written.
+  await assertPanelNotShort(panel);
   const { series, salesOf, holds, provisional, gated, mktSales } = buildSeriesSet(panel);
 
   // INV-12 input + the disclosure receipt, per entity. The invariance spread IS
