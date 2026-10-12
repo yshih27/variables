@@ -21,8 +21,6 @@ const val = (n: string) => argv.find((a) => a.startsWith(`--${n}=`))?.split("=")
 const LIMIT = val("limit") ? Number(val("limit")) : Infinity;
 const PULL_PAGES = val("pull-pages") ? Number(val("pull-pages")) : Infinity;
 const OUT = val("out");
-/** `--by=pull` reads named pulls on the primary key (no index needed; slow); default `token` uses the new partial index. */
-const BY = (val("by") ?? "token") as "token" | "pull";
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 async function main(): Promise<number> {
@@ -45,7 +43,7 @@ async function main(): Promise<number> {
   }
 
   const tp = Date.now();
-  const pulled = await readPulledTokens({ maxPages: PULL_PAGES, by: BY });
+  const pulled = await readPulledTokens({ maxPages: PULL_PAGES });
   const sold = await readSoldTokens();
   console.log(`  stores: ${pulled.tokens.size.toLocaleString()} tokens named by a pull (${pulled.pages} keyset pages, ${(pulled.ms / 1000).toFixed(1)}s) · ${sold.size.toLocaleString()} sold tokens · ${((Date.now() - tp) / 1000).toFixed(1)}s`);
   const ipOfSold = await readSoldTokenIps([...sold]);
