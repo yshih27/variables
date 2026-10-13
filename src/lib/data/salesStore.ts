@@ -28,6 +28,7 @@
  * (Beezie, as today) cannot double-count a sale either.
  */
 import type { ExchangeTrade } from "../courtyard/exchange";
+import { exchangeSaleId } from "../courtyard/arbitrage";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../db/client";
@@ -111,12 +112,21 @@ export function storedFromCourtyard(o: ObservedSale<RaribleSellActivity>): Store
 export const COURTYARD_EXCHANGE_SOURCE = "courtyard:exchange";
 
 /**
+ * The `source` of a Courtyard exchange purchase whose buyer sold the card to
+ * Courtyard's buyback within 24 hours (src/lib/courtyard/arbitrage.ts). Kept, so
+ * the receipt line can say how much was left out, but never resale: every reader
+ * of `COURTYARD_EXCHANGE_SOURCE` (`only`) drops it, and the sale panel excludes
+ * both.
+ */
+export const COURTYARD_ARBITRAGE_SOURCE = "courtyard:exchange:arb";
+
+/**
  * Courtyard, from a peer-to-peer TradeExecuted on its own exchange. Buybacks
  * (Courtyard's wallet as bidder) are gacha economics and never stored here.
  */
-export function storedFromCourtyardExchange(t: ExchangeTrade): StoredSecondarySale {
+export function storedFromCourtyardExchange(t: ExchangeTrade, arbitrage = false): StoredSecondarySale {
   return {
-    sale_id: `courtyard:${t.txHash}:${t.logIndex}`,
+    sale_id: exchangeSaleId(t),
     platform: "courtyard",
     sold_at: t.ts,
     token_id: t.tokenId,
@@ -124,7 +134,7 @@ export function storedFromCourtyardExchange(t: ExchangeTrade): StoredSecondarySa
     seller: t.asker,
     price_usd: t.usd,
     currency: "USDC",
-    source: COURTYARD_EXCHANGE_SOURCE,
+    source: arbitrage ? COURTYARD_ARBITRAGE_SOURCE : COURTYARD_EXCHANGE_SOURCE,
     raw: { block: t.blockNumber },
   };
 }
@@ -208,6 +218,24 @@ export async function upsertSecondarySales(rows: StoredSecondarySale[]): Promise
     if (error) throw new Error(`[secondary_sales] upsert failed: ${error.message}`);
   }
   return rows.length;
+}
+
+/**
+ * Re-tag stored Courtyard exchange purchases as arbitrage: the buyback that
+ * settles them was read after they were written (a later batch or a later run).
+ * Only rows still tagged as exchange resale move. Returns the ids sent.
+ */
+export async function markCourtyardArbitrage(saleIds: readonly string[]): Promise<number> {
+  const CHUNK = 200;
+  for (let i = 0; i < saleIds.length; i += CHUNK) {
+    const { error } = await db()
+      .from("secondary_sales")
+      .update({ source: COURTYARD_ARBITRAGE_SOURCE })
+      .in("sale_id", saleIds.slice(i, i + CHUNK))
+      .eq("source", COURTYARD_EXCHANGE_SOURCE);
+    if (error) throw new Error(`[secondary_sales] arbitrage re-tag failed: ${error.message}`);
+  }
+  return saleIds.length;
 }
 
 const missingTable = (msg: string) => /secondary_sales/.test(msg) && /does not exist|schema cache|not find/i.test(msg);
@@ -297,18 +325,27 @@ export function writeLocalStore(dir: string, rows: StoredSecondarySale[]): { fil
   return { file, rows: byId.size, added: byId.size - before };
 }
 
-/** One venue's stored rows since `sinceMs` (all when omitted), oldest first, paged past the 1,000-row cap. */
-export type StoreSourceFilter = { only?: string; except?: string };
+/** One venue's stored rows in [`sinceMs`, `untilMs`) (open-ended when omitted), oldest first, paged past the 1,000-row cap. */
+export type StoreSourceFilter = { only?: string; except?: string | readonly string[] };
+
+/** Whether a row's `source` passes the filter: the local file's twin of the Postgres query below. Pure. */
+export function keepSource(src: StoreSourceFilter | undefined, source: string): boolean {
+  if (src?.only && source !== src.only) return false;
+  const except = src?.except == null ? [] : typeof src.except === "string" ? [src.except] : src.except;
+  return !except.includes(source);
+}
 
 export async function readStoredSales(
   platform: StorePlatform,
-  opts: { sinceMs?: number; source?: StoreSourceFilter } = {},
+  opts: { sinceMs?: number; untilMs?: number; source?: StoreSourceFilter } = {},
 ): Promise<StoredSecondarySale[]> {
   const since = opts.sinceMs != null ? new Date(opts.sinceMs).toISOString() : null;
+  const until = opts.untilMs != null ? new Date(opts.untilMs).toISOString() : null;
   const src = opts.source;
-  const keep = (r: StoredSecondarySale) => (!src?.only || r.source === src.only) && (!src?.except || r.source !== src.except);
+  const keep = (r: StoredSecondarySale) => keepSource(src, r.source);
+  const except = src?.except == null ? [] : typeof src.except === "string" ? [src.except] : [...src.except];
   const local = readLocalStore();
-  if (local) return local.filter((r) => r.platform === platform && (!since || r.sold_at >= since) && keep(r)).sort((a, b) => a.sold_at.localeCompare(b.sold_at));
+  if (local) return local.filter((r) => r.platform === platform && (!since || r.sold_at >= since) && (!until || r.sold_at < until) && keep(r)).sort((a, b) => a.sold_at.localeCompare(b.sold_at));
   const PAGE = 1000;
   const out: StoredSecondarySale[] = [];
   for (let from = 0; ; from += PAGE) {
@@ -320,8 +357,10 @@ export async function readStoredSales(
       .order("sale_id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (since) q = q.gte("sold_at", since);
+    if (until) q = q.lt("sold_at", until);
     if (src?.only) q = q.eq("source", src.only);
-    if (src?.except) q = q.neq("source", src.except);
+    if (except.length === 1) q = q.neq("source", except[0]);
+    else if (except.length > 1) q = q.not("source", "in", `(${except.map((e) => `"${e}"`).join(",")})`);
     const { data, error } = await q;
     if (error) throw new Error(`[secondary_sales] read failed: ${error.message}`);
     const rows = (data ?? []) as StoredSecondarySale[];

@@ -341,7 +341,7 @@ async function main() {
   // Platform-level only: Courtyard's `cards` table is empty, so per-IP would all
   // fall to "other" (enable per-IP once the traded-mint enrichment lands).
   try {
-    const cyScan = await fetchCourtyardSecondaryScan({ cachedOnly: true });
+    const cyScan = await fetchCourtyardSecondaryScan({ cachedOnly: true, withArbitrage: true });
     const cySales = cyScan.sales;
     const cyOldest = oldestOf(cySales);
     const cyByDay = new Map<string, { vol: number; trades: number }>();
@@ -353,11 +353,13 @@ async function main() {
       acc.vol += s.priceUsd; acc.trades += 1;
       cyByDay.set(day, acc);
     }
+    const cyDays: string[] = [];
     for (const [day, acc] of cyByDay) {
       const ds = Date.parse(day);
       if (ds < cyOldest || ds + DAY > now) continue; // complete days only
       push("platform", "courtyard", "volume_usd", acc.vol, day);
       push("platform", "courtyard", "trades", acc.trades, day);
+      cyDays.push(day);
     }
     // ⚠️ Measured 2026-09-22: ~6 OpenSea trades a day; Sep 20 had none and the
     // stream read as dead. A scanned, saleless complete day is written as 0.
@@ -365,6 +367,27 @@ async function main() {
     for (const day of cyZeroDays) {
       push("platform", "courtyard", "volume_usd", 0, day);
       push("platform", "courtyard", "trades", 0, day);
+    }
+    // Buyback arbitrage, left out of the resale above (src/lib/courtyard/
+    // arbitrage.ts): on exactly the days resale was written for, so the receipt
+    // line's "left out" and the resale it qualifies cover the same days.
+    if (cyScan.exchangeState) {
+      const arbByDay = new Map<string, { usd: number; n: number }>();
+      for (const s of cyScan.arbitrage) {
+        const t = Date.parse(s.date);
+        if (!Number.isFinite(t)) continue;
+        const a = arbByDay.get(dayStartUtc(t)) ?? { usd: 0, n: 0 };
+        a.usd += s.priceUsd;
+        a.n += 1;
+        arbByDay.set(dayStartUtc(t), a);
+      }
+      for (const day of [...cyDays, ...cyZeroDays]) {
+        const a = arbByDay.get(day) ?? { usd: 0, n: 0 };
+        push("platform", "courtyard", "resale_arb_usd", a.usd, day);
+        push("platform", "courtyard", "resale_arb_trades", a.n, day);
+      }
+      const arbUsd = [...cyDays, ...cyZeroDays].reduce((sum, d) => sum + (arbByDay.get(d)?.usd ?? 0), 0);
+      console.log(`  courtyard buyback arbitrage: $${Math.round(arbUsd).toLocaleString()} left out of resale over ${cyDays.length + cyZeroDays.length} complete day(s)`);
     }
     console.log(
       `  courtyard secondary: ${cyByDay.size} day(s) with sales, ${cyZeroDays.length} scanned day(s) written as 0` +
