@@ -137,3 +137,13 @@ None of this changes what we publish until it is measured. A backend investigati
 1. **Backend, first:** a coverage investigation brief: CC on Robinhood, the card-payment rail, gross vs filtered, Courtyard in-app. Every hypothesis gets a measurement and a decision. Plus the `/platforms` vs platform-page disagreement for Renaiss.
 2. **Frontend:** `ChartCard` and the `/market` hub, built against today's data. Each tab is migrated one at a time, its old page redirected in the same PR.
 3. **Copy and venue identity:** with the hub.
+
+**Status, Oct 13.**
+- Step 1 is shipped:
+  - #193: CC gacha counts every non-team payment, not a price list.
+  - #195: Courtyard's card-path USDC is counted in gacha; its card-only packs are counted on a receipt line.
+  - #196: Courtyard's own exchange is read as resale, its buybacks as outbound.
+  - #190: Renaiss and DYLI pack spend are in the totals.
+- Still unread: CC on Robinhood Chain, Beezie on Solana and Flow, Monster, Bonkuji.
+- Steps 2 and 3 are briefed in `brief-frontend-market-hub.md`, with the series the hub needs in `brief-backend-market-hub.md`.
+- Measured while briefing: a share of Courtyard's resale is buyback arbitrage (bought on its marketplace, sold to its buyback within 24 hours). It was 13.4% of dollars on Oct 11 and 63.2% on Aug 3. How it is shown is the owner's decision (D1 in both briefs).
