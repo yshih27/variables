@@ -9,9 +9,9 @@ import type { NetHeldReason } from "@/lib/metrics/outboundDisclosure";
  * the chip names the reason rather than leaving a dash, and it never sits beside
  * a number — a surface that HAS a net does not render this.
  *
- * The four reason tokens are the contract (`NetHeldReason`); the sentences are
- * the explanation. Both ship: the token so the state matches the methodology and
- * is greppable, the sentence so a reader need not look it up.
+ * The reason tokens are the contract (`NetHeldReason`); the sentences are the
+ * explanation. Both ship: the token so the state matches the methodology and is
+ * greppable, the sentence so a reader need not look it up.
  */
 export const HELD_REASON_TEXT: Record<NetHeldReason, string> = {
   "spender-coverage":
@@ -19,6 +19,7 @@ export const HELD_REASON_TEXT: Record<NetHeldReason, string> = {
   reconciliation: "the counterparty split is known-wrong for this platform",
   unsourced: "no on-chain payout wallet exists, so there is nothing to compute",
   "awaiting-r3-basis": "the payout days are not yet proven to be on the R3 basis",
+  "unpriced-spend": "card-paid packs carry no on-chain price, so the spend side is incomplete",
 };
 
 /** "unsourced" is not a hold — it is a permanent absence of the input. Labelled

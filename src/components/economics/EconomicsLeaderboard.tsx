@@ -155,7 +155,11 @@ function Row({ p, rank }: { p: EconomicsPlatform; rank: number }) {
         )}
       </Td>
       <Td align="right" muted className="hidden lg:table-cell">
-        {p.r3VerifiedPct30d == null ? <Absent note={suppressed ? "held" : "no payout source"} /> : `${p.r3VerifiedPct30d.toFixed(1)}%`}
+        {p.r3VerifiedPct30d == null ? (
+          <Absent note={suppressed ? "held" : p.outbound30d != null ? "outbound not R3-classified at this venue" : "no payout source"} />
+        ) : (
+          `${p.r3VerifiedPct30d.toFixed(1)}%`
+        )}
       </Td>
       <Td align="right">
         {/* Structurally exclusive: a net exists only when nothing holds it. */}

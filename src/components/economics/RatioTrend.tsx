@@ -10,7 +10,7 @@
  */
 import { useRef } from "react";
 import type { EconomicsPlatform } from "@/lib/types";
-import { resampleToPeriod } from "@/lib/chart/period";
+import { weeklyPayoutRatio } from "@/lib/data/economicsHero";
 import { Section } from "../Section";
 import { HeldChip } from "./HeldChip";
 import { VenueCountChip } from "./CoverageChip";
@@ -31,7 +31,9 @@ import { ChartActions } from "../ChartActions";
  * baseline is what lets a reader see the crossing rather than be told about it.
  *
  * Suppressed and unsourced platforms are absent, not zero: only a platform whose
- * outbound leg is published has a ratio at all.
+ * outbound leg is published has a ratio at all. A platform whose ratio is held
+ * (ratioHeld) publishes its outbound but draws no line here either; it is listed
+ * under "Not shown" with its reason.
  */
 const WEEKS = 12;
 const PLOT_H = 150;
@@ -40,17 +42,6 @@ const PAD_T = 10;
 type Line = { key: string; name: string; color: string; points: { ts: string; v: number }[] };
 
 const COLORS = ["var(--color-yellow)", "var(--color-blue)", "var(--color-purple)", "var(--color-teal)"];
-
-function weeklyRatio(p: EconomicsPlatform): { ts: string; v: number }[] {
-  if (p.outboundDaily.length === 0) return [];
-  const spend = new Map(resampleToPeriod(p.spendDaily, "W", "sum", {}).map((x) => [x.ts, x.value]));
-  const out = resampleToPeriod(p.outboundDaily, "W", "sum", {});
-  return out.flatMap((o) => {
-    const s = spend.get(o.ts);
-    // Both legs, or no point. A week only one side covered is a gap, not a 0%.
-    return s != null && s > 0 && Number.isFinite(o.value) ? [{ ts: o.ts, v: (o.value / s) * 100 }] : [];
-  });
-}
 
 export function RatioTrend({
   platforms,
@@ -74,10 +65,10 @@ export function RatioTrend({
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const lines: Line[] = platforms
-    .map((p, i) => ({ key: p.key, name: p.name, color: COLORS[i % COLORS.length], points: weeklyRatio(p).slice(-WEEKS) }))
+    .map((p, i) => ({ key: p.key, name: p.name, color: COLORS[i % COLORS.length], points: weeklyPayoutRatio(p).slice(-WEEKS) }))
     .filter((l) => l.points.length >= 2);
 
-  const held = platforms.filter((p) => p.outboundDaily.length === 0 && p.heldReason);
+  const held = platforms.filter((p) => p.ratioHeld || (p.outboundDaily.length === 0 && p.heldReason));
 
   if (lines.length === 0) {
     return (
@@ -184,7 +175,7 @@ export function RatioTrend({
             {held.map((p) => (
               <span key={p.key} className="mr-2 inline-flex items-center gap-1">
                 {p.name}
-                <HeldChip reasons={[p.heldReason!]} />
+                <HeldChip reasons={[p.ratioHeld ?? p.heldReason!]} />
               </span>
             ))}
           </div>

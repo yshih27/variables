@@ -48,19 +48,25 @@ export function outboundDisclosureFor(platformKey: string): OutboundDisclosure {
 /**
  * Why `PlatformDetail.netGachaRevenue` is null. Null reason ⇒ it is populated.
  *
- *   "unsourced"          no known on-chain buyback wallet — every platform but
- *                        CC and Phygitals. Nothing to compute, ever.
+ *   "unsourced"          no known on-chain payout wallet — no outbound leg at
+ *                        all. Nothing to compute, ever.
  *   "reconciliation"     sourced, but the counting is known-wrong for this
  *                        platform. Phygitals: see the header note.
  *   "awaiting-r3-basis"  sourced and eligible, but the spine's payout days are
  *                        not yet proven to be on the R3 basis. Transitional —
  *                        it clears itself once the Dune cutover has run.
+ *   "unpriced-spend"     an outbound leg is counted, but some packs were paid by
+ *                        card with no on-chain payment (Courtyard), so the spend
+ *                        side is incomplete and the buybacks include cards from
+ *                        packs we cannot price. Same token as the payout ratio's
+ *                        hold (`EconomicsPlatform.ratioHeld`).
  */
 export type NetHeldReason =
   | "unsourced"
   | "reconciliation"
   | "awaiting-r3-basis"
-  | "spender-coverage";
+  | "spender-coverage"
+  | "unpriced-spend";
 
 /**
  * ⚠️ NET IS HELD FOR EVERYONE while R3 is classified from `gacha_pulls.buyer`.
@@ -98,4 +104,26 @@ export const NET_HELD_FOR_SPENDER_COVERAGE = true;
  */
 export function netRevenueEligible(platformKey: string): boolean {
   return !SUPPRESSED.has(platformKey);
+}
+
+/**
+ * Why a platform's net is held, or null when it may publish one.
+ *
+ * `payoutSourced` = an R3-counted payout series exists; `grossSourced` = a gross
+ * outbound series exists (Courtyard has only this one). Card-paid packs come
+ * first: once any outbound leg is counted, a venue with unpriced spend is held
+ * for that, not for lacking a payout wallet it has.
+ */
+export function netHeldReasonFor(i: {
+  payoutSourced: boolean;
+  grossSourced: boolean;
+  unpricedPacks30d: number | null;
+  eligible: boolean;
+  r3Basis: boolean;
+}): NetHeldReason | null {
+  if ((i.unpricedPacks30d ?? 0) > 0 && (i.payoutSourced || i.grossSourced)) return "unpriced-spend";
+  if (!i.payoutSourced) return "unsourced";
+  if (!i.eligible) return "reconciliation";
+  if (!i.r3Basis) return "awaiting-r3-basis";
+  return NET_HELD_FOR_SPENDER_COVERAGE ? "spender-coverage" : null;
 }
