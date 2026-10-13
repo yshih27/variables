@@ -102,6 +102,9 @@ export type PlatformDetail = {
   /** Gacha-only volume (pack-pull spend); null for non-gacha platforms (Courtyard = tokenization). */
   gachaVol24Usd: number | null;
   gachaVol7Usd: number | null;
+  /** Packs bought with no on-chain payment over 30 days (Courtyard's card-only
+   *  path): counted, not priced, so not in any volume. Null where none are read. */
+  unpricedPacks30d: number | null;
   /** Total 24h activity = marketplace resale + primary (gacha/tokenization). */
   total24Usd: number;
   trades24h: number;
@@ -627,6 +630,7 @@ export async function buildPlatformDetail(
     primaryUsd: bucket.primaryUsd,
     gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : (coreGacha24 ?? null),
     gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : (coreGacha7 ?? null),
+    unpricedPacks30d: g?.unpricedPacks30d ?? null,
     total24Usd: volumeUsd + (bucket.primaryUsd ?? 0),
     trades24h: unknown(allSales.length),
     uniqueBuyers: unknown(buyers.size),

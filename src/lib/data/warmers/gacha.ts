@@ -111,6 +111,10 @@ function buildAggregateGacha(rows: DuneRow[]): GachaDunePlatform {
     pulls30d: num(r.pulls_30d),
     vol30d: num(r.volume_30d),
     byPrice: [],
+    // The card-only packs the query counts beside the USDC legs (null when the
+    // branch carries no count).
+    unpricedPacks24h: r.unpriced_packs_24h == null ? null : num(r.unpriced_packs_24h),
+    unpricedPacks30d: r.unpriced_packs_30d == null ? null : num(r.unpriced_packs_30d),
   };
 }
 
