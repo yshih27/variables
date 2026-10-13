@@ -144,40 +144,35 @@ export type PulledToken = { valueUsd: number | null; ip: string | null };
 /**
  * Every token that came through a pull — `rn-<id>` → its newest pull's stated
  * value and IP (the IP is the first segment of the prize's identity key) — by
- * one keyset pass over the named pulls. `maxPages` caps a probe.
+ * one keyset pass over the named pulls on the PRIMARY KEY. `maxPages` caps a
+ * probe.
  *
- * `by: "token"` (the default) pages on `prize_instance_id` itself, over the
- * partial index migration 20261007000001 adds: about 700 fast pages. `by:
- * "pull"` pages on the primary key and needs no index, but skips the unnamed
- * early pulls page by page (measured Oct 7 before the migration: 1.2 s a
- * page); it is the probe's fallback until the index exists.
+ * ⚠️ NOT ON prize_instance_id. That cursor restarted at the page's last token
+ * and skipped the pulls it had read, which stalls when one token fills a page:
+ * measured Oct 12, a slab pulled 1,000+ times returned the same 1,000 rows
+ * twice and the read ended after 4,050 of 637,445 named pulls, so every
+ * figure built on it (the stated market cap's coverage) saw ~0.6% of the
+ * pulls. A strict (token, pull) keyset through PostgREST's `or` filter was
+ * correct but ran past 25 minutes; the primary key read the same rows in 7.7.
  */
-export async function readPulledTokens(opts: { maxPages?: number; by?: "token" | "pull" } = {}): Promise<{ tokens: Map<string, PulledToken & { at: string }>; pages: number; ms: number }> {
+export async function readPulledTokens(opts: { maxPages?: number } = {}): Promise<{ tokens: Map<string, PulledToken & { at: string }>; pages: number; ms: number }> {
   const PAGE = 1000;
   const t0 = Date.now();
   const tokens = new Map<string, PulledToken & { at: string }>();
-  const byToken = (opts.by ?? "token") === "token";
-  const col = byToken ? "prize_instance_id" : "pull_id";
   let cursor = "";
   let pages = 0;
-  // By token, the cursor is a token that may have more pulls past the page's
-  // end, so the next page starts AT it (gte) and skips the pulls already read.
-  let boundary = new Set<string>();
   for (; pages < (opts.maxPages ?? Infinity); ) {
-    let q = db()
+    const { data, error } = await db()
       .from("renaiss_pulls")
       .select("pull_id, prize_instance_id, prize_value_usd, prize_canonical_id, pulled_at")
       .not("prize_instance_id", "is", null)
-      .order(col, { ascending: true });
-    q = byToken ? q.gte(col, cursor).order("pull_id", { ascending: true }) : q.gt(col, cursor);
-    const { data, error } = await q.limit(PAGE);
+      .gt("pull_id", cursor)
+      .order("pull_id", { ascending: true })
+      .limit(PAGE);
     pages++;
     if (error) throw new Error(`[renaiss_pulls] token read failed: ${error.message}`);
     const rows = data ?? [];
-    let fresh = 0;
     for (const r of rows) {
-      if (byToken && String(r.prize_instance_id) === cursor && boundary.has(String(r.pull_id))) continue;
-      fresh++;
       const id = String(r.prize_instance_id).replace(/^rn-/, "");
       const at = String(r.pulled_at);
       const prev = tokens.get(id);
@@ -186,14 +181,8 @@ export async function readPulledTokens(opts: { maxPages?: number; by?: "token" |
       const key = r.prize_canonical_id ? String(r.prize_canonical_id) : "";
       tokens.set(id, { valueUsd: v != null && Number.isFinite(v) && v > 0 ? v : null, ip: key ? key.split("|")[0] || null : null, at });
     }
-    if (rows.length < PAGE || fresh === 0) break;
-    const last = rows[rows.length - 1] as Record<string, unknown>;
-    const next = String(last[col]);
-    if (byToken) {
-      boundary = next === cursor ? boundary : new Set();
-      for (const r of rows) if (String(r.prize_instance_id) === next) boundary.add(String(r.pull_id));
-    }
-    cursor = next;
+    if (rows.length < PAGE) break;
+    cursor = String(rows[rows.length - 1].pull_id);
   }
   return { tokens, pages, ms: Date.now() - t0 };
 }
