@@ -64,7 +64,7 @@ export const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
   },
   renaiss: {
     resale:
-      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since its first sale, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid. When a day holds fewer sales than the tables need, the platform page's sales tables read the trailing seven days and say so.",
+      "Renaiss's own index API, read directly: every sale on its marketplace on BNB Chain since its first sale, with the slab's cert and the card once its index has linked them, passed through the same hygiene as every feed. A sale under $1 is dust, not a price, and is not counted (the index applies the same floor). A sale counts at the price the buyer paid in USDT, taken as dollars; the seller's fee is not in the feed, so volume is buyer-paid. When a day holds fewer sales than the tables need, the platform page's sales tables read the trailing seven days and say so.",
     listings:
       "No source. Renaiss's asks are signed off-chain and its API does not publish them, so the floor and listings read as withheld, never as zero.",
     holders:

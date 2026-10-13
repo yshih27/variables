@@ -709,7 +709,7 @@ async function main() {
     const firstSale = resaleThrough ? await oldestStoredSoldAt() : null;
     if (resaleThrough && firstSale) {
       // Full history every run: the store is small (46 sales in the week to Sep 30).
-      const { sales, stats } = await readRenaissSales();
+      const { sales, stats, dust } = await readRenaissSales();
       const byDay = new Map<string, { vol: number; trades: number }>();
       for (const s of sales) {
         const t = Date.parse(s.date);
@@ -729,7 +729,7 @@ async function main() {
         days++;
       }
       console.log(
-        `  renaiss resale: ${days} complete days through ${resaleThrough.slice(0, 10)} · ${stats.output} sales after hygiene (${stats.input - stats.output} removed)`,
+        `  renaiss resale: ${days} complete days through ${resaleThrough.slice(0, 10)} · ${sales.length} sales after hygiene (${stats.input - stats.output} removed) and the $1 dust floor (${dust} removed)`,
       );
     } else {
       console.log(`  renaiss resale: no complete day to publish (sales feed ${feeds.sales ? `last stopped: ${feeds.sales.stoppedBy}` : "has never run"})`);
