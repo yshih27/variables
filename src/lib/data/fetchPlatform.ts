@@ -27,7 +27,7 @@ import {
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import {
   netRevenueEligible,
-  NET_HELD_FOR_SPENDER_COVERAGE,
+  netHeldReasonFor,
   type NetHeldReason,
 } from "@/lib/metrics/outboundDisclosure";
 import type { Chain, Trend } from "@/lib/types";
@@ -578,16 +578,16 @@ export async function buildPlatformDetail(
   const gross30 = sumLastCompleteDays(grossUpTo, 30);
   const r3Basis = payoutSourced && Number.isFinite(gross30) && gross30 > 0;
 
-  const eligible = netRevenueEligible(key);
-  const heldReason: NetHeldReason | null = !payoutSourced
-    ? "unsourced"
-    : !eligible
-      ? "reconciliation"
-      : !r3Basis
-        ? "awaiting-r3-basis"
-        : NET_HELD_FOR_SPENDER_COVERAGE
-          ? "spender-coverage"
-          : null;
+  // Card-paid packs with no on-chain price (Courtyard) hold net whenever an
+  // outbound leg exists: the spend side is incomplete, so spend − outbound is not
+  // a margin. Without any outbound leg it stays "unsourced".
+  const heldReason: NetHeldReason | null = netHeldReasonFor({
+    payoutSourced,
+    grossSourced: outflowGrossDailySeries.length > 0,
+    unpricedPacks30d: g?.unpricedPacks30d ?? null,
+    eligible: netRevenueEligible(key),
+    r3Basis,
+  });
 
   const netGachaRevenue =
     heldReason === null

@@ -316,12 +316,15 @@ For the Claw: every inbound transfer.`}
             <strong className="font-semibold text-ink">Why net is held.</strong> Net is spend minus R3-counted payouts — a small
             difference of two large numbers, roughly 5% of spend, so a sub-1% error in the
             payout leg is levered about 20× into it, and it errs in the flattering direction
-            because a missing spender drops a payout. Four reasons can hold it:{" "}
+            because a missing spender drops a payout. Five reasons can hold it:{" "}
             <em>unsourced</em> (no on-chain payout wallet exists — nothing to compute),{" "}
             <em>reconciliation</em> (the counting is known-wrong for that platform),{" "}
-            <em>awaiting-r3-basis</em> (payout days not yet proven to be on the R3 basis), and{" "}
+            <em>awaiting-r3-basis</em> (payout days not yet proven to be on the R3 basis),{" "}
             <em>spender-coverage</em> (the spender set behind R3 is not yet complete enough;
-            it needs about 99% and currently measures lower). A held net is shown as a chip
+            it needs about 99% and currently measures lower), and{" "}
+            <em>unpriced-spend</em> (some packs are paid by card with no on-chain payment, so
+            the spend side is incomplete; the same reason holds that platform&apos;s payout ÷
+            spend, while its outbound is still published). A held net is shown as a chip
             carrying its reason, never as a number, and never as a partial market sum that
             silently excludes the platform we can actually count.
           </p>

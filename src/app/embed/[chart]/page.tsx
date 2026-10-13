@@ -5,7 +5,7 @@ import { CompositionChart } from "@/components/CompositionChart";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { buildStatsBoard } from "@/lib/data/statsBoard";
 import { buildEconomicsBoard } from "@/lib/data/economics";
-import { economicsCoverage, legCountChip } from "@/lib/data/economicsCoverage";
+import { economicsCoverage, ratioCountChip } from "@/lib/data/economicsCoverage";
 import { getHomeIndexChart } from "@/lib/data/homeIndex";
 import { RatioTrend } from "@/components/economics/RatioTrend";
 import { PlayerConcentration } from "@/components/economics/PlayerConcentration";
@@ -84,7 +84,7 @@ export default async function EmbedPage({ params }: { params: Promise<{ chart: s
         {chart === "economics-ratio" && (
           <RatioTrend
             platforms={eco.platforms}
-            scope={legCountChip(economicsCoverage(eco), "outbound")}
+            scope={ratioCountChip(economicsCoverage(eco))}
             actions={false}
           />
         )}

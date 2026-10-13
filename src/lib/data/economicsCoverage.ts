@@ -131,3 +131,9 @@ export function legVenueScope(cov: EconomicsCoverage, leg: CoverageLeg): string 
 export function legCountChip(cov: EconomicsCoverage, leg: CoverageLeg): string {
   return `${cov.counted[leg]} of ${cov.venues} venues`;
 }
+
+/** The same chip for the ratio: a venue whose outbound is counted but whose ratio
+ *  is held (ratioHeld) is not in it. */
+export function ratioCountChip(cov: EconomicsCoverage): string {
+  return `${cov.ratioNames.length} of ${cov.venues} venues`;
+}

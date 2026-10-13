@@ -1,6 +1,7 @@
 import type { EconomicsPlatform } from "@/lib/types";
 import type { SeriesPoint } from "./metricSnapshots";
 import type { AreaOverlay, AreaSeries } from "@/components/StackedAreaChart";
+import { resampleToPeriod } from "@/lib/chart/period";
 
 /**
  * The /economics hero, as ONE model: spend bands per platform plus the market
@@ -60,4 +61,21 @@ export function economicsHeroModel(platforms: EconomicsPlatform[]): {
   const overlay: AreaOverlay | undefined =
     ratio.length >= 2 ? { label: "payout ÷ spend", color: "var(--color-red)", points: ratio } : undefined;
   return { bands, overlay };
+}
+
+/**
+ * One venue's payout ÷ spend per calendar week (RatioTrend), re-derived from the
+ * two legs. Empty when the venue has no published outbound, or when its ratio is
+ * held (ratioHeld): the same rule as the overlay above, so no surface draws a
+ * ratio the leaderboard withholds.
+ */
+export function weeklyPayoutRatio(p: EconomicsPlatform, nowMs?: number): { ts: string; v: number }[] {
+  if (p.ratioHeld || p.outboundDaily.length === 0) return [];
+  const spend = new Map(resampleToPeriod(p.spendDaily, "W", "sum", { nowMs }).map((x) => [x.ts, x.value]));
+  const out = resampleToPeriod(p.outboundDaily, "W", "sum", { nowMs });
+  return out.flatMap((o) => {
+    const s = spend.get(o.ts);
+    // Both legs, or no point. A week only one side covered is a gap, not a 0%.
+    return s != null && s > 0 && Number.isFinite(o.value) ? [{ ts: o.ts, v: (o.value / s) * 100 }] : [];
+  });
 }

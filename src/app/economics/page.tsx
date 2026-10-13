@@ -10,7 +10,7 @@ import { buildEconomicsBoard } from "@/lib/data/economics";
 import {
   economicsCoverage,
   legScope,
-  legCountChip,
+  ratioCountChip,
   ratioVenueScope,
 } from "@/lib/data/economicsCoverage";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
@@ -55,6 +55,9 @@ export default async function EconomicsPage() {
 
   const asOf = board.asOf ? board.asOf.slice(0, 10) : null;
   const held = board.heldReasons;
+  // "R3-counted" only while every published outbound is: Courtyard's buybacks
+  // are gross, read off its exchange, never R3-classified.
+  const outboundAllR3 = board.platforms.filter((p) => p.outbound30d != null).every((p) => p.r3VerifiedPct30d != null);
 
   return (
     <>
@@ -97,7 +100,9 @@ export default async function EconomicsPage() {
               sub={
                 board.outbound30d == null
                   ? "no publishable payout source"
-                  : "R3-counted · players and partners"
+                  : outboundAllR3
+                    ? "R3-counted · players and partners"
+                    : "gross · players and partners"
               }
             />
             <StatCard
@@ -152,7 +157,7 @@ export default async function EconomicsPage() {
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <RatioTrend
               platforms={board.platforms}
-              scope={legCountChip(coverage, "outbound")}
+              scope={ratioCountChip(coverage)}
               chartId="economics-ratio"
             />
             <PlayerConcentration platforms={board.platforms} chartId="economics-players" asOf={asOf} />
