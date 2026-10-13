@@ -30,7 +30,7 @@
 import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
 import { readStoreFeed, COURTYARD_EXCHANGE_SOURCE, COURTYARD_ARBITRAGE_SOURCE } from "./salesStore";
-import { cleanSecondarySales } from "./secondaryHygiene";
+import { cleanSecondarySales, MIN_SALE_USD } from "./secondaryHygiene";
 import { readRenaissSales } from "../renaiss/sales";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -83,7 +83,7 @@ export type UntaggedSale = {
  * rule; on the legs it removes 11 Courtyard rows, none of which resolve to an
  * identity, so the published method's levels do not move.
  */
-export const PANEL_MIN_PRICE_USD = 1;
+export const PANEL_MIN_PRICE_USD = MIN_SALE_USD;
 
 /** Apply the wash + price filter to one platform's feed. The ONE copy of that rule. */
 function cleanPlatform(platform: CardPlatform, sales: NormalizedSale[], sinceMs?: number): UntaggedSale[] {

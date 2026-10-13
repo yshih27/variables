@@ -30,6 +30,21 @@
  */
 import type { NormalizedSale } from "../rarible/queries";
 
+/**
+ * A sale under a dollar is dust, not a price. Measured on the store (Oct 7, re-read
+ * Oct 13): 3,056 of Renaiss's 17,676 sales are under $1 ($46.30 in all), 2,821 of
+ * them in Feb–Mar 2026 on 231 tokens, one card traded 940 times in a month. The
+ * index panel drops them (salePanel.ts `PANEL_MIN_PRICE_USD`) and so do Renaiss's
+ * venue totals (renaiss/sales.ts), one floor for both.
+ */
+export const MIN_SALE_USD = 1;
+
+/** Drop dust (under `MIN_SALE_USD`). Pure; returns how many it dropped. */
+export function dropDust(sales: readonly NormalizedSale[]): { sales: NormalizedSale[]; dust: number } {
+  const kept = sales.filter((s) => s.priceUsd >= MIN_SALE_USD);
+  return { sales: kept, dust: sales.length - kept.length };
+}
+
 /** Min round-trips (each direction) between a wallet pair on one token to call it wash. */
 export const WASH_MIN_ROUND_TRIPS = 2;
 

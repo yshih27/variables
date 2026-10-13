@@ -30,6 +30,9 @@ import {
   type FeedQuery,
 } from "./client";
 import { linkedCardOfSale, salesIncrementalFrom, toStoredSale, toNormalizedSales, type RenaissSaleRow } from "./sales";
+import { dropDust, MIN_SALE_USD } from "../data/secondaryHygiene";
+import type { NormalizedSale } from "../rarible/queries";
+import { PANEL_MIN_PRICE_USD } from "../data/salePanel";
 import {
   linkedCardOfPull,
   packWindows,
@@ -460,4 +463,12 @@ test("--fixture refuses --apply", async () => {
   const lines: string[] = [];
   assert.equal(await runRenaissWarmer("sales", ["--apply", `--fixture=${join(FIX, "sales-week.json")}`], { env: KEYS, log: (l) => lines.push(l) }), 1);
   assert.match(lines[0], /dry run only/);
+});
+
+test("dust under $1 leaves Renaiss's totals, as it leaves the index panel", () => {
+  const sale = (priceUsd: number, i: number) => ({ tokenId: `t${i}`, date: "2026-03-01T00:00:00.000Z", priceUsd, buyer: `b${i}`, seller: `s${i}` }) as NormalizedSale;
+  const { sales, dust } = dropDust([sale(0.01, 1), sale(0.99, 2), sale(1, 3), sale(25, 4)]);
+  assert.equal(dust, 2);
+  assert.deepEqual(sales.map((s) => s.priceUsd), [1, 25]);
+  assert.equal(MIN_SALE_USD, PANEL_MIN_PRICE_USD, "one floor for the index and the venue totals");
 });

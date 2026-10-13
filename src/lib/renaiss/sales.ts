@@ -15,7 +15,7 @@
 import { renaissGet, RENAISS_PAGE_SIZE, type FeedPage, type FeedQuery, type RenaissEnv } from "./client";
 import type { FeedCatalogCard, FeedSlab } from "./cards";
 import { db } from "../db/client";
-import { cleanSecondarySales, type HygieneStats } from "../data/secondaryHygiene";
+import { cleanSecondarySales, dropDust, type HygieneStats } from "../data/secondaryHygiene";
 import type { NormalizedSale } from "../rarible/queries";
 
 /** A sale as the feed returns it. */
@@ -206,7 +206,10 @@ export function toNormalizedSales(rows: ReadRow[]): NormalizedSale[] {
  * panel's leg, the core-volume entry and the daily spine all read it here, so
  * the three count the same rows.
  */
-export async function readRenaissSales(opts: { sinceMs?: number } = {}): Promise<{ sales: NormalizedSale[]; stats: HygieneStats }> {
+export async function readRenaissSales(opts: { sinceMs?: number } = {}): Promise<{ sales: NormalizedSale[]; stats: HygieneStats; dust: number }> {
   const since = opts.sinceMs != null ? new Date(opts.sinceMs).toISOString() : null;
-  return cleanSecondarySales(toNormalizedSales(await readStored(since)));
+  // Hygiene first, then the dust floor: the order the index panel applies them,
+  // so the panel's Renaiss leg is the same set it was.
+  const { sales, stats } = cleanSecondarySales(toNormalizedSales(await readStored(since)));
+  return { ...dropDust(sales), stats };
 }
