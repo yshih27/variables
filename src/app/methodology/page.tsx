@@ -196,7 +196,10 @@ export default async function MethodologyPage() {
 For Collector Crypt: every inbound transfer of $1 or more (its published pull prices,
   [${ccPullLadder()}], label packs; they no longer filter spend)
 For Phygitals: every inbound transfer above dust, treasury excluded as a sender
-For Courtyard and the Claw: every inbound transfer.`}
+For Courtyard: every inbound transfer, plus the USDC a card-path purchase pays
+  its operations wallet in the same transaction; packs paid by card with no
+  on-chain payment are counted, never priced
+For the Claw: every inbound transfer.`}
           </pre>
           <p className="mt-3">
             Internal exclusions are addresses we&apos;ve identified as

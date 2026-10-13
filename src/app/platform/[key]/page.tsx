@@ -395,6 +395,12 @@ export default async function PlatformDetailPage({
               Listings · floor <span className="text-ink-3">—</span> · {listingsLeg}
             </p>
           ) : null}
+          {detail.unpricedPacks30d != null && detail.unpricedPacks30d > 0 ? (
+            <p className="font-mono text-[10.5px] leading-snug text-ink-4" data-unpriced-packs>
+              Gacha · {detail.unpricedPacks30d.toLocaleString("en-US")} packs in 30 days were paid by card with no
+              on-chain payment: counted here, not in any volume
+            </p>
+          ) : null}
           {/* Studio ‖ the three 14d cards. Different questions, so they may share a
               row (terminal-ux-study §3): the studio is an INTERACTIVE series you
               compose and brush, the cards are an AT-A-GLANCE 14-day read of three

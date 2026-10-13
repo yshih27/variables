@@ -61,6 +61,13 @@ export type GachaDunePlatform = {
   /** Per-price-tier breakdown, sorted by 30d volume desc. Empty for aggregate-only
    *  platforms (Courtyard), whose Dune query returns one summary row, not tiers. */
   byPrice: GachaPriceBucket[];
+  /**
+   * Packs bought with no on-chain payment (Courtyard's card-only path: the
+   * "stripe_payment_intent" event). Counted, never priced, so never in `vol*`;
+   * the platform page states the count in one receipt line. Absent elsewhere.
+   */
+  unpricedPacks24h?: number | null;
+  unpricedPacks30d?: number | null;
   /** Realized odds, rarest/best→commonest. CC: rarity tiers (on-chain wallets);
    *  Phygitals: prize-value bands (from the CLAW feed). null where neither exists. */
   odds?: GachaOddsTier[];
