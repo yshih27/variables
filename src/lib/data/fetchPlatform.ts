@@ -105,6 +105,10 @@ export type PlatformDetail = {
   /** Packs bought with no on-chain payment over 30 days (Courtyard's card-only
    *  path): counted, not priced, so not in any volume. Null where none are read. */
   unpricedPacks30d: number | null;
+  /** Peer-to-peer purchases whose buyer sold the card to the venue's buyback within
+   *  24 hours (Courtyard; src/lib/courtyard/arbitrage.ts), over the last 30 complete
+   *  days: left out of resale, said on a receipt line. Null where none is written. */
+  resaleArbitrage30d: { usd: number; trades: number } | null;
   /** Total 24h activity = marketplace resale + primary (gacha/tokenization). */
   total24Usd: number;
   trades24h: number;
@@ -539,11 +543,18 @@ export async function buildPlatformDetail(
   // rolling aggregates: those are rolling on the spend side and calendar on the
   // payout side, and subtracting across that mismatch is precisely the error the
   // day-bucketed buyback query was introduced to remove.
-  const [gachaDailySeries, buybackDailySeries, outflowGrossDailySeries] = await Promise.all([
+  const [gachaDailySeries, buybackDailySeries, outflowGrossDailySeries, arbUsdSeries, arbTradesSeries] = await Promise.all([
     readMetricSeries("platform", key, "gacha_volume_usd").catch(() => [] as SeriesPoint[]),
     readMetricSeries("platform", key, "buyback_payout_usd").catch(() => [] as SeriesPoint[]),
     readMetricSeries("platform", key, "outflow_gross_usd").catch(() => [] as SeriesPoint[]),
+    readMetricSeries("platform", key, "resale_arb_usd").catch(() => [] as SeriesPoint[]),
+    readMetricSeries("platform", key, "resale_arb_trades").catch(() => [] as SeriesPoint[]),
   ]);
+  // Written beside the venue's resale, on the same complete days (the spine
+  // writer), so the newest day matches; NaN until 30 days are covered.
+  const arbUsd30 = arbUsdSeries.length ? sumLastCompleteDays(arbUsdSeries, 30) : NaN;
+  const arbTrades30 = arbTradesSeries.length ? sumLastCompleteDays(arbTradesSeries, 30) : NaN;
+  const resaleArbitrage30d = Number.isFinite(arbUsd30) && Number.isFinite(arbTrades30) ? { usd: arbUsd30, trades: arbTrades30 } : null;
   // sumLastCompleteDays anchors to each series' OWN newest day and returns NaN
   // when the window isn't fully covered — both of which we want. But anchoring
   // each side independently would silently offset the windows whenever one feed
@@ -631,6 +642,7 @@ export async function buildPlatformDetail(
     gachaVol24Usd: g && g.kind === "gacha" ? g.vol24h : (coreGacha24 ?? null),
     gachaVol7Usd: g && g.kind === "gacha" ? g.vol7d : (coreGacha7 ?? null),
     unpricedPacks30d: g?.unpricedPacks30d ?? null,
+    resaleArbitrage30d,
     total24Usd: volumeUsd + (bucket.primaryUsd ?? 0),
     trades24h: unknown(allSales.length),
     uniqueBuyers: unknown(buyers.size),
@@ -664,7 +676,9 @@ export const getPlatformDetail = unstable_cache(
   // v10: + salesWindow / holdersReason / mcapCoveragePct / mcapReason /
   // biggestPulls, and Renaiss's tables (enriched for the first time). A v9 row
   // deserializes without them.
-  ["platform-detail:v10"],
+  // v11: + resaleArbitrage30d (Courtyard's buyback arbitrage, left out of resale);
+  // a v10 row has no receipt line to give.
+  ["platform-detail:v11"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 

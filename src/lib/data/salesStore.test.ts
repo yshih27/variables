@@ -14,8 +14,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  COURTYARD_ARBITRAGE_SOURCE,
+  COURTYARD_EXCHANGE_SOURCE,
+  keepSource,
   naturalSaleId,
   planStoreWrite,
+  storedFromCourtyardExchange,
   storedFromBeezie,
   storedFromCC,
   storedFromCourtyard,
@@ -173,4 +177,23 @@ test("a run writes each key once, and only from the newest stored sale minus the
   assert.deepEqual(planStoreWrite([old, recent, row], newest).map((r) => r.sale_id), ["beezie:recent:1", row.sale_id]);
   // A venue with nothing stored writes everything.
   assert.equal(planStoreWrite([old, recent, row], new Map([["beezie", null]])).length, 3);
+});
+
+test("the panel's Courtyard read drops both exchange sources; the resale read drops arbitrage", () => {
+  const panel = { except: [COURTYARD_EXCHANGE_SOURCE, COURTYARD_ARBITRAGE_SOURCE] };
+  assert.equal(keepSource(panel, "rarible:activity"), true, "OpenSea rows stay in the panel");
+  assert.equal(keepSource(panel, COURTYARD_EXCHANGE_SOURCE), false);
+  assert.equal(keepSource(panel, COURTYARD_ARBITRAGE_SOURCE), false);
+  const resale = { only: COURTYARD_EXCHANGE_SOURCE };
+  assert.equal(keepSource(resale, COURTYARD_EXCHANGE_SOURCE), true);
+  assert.equal(keepSource(resale, COURTYARD_ARBITRAGE_SOURCE), false, "arbitrage is never resale");
+  assert.equal(keepSource({ except: COURTYARD_EXCHANGE_SOURCE }, COURTYARD_ARBITRAGE_SOURCE), true, "a single except still works as before");
+  assert.equal(keepSource(undefined, "anything"), true);
+});
+
+test("an exchange purchase is stored under its own source when it is arbitrage", () => {
+  const t = { txHash: "0xabc", logIndex: 3, blockNumber: 1, ts: "2026-10-11T00:00:00.000Z", bidder: "0xb", asker: "0xa", tokenId: "7", usd: 19, kind: "p2p" as const };
+  assert.equal(storedFromCourtyardExchange(t).source, COURTYARD_EXCHANGE_SOURCE);
+  assert.equal(storedFromCourtyardExchange(t, true).source, COURTYARD_ARBITRAGE_SOURCE);
+  assert.equal(storedFromCourtyardExchange(t, true).sale_id, "courtyard:0xabc:3", "the same id, so a re-tag updates the row in place");
 });

@@ -401,6 +401,11 @@ export default async function PlatformDetailPage({
               on-chain payment: counted here, not in any volume
             </p>
           ) : null}
+          {detail.resaleArbitrage30d && detail.resaleArbitrage30d.trades > 0 ? (
+            <p className="font-mono text-[10.5px] leading-snug text-ink-4" data-resale-arbitrage>
+              {`Resale · ${detail.resaleArbitrage30d.trades.toLocaleString("en-US")} purchases (${formatCompactUsd(detail.resaleArbitrage30d.usd)}) in 30 complete days were sold to ${detail.source.name}'s buyback within 24 hours: left out of resale`}
+            </p>
+          ) : null}
           {/* Studio ‖ the three 14d cards. Different questions, so they may share a
               row (terminal-ux-study §3): the studio is an INTERACTIVE series you
               compose and brush, the cards are an AT-A-GLANCE 14-day read of three

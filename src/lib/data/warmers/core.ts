@@ -51,6 +51,7 @@ import {
   readStoreFeed,
   writeSalesStore,
   COURTYARD_EXCHANGE_SOURCE,
+  COURTYARD_ARBITRAGE_SOURCE,
   type ObservedSale,
   type StoredSecondarySale,
 } from "../salesStore";
@@ -259,19 +260,34 @@ export const COURTYARD_COLLECTION = (() => {
  * store; the exchange feed writes its own), and `openSeaSales` the cleaned
  * OpenSea rows the secondary-sales snapshot keeps: ~5,000 exchange trades a day
  * would multiply that snapshot for readers that have no identity to show them.
+ *
+ * Buyback arbitrage (src/lib/courtyard/arbitrage.ts) is never in `sales`: those
+ * purchases are stored under their own source, which the exchange read above
+ * does not match. `withArbitrage` also returns them raw, for the spine's
+ * `resale_arb_*` series and the receipt line; only the daily spine writer asks.
  */
 export async function fetchCourtyardSecondaryScan(
-  opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
+  opts: { cachedOnly?: boolean; withArbitrage?: boolean; log?: (msg: string) => void } = {},
 ): Promise<
-  SecondaryScan<RaribleSellActivity> & { openSeaSales: NormalizedSale[]; exchangeRows: number; exchangeState: CourtyardExchangeState | null; exchangeCurrent: boolean }
+  SecondaryScan<RaribleSellActivity> & {
+    openSeaSales: NormalizedSale[];
+    exchangeRows: number;
+    arbitrage: NormalizedSale[];
+    exchangeState: CourtyardExchangeState | null;
+    exchangeCurrent: boolean;
+  }
 > {
   const log = opts.log ?? console.log;
   const observed = await collectSaleActivities(COURTYARD_COLLECTION, SECONDARY_WINDOW_DAYS * DAY);
   const openSeaSales = cleanSecondarySales(observed.map((o) => o.sale)).sales;
   const exchangeState = await readCourtyardExchangeState().catch(() => null);
-  const exchange = exchangeState
-    ? await readStoreFeed("courtyard", { sinceMs: Date.now() - SECONDARY_WINDOW_DAYS * DAY, source: { only: COURTYARD_EXCHANGE_SOURCE } })
-    : [];
+  const sinceMs = Date.now() - SECONDARY_WINDOW_DAYS * DAY;
+  const [exchange, arbitrage] = exchangeState
+    ? await Promise.all([
+        readStoreFeed("courtyard", { sinceMs, source: { only: COURTYARD_EXCHANGE_SOURCE } }),
+        opts.withArbitrage ? readStoreFeed("courtyard", { sinceMs, source: { only: COURTYARD_ARBITRAGE_SOURCE } }) : Promise.resolve([]),
+      ])
+    : [[], []];
   const { sales, stats } = cleanSecondarySales([...observed.map((o) => o.sale), ...exchange]);
   const line = formatHygiene("courtyard-secondary", stats);
   if (line) log(line);
@@ -282,6 +298,7 @@ export async function fetchCourtyardSecondaryScan(
     observed,
     openSeaSales,
     exchangeRows: exchange.length,
+    arbitrage,
     exchangeState,
     exchangeCurrent: exchangeFeedIsCurrent(exchangeState),
     executionEndedAt,

@@ -17,7 +17,7 @@ export type VenueLegs = { resale: string; listings: string; holders: string; pri
 export const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
   courtyard: {
     resale:
-      "Two markets for the same tokens. Courtyard's own marketplace settles on Polygon: every trade on its exchange contracts is read from the chain, and a trade whose buyer is Courtyard's operations wallet is a buyback, not resale. OpenSea trades of the collection come from Rarible's activity index. Both are read over a rolling window and pass through the same hygiene as every feed. Courtyard's sales do not resolve to a card yet, so they count in venue totals and not in category rows.",
+      "Two markets for the same tokens. Courtyard's own marketplace settles on Polygon: every trade on its exchange contracts is read from the chain, and a trade whose buyer is Courtyard's operations wallet is a buyback, not resale. A purchase whose buyer sells the same card to that buyback within 24 hours is buyback arbitrage, not collector resale: it is left out of resale, and the platform page says how much over the last 30 complete days. OpenSea trades of the collection come from Rarible's activity index. Both are read over a rolling window and pass through the same hygiene as every feed. Courtyard's sales do not resolve to a card yet, so they count in venue totals and not in category rows.",
     listings:
       "Rarible's active sell orders for the collection, cheapest ask per token, dust excluded; capped per run, since Courtyard's book is by far the largest we read.",
     holders:

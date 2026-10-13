@@ -19,6 +19,14 @@
  *   npx tsx --env-file=.env.local scripts/backfill-courtyard-exchange-history.ts --query=7644128 --from=2025-09-09 --to=2026-09-13 --cache=<dir>
  *   … add --apply to write
  *
+ * `--arbitrage=<dir>`: leave buyback arbitrage out of resale (src/lib/courtyard/
+ * arbitrage.ts), from the per-day measurement scripts/measure-courtyard-arbitrage.ts
+ * wrote to <dir>. Resale becomes stored + peer-to-peer − arbitrage, and the left
+ * out part is written as `resale_arb_usd` / `resale_arb_trades` for the receipt
+ * line. Every day in range must be measured, and the measurement's peer-to-peer
+ * must agree with Dune's for the day (the same trades, read twice), or nothing
+ * is written.
+ *
  * --to is exclusive; set it to the first day the daily writer's 30-day window
  * owns, so the two never both write a day.
  */
@@ -35,6 +43,7 @@ const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.sp
 const APPLY = process.argv.includes("--apply");
 
 type DayRow = { p2pN: number; p2pUsd: number; bbN: number; bbUsd: number };
+type ArbitrageDay = { day: string; p2pN: number; p2pUsd: number; arbN: number; arbUsd: number };
 
 function windows(fromMs: number, toMs: number, months: number): [string, string][] {
   const out: [string, string][] = [];
@@ -97,31 +106,65 @@ async function main() {
   }
   const usage1 = await duneUsage();
 
-  // 3. Report per month, then write.
+  // 3. Buyback arbitrage per day, measured from the chain: the same peer-to-peer
+  //    trades Dune counted, or the day is not restated.
+  const arbDir = arg("arbitrage");
+  const arbByDay = new Map<string, ArbitrageDay>();
+  if (arbDir) {
+    const missing: string[] = [];
+    const disagree: string[] = [];
+    for (const [day, d] of days) {
+      const f = join(arbDir, `arb-${day.slice(0, 10)}.json`);
+      if (!existsSync(f)) {
+        missing.push(day.slice(0, 10));
+        continue;
+      }
+      const a = JSON.parse(readFileSync(f, "utf8")) as ArbitrageDay;
+      const offUsd = Math.abs(a.p2pUsd - d.p2pUsd) / Math.max(1, d.p2pUsd);
+      if (a.p2pN !== d.p2pN || offUsd > 0.005) disagree.push(`${day.slice(0, 10)} chain ${a.p2pN} $${Math.round(a.p2pUsd)} vs Dune ${d.p2pN} $${Math.round(d.p2pUsd)}`);
+      arbByDay.set(day, a);
+    }
+    if (missing.length) throw new Error(`${missing.length} day(s) not measured (scripts/measure-courtyard-arbitrage.ts): ${missing.slice(0, 5).join(", ")}…`);
+    console.log(`arbitrage: ${arbByDay.size} day(s) measured; peer-to-peer agrees with Dune on ${arbByDay.size - disagree.length}`);
+    if (disagree.length) throw new Error(`the chain and Dune disagree on ${disagree.length} day(s): ${disagree.slice(0, 5).join(" · ")}`);
+  }
+
+  // 4. Report per month, then write.
   const rows: MetricRow[] = [];
-  const months = new Map<string, { stored: number; p2p: number; p2pN: number; bb: number; days: number }>();
+  const months = new Map<string, { stored: number; p2p: number; p2pN: number; arb: number; arbN: number; bb: number; days: number }>();
   for (const [day, d] of [...days.entries()].sort()) {
     const sv = before.volume[day] ?? 0;
     const st = before.trades[day] ?? 0;
-    rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "volume_usd", value: sv + d.p2pUsd, ts: day });
-    rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "trades", value: st + d.p2pN, ts: day });
+    const a = arbByDay.get(day);
+    const arbUsd = a?.arbUsd ?? 0;
+    const arbN = a?.arbN ?? 0;
+    rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "volume_usd", value: sv + d.p2pUsd - arbUsd, ts: day });
+    rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "trades", value: st + d.p2pN - arbN, ts: day });
     rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "outflow_gross_usd", value: d.bbUsd, ts: day });
-    const m = months.get(day.slice(0, 7)) ?? { stored: 0, p2p: 0, p2pN: 0, bb: 0, days: 0 };
+    if (a) {
+      rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "resale_arb_usd", value: arbUsd, ts: day });
+      rows.push({ entity_type: "platform", entity_key: "courtyard", metric: "resale_arb_trades", value: arbN, ts: day });
+    }
+    const m = months.get(day.slice(0, 7)) ?? { stored: 0, p2p: 0, p2pN: 0, arb: 0, arbN: 0, bb: 0, days: 0 };
     m.stored += sv;
     m.p2p += d.p2pUsd;
     m.p2pN += d.p2pN;
+    m.arb += arbUsd;
+    m.arbN += arbN;
     m.bb += d.bbUsd;
     m.days++;
     months.set(day.slice(0, 7), m);
   }
-  console.log(`\n| Month | Days | Resale stored (OpenSea) | + exchange peer-to-peer | Buybacks |\n|---|---|---|---|---|`);
+  console.log(`\n| Month | Days | Resale stored (OpenSea) | + exchange peer-to-peer | − buyback arbitrage | Buybacks |\n|---|---|---|---|---|---|`);
   for (const [m, v] of [...months.entries()].sort()) {
-    console.log(`| ${m} | ${v.days} | $${Math.round(v.stored).toLocaleString()} | $${Math.round(v.p2p).toLocaleString()} (${v.p2pN.toLocaleString()}) | $${Math.round(v.bb).toLocaleString()} |`);
+    console.log(
+      `| ${m} | ${v.days} | $${Math.round(v.stored).toLocaleString()} | $${Math.round(v.p2p).toLocaleString()} (${v.p2pN.toLocaleString()}) | ${arbDir ? `$${Math.round(v.arb).toLocaleString()} (${v.arbN.toLocaleString()})` : "not applied"} | $${Math.round(v.bb).toLocaleString()} |`,
+    );
   }
   if (usage0 && usage1) console.log(`Dune credits ${usage0.creditsUsed.toFixed(1)} → ${usage1.creditsUsed.toFixed(1)} (${(usage1.creditsUsed - usage0.creditsUsed).toFixed(1)} this run)`);
   if (!APPLY) return console.log("\nDry run: nothing written. Pass --apply to write.");
   const n = await writeMetricSnapshots(rows);
-  console.log(`\nWrote ${n} spine rows (${days.size} days × volume_usd, trades, outflow_gross_usd).`);
+  console.log(`\nWrote ${n} spine rows (${days.size} days × volume_usd, trades, outflow_gross_usd${arbDir ? ", resale_arb_usd, resale_arb_trades" : ""}).`);
 }
 
 main().catch((e) => {

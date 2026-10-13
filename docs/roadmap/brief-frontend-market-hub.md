@@ -3,7 +3,7 @@
 Frontend executor, Varible. Three PRs in the order below, each fresh off `origin/main` once the one before it has merged (or stacked with `--base` and said so in the body), pushed, opened against main, NO merging. Own worktree with the three symlinks; `--webpack` for dev, but `next build` + `next start` for anything that exercises `revalidate` (a dev server never does); `NEXT_PUBLIC_SHELL_V2=true`; tsc/eslint/build clean; truthful trailer. Design: `docs/roadmap/analytics-benchmark-blockworks.md` §5. Blockworks' TCG dashboard (`app.blockworks.com/analytics/tcg`) is the legibility bar: seven tabs, each one question, one card anatomy, weekly bars over the whole history. Our answer keeps what they do not have: every figure with its window and source, withheld figures that say why, an index built from realized resale with receipts. Their figures are a reference, never copied into the site.
 
 **Two decisions sit with the owner; neither blocks PR 1.**
-- **D1, Courtyard's buyback arbitrage.** Measured Oct 13 from Polygon: on Oct 11, 1,791 of Courtyard's 5,970 peer-to-peer trades (30.0%; $39,760 of $297,634, 13.4%) were bought by a wallet that sold the same card to Courtyard's buyback within 24 hours. On Aug 3, the peak of the summer spike, it was 24,372 of 30,810 trades (79.1%; $517,214 of $817,959, 63.2%). Exclude them from resale, disclose them on a receipt line, or leave them. The **Resale tab waits on this**, and on `brief-backend-market-hub.md` B1 (plus B3 unless the answer is "leave").
+- **D1, Courtyard's buyback arbitrage (decided).** Measured Oct 13 from Polygon: on Oct 11, 1,791 of Courtyard's 5,970 peer-to-peer trades (30.0%; $39,760 of $297,634, 13.4%) were bought by a wallet that sold the same card to Courtyard's buyback within 24 hours. On Aug 3, the peak of the summer spike, it was 24,372 of 30,810 trades (79.1%; $517,214 of $817,959, 63.2%). **Decided Oct 13: excluded from resale, with a receipt line** (built by the orchestrator in `feat/courtyard-arbitrage`; stored under `courtyard:exchange:arb`, written to the spine as `resale_arb_usd` / `resale_arb_trades`). The **Resale tab waits only on `brief-backend-market-hub.md` B1** now, and shows the exclusion the way `/platform/courtyard` does: one receipt line computed from those two series.
 - **D2, venue logos.** Monogram tiles ship by default (below); a `logo` slot is ready for the owner's call on using venue logos as identification.
 
 ## What exists (build on it, do not re-derive)
@@ -35,7 +35,7 @@ Frontend executor, Varible. Three PRs in the order below, each fresh off `origin
 | Packs | `/market/packs` | Where does pack money go? | the gacha half of `/stats` | 2 |
 | Economics | `/market/economics` | What do venues take in, and what goes back out? | `/economics` (301) | 2 |
 | Prices | `/market/prices` | What is a card worth? | the Index Studio on `/stats` | 3 |
-| Resale | `/market/resale` | What trades hands after the pull? | the resale half of `/stats` | 3, after D1 |
+| Resale | `/market/resale` | What trades hands after the pull? | the resale half of `/stats` | 3, after backend B1 |
 
 A tab that has not shipped is not in the tab bar. `/` (the homepage) and `/ips` (Categories) stay; the platform pages stay as each venue's own view.
 
@@ -95,11 +95,11 @@ A tab that has not shipped is not in the tab bar. `/` (the homepage) and `/ips` 
 - Beside it: "V-MKT" (the last published close with Δ 1M) and "V-MKT, month to date" (the provisional reading with its n and the thin flag), read with `readIndexSeries` and `readIndexProvisional` as the homepage does.
 - The method line and the receipts link stay as the studio renders them. `/ips` keeps its own studio in this round; deduplicating it is a follow-up.
 
-### 7. Resale, `/market/resale` (PR 3, only after D1 and backend B1)
+### 7. Resale, `/market/resale` (PR 3, after backend B1)
 - **Hero:** "Resale by venue". Beside it: "Resale" (30 complete days, Δ) and "Average sale" (30 complete days).
 - **Ranking:** "Venues by resale": Resale · Trades · Average sale.
 - **Grid:** "Average sale by venue" (Line, W; Σ volume ÷ Σ trades per week, never a mean of daily averages) ‖ "Largest sales" (30 days, ten rows: card, grade, venue, price, day; each row → `/i/<slug>`, from the cleaned `sale-panel` rows, ≥ $1). Courtyard's rows carry no card identity and are left out of "Largest sales" with a receipt saying so.
-- Phygitals is absent from every resale series, with "no resale source" in the ⓘ. Whatever D1 decides about Courtyard's arbitrage is shown the way D1 says (a separate series, a receipt line, or nothing), never silently.
+- Phygitals is absent from every resale series, with "no resale source" in the ⓘ. Courtyard's resale already excludes its buyback arbitrage (D1); the hero's ⓘ and receipt say how much over the window shown, summed from `resale_arb_usd` / `resale_arb_trades`.
 
 ### 8. Navigation and copy (PR 1, extended as tabs land)
 - **Rail Market section:** Home `/`, then one row per shipped tab; `inMarket` = `/` or a path under `/market`.

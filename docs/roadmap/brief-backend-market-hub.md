@@ -1,6 +1,6 @@
 # Executor WP — the market hub, backend: the series the hub needs and the spine does not carry yet
 
-Backend executor, Varible. Up to three PRs off `origin/main` (B1 and B2 may share one), pushed, opened against main, NO merging.
+Backend executor, Varible. Two PRs off `origin/main` (B1 and B2 may share one; B3 is built), pushed, opened against main, NO merging.
 
 **Ground rules:**
 - Own worktree with the three symlinks.
@@ -33,13 +33,13 @@ Context: `brief-frontend-market-hub.md`, which builds the hub on today's data an
   - Add `gacha_pulls` to the chart route's metric allowlist (`src/lib/api/chartSeries.ts`) and to the source-death metrics in `scripts/check-invariants.ts`.
   - Unit-test the row mapping (`test:spine`).
 
-## B3 · Courtyard's buyback arbitrage (only after the owner's decision D1)
+## B3 · Courtyard's buyback arbitrage: decided Oct 13 (exclude, with a receipt line) and built by the orchestrator in `feat/courtyard-arbitrage`; kept here as the record of the rule
 - **Measured Oct 13 on Polygon** (the repo's own `fetchExchangeTrades` over the public RPC):
   - Some of Courtyard's peer-to-peer trades are bought by a wallet that sells the same card to Courtyard's buyback wallet (`COURTYARD_OPS_WALLET`) within 24 hours.
   - Oct 11: 1,791 of 5,970 trades (30.0%), $39,760 of $297,634 (13.4%), by 117 wallets; one made 805 of them.
   - Aug 3: 24,372 of 30,810 (79.1%), $517,214 of $817,959 (63.2%), by 88 wallets; one made 10,605.
   - They are real trades between different parties. They are also not collectors buying cards, and they explain most of the summer peak in Courtyard's resale chart.
-- **Definition.** A peer-to-peer trade at time T is an arbitrage trade when its bidder appears as the asker of a buyback on the same `tokenId` in (T, T + 24 h].
+- **Definition.** A peer-to-peer trade at time T is an arbitrage trade when its bidder appears as the asker of a buyback on the same `tokenId` in [T, T + 24 h] (the same block counts). One buyback settles one purchase: that wallet's latest open purchase of the card.
 - **Live feed.**
   - `scripts/warm-courtyard-exchange.ts` already reads both kinds in one pass. Keep each buyback's `(asker, tokenId, ts)` long enough to classify, and classify a trade once 24 hours past it have been read.
   - A spine day is written with the split only when the feed has read 24 hours past the day's end. Until then the day keeps its previous value.
@@ -48,9 +48,10 @@ Context: `brief-frontend-market-hub.md`, which builds the hub on today's data an
   - **exclude:** `volume_usd` and `trades` drop the arbitrage trades, and the dropped part is written as `resale_arb_usd` and `resale_arb_trades` so a receipt line can say how much was excluded, computed.
   - **disclose:** resale is unchanged and the same two metrics carry the share for the receipt line.
   - **leave:** nothing is written.
-- **History.**
-  - The store period (from 2026-09-08) can be reclassified from the chain with the same reader: about 130 s per day, run in Actions or on a machine that does not sleep.
-  - The Dune-backed period (2025-09-09 → 2026-09-12 in the spine, `dune/courtyard-exchange-history.sql`) needs a per-day query that matches peer-to-peer trades to later buybacks. Measure one month's datapoints first, and give the cost of the whole history.
+- **History (as built).**
+  - The store period (from 2026-09-08) is reclassified by re-running the live feed with `--from`.
+  - The spine's earlier days are measured from the chain, free: `scripts/measure-courtyard-arbitrage.ts` (about 100 s per day, per-day cache, parallel streams, resumable).
+  - They are applied with `scripts/backfill-courtyard-exchange-history.ts --arbitrage=<dir>`, which refuses any day where the chain's peer-to-peer count disagrees with Dune's.
 - **Methodology.**
   - Courtyard's row in the methodology's Sources states the rule.
   - The restatement is listed per month (before, after, the part moved) in the PR body.
