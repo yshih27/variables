@@ -27,6 +27,23 @@ export type ArbitrageDay = { day: string; p2pN: number; p2pUsd: number; arbN: nu
 const dayIso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const fileOf = (cache: string, day: string) => join(cache, `arb-${day}.json`);
 
+/**
+ * One read, retried in place: the public endpoint times out under load, and a
+ * failed read must not send the span back to its first unwritten day.
+ */
+async function readWithRetry(a: number, b: number, tag: string): Promise<Awaited<ReturnType<typeof fetchExchangeTrades>>> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetchExchangeTrades(a, b);
+    } catch (e) {
+      if (attempt >= 10) throw e;
+      const wait = Math.min(attempt * 20_000, 180_000);
+      console.warn(`  [${tag}] blocks ${a.toLocaleString()}–${b.toLocaleString()}: ${(e as Error).message} — read retry ${attempt} in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
 /** Contiguous runs of day starts. */
 function runs(days: number[]): [number, number][] {
   const out: [number, number][] = [];
@@ -90,7 +107,7 @@ async function measureSpan(d0: number, d1: number, cache: string, tag: string): 
 
   for (let a = a0; a <= a1; a += READ_BLOCKS) {
     const b = Math.min(a1, a + READ_BLOCKS - 1);
-    const batch = await fetchExchangeTrades(a, b);
+    const batch = await readWithRetry(a, b, tag);
     for (const t of batch) {
       const ms = Date.parse(t.ts);
       const day = Math.floor(ms / DAY) * DAY;
