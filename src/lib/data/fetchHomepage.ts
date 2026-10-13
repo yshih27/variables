@@ -355,6 +355,18 @@ export async function buildHomepagePayload(
       // marketplace-vs-gacha split.
       const g = gacha?.platforms?.[b.source.key];
       const isGacha = !!g && g.kind === "gacha";
+      // ⚠️ A NATIVE-FEED VENUE'S PACKS LIVE ON THE BUCKET, NOT IN THE GACHA BLOB.
+      // The gacha snapshot covers the Dune venues (Collector Crypt, Beezie,
+      // Phygitals, Courtyard). DYLI's boxes and Renaiss's packs are read from
+      // their own stores into core-volume, which the bucket carries — the rule
+      // fetchPlatform already applies on each venue's own page. Without this the
+      // board printed "—" for Renaiss's packs (measured Oct 12: $115K–$249K a day
+      // in named pulls alone) and left them out of every 24h total.
+      const nativeGacha24 = !isGacha && typeof b.gachaVol24Usd === "number" && Number.isFinite(b.gachaVol24Usd) ? b.gachaVol24Usd : null;
+      const nativeGacha7 = nativeGacha24 != null && typeof b.gachaVol7Usd === "number" && Number.isFinite(b.gachaVol7Usd) ? b.gachaVol7Usd : null;
+      // Their packs ARE their primary sales; a venue with a measured primary
+      // figure of its own keeps it.
+      const primaryUsd = b.primaryUsd ?? nativeGacha24;
       return {
         rank: 0,
         key: b.source.key,
@@ -364,9 +376,9 @@ export async function buildHomepagePayload(
         vault: b.source.vault,
         vol24Usd: b.stats24h.volumeUsd,
         vol7Usd: histVol7,
-        primaryUsd: b.primaryUsd ?? null,
-        gachaVol24Usd: isGacha ? g!.vol24h : null,
-        gachaVol7Usd: isGacha ? g!.vol7d : null,
+        primaryUsd: primaryUsd ?? null,
+        gachaVol24Usd: isGacha ? g!.vol24h : nativeGacha24,
+        gachaVol7Usd: isGacha ? g!.vol7d : nativeGacha7,
         // Σ of the components we actually measure — unknown secondary counts as
         // 0 here, exactly as it did when it WAS 0, so this total is unchanged by
         // the honest-absence pass and keeps ranking a live platform on the
@@ -374,7 +386,7 @@ export async function buildHomepagePayload(
         // bottom of the default sort and hide its very real gacha volume; the
         // Marketplace column is where its absence is stated.)
         total24Usd:
-          (Number.isFinite(b.stats24h.volumeUsd) ? b.stats24h.volumeUsd : 0) + (b.primaryUsd ?? 0),
+          (Number.isFinite(b.stats24h.volumeUsd) ? b.stats24h.volumeUsd : 0) + (primaryUsd ?? 0),
         active24h: secondary(wallets.size),
         cards: secondary(cards.size),
         holders: holdersForPlatform(holders, b.source.key),
