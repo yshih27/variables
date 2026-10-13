@@ -489,6 +489,12 @@ export default async function PlatformDetailPage({
               r3VerifiedPct30d={detail.r3VerifiedPct30d}
             />
           )}
+          {showEconomics && detail.unpricedPacks30d != null && detail.unpricedPacks30d > 0 ? (
+            <p className="font-mono text-[10.5px] leading-snug text-ink-4" data-unpriced-economics>
+              Buybacks include cards from the {detail.unpricedPacks30d.toLocaleString("en-US")} packs paid by card with no
+              on-chain payment in 30 days, so they can exceed the spend we see: no payout ratio is published
+            </p>
+          ) : null}
 
 
           {/* Machines — for each CC machine, how much is pulled and whose traffic

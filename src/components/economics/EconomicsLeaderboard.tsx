@@ -148,7 +148,11 @@ function Row({ p, rank }: { p: EconomicsPlatform; rank: number }) {
         )}
       </Td>
       <Td align="right" muted className="hidden sm:table-cell">
-        {p.ratioPct30d == null ? <Absent note={suppressed ? "held" : "no payout source"} /> : `${p.ratioPct30d.toFixed(1)}%`}
+        {p.ratioPct30d == null ? (
+          <Absent note={p.ratioHeld === "unpriced-spend" ? "held — card-paid packs carry no on-chain price" : suppressed ? "held" : "no payout source"} />
+        ) : (
+          `${p.ratioPct30d.toFixed(1)}%`
+        )}
       </Td>
       <Td align="right" muted className="hidden lg:table-cell">
         {p.r3VerifiedPct30d == null ? <Absent note={suppressed ? "held" : "no payout source"} /> : `${p.r3VerifiedPct30d.toFixed(1)}%`}

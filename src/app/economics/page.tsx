@@ -10,8 +10,8 @@ import { buildEconomicsBoard } from "@/lib/data/economics";
 import {
   economicsCoverage,
   legScope,
-  legVenueScope,
   legCountChip,
+  ratioVenueScope,
 } from "@/lib/data/economicsCoverage";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { formatCompactUsd } from "@/lib/format";
@@ -101,7 +101,7 @@ export default async function EconomicsPage() {
               }
             />
             <StatCard
-              label={`Payout ÷ spend · ${legVenueScope(coverage, "outbound")}`}
+              label={`Payout ÷ spend · ${ratioVenueScope(coverage)}`}
               metric="ratio"
               value={pct(board.ratioPct30d)}
               deltaPct={ratioDeltaPp}

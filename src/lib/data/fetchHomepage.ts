@@ -1,3 +1,4 @@
+import { NO_IDENTITY_VENUES } from "./sources";
 import type { NormalizedSale } from "@/lib/rarible/queries";
 import type { HomepagePayload, HotIP, IPRow, PlatformRow, TopSale, Trend } from "@/lib/types";
 import {
@@ -80,6 +81,9 @@ type AssetMeta = {
   image?: string;
 };
 
+/** Venues whose sales resolve to a card name and image for the top-sales list. */
+const TOP_SALE_VENUES = new Set(["beezie", "collector-crypt"]);
+
 /**
  * Top 5 single sales by USD across all platforms in the last 24h.
  * Looks up each top tokenId's cached metadata to resolve card name,
@@ -94,6 +98,11 @@ async function buildTopSales(buckets: PlatformBucket[]): Promise<TopSale[]> {
   };
   const allSales: Candidate[] = [];
   for (const b of buckets) {
+    // Only venues whose cards resolve below (Beezie, Collector Crypt). The 30
+    // candidates are taken by price BEFORE resolving, so a venue with no names —
+    // Courtyard's exchange, ~5,000 trades a day — would otherwise fill them and
+    // leave the top sales short.
+    if (!TOP_SALE_VENUES.has(b.source.key)) continue;
     for (const s of b.sales24h) {
       allSales.push({
         platformKey: b.source.key,
@@ -166,6 +175,10 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
 
   for (const b of buckets) {
     if (b.sales24h.length === 0) continue;
+    // ⚠️ A venue whose sales carry no card identity cannot be split by IP: its
+    // whole 24h would land in "Other". Courtyard has no `cards` rows yet, and its
+    // exchange trades ~$280K a day; it counts in the venue totals, not here.
+    if (NO_IDENTITY_VENUES.has(b.source.key)) continue;
     let metas: Map<string, AssetMeta> = new Map();
     if (b.source.key === "beezie") {
       metas = await getBeezieMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));

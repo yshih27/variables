@@ -72,7 +72,7 @@ async function buildOne(
     return {
       key, name,
       spend30d: NaN, outbound30d: null, ratioPct30d: null, ratioPctPrior30d: null,
-      r3VerifiedPct30d: null, net30d: null, heldReason: "unsourced", disclosure,
+      r3VerifiedPct30d: null, net30d: null, heldReason: "unsourced", ratioHeld: null, disclosure,
       players, partnerAttributedPct, spendDaily: [], outboundDaily: [],
     };
   }
@@ -102,20 +102,24 @@ async function buildOne(
   const outbound30d = publishOutbound ? sumLastCompleteDays(grossGated, WINDOW_DAYS) : null;
 
   const heldReason: NetHeldReason | null = detail.heldReason ?? null;
+  // The ratio stands only where every pack's spend is on-chain (see ratioHeld).
+  const ratioHeld = publishOutbound && (detail.unpricedPacks30d ?? 0) > 0 ? ("unpriced-spend" as const) : null;
+  const ratioOk = publishOutbound && ratioHeld === null;
 
   return {
     key,
     name,
     spend30d,
     outbound30d: outbound30d != null && Number.isFinite(outbound30d) ? outbound30d : null,
-    ratioPct30d: publishOutbound ? ratio(sumLastCompleteDays(grossGated, WINDOW_DAYS), spend30d) : null,
-    ratioPctPrior30d: publishOutbound
+    ratioPct30d: ratioOk ? ratio(sumLastCompleteDays(grossGated, WINDOW_DAYS), spend30d) : null,
+    ratioPctPrior30d: ratioOk
       ? ratio(sumPrior(grossGated, WINDOW_DAYS), sumPrior(spendGated, WINDOW_DAYS))
       : null,
     r3VerifiedPct30d: publishOutbound ? detail.r3VerifiedPct30d : null,
     // ⚠️ The hold, expressed once: a net exists only when nothing holds it.
     net30d: heldReason === null ? (detail.netGachaRevenue?.usd30d ?? null) : null,
     heldReason,
+    ratioHeld,
     disclosure,
     players,
     partnerAttributedPct,
@@ -168,9 +172,13 @@ async function build(): Promise<EconomicsBoard> {
    * it is a coverage artifact that would read as a healthy 20%.
    */
   const spend30d = platforms.reduce((s, p) => s + fin(p.spend30d), 0);
-  const spendSourced30d = sourced.reduce((s, p) => s + fin(p.spend30d), 0);
+  // The ratio's basis is narrower still: a venue whose ratio is held
+  // (ratioHeld) publishes its outbound but adds nothing to the market ratio.
+  const ratioBasis = sourced.filter((p) => p.ratioHeld === null);
+  const spendSourced30d = ratioBasis.reduce((s, p) => s + fin(p.spend30d), 0);
   const outbound30d = sourced.length ? sourced.reduce((s, p) => s + (p.outbound30d ?? 0), 0) : null;
-  const priorSpend = sourced.reduce((s, p) => s + fin(p.ratioPctPrior30d != null ? p.spend30d : 0), 0);
+  const ratioOutbound30d = ratioBasis.length ? ratioBasis.reduce((s, p) => s + (p.outbound30d ?? 0), 0) : null;
+  const priorSpend = ratioBasis.reduce((s, p) => s + fin(p.ratioPctPrior30d != null ? p.spend30d : 0), 0);
 
   // ⚠️ NEVER A PARTIAL SUM. Any hold among the contributors and the market net is
   // withheld entirely — a net that quietly excludes the one platform we can count
@@ -197,11 +205,11 @@ async function build(): Promise<EconomicsBoard> {
     spend30d,
     spendSourced30d,
     outbound30d,
-    ratioPct30d: outbound30d != null ? ratio(outbound30d, spendSourced30d) : null,
+    ratioPct30d: ratioOutbound30d != null ? ratio(ratioOutbound30d, spendSourced30d) : null,
     ratioPctPrior30d:
       priorSpend > 0
         ? ratio(
-            sourced.reduce(
+            ratioBasis.reduce(
               (s, p) => s + (p.ratioPctPrior30d != null ? (p.ratioPctPrior30d / 100) * p.spend30d : 0),
               0,
             ),

@@ -48,7 +48,9 @@ import {
   storedFromBeezie,
   storedFromCC,
   storedFromCourtyard,
+  readStoreFeed,
   writeSalesStore,
+  COURTYARD_EXCHANGE_SOURCE,
   type ObservedSale,
   type StoredSecondarySale,
 } from "../salesStore";
@@ -57,6 +59,7 @@ import { readRenaissSales } from "../../renaiss/sales";
 import { SALES_TABLE_MIN } from "../coreVolumeCache";
 import { packWindows, readPackSpend } from "../../renaiss/pulls";
 import { feedIsCurrent, readRenaissFeeds } from "../../renaiss/feedState";
+import { exchangeFeedIsCurrent, readCourtyardExchangeState, type CourtyardExchangeState } from "../../courtyard/exchangeState";
 import {
   readCoreVolume,
   writeCoreVolume,
@@ -237,19 +240,53 @@ export const COURTYARD_COLLECTION = (() => {
 })();
 
 /**
- * Courtyard secondary sales with the scan's coverage — the spine writer's read.
- * A live Rarible read: free, no cache to be stale, so `cachedOnly` is accepted
- * and ignored and the scan is covered through now. The same hygiene pass as the
- * Dune feeds (wash, self-trades, sweeps).
+ * Courtyard secondary sales with the scan's coverage — the core warm's and the
+ * spine writer's read. Two venues for the same tokens:
+ * - **OpenSea** trades, live from Rarible's activity index (free, no cache);
+ * - **Courtyard's own exchange**, peer-to-peer trades the exchange feed stored
+ *   (scripts/warm-courtyard-exchange.ts; src/lib/courtyard/exchange.ts). Measured
+ *   Oct 13: 157,650 trades, $8.38M over 30 days, against a few dollars a day of
+ *   OpenSea trades.
+ * The same hygiene pass as every feed runs over both together.
+ *
+ * ⚠️ COVERAGE IS THE EARLIER OF THE TWO. The exchange feed reads up to its own
+ * `coveredThrough`; a day after it is not scanned, so the spine must not zero-fill
+ * or finalise it. With no exchange state yet, the scan is the OpenSea read alone,
+ * through now, as before the feed existed. `exchangeCurrent` false with a state
+ * present means the feed stalled: the core warm keeps its previous entry.
+ *
+ * `observed` stays the Rarible rows only (the core run writes those to the
+ * store; the exchange feed writes its own), and `openSeaSales` the cleaned
+ * OpenSea rows the secondary-sales snapshot keeps: ~5,000 exchange trades a day
+ * would multiply that snapshot for readers that have no identity to show them.
  */
 export async function fetchCourtyardSecondaryScan(
   opts: { cachedOnly?: boolean; log?: (msg: string) => void } = {},
-): Promise<SecondaryScan<RaribleSellActivity>> {
+): Promise<
+  SecondaryScan<RaribleSellActivity> & { openSeaSales: NormalizedSale[]; exchangeRows: number; exchangeState: CourtyardExchangeState | null; exchangeCurrent: boolean }
+> {
+  const log = opts.log ?? console.log;
   const observed = await collectSaleActivities(COURTYARD_COLLECTION, SECONDARY_WINDOW_DAYS * DAY);
-  const { sales, stats } = cleanSecondarySales(observed.map((o) => o.sale));
+  const openSeaSales = cleanSecondarySales(observed.map((o) => o.sale)).sales;
+  const exchangeState = await readCourtyardExchangeState().catch(() => null);
+  const exchange = exchangeState
+    ? await readStoreFeed("courtyard", { sinceMs: Date.now() - SECONDARY_WINDOW_DAYS * DAY, source: { only: COURTYARD_EXCHANGE_SOURCE } })
+    : [];
+  const { sales, stats } = cleanSecondarySales([...observed.map((o) => o.sale), ...exchange]);
   const line = formatHygiene("courtyard-secondary", stats);
-  if (line) (opts.log ?? console.log)(line);
-  return { sales, observed, executionEndedAt: new Date().toISOString(), windowDays: SECONDARY_WINDOW_DAYS };
+  if (line) log(line);
+  const nowIso = new Date().toISOString();
+  const executionEndedAt = exchangeState && exchangeState.coveredThrough < nowIso ? exchangeState.coveredThrough : nowIso;
+  return {
+    sales,
+    observed,
+    openSeaSales,
+    exchangeRows: exchange.length,
+    exchangeState,
+    exchangeCurrent: exchangeFeedIsCurrent(exchangeState),
+    executionEndedAt,
+    windowDays: SECONDARY_WINDOW_DAYS,
+  };
 }
 
 /**
@@ -270,7 +307,7 @@ export async function fetchCCSecondarySales(
   return mustHaveRows(fetchDuneSecondarySales(CC_SECONDARY_QUERY_ID, "cc-secondary", opts));
 }
 
-/** Courtyard secondary sales (Rarible activity index, 30d). Shared by the core warmer, the spine, and backfill. */
+/** Courtyard secondary sales (OpenSea via Rarible + Courtyard's exchange, 30d). Shared by the core warmer, the spine, and backfill. */
 export async function fetchCourtyardSecondarySales(
   opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
 ): Promise<NormalizedSale[]> {
@@ -351,24 +388,31 @@ export async function runCoreWarm(
     log(`→ beezie (Beezie /activity) FAILED: ${(err as Error).message}`);
   }
 
-  // ── Courtyard: Rarible's activity index (OpenSea trades of the collection on
-  //    Polygon), 30d, live and free — see the header. A failed read leaves the
-  //    previous snapshot's entry in place through `carryForward`. ──
+  // ── Courtyard: OpenSea trades (Rarible's activity index) + Courtyard's own
+  //    exchange (the stored peer-to-peer trades), 30d — see
+  //    fetchCourtyardSecondaryScan. A failed read, or an exchange feed that has
+  //    stopped short of the present, leaves the previous snapshot's entry in
+  //    place through `carryForward`: an OpenSea-only 24h would read as a ~99%
+  //    collapse that did not happen. ──
   try {
     const t0 = Date.now();
     const scan = await fetchCourtyardSecondaryScan({ log });
+    if (scan.exchangeState && !scan.exchangeCurrent) {
+      throw new Error(`the exchange feed last reached ${scan.exchangeState.coveredThrough}`);
+    }
     const sales = scan.sales;
-    courtyardRowsForStore = sales;
+    // The snapshot app readers take keeps OpenSea rows only (see the scan).
+    courtyardRowsForStore = scan.openSeaSales;
     kept.push(...scan.observed.map(storedFromCourtyard));
-    platforms["courtyard"] = buildPlatform("courtyard", "rarible", sales, 30);
+    platforms["courtyard"] = buildPlatform("courtyard", scan.exchangeState ? "courtyard-exchange" : "rarible", sales, 30);
     log(
-      `→ courtyard (Rarible activity) ${sales.length} sales · 24h $${Math.round(
+      `→ courtyard (OpenSea ${scan.openSeaSales.length} + exchange ${scan.exchangeRows}) ${sales.length} sales/30d after hygiene · 24h $${Math.round(
         platforms["courtyard"].stats24h.volumeUsd,
       ).toLocaleString()} (${((Date.now() - t0) / 1000).toFixed(0)}s)`,
     );
   } catch (err) {
-    log(`→ courtyard (Rarible activity) FAILED: ${(err as Error).message}`);
-    carryForward("courtyard", "courtyard (Rarible activity)");
+    log(`→ courtyard (OpenSea + exchange) FAILED: ${(err as Error).message}`);
+    carryForward("courtyard", "courtyard (OpenSea + exchange)");
   }
 
   // ── Persist the row-level Dune feeds for APP-SIDE readers ──────────────────

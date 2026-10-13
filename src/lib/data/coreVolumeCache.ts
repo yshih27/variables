@@ -18,7 +18,7 @@ export const SALES_TABLE_MIN = 10;
 
 export type CorePlatformVolume = {
   /** Where this platform's volume came from, for provenance. */
-  source: "dune" | "rarible" | "beezie" | "dyli" | "renaiss";
+  source: "dune" | "rarible" | "beezie" | "dyli" | "renaiss" | "courtyard-exchange";
   /** 24h aggregate stats (volume, count, unique buyers/sellers, avg). */
   stats24h: CollectionStats;
   /** 24h sale-level rows (powers Top Sales + per-IP aggregation). */

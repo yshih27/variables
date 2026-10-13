@@ -27,6 +27,7 @@
  * that same natural-key dedupe itself, so a venue read without the hygiene pass
  * (Beezie, as today) cannot double-count a sale either.
  */
+import type { ExchangeTrade } from "../courtyard/exchange";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../db/client";
@@ -103,6 +104,28 @@ export function storedFromCourtyard(o: ObservedSale<RaribleSellActivity>): Store
     currency: paymentCurrency(o.raw.payment?.type),
     source: "rarible:activity",
     raw: o.raw,
+  };
+}
+
+/** The `source` of a Courtyard exchange row (src/lib/courtyard/exchange.ts). */
+export const COURTYARD_EXCHANGE_SOURCE = "courtyard:exchange";
+
+/**
+ * Courtyard, from a peer-to-peer TradeExecuted on its own exchange. Buybacks
+ * (Courtyard's wallet as bidder) are gacha economics and never stored here.
+ */
+export function storedFromCourtyardExchange(t: ExchangeTrade): StoredSecondarySale {
+  return {
+    sale_id: `courtyard:${t.txHash}:${t.logIndex}`,
+    platform: "courtyard",
+    sold_at: t.ts,
+    token_id: t.tokenId,
+    buyer: t.bidder,
+    seller: t.asker,
+    price_usd: t.usd,
+    currency: "USDC",
+    source: COURTYARD_EXCHANGE_SOURCE,
+    raw: { block: t.blockNumber },
   };
 }
 
@@ -275,10 +298,17 @@ export function writeLocalStore(dir: string, rows: StoredSecondarySale[]): { fil
 }
 
 /** One venue's stored rows since `sinceMs` (all when omitted), oldest first, paged past the 1,000-row cap. */
-export async function readStoredSales(platform: StorePlatform, opts: { sinceMs?: number } = {}): Promise<StoredSecondarySale[]> {
+export type StoreSourceFilter = { only?: string; except?: string };
+
+export async function readStoredSales(
+  platform: StorePlatform,
+  opts: { sinceMs?: number; source?: StoreSourceFilter } = {},
+): Promise<StoredSecondarySale[]> {
   const since = opts.sinceMs != null ? new Date(opts.sinceMs).toISOString() : null;
+  const src = opts.source;
+  const keep = (r: StoredSecondarySale) => (!src?.only || r.source === src.only) && (!src?.except || r.source !== src.except);
   const local = readLocalStore();
-  if (local) return local.filter((r) => r.platform === platform && (!since || r.sold_at >= since)).sort((a, b) => a.sold_at.localeCompare(b.sold_at));
+  if (local) return local.filter((r) => r.platform === platform && (!since || r.sold_at >= since) && keep(r)).sort((a, b) => a.sold_at.localeCompare(b.sold_at));
   const PAGE = 1000;
   const out: StoredSecondarySale[] = [];
   for (let from = 0; ; from += PAGE) {
@@ -290,6 +320,8 @@ export async function readStoredSales(platform: StorePlatform, opts: { sinceMs?:
       .order("sale_id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (since) q = q.gte("sold_at", since);
+    if (src?.only) q = q.eq("source", src.only);
+    if (src?.except) q = q.neq("source", src.except);
     const { data, error } = await q;
     if (error) throw new Error(`[secondary_sales] read failed: ${error.message}`);
     const rows = (data ?? []) as StoredSecondarySale[];
@@ -300,6 +332,6 @@ export async function readStoredSales(platform: StorePlatform, opts: { sinceMs?:
 }
 
 /** A venue's sales from the store, as the panel takes them: natural-key deduped, no hygiene. */
-export async function readStoreFeed(platform: StorePlatform, opts: { sinceMs?: number } = {}): Promise<NormalizedSale[]> {
+export async function readStoreFeed(platform: StorePlatform, opts: { sinceMs?: number; source?: StoreSourceFilter } = {}): Promise<NormalizedSale[]> {
   return dedupeNatural((await readStoredSales(platform, opts)).map(storedToSale));
 }

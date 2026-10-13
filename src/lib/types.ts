@@ -323,6 +323,13 @@ export type EconomicsPlatform = {
   /** Spend − R3-counted payouts. NULL WHENEVER `heldReason` IS SET. */
   net30d: number | null;
   heldReason: NetHeldReason | null;
+  /**
+   * The payout ratio is withheld while the outbound is published: "unpriced-spend"
+   * = the venue sells packs paid by card with no on-chain payment (Courtyard), so
+   * its buybacks include cards whose spend we cannot see and outbound ÷ spend
+   * would overstate the payout rate. Null where the ratio stands.
+   */
+  ratioHeld: "unpriced-spend" | null;
   disclosure: OutboundDisclosure;
   /** From player analytics; null for a platform the snapshot doesn't cover. */
   players: { top1PctSharePct: number; tiers: EconomicsTier[] } | null;

@@ -17,13 +17,13 @@ export type VenueLegs = { resale: string; listings: string; holders: string; pri
 export const VENUE_LEGS: Record<PlatformSource["key"], VenueLegs> = {
   courtyard: {
     resale:
-      "Rarible's activity index for the Courtyard collection, which is where the collection's on-chain trades on Polygon are indexed; read live over a rolling window and passed through the same hygiene as every feed. Courtyard's own in-app marketplace settles off-chain and is visible to no source. The Dune query this leg replaced decoded the same trades a day late; it is retired and kept for the provenance of older points.",
+      "Two markets for the same tokens. Courtyard's own marketplace settles on Polygon: every trade on its exchange contracts is read from the chain, and a trade whose buyer is Courtyard's operations wallet is a buyback, not resale. OpenSea trades of the collection come from Rarible's activity index. Both are read over a rolling window and pass through the same hygiene as every feed. Courtyard's sales do not resolve to a card yet, so they count in venue totals and not in category rows.",
     listings:
       "Rarible's active sell orders for the collection, cheapest ask per token, dust excluded; capped per run, since Courtyard's book is by far the largest we read.",
     holders:
       "Not indexed. Courtyard's per-card data is not yet in our card table, so it has no holder count, no per-card identity and no market cap; each reads as withheld, never as zero.",
     primary:
-      "Pack spend: USDC paid into Courtyard's receiving wallets on Polygon, read daily through Dune and published as gacha volume, with an Etherscan read of the same transfers as the fallback. Tokenization fees are paid off-chain and are not counted.",
+      "Pack spend: USDC paid into Courtyard's receiving wallets on Polygon, plus the USDC a card-path purchase pays its operations wallet in the same transaction, read daily through Dune and published as gacha volume. Packs paid by card with no on-chain payment are counted, never priced. Buybacks are the USDC Courtyard's wallet pays players on its own marketplace; no payout ratio is published, because some bought-back cards came from packs whose spend is not on-chain. Tokenization fees are paid off-chain and are not counted.",
   },
   beezie: {
     resale:

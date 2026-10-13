@@ -51,9 +51,11 @@ export function economicsHeroModel(platforms: EconomicsPlatform[]): {
       color: ECONOMICS_BAND_COLORS[i % ECONOMICS_BAND_COLORS.length],
       points: p.spendDaily,
     }));
+  // A venue whose ratio is held (ratioHeld) adds no outbound to the overlay:
+  // its buybacks include cards whose spend is not on-chain.
   const ratio = marketRatioDaily(
     platforms.map((p) => p.spendDaily),
-    platforms.map((p) => p.outboundDaily),
+    platforms.map((p) => (p.ratioHeld ? [] : p.outboundDaily)),
   );
   const overlay: AreaOverlay | undefined =
     ratio.length >= 2 ? { label: "payout ÷ spend", color: "var(--color-red)", points: ratio } : undefined;
