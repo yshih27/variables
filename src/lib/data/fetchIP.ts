@@ -1,3 +1,4 @@
+import { NO_IDENTITY_VENUES } from "./sources";
 import { unstable_cache } from "next/cache";
 import type { NormalizedSale } from "@/lib/rarible/queries";
 import { getPlatformBuckets, type PlatformBucket } from "./buckets";
@@ -146,6 +147,8 @@ async function enrichSales(buckets: PlatformBucket[]): Promise<EnrichedSale[]> {
   const out: EnrichedSale[] = [];
   for (const b of buckets) {
     if (b.sales24h.length === 0) continue;
+    // No card identity → no IP (see NO_IDENTITY_VENUES in sources.ts).
+    if (NO_IDENTITY_VENUES.has(b.source.key)) continue;
     let metas: Map<string, TokenMetadata> = new Map();
     if (b.source.key === "beezie") {
       metas = await getBeezieMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));

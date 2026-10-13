@@ -73,6 +73,7 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   marketcap: 6 * HOUR_MS,
   listings: 6 * HOUR_MS,
   "courtyard-primary": 6 * HOUR_MS,
+  "courtyard-exchange": 6 * HOUR_MS,
   history: 6 * HOUR_MS,
   "gacha-dune": 6 * HOUR_MS,
   "phygitals-gacha": 6 * HOUR_MS,

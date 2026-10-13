@@ -74,6 +74,12 @@ jobs:
       - name: Market cap # reads the listings snapshot written above
         continue-on-error: true
         run: npx tsx scripts/warm-marketcap.ts
+      # Courtyard's own exchange (peer-to-peer resale → secondary_sales,
+      # buybacks → the spine's outflow_gross_usd), read from Polygon over a public
+      # RPC. BEFORE core volume, which reads those rows for Courtyard's 24h/7d/30d.
+      - name: Courtyard exchange (resale + buybacks, Polygon)
+        continue-on-error: true
+        run: npx tsx scripts/warm-courtyard-exchange.ts
       - name: Core volume (cached Dune + Rarible)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts --cached
@@ -213,6 +219,12 @@ jobs:
       - name: DYLI boxes (catalog + declared EV, then realized pulls)
         continue-on-error: true
         run: npx tsx scripts/warm-dyli-boxes.ts
+      # Courtyard's own exchange (peer-to-peer resale → secondary_sales,
+      # buybacks → the spine's outflow_gross_usd), read from Polygon over a public
+      # RPC. BEFORE core volume, which reads those rows for Courtyard's 24h/7d/30d.
+      - name: Courtyard exchange (resale + buybacks, Polygon)
+        continue-on-error: true
+        run: npx tsx scripts/warm-courtyard-exchange.ts
       - name: Core volume (fresh Dune execution)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts

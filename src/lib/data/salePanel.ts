@@ -29,7 +29,7 @@
  */
 import { readSecondarySales } from "./secondarySalesCache";
 import { fetchBeezieSales } from "../beezie/market";
-import { readStoreFeed } from "./salesStore";
+import { readStoreFeed, COURTYARD_EXCHANGE_SOURCE } from "./salesStore";
 import { cleanSecondarySales } from "./secondaryHygiene";
 import { readRenaissSales } from "../renaiss/sales";
 import { existsSync, readFileSync } from "node:fs";
@@ -130,7 +130,11 @@ export async function readSaleFeed(opts: { sinceMs?: number; source?: PanelSourc
     // like the others, and a failed read fails the build the same way.
     const [cc, cy, bz, rn] = await Promise.all([
       readStoreFeed("collector-crypt", { sinceMs }).then((r) => cleanSecondarySales(r).sales),
-      readStoreFeed("courtyard", { sinceMs }).then((r) => cleanSecondarySales(r).sales),
+      // ⚠️ NOT the exchange rows (courtyard:exchange). They are ~5,000 trades a
+      // day, none resolves to an identity (Courtyard has no `cards` rows yet), and
+      // carrying them would multiply the persisted panel for no step. They join
+      // with Courtyard's card identities, under a ledger entry.
+      readStoreFeed("courtyard", { sinceMs, source: { except: COURTYARD_EXCHANGE_SOURCE } }).then((r) => cleanSecondarySales(r).sales),
       readStoreFeed("beezie", { sinceMs }),
       readRenaissForStore(sinceMs),
     ]);

@@ -342,3 +342,10 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
     // page holds its net with "no payout source".
   },
 ];
+
+/**
+ * Venues whose sales carry no card identity yet (no `cards` rows): their volume
+ * counts in venue totals, never in per-IP rows, where it could only land in
+ * "Other". Courtyard leaves this set when its card metadata is read.
+ */
+export const NO_IDENTITY_VENUES: ReadonlySet<string> = new Set(["courtyard"]);

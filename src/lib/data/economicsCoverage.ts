@@ -52,6 +52,8 @@ export type EconomicsCoverage = {
   counted: Record<CoverageLeg, number>;
   /** Names of the venues a leg IS counted at, so a label can name a lone one. */
   countedNames: Record<CoverageLeg, string[]>;
+  /** Venues whose payout ratio is computed: outbound counted and the ratio not held. */
+  ratioNames: string[];
 };
 
 const COUNTED: CoverageCell = { state: "counted" };
@@ -95,7 +97,15 @@ export function economicsCoverage(board: EconomicsBoard): EconomicsCoverage {
     countedNames[leg] = hit.map((r) => r.name);
   }
 
-  return { rows, venues: rows.length, counted, countedNames };
+  const ratioNames = board.platforms.filter((p) => p.ratioPct30d != null).map((p) => p.name);
+  return { rows, venues: rows.length, counted, countedNames, ratioNames };
+}
+
+/** The ratio's own scope: the lone venue's name, else "N of M venues". */
+export function ratioVenueScope(cov: EconomicsCoverage): string {
+  const n = cov.ratioNames.length;
+  if (n === 1) return cov.ratioNames[0];
+  return `${n} of ${cov.venues} venues`;
 }
 
 /**
