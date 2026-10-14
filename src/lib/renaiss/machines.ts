@@ -29,6 +29,9 @@ export { RENAISS_MACHINE_WINDOW_DAYS };
 
 const DAY_MS = 86_400_000;
 
+/** "Sep 18": a UTC day, short. */
+const shortDay = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
 /** The columns the board reads from one pull. */
 export type BoardPull = {
   kind: string;
@@ -51,6 +54,7 @@ const num = (v: number | string | null | undefined): number | null => {
 type Acc = {
   name: string | null;
   nameAt: number;
+  firstAt: number;
   price: number | null;
   priceAt: number;
   pulls: number;
@@ -75,7 +79,9 @@ type Acc = {
  *   • price: the price its newest checkout in the window paid. Renaiss
  *     publishes no catalog, and a machine's name carries its price ("PANDORA
  *     28"), so the newest paid price is its sticker, not an average;
- *   • name: its newest non-empty `machine_name`, else its id;
+ *   • name: its newest non-empty `machine_name`; a product the feed never names
+ *     (Renaiss's weekly limited drops mostly) is "Unnamed pack · <its first pull
+ *     day in the window>", never its raw id, which stays as the row's key;
  *   • value back and hit share: over checkouts carrying a stated value;
  *   • top prize: the pull with the highest stated value, observed rows included
  *     (a prize is a prize whether or not its checkout is matched yet).
@@ -91,9 +97,10 @@ export function buildRenaissMachineBoard(pulls: BoardPull[], nowMs: number = Dat
     if (!Number.isFinite(t) || t < from || t >= todayStart || !p.product_id) continue;
     let a = byMachine.get(p.product_id);
     if (!a) {
-      a = { name: null, nameAt: -Infinity, price: null, priceAt: -Infinity, pulls: 0, spend: 0, spend7d: 0, pulls24h: 0, stated: 0, bothPaid: 0, bothStated: 0, hitN: 0, hits: 0, top: null };
+      a = { name: null, nameAt: -Infinity, firstAt: t, price: null, priceAt: -Infinity, pulls: 0, spend: 0, spend7d: 0, pulls24h: 0, stated: 0, bothPaid: 0, bothStated: 0, hitN: 0, hits: 0, top: null };
       byMachine.set(p.product_id, a);
     }
+    if (t < a.firstAt) a.firstAt = t;
     const name = p.machine_name?.trim();
     if (name && t > a.nameAt) {
       a.name = name;
@@ -125,7 +132,7 @@ export function buildRenaissMachineBoard(pulls: BoardPull[], nowMs: number = Dat
     .filter(([, a]) => a.pulls > 0 || a.top)
     .map(([key, a]) => ({
       key,
-      name: a.name ?? key,
+      name: a.name ?? `Unnamed pack · ${shortDay(a.firstAt)}`,
       priceUsd: a.price,
       pulls: a.pulls,
       spendUsd: a.spend,

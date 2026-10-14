@@ -130,7 +130,8 @@ test("machine board: spend, value back and hit share in the stated value, the to
   assert.ok(Math.abs(m1.hitSharePct! - (2 / 3) * 100) < 1e-9, "stated ≥ price on 2 of 3 (40 and 28)");
   assert.deepEqual(m1.topPrize, { cardName: "Mew", grade: "PSA 9", valueUsd: 60, image: null, pulledAt: "2026-10-05T00:00:00.000Z" });
   const m2 = board.rows.find((r) => r.key === "m2")!;
-  assert.equal(m2.name, "m2", "no name in the feed: the machine id");
+  assert.equal(m2.name, "Unnamed pack · Oct 1", "no name in the feed: its first pull day, never the raw id");
+  assert.equal(m2.key, "m2", "the id stays the row's key");
   assert.equal(m2.valueBackPct, null);
   assert.equal(m2.hitSharePct, null);
   assert.equal(m2.attributedUsd, undefined, "no partner fields on a venue whose pulls name no partner");
