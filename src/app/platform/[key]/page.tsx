@@ -39,6 +39,9 @@ import { VenueBoxesTable } from "@/components/VenueBoxesTable";
 import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
 import { VenueSpendCompare } from "@/components/VenueSpendCompare";
+import { VenuePricesCompare } from "@/components/VenuePricesCompare";
+import { buildVenuePrices } from "@/lib/data/venuePrices";
+import { getGachaData } from "@/lib/data/fetchGacha";
 import { buildVenueSpend } from "@/lib/data/venueSpend";
 import { readRenaissPlayers } from "@/lib/renaiss/players";
 import { getPlatformSeries } from "@/lib/data/platformSeries";
@@ -103,11 +106,14 @@ export default async function PlatformDetailPage({
   ]);
   // Every venue's packs-vs-marketplace split, this venue's row marked: the
   // cached series /platforms reads (getPlatformSeries), so no extra query.
-  const [allMarket, allPacks, renaissPlayers] = await Promise.all([
+  const [allMarket, allPacks, renaissPlayers, gachaData] = await Promise.all([
     getPlatformSeries("volume_usd"),
     getPlatformSeries("gacha_volume_usd"),
     readRenaissPlayers(),
+    // The /gacha catalog (cached), for packs on sale by price.
+    getGachaData().catch(() => null),
   ]);
+  const venuePrices = buildVenuePrices(gachaData?.packs ?? [], PLATFORM_SOURCES.map((s) => s.key));
   const venueMix = buildVenueMix(allMarket, allPacks, PLATFORM_SOURCES.map((s) => s.key));
   // Who spends, every venue, this one marked: the player snapshot already read
   // above (playersSnap) plus Renaiss's own.
@@ -535,6 +541,7 @@ export default async function PlatformDetailPage({
           {/* Every venue's split between packs and its marketplace, this one marked. */}
           <VenueMixCompare mix={venueMix} names={venueNames} highlight={key} />
           <VenueSpendCompare rows={venueSpend} names={venueNames} highlight={key} />
+          <VenuePricesCompare rows={venuePrices} names={venueNames} highlight={key} />
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless

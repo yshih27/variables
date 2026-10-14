@@ -17,6 +17,9 @@ import { StackedAreaChart } from "@/components/StackedAreaChart";
 import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
 import { VenueSpendCompare } from "@/components/VenueSpendCompare";
+import { VenuePricesCompare } from "@/components/VenuePricesCompare";
+import { buildVenuePrices } from "@/lib/data/venuePrices";
+import { getGachaData } from "@/lib/data/fetchGacha";
 import { buildVenueSpend } from "@/lib/data/venueSpend";
 import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
 import { readRenaissPlayers } from "@/lib/renaiss/players";
@@ -218,7 +221,13 @@ export default async function AllPlatformsPage() {
   const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
   // Who spends: each venue's players from the two player snapshots (snapshot
   // reads; null degrades to "not measured").
-  const [playersSnap, renaissPlayers] = await Promise.all([readPlayerAnalytics(), readRenaissPlayers()]);
+  const [playersSnap, renaissPlayers, gachaData] = await Promise.all([
+    readPlayerAnalytics(),
+    readRenaissPlayers(),
+    // The /gacha catalog (cached), for packs on sale by price.
+    getGachaData().catch(() => null),
+  ]);
+  const venuePrices = buildVenuePrices(gachaData?.packs ?? [], PLATFORM_SOURCES.map((s) => s.key));
   const venueSpend = buildVenueSpend(
     [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
     gachaSeries,
@@ -304,6 +313,7 @@ export default async function AllPlatformsPage() {
               day, no written conclusion. */}
           <VenueMixCompare mix={venueMix} names={venueNames} />
           <VenueSpendCompare rows={venueSpend} names={venueNames} />
+          <VenuePricesCompare rows={venuePrices} names={venueNames} />
 
           {/* ZONE 2 — the top-4 platform cards, in leaderboard order, so
               the KPI summary reads straight down into the leaders. Any beyond
