@@ -40,6 +40,8 @@ import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
 import { VenueSpendCompare } from "@/components/VenueSpendCompare";
 import { VenuePricesCompare } from "@/components/VenuePricesCompare";
+import { VenuePlayersCompare } from "@/components/VenuePlayersCompare";
+import { buildVenuePlayers } from "@/lib/data/venuePlayers";
 import { buildVenuePrices } from "@/lib/data/venuePrices";
 import { getGachaData } from "@/lib/data/fetchGacha";
 import { buildVenueSpend } from "@/lib/data/venueSpend";
@@ -114,6 +116,10 @@ export default async function PlatformDetailPage({
     getGachaData().catch(() => null),
   ]);
   const venuePrices = buildVenuePrices(gachaData?.packs ?? [], PLATFORM_SOURCES.map((s) => s.key));
+  const venuePlayers = buildVenuePlayers(
+    [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
+    PLATFORM_SOURCES.map((s) => s.key),
+  );
   const venueMix = buildVenueMix(allMarket, allPacks, PLATFORM_SOURCES.map((s) => s.key));
   // Who spends, every venue, this one marked: the player snapshot already read
   // above (playersSnap) plus Renaiss's own.
@@ -542,6 +548,7 @@ export default async function PlatformDetailPage({
           <VenueMixCompare mix={venueMix} names={venueNames} highlight={key} />
           <VenueSpendCompare rows={venueSpend} names={venueNames} highlight={key} />
           <VenuePricesCompare rows={venuePrices} names={venueNames} highlight={key} />
+          <VenuePlayersCompare rows={venuePlayers} names={venueNames} highlight={key} />
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless

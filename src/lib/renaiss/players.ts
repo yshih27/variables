@@ -19,7 +19,7 @@
  */
 import { db } from "../db/client";
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
-import { tiersAndConcentration, type PlatformPlayerAnalytics } from "../data/playerAnalytics";
+import { firstMonths, monthlyPlayersFrom, tiersAndConcentration, type MonthlyPlayersRow, type PlatformPlayerAnalytics } from "../data/playerAnalytics";
 
 export const RENAISS_PLAYERS_SNAPSHOT_KEY = "players:renaiss";
 export const RENAISS_WALLET_SPEND_FN = "renaiss_wallet_spend";
@@ -105,4 +105,73 @@ export function readRenaissPlayers(): Promise<RenaissPlayersSnapshot | null> {
 
 export function writeRenaissPlayers(snap: RenaissPlayersSnapshot): Promise<void> {
   return writeSnapshot(RENAISS_PLAYERS_SNAPSHOT_KEY, snap, snap.generatedAt);
+}
+
+// ── Players per month (Oct 15 2026) ──────────────────────────────────────────
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Distinct buyers per UTC month among checkout rows in [fromMs, toMs), one day
+ * per query over the `pulled_at` index, paged past the 1,000-row cap, each page
+ * retried. Wallets stay keys in memory; the snapshot gets counts only.
+ */
+export async function readMonthlyBuyers(fromMs: number, toMs: number, log: (l: string) => void = () => {}): Promise<{ months: Map<string, Set<string>>; rows: number; queries: number }> {
+  const PAGE = 1000;
+  const months = new Map<string, Set<string>>();
+  let rows = 0;
+  let queries = 0;
+  for (let d = Math.floor(fromMs / DAY_MS) * DAY_MS; d < toMs; d += DAY_MS) {
+    const day = new Date(d).toISOString();
+    const end = new Date(Math.min(d + DAY_MS, toMs)).toISOString();
+    for (let from = 0; ; from += PAGE) {
+      const page = () =>
+        db()
+          .from("renaiss_pulls")
+          .select("buyer, pulled_at")
+          .eq("kind", "checkout")
+          .gte("pulled_at", day)
+          .lt("pulled_at", end)
+          .order("pull_id", { ascending: true })
+          .range(from, from + PAGE - 1);
+      let { data, error } = await page();
+      queries++;
+      for (let attempt = 1; error && attempt <= 3; attempt++) {
+        await new Promise((r) => setTimeout(r, attempt * 3_000));
+        ({ data, error } = await page());
+        queries++;
+      }
+      if (error) throw new Error(`[renaiss_pulls] monthly buyers read failed (${day.slice(0, 10)}, row ${from}): ${error.message ?? JSON.stringify(error)}`);
+      const batch = (data ?? []) as { buyer: string | null; pulled_at: string }[];
+      for (const r of batch) {
+        if (!r.buyer || !r.pulled_at) continue;
+        const m = r.pulled_at.slice(0, 7);
+        let set = months.get(m);
+        if (!set) months.set(m, (set = new Set()));
+        set.add(r.buyer.toLowerCase());
+      }
+      rows += batch.length;
+      if (batch.length < PAGE) break;
+    }
+    if (new Date(d).getUTCDate() === 1) log(`  monthly buyers: through ${day.slice(0, 7)} · ${rows.toLocaleString()} checkouts read`);
+  }
+  return { months, rows, queries };
+}
+
+/**
+ * Renaiss's players per month: stored months before `recomputeFrom` ("YYYY-MM")
+ * kept, months from it on replaced by this read. First-time from each wallet's
+ * first pull (renaiss_wallet_spend, the whole history), counted the same way as
+ * every other venue (monthlyPlayersFrom). Pure.
+ */
+export function renaissMonthlyPlayers(
+  read: Map<string, Set<string>>,
+  wallets: Pick<WalletSpendRow, "first_pull">[],
+  stored: MonthlyPlayersRow[] | undefined,
+  recomputeFrom: string,
+): MonthlyPlayersRow[] {
+  const firstByMonth = firstMonths(wallets.map((w) => ({ firstAt: Date.parse(w.first_pull) })));
+  const fresh = monthlyPlayersFrom(new Map([...read.entries()].filter(([m]) => m >= recomputeFrom)), firstByMonth);
+  const kept = (stored ?? []).filter((r) => r.month < recomputeFrom);
+  return [...kept, ...fresh].sort((a, b) => a.month.localeCompare(b.month));
 }

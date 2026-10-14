@@ -18,6 +18,8 @@ import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
 import { VenueSpendCompare } from "@/components/VenueSpendCompare";
 import { VenuePricesCompare } from "@/components/VenuePricesCompare";
+import { VenuePlayersCompare } from "@/components/VenuePlayersCompare";
+import { buildVenuePlayers } from "@/lib/data/venuePlayers";
 import { buildVenuePrices } from "@/lib/data/venuePrices";
 import { getGachaData } from "@/lib/data/fetchGacha";
 import { buildVenueSpend } from "@/lib/data/venueSpend";
@@ -228,6 +230,10 @@ export default async function AllPlatformsPage() {
     getGachaData().catch(() => null),
   ]);
   const venuePrices = buildVenuePrices(gachaData?.packs ?? [], PLATFORM_SOURCES.map((s) => s.key));
+  const venuePlayers = buildVenuePlayers(
+    [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
+    PLATFORM_SOURCES.map((s) => s.key),
+  );
   const venueSpend = buildVenueSpend(
     [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
     gachaSeries,
@@ -314,6 +320,7 @@ export default async function AllPlatformsPage() {
           <VenueMixCompare mix={venueMix} names={venueNames} />
           <VenueSpendCompare rows={venueSpend} names={venueNames} />
           <VenuePricesCompare rows={venuePrices} names={venueNames} />
+          <VenuePlayersCompare rows={venuePlayers} names={venueNames} />
 
           {/* ZONE 2 — the top-4 platform cards, in leaderboard order, so
               the KPI summary reads straight down into the leaders. Any beyond
