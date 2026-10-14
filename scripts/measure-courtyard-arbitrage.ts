@@ -3,7 +3,7 @@
  * spine's history before the exchange feed's store reaches back
  * (`backfill-courtyard-exchange-history.ts --arbitrage=<dir>` applies it).
  *
- *   npx tsx scripts/measure-courtyard-arbitrage.ts --from=2025-09-09 --to=2026-09-15 --cache=<dir> [--streams=3]
+ *   npx tsx scripts/measure-courtyard-arbitrage.ts --from=2025-09-09 --to=2026-09-15 --cache=<dir> [--streams=3] [--chunk=5000]
  *
  * For each day in [from, to): peer-to-peer trades and dollars, the part that is
  * buyback arbitrage (src/lib/courtyard/arbitrage.ts) and the buybacks, one JSON
@@ -21,6 +21,8 @@ import { ArbitrageMatcher, ARBITRAGE_WINDOW_MS, emptyTally, exchangeSaleId, type
 const DAY = 86_400_000;
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1] ?? null;
 const READ_BLOCKS = LOG_CHUNK_BLOCKS * 12;
+/** Blocks per eth_getLogs request: smaller requests time out less under load (`--chunk=2500`). */
+const REQUEST_BLOCKS = Math.max(500, Number(arg("chunk") ?? LOG_CHUNK_BLOCKS));
 
 export type ArbitrageDay = { day: string; p2pN: number; p2pUsd: number; arbN: number; arbUsd: number; buybackN: number; buybackUsd: number; measuredAt: string };
 
@@ -109,7 +111,7 @@ async function measureSpan(d0: number, d1: number, cache: string, tag: string): 
 
   for (let a = a0; a <= a1; a += READ_BLOCKS) {
     const b = Math.min(a1, a + READ_BLOCKS - 1);
-    const batch = await withRetry(`blocks ${a.toLocaleString()}–${b.toLocaleString()}`, tag, () => fetchExchangeTrades(a, b));
+    const batch = await withRetry(`blocks ${a.toLocaleString()}–${b.toLocaleString()}`, tag, () => fetchExchangeTrades(a, b, { chunk: REQUEST_BLOCKS }));
     for (const t of batch) {
       const ms = Date.parse(t.ts);
       const day = Math.floor(ms / DAY) * DAY;
