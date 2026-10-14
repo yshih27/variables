@@ -63,7 +63,7 @@
     "test:economics": "tsx --test src/lib/data/economicsHero.test.ts",
     "test:venue-insights": "tsx --test src/lib/data/venueInsights.test.ts src/lib/data/venueBoxes.test.ts",
     "test:machines": "tsx --test src/lib/machines/board.test.ts",
-    "test:venue-mix": "tsx --test src/lib/data/venueMix.test.ts"
+    "test:venue-mix": "tsx --test src/lib/data/venueMix.test.ts src/lib/data/venueSpend.test.ts"
   },
   "dependencies": {
     "@next/third-parties": "^16.2.10",

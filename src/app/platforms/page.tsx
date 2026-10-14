@@ -16,6 +16,10 @@ import { getPlatformSeries, totalDaily, platformVolumeBands } from "@/lib/data/p
 import { StackedAreaChart } from "@/components/StackedAreaChart";
 import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
+import { VenueSpendCompare } from "@/components/VenueSpendCompare";
+import { buildVenueSpend } from "@/lib/data/venueSpend";
+import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
+import { readRenaissPlayers } from "@/lib/renaiss/players";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
@@ -212,6 +216,14 @@ export default async function AllPlatformsPage() {
   // the two series already read for the hero (no extra query).
   const venueMix = buildVenueMix(mktSeries, gachaSeries, PLATFORM_SOURCES.map((s) => s.key));
   const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
+  // Who spends: each venue's players from the two player snapshots (snapshot
+  // reads; null degrades to "not measured").
+  const [playersSnap, renaissPlayers] = await Promise.all([readPlayerAnalytics(), readRenaissPlayers()]);
+  const venueSpend = buildVenueSpend(
+    [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
+    gachaSeries,
+    PLATFORM_SOURCES.map((s) => s.key),
+  );
 
   return (
     <>
@@ -291,6 +303,7 @@ export default async function AllPlatformsPage() {
               trading, over the same days — the rows, the median day and every
               day, no written conclusion. */}
           <VenueMixCompare mix={venueMix} names={venueNames} />
+          <VenueSpendCompare rows={venueSpend} names={venueNames} />
 
           {/* ZONE 2 — the top-4 platform cards, in leaderboard order, so
               the KPI summary reads straight down into the leaders. Any beyond

@@ -31,11 +31,18 @@ export function MetricInfo({
   metric,
   className = "",
   children,
+  link = true,
 }: {
   metric: MetricKey;
   className?: string;
   /** Present → label mode: these become the trigger, dotted-underlined. */
   children?: ReactNode;
+  /**
+   * false inside a link (a StatCard with an href): the hidden methodology link
+   * would nest an <a> in an <a>, which the HTML parser splits, so the server
+   * markup never matches the client and the card hydrates as an error.
+   */
+  link?: boolean;
 }) {
   const def = metricDef(metric);
   const ref = useRef<HTMLButtonElement>(null);
@@ -111,9 +118,11 @@ export function MetricInfo({
         )}
       {/* Anchor link for keyboard/no-JS: the ⓘ is a button (tooltip), this hidden
           link makes the definition reachable at /methodology. */}
-      <Link href={href} className="sr-only">
-        {def.term} methodology
-      </Link>
+      {link ? (
+        <Link href={href} className="sr-only">
+          {def.term} methodology
+        </Link>
+      ) : null}
     </span>
   );
 }
