@@ -40,7 +40,7 @@ import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { VenueMarketPosition } from "@/components/VenueMarketPosition";
 import { SameCardElsewhere } from "@/components/SameCardElsewhere";
 import { RenaissDropsTable } from "@/components/RenaissDropsTable";
-import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
+import { formatCompactNumber, formatCompactUsd, formatMonthDayUtc } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
 // Dynamic [key] routes generate on-demand (first hit), then serve cached HTML.
@@ -97,6 +97,20 @@ export default async function PlatformDetailPage({
   ]);
   if (!detail) notFound();
   const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
+  // Renaiss's limited drops in its Machines table: one-time packs, so the table
+  // files them under inactive (dropKeys), and one the feed never names reads by
+  // its date, as in the drops table, not "Unnamed pack".
+  const dropByKey = new Map((drops?.drops ?? []).map((d) => [d.productId, d]));
+  const board =
+    machineBoard && dropByKey.size
+      ? {
+          ...machineBoard,
+          rows: machineBoard.rows.map((r) => {
+            const d = dropByKey.get(r.key);
+            return d && !d.named ? { ...r, name: `Drop · ${formatMonthDayUtc(d.firstAt) ?? d.firstAt.slice(0, 10)}` } : r;
+          }),
+        }
+      : machineBoard;
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
 
   // ── Zone-1 rail rows ────────────────────────────────────────────────────────
@@ -539,7 +553,7 @@ export default async function PlatformDetailPage({
               is the venue's own board existing (readVenueMachineBoard returns null
               for a venue without one); a venue without a board sends nothing. */}
           {machineBoard && machineBoard.rows.length > 0 && (
-            <PlatformMachines board={machineBoard} platformKey={key} />
+            <PlatformMachines board={board} platformKey={key} dropKeys={[...dropByKey.keys()]} />
           )}
 
           {/* Boxes: the venue's catalog from /gacha, in the Machines slot for a
