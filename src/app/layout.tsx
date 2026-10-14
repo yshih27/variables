@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { Analytics } from "@vercel/analytics/next";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { AppShell } from "@/components/shell/AppShell";
@@ -8,18 +8,28 @@ import { SHELL_V2 } from "@/lib/flags";
 import { SITE_ORIGIN } from "@/lib/site";
 import "./globals.css";
 
-const jetbrainsMono = JetBrains_Mono({
+// ⚠️ SELF-HOSTED, NEVER next/font/google. Google Fonts refused Vercel's build
+// servers on Oct 14 2026 and every production build failed on the download
+// (module-not-found for each font file). These are the same files Google served
+// for the subset we load, "latin": both are variable, so one file covers 400-700.
+// Characters outside it fall back to the system face in the stacks in
+// globals.css. Licence: SIL Open Font License (JetBrains Mono, Inter).
+const jetbrainsMono = localFont({
+  src: "./fonts/jetbrains-mono-latin.woff2",
   variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
+  // A monospace face: an Arial-metric fallback would reflow the numbers while it loads.
+  adjustFontFallback: false,
 });
 
 // Display / prose face (sans) — Inter, matching Rarible — paired with mono
 // numbers. Exposed as --font-inter and wired to Tailwind's `font-sans`.
-const inter = Inter({
+const inter = localFont({
+  src: "./fonts/inter-latin.woff2",
   variable: "--font-inter",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: "400 700",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
