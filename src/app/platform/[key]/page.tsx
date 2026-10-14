@@ -36,6 +36,9 @@ import { readVenueInsights } from "@/lib/data/venueInsights";
 import { readRenaissDrops } from "@/lib/renaiss/drops";
 import { readVenueBoxes } from "@/lib/data/venueBoxes";
 import { VenueBoxesTable } from "@/components/VenueBoxesTable";
+import { VenueMixCompare } from "@/components/VenueMixCompare";
+import { buildVenueMix } from "@/lib/data/venueMix";
+import { getPlatformSeries } from "@/lib/data/platformSeries";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { VenueMarketPosition } from "@/components/VenueMarketPosition";
 import { SameCardElsewhere } from "@/components/SameCardElsewhere";
@@ -95,6 +98,10 @@ export default async function PlatformDetailPage({
     // (readVenueBoxes: DYLI). Null elsewhere.
     readVenueBoxes(key),
   ]);
+  // Every venue's packs-vs-marketplace split, this venue's row marked: the
+  // cached series /platforms reads (getPlatformSeries), so no extra query.
+  const [allMarket, allPacks] = await Promise.all([getPlatformSeries("volume_usd"), getPlatformSeries("gacha_volume_usd")]);
+  const venueMix = buildVenueMix(allMarket, allPacks, PLATFORM_SOURCES.map((s) => s.key));
   if (!detail) notFound();
   const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
   // Renaiss's limited drops in its Machines table: one-time packs, so the table
@@ -510,6 +517,9 @@ export default async function PlatformDetailPage({
               its rank by month. A question about the market, not the venue's own
               volume, so it sits under the venue's own mix. */}
           <VenueMarketPosition venueKey={key} venueName={detail.source.name} market={insights?.market} />
+
+          {/* Every venue's split between packs and its marketplace, this one marked. */}
+          <VenueMixCompare mix={venueMix} names={venueNames} highlight={key} />
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless

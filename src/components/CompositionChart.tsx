@@ -174,8 +174,13 @@ export function CompositionChart({
   const hasData = columns.some((c) => c.segments.length > 0);
   const gapCls = variant === "bars" ? "gap-[2px]" : "gap-0";
   const col = hover != null ? columns[hover] ?? null : null;
-  // The legend's number: each series' share of the latest day that has data —
-  // the same figure the tooltip shows for that day, in every mode.
+  // The legend's number.
+  //  • A FLOW (volume) reads each series' share of the WHOLE window, the period
+  //    the subtitle names. ⚠️ Until Oct 14 2026 it printed the latest day's split
+  //    under "last 30 days": DYLI's 29.2% was Oct 12 alone (its 30 days were
+  //    15.1%), and an owner briefed a stream from it.
+  //  • A LEVEL (market cap, holders) reads the latest day, as a level should:
+  //    the same figure the tooltip shows for that day, in every mode.
   const latest = [...columns].reverse().find((c) => c.segments.length) ?? null;
   const latestShare = (key: string): number | null => {
     const seg = latest?.segments.find((x) => x.key === key);
@@ -183,6 +188,12 @@ export function CompositionChart({
     if (mode === "share") return seg.value;
     return latest.rawTotal > 0 ? (seg.value / latest.rawTotal) * 100 : null;
   };
+  const windowShare = useMemo(() => {
+    const sums = new Map(series.map((x) => [x.key, x.points.reduce((a, pt) => a + (Number.isFinite(pt.value) ? pt.value : 0), 0)]));
+    const total = [...sums.values()].reduce((a, v) => a + v, 0);
+    return (key: string): number | null => (total > 0 ? ((sums.get(key) ?? 0) / total) * 100 : null);
+  }, [series]);
+  const legendShare = (key: string): number | null => (flow ? windowShare(key) : latestShare(key));
   const ticks = xTicks(dates, 5);
   // Clamp the tooltip so an edge column doesn't push it off the card.
   const leftPct = hover != null && columns.length ? Math.min(Math.max(((hover + 0.5) / columns.length) * 100, 16), 84) : 0;
@@ -237,8 +248,8 @@ export function CompositionChart({
             <span key={s.key} className="flex items-center gap-1.5 text-[11.5px]">
               <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} />
               <span className="text-ink-2">{s.label}</span>
-              {latestShare(s.key) != null && (
-                <span className="font-mono tabular text-[11px] text-ink-3">{latestShare(s.key)!.toFixed(1)}%</span>
+              {legendShare(s.key) != null && (
+                <span className="font-mono tabular text-[11px] text-ink-3">{legendShare(s.key)!.toFixed(1)}%</span>
               )}
             </span>
           ))}
