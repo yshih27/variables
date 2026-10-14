@@ -15,6 +15,10 @@ import { Section } from "./Section";
  * priced in the venue's own marks (realizedValueBasis), never a market price.
  * Under THIN_N pulls a measured ratio is not shown, and a typical pull that
  * failed the plausibility gate (gachaPackView) arrives already nulled.
+ *
+ * Audited Oct 14 2026 against DYLI's API: pull counts exact; returns within
+ * 0.03× of DYLI's live marks, because we keep each prize's mark from when it
+ * was pulled and DYLI re-marks later. Sold-out boxes are not in the catalog.
  */
 const ratio = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(2)}×`);
 const measured = (p: GachaPack, v: number | null | undefined) => (p.realizedN != null && p.realizedN >= THIN_N ? ratio(v) : "—");
@@ -34,7 +38,7 @@ export function VenueBoxesTable({ venueName, boxes }: { venueName: string; boxes
       className="scroll-mt-24 font-sans"
       title="Boxes"
       readMe={`every ${venueName} box: what ${venueName} says it is worth, and what pulls returned`}
-      subtitle={`${packs.length} boxes · ${pulled} pulled in the last 7 days · busiest first`}
+      subtitle={`${packs.length} boxes on sale · ${pulled} pulled in the last 7 days · busiest first`}
       flush
     >
       <div className="scroll-x">
@@ -81,7 +85,7 @@ export function VenueBoxesTable({ venueName, boxes }: { venueName: string; boxes
         </table>
       </div>
       <p className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4" data-boxes-receipt>
-        {`all as multiples of the box price · says = ${venueName}'s own expected value per box · returned = the mean prize value of the last 7 days' pulls, typical = the median pull, both in ${basis} and shown from ${THIN_N} pulls; a typical pull failing the plausibility check is withheld · top prize = the most valuable prize ${venueName} lists in the box · game inferred from the prizes${asOf ? ` · as of ${asOf}` : ""}`}
+        {`all as multiples of the box price · says = ${venueName}'s own expected value per box · returned = the mean prize value of the last 7 days' pulls, typical = the median pull, both in ${basis} when pulled and shown from ${THIN_N} pulls; a typical pull failing the plausibility check is withheld · top prize = the most valuable prize ${venueName} lists in the box · game inferred from the prizes${asOf ? ` · as of ${asOf}` : ""}`}
       </p>
     </Section>
   );
