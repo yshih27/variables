@@ -14,6 +14,9 @@ import { bulkDayOverDayPctComplete, dropIncompleteTail, DELTA_MIN_BASE_USD, type
 import { totalActivity24, sharePct24, concentrationHHI24 } from "@/lib/platform/share";
 import { getPlatformSeries, totalDaily, platformVolumeBands } from "@/lib/data/platformSeries";
 import { StackedAreaChart } from "@/components/StackedAreaChart";
+import { VenueMixCompare } from "@/components/VenueMixCompare";
+import { buildVenueMix } from "@/lib/data/venueMix";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 /** HHI concentration bands — matches PlatformStatBar's cutoffs (0.25/0.4) so the
@@ -205,6 +208,10 @@ export default async function AllPlatformsPage() {
   // never a second stacked chart.
   const HERO_DAYS = 120;
   const volumeHero = platformVolumeBands(ranked, mktSeries, gachaSeries, HERO_DAYS);
+  // Every venue's packs-vs-marketplace split over the same complete days, from
+  // the two series already read for the hero (no extra query).
+  const venueMix = buildVenueMix(mktSeries, gachaSeries, PLATFORM_SOURCES.map((s) => s.key));
+  const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
 
   return (
     <>
@@ -279,6 +286,11 @@ export default async function AllPlatformsPage() {
               Below the canvas now: it qualifies the shape above rather than
               introducing it. */}
           <PlatformStatBar rows={data.platforms} />
+
+          {/* Compare venues: what each venue's money is, packs or collectors
+              trading, over the same days — the rows, the median day and every
+              day, no written conclusion. */}
+          <VenueMixCompare mix={venueMix} names={venueNames} />
 
           {/* ZONE 2 — the top-4 platform cards, in leaderboard order, so
               the KPI summary reads straight down into the leaders. Any beyond
