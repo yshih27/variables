@@ -95,6 +95,9 @@ jobs:
       - name: Price index + sale panel (warm-sale-panel)
         continue-on-error: true
         run: npx tsx scripts/warm-sale-panel.ts
+      - name: Venue insights (market position + same card, other venues → venue-insights)
+        continue-on-error: true
+        run: npx tsx scripts/warm-venue-insights.ts --apply
       - name: Courtyard primary
         continue-on-error: true
         run: npx tsx scripts/warm-courtyard-primary.ts
@@ -127,6 +130,9 @@ jobs:
       - name: Renaiss players (renaiss_wallet_spend RPC → players:renaiss)
         continue-on-error: true
         run: npx tsx scripts/warm-renaiss-players.ts --apply
+      - name: Renaiss drops (last 10 days of paid pulls → renaiss-drops)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-drops.ts --apply
       - name: Gacha (cached)
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-dune.ts --cached

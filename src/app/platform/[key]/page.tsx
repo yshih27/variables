@@ -32,6 +32,12 @@ import {
   type SeriesPoint,
 } from "@/lib/data/metricSnapshots";
 import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
+import { readVenueInsights } from "@/lib/data/venueInsights";
+import { readRenaissDrops } from "@/lib/renaiss/drops";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { VenueMarketPosition } from "@/components/VenueMarketPosition";
+import { SameCardElsewhere } from "@/components/SameCardElsewhere";
+import { RenaissDropsTable } from "@/components/RenaissDropsTable";
 import { formatCompactUsd, formatCompactNumber } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -65,7 +71,7 @@ export default async function PlatformDetailPage({
   const { key } = await params;
   // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
   // round-trips per request (R2-B1).
-  const [detail, series, playersSnap, studioSeed, ledger, machineBoard, venuePlayer] = await Promise.all([
+  const [detail, series, playersSnap, studioSeed, ledger, machineBoard, venuePlayer, insights, drops] = await Promise.all([
     getPlatformDetail(key),
     getPlatformActivitySeries(key),
     // Snapshot read; degrades to null (readSnapshot never throws), so a missing
@@ -79,8 +85,13 @@ export default async function PlatformDetailPage({
     // without one — the sections below gate on these existing, never on a key.
     readVenueMachineBoard(key),
     readVenuePlayers(key),
+    // Cross-venue views (warm-venue-insights) and Renaiss's drop history
+    // (warm-renaiss-drops): snapshot reads, null when the warmer has not run.
+    readVenueInsights(),
+    key === "renaiss" ? readRenaissDrops() : Promise.resolve(null),
   ]);
   if (!detail) notFound();
+  const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
 
   // ── Zone-1 rail rows ────────────────────────────────────────────────────────
@@ -476,6 +487,11 @@ export default async function PlatformDetailPage({
             </div>
           ) : null}
 
+          {/* Where this venue stands among all of them: its share of pack spend and
+              its rank by month. A question about the market, not the venue's own
+              volume, so it sits under the venue's own mix. */}
+          <VenueMarketPosition venueKey={key} venueName={detail.source.name} market={insights?.market} />
+
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless
               the platform is eligible AND its payout days are on the R3 basis, so
@@ -521,6 +537,10 @@ export default async function PlatformDetailPage({
             <PlatformMachines board={machineBoard} platformKey={key} />
           )}
 
+          {/* Limited drops: one-time packs that sold their whole run in a day.
+              After Machines: those are the always-on machines, these the drops. */}
+          <RenaissDropsTable snap={drops} />
+
           {/* Biggest pulls — the 12 most valuable prizes over 30 days, each value
               in its venue's basis. After Machines: that answers "where the money
               goes", this "what came out". Full width; nothing beside it. */}
@@ -563,6 +583,10 @@ export default async function PlatformDetailPage({
           (terminal-ux-study §4) — crushing one to satisfy a layout pattern inverts
           the point of the doctrine, and pairing is not a goal in itself. Volume mix ‖
           Top partners above is this page's consolidation win. Both stay full-width. */}
+      {/* Same card, other venues: what this venue's buyers paid against the same
+          card elsewhere. Beside the venue's own resale tables, which say what
+          sold here; this says how it compares. */}
+      <SameCardElsewhere venueName={detail.source.name} data={insights?.sameCard[key]} names={venueNames} />
       <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} salesWindow={salesWindow} />
       <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} salesWindow={salesWindow} />
         </div>
