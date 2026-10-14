@@ -38,6 +38,9 @@ import { readVenueBoxes } from "@/lib/data/venueBoxes";
 import { VenueBoxesTable } from "@/components/VenueBoxesTable";
 import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
+import { VenueSpendCompare } from "@/components/VenueSpendCompare";
+import { buildVenueSpend } from "@/lib/data/venueSpend";
+import { readRenaissPlayers } from "@/lib/renaiss/players";
 import { getPlatformSeries } from "@/lib/data/platformSeries";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { VenueMarketPosition } from "@/components/VenueMarketPosition";
@@ -100,8 +103,19 @@ export default async function PlatformDetailPage({
   ]);
   // Every venue's packs-vs-marketplace split, this venue's row marked: the
   // cached series /platforms reads (getPlatformSeries), so no extra query.
-  const [allMarket, allPacks] = await Promise.all([getPlatformSeries("volume_usd"), getPlatformSeries("gacha_volume_usd")]);
+  const [allMarket, allPacks, renaissPlayers] = await Promise.all([
+    getPlatformSeries("volume_usd"),
+    getPlatformSeries("gacha_volume_usd"),
+    readRenaissPlayers(),
+  ]);
   const venueMix = buildVenueMix(allMarket, allPacks, PLATFORM_SOURCES.map((s) => s.key));
+  // Who spends, every venue, this one marked: the player snapshot already read
+  // above (playersSnap) plus Renaiss's own.
+  const venueSpend = buildVenueSpend(
+    [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
+    allPacks,
+    PLATFORM_SOURCES.map((s) => s.key),
+  );
   if (!detail) notFound();
   const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
   // Renaiss's limited drops in its Machines table: one-time packs, so the table
@@ -520,6 +534,7 @@ export default async function PlatformDetailPage({
 
           {/* Every venue's split between packs and its marketplace, this one marked. */}
           <VenueMixCompare mix={venueMix} names={venueNames} highlight={key} />
+          <VenueSpendCompare rows={venueSpend} names={venueNames} highlight={key} />
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless
