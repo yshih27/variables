@@ -52,7 +52,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
             {drops.map((d) => (
               <tr key={d.productId} className="[&:last-child>td]:border-b-0">
                 <Td>
-                  <span className="font-semibold text-ink">{d.named ? d.name : "Unnamed pack"}</span>
+                  <span className="font-semibold text-ink">{d.named ? d.name : "Drop"}</span>
                   <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(d.firstAt)}</span>
                 </Td>
                 <Td align="right" className="font-mono tabular text-ink-2">
@@ -79,7 +79,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
         </table>
       </div>
       <p className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} more pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = the wallet's first Renaiss pull was in that drop · earlier drops are counted from ${formatMonthDayUtc(snap.historyFrom)} on`}
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} more pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = the wallet's first Renaiss pull was in that drop · earlier drops are counted from ${formatMonthDayUtc(snap.historyFrom)} on · "Drop" = a drop Renaiss's feed gives no name`}
       </p>
     </Section>
   );

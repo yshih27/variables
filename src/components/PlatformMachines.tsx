@@ -8,9 +8,11 @@ import { formatCompactUsd, formatInt } from "@/lib/format";
 import {
   attributedPct,
   colorBySlug,
+  inactiveSummary,
   isRawKey,
   shortKey,
   sortMachines,
+  splitActive,
   type MachineSortKey,
 } from "@/lib/machines/board";
 import {
@@ -63,6 +65,13 @@ import { TableFoot } from "./TableFoot";
  * persist per platform. `#machines` on the URL overrides both for that visit:
  * a link to "the machines" opens the card with every row, and writes nothing.
  *
+ * ── Active in the table, inactive behind a toggle ───────────────────────────
+ * A limited drop (`dropKeys`, Renaiss) or a machine with no spend in the last 7
+ * complete days is inactive (splitActive): it sits under "Show N inactive"
+ * below the active rows, in the same sort, unranked. A one-time drop that sold
+ * out weeks ago is not a machine anyone can pull, and in the table it read as a
+ * broken row ($0 this week, no value back). `#machines` opens these too.
+ *
  * ⚠️ THE LIMIT IS APPLIED AT THE <tbody> AND NOWHERE ELSE. `sorted` is always
  * the whole board; only the rows mapped into the table are cut. There is no
  * CSV action on this table today, and if one is ever added it must be fed from
@@ -73,12 +82,18 @@ import { TableFoot } from "./TableFoot";
  *  reader can never mistake the unmeasured remainder for a partner. */
 const UNATTRIBUTED_FILL = "var(--color-line-2)";
 
+/** A week with no spend reads "$0", a measured zero, not "$0.00". */
+const spend7dLabel = (v: number) => (v === 0 ? "$0" : formatCompactUsd(v));
+
 export function PlatformMachines({
   board,
   platformKey,
+  dropKeys,
 }: {
   board: MachineBoard | null | undefined;
   platformKey: string;
+  /** Keys of the venue's limited drops (Renaiss): always inactive. */
+  dropKeys?: string[];
 }) {
   const [sortKey, setSortKey] = useState<MachineSortKey>("spend");
   const [dir, setDir] = useState<1 | -1>(-1);
@@ -123,6 +138,9 @@ export function PlatformMachines({
   // ⚠️ Always the WHOLE board, in the current order. The row limit is applied
   // where the rows are rendered, below — never here.
   const sorted = useMemo(() => sortMachines(rows, sortKey, dir), [rows, sortKey, dir]);
+  const dropSet = useMemo(() => new Set(dropKeys ?? []), [dropKeys]);
+  const { active, inactive } = useMemo(() => splitActive(sorted, dropSet), [sorted, dropSet]);
+  const [inactiveOpen, setInactiveOpen] = useState(false);
 
   // The board is the venue's own (readVenueMachineBoard reads one per venue and
   // returns null for a venue without one), so its existence is the only gate.
@@ -162,8 +180,11 @@ export function PlatformMachines({
   const partnered = board.attributedSpendPct != null;
   // Cut ONLY here. `sorted` stays whole for the count and for anything that
   // exports.
-  const visible = showAll ? sorted : sorted.slice(0, TOP_ROWS);
-  const truncated = visible.length < sorted.length;
+  const visible = showAll ? active : active.slice(0, TOP_ROWS);
+  const truncated = visible.length < active.length;
+  // Inactive rows open with the toggle, with `#machines`, or on their own when nothing is active.
+  const showInactive = linked || inactiveOpen || active.length === 0;
+  const columns = 9;
 
   return (
     <Section
@@ -233,23 +254,52 @@ export function PlatformMachines({
                     <StatedMachineTr key={r.key} row={r} rank={i + 1} basis={board.valueBasis ?? null} />
                   ),
                 )}
+                {showInactive && inactive.length > 0 ? (
+                  <>
+                    <tr data-machines-inactive>
+                      <td colSpan={columns} className="border-b border-line/60 bg-bg-2/40 px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-4 sm:px-4">
+                        {`Inactive · ${inactiveSummary(inactive)}`}
+                      </td>
+                    </tr>
+                    {inactive.map(({ row: r }) =>
+                      partnered ? (
+                        <MachineTr key={r.key} row={r} rank={null} colors={colors} />
+                      ) : (
+                        <StatedMachineTr key={r.key} row={r} rank={null} basis={board.valueBasis ?? null} />
+                      ),
+                    )}
+                  </>
+                ) : null}
               </tbody>
             </table>
           </div>
           <TableFoot
             shown={visible.length}
-            total={sorted.length}
-            noun="machine"
+            total={active.length}
+            noun={inactive.length ? "active machine" : "machine"}
             action={
               // Only when there is something to show or hide: a board of eight
               // machines has no "top 10" to go back to.
-              sorted.length > TOP_ROWS
+              active.length > TOP_ROWS
                 ? truncated
-                  ? { label: `Show all ${sorted.length} →`, onClick: () => setRows("all") }
+                  ? { label: `Show all ${active.length} →`, onClick: () => setRows("all") }
                   : { label: `Show top ${TOP_ROWS}`, onClick: () => setRows("top") }
                 : undefined
             }
           />
+          {inactive.length > 0 && active.length > 0 && !linked ? (
+            <div className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] text-ink-4 sm:px-5" data-machines-inactive-toggle>
+              <button
+                type="button"
+                aria-expanded={showInactive}
+                onClick={() => setInactiveOpen((v) => !v)}
+                className="cursor-pointer rounded-sm text-ink-3 transition-colors hover:text-yellow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow/60"
+              >
+                {`${showInactive ? "Hide" : "Show"} ${inactive.length} inactive ${showInactive ? "▴" : "▾"}`}
+              </button>
+              {` · ${inactiveSummary(inactive)}`}
+            </div>
+          ) : null}
         </>
       ) : (
         <MachinesSummary board={board} asOf={asOf} partnered={partnered} />
@@ -296,7 +346,8 @@ function MachineTr({
   colors,
 }: {
   row: MachineRow;
-  rank: number;
+  /** Null for an inactive row: it is listed, not ranked. */
+  rank: number | null;
   colors: Map<string, string>;
 }) {
   const pct = attributedPct(row);
@@ -305,7 +356,7 @@ function MachineTr({
 
   return (
     <tr className="[&:last-child>td]:border-b-0">
-      <Td className="w-[44px] text-ink-3">{String(rank).padStart(2, "0")}</Td>
+      <Td className="w-[44px] text-ink-3">{rank == null ? "" : String(rank).padStart(2, "0")}</Td>
       <Td>
         <MachineName row={row} raw={raw} label={label} />
       </Td>
@@ -317,7 +368,7 @@ function MachineTr({
       </Td>
       <Td align="right" strong>{formatCompactUsd(row.spendUsd)}</Td>
       <Td align="right" muted className="hidden md:table-cell">{formatInt(row.pulls)}</Td>
-      <Td align="right" muted className="hidden lg:table-cell">{formatCompactUsd(row.spend7dUsd)}</Td>
+      <Td align="right" muted className="hidden lg:table-cell">{spend7dLabel(row.spend7dUsd)}</Td>
       <Td align="right" muted className="hidden sm:table-cell">
         {Number.isFinite(pct) ? `${pct.toFixed(1)}%` : <span className="text-ink-4">—</span>}
       </Td>
@@ -336,13 +387,13 @@ function MachineTr({
  * share are the venue's own claim, so each cell's title names the basis, and the
  * hit share prints its n: a share of 4 pulls is not a share of 1,252.
  */
-function StatedMachineTr({ row, rank, basis }: { row: MachineRow; rank: number; basis: string | null }) {
+function StatedMachineTr({ row, rank, basis }: { row: MachineRow; rank: number | null; basis: string | null }) {
   const raw = isRawKey(row);
   const label = raw ? shortKey(row.key) : row.name;
   const prize = row.topPrize ?? null;
   return (
     <tr className="[&:last-child>td]:border-b-0">
-      <Td className="w-[44px] text-ink-3">{String(rank).padStart(2, "0")}</Td>
+      <Td className="w-[44px] text-ink-3">{rank == null ? "" : String(rank).padStart(2, "0")}</Td>
       <Td>
         <MachineName row={row} raw={raw} label={label} />
       </Td>
@@ -351,7 +402,7 @@ function StatedMachineTr({ row, rank, basis }: { row: MachineRow; rank: number; 
       </Td>
       <Td align="right" strong>{formatCompactUsd(row.spendUsd)}</Td>
       <Td align="right" muted className="hidden md:table-cell">{formatInt(row.pulls)}</Td>
-      <Td align="right" muted className="hidden lg:table-cell">{formatCompactUsd(row.spend7dUsd)}</Td>
+      <Td align="right" muted className="hidden lg:table-cell">{spend7dLabel(row.spend7dUsd)}</Td>
       <Td align="right" muted className="hidden sm:table-cell">
         {row.valueBackPct != null ? (
           <span title={basis ?? undefined}>{row.valueBackPct.toFixed(1)}%</span>

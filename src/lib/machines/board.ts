@@ -97,3 +97,36 @@ export function colorBySlug(rows: MachineRow[]): Map<string, string> {
       .map(([slug], i) => [slug, PALETTE[i % PALETTE.length]]),
   );
 }
+
+/** Why a row sits under the table's "inactive" toggle. */
+export type InactiveReason = "drop" | "idle";
+
+/**
+ * A board's rows split into active and inactive, each in the order given (so the
+ * current sort holds in both). Inactive: a limited drop (`dropKeys` — a one-time
+ * pack, listed as a drop only once its run is over) or a machine with no spend
+ * in the board's last 7 complete days. Anything that sold this week is active,
+ * so a drop still selling stays in the table until it is listed as one.
+ */
+export function splitActive(
+  rows: MachineRow[],
+  dropKeys: ReadonlySet<string> = new Set(),
+): { active: MachineRow[]; inactive: { row: MachineRow; reason: InactiveReason }[] } {
+  const active: MachineRow[] = [];
+  const inactive: { row: MachineRow; reason: InactiveReason }[] = [];
+  for (const row of rows) {
+    if (dropKeys.has(row.key)) inactive.push({ row, reason: "drop" });
+    else if (!(row.spend7dUsd > 0)) inactive.push({ row, reason: "idle" });
+    else active.push(row);
+  }
+  return { active, inactive };
+}
+
+/** "2 sold-out drops · 1 with no pulls in 7 days": what the inactive toggle holds, from the split. */
+export function inactiveSummary(inactive: { reason: InactiveReason }[]): string {
+  const drops = inactive.filter((i) => i.reason === "drop").length;
+  const idle = inactive.length - drops;
+  return [drops ? `${drops} sold-out ${drops === 1 ? "drop" : "drops"}` : null, idle ? `${idle} with no pulls in 7 days` : null]
+    .filter(Boolean)
+    .join(" · ");
+}
