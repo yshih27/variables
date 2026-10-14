@@ -66,7 +66,7 @@ async function main(): Promise<{ rowsWritten: number }> {
   try {
     const t0 = Date.now();
     const monthly = await readMonthlyBuyers(Date.parse(`${recomputeFrom}-01T00:00:00Z`), now, (l) => console.log(l));
-    platform.monthlyPlayers = renaissMonthlyPlayers(monthly.months, read.rows, stored, recomputeFrom);
+    platform.monthlyPlayers = renaissMonthlyPlayers(monthly.months, read.rows, stored, recomputeFrom, monthly.spend);
     console.log(`  players per month: re-read from ${recomputeFrom}${reseed ? " (reseed)" : ""} · ${monthly.rows.toLocaleString()} checkouts · ${monthly.queries} queries · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
     for (const m of platform.monthlyPlayers) {
       console.log(`    ${m.month} ${m.players.toLocaleString().padStart(6)} players · ${m.firstTime.toLocaleString().padStart(5)} first-time · ${(m.players ? (100 * (m.players - m.firstTime)) / m.players : 0).toFixed(1)}% returning`);

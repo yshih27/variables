@@ -31,7 +31,14 @@ export function VenuePlayersCompare({
   highlight?: string;
 }) {
   if (!rows?.some((r) => r.measured)) return null;
-  const since = rows.filter((r) => r.measured && r.since).map((r) => `${names[r.venue] ?? r.venue} ${mon(r.since!)}`);
+  const pct = (n: number) => `${Math.round(n)}%`;
+  const covered = rows
+    .filter((r) => r.measured && r.coverage)
+    .map((r) => {
+      const lo = pct(r.coverage!.min);
+      const hi = pct(r.coverage!.max);
+      return `${names[r.venue] ?? r.venue} from ${mon(r.since!)}, ${lo === hi ? lo : `${lo}–${hi}`} of its pack spend in the months drawn`;
+    });
 
   return (
     <Section
@@ -54,7 +61,7 @@ export function VenuePlayersCompare({
         </ul>
       </div>
       <p className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-players-venues-receipt>
-        {`players = wallets with at least one paid pull that month · returning = they pulled in an earlier month · first-time = their first pull in our records · records begin: ${since.join(", ")}; that first month is not drawn (everyone in it is new to the records), nor is the month in progress · where records start after a venue launched, its early months overcount first-timers · not measured = no wallet-level pulls`}
+        {`players = wallets with at least one paid pull that month · returning = they pulled in an earlier month · first-time = their first pull in our records · a month is drawn only when the wallets counted spent at least half of the venue's pack spend that month; the first such month is not drawn (everyone in it is new to the records), nor is the month in progress · records cover: ${covered.join("; ")} · where records start after a venue launched, early months overcount first-timers`}
       </p>
     </Section>
   );
@@ -65,7 +72,7 @@ function PlayersRow({ row, name, marked }: { row: VenuePlayersRow; name: string;
   const max = Math.max(1, ...row.months.map((m) => m.players));
   return (
     <li
-      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-line/60 py-3 last:border-b-0 md:grid-cols-[150px_minmax(0,1fr)_220px] ${
+      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-line/60 py-3 last:border-b-0 md:grid-cols-[150px_minmax(0,1fr)_290px] ${
         marked ? "-mx-2 bg-bg-2/60 px-2" : ""
       }`}
       data-venue={row.venue}
@@ -100,7 +107,7 @@ function PlayersRow({ row, name, marked }: { row: VenuePlayersRow; name: string;
           </span>
         </>
       ) : (
-        <span className="text-right font-mono text-[12px] text-ink-4 md:col-span-2 md:text-left">not measured</span>
+        <span className="text-right font-mono text-[12px] text-ink-4 md:col-span-2 md:text-left">{`not measured: ${row.reason ?? "no wallet-level pulls"}`}</span>
       )}
     </li>
   );

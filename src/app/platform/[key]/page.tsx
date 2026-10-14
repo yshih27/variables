@@ -118,6 +118,7 @@ export default async function PlatformDetailPage({
   const venuePrices = buildVenuePrices(gachaData?.packs ?? [], PLATFORM_SOURCES.map((s) => s.key));
   const venuePlayers = buildVenuePlayers(
     [...(playersSnap?.platforms ?? []), ...(renaissPlayers?.platform ? [{ ...renaissPlayers.platform, platform: "renaiss" }] : [])],
+    allPacks,
     PLATFORM_SOURCES.map((s) => s.key),
   );
   const venueMix = buildVenueMix(allMarket, allPacks, PLATFORM_SOURCES.map((s) => s.key));

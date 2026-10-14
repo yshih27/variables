@@ -66,6 +66,12 @@ export type MonthlyPlayersRow = {
   players: number;
   /** Of those, wallets whose first priced pull in our records came that month. */
   firstTime: number;
+  /**
+   * What those wallets spent that month. Against the venue's pack spend it says
+   * how much of the venue the month's records cover (venuePlayers.ts draws a
+   * month only from half up). Absent on rows written before Oct 15 2026.
+   */
+  spendUsd?: number;
 };
 
 export type ConcentrationStats = {
@@ -350,8 +356,9 @@ type PlatformAcc = {
   partners: Map<string, PartnerAcc>;
   win: WindowCounts;
   monthly: Map<string, { byPrice: Map<number, number>; total: number; pulls: number }>;
-  /** UTC month → the wallets with a priced pull that month. */
+  /** UTC month → the wallets with a priced pull that month, and what they spent. */
   monthWallets: Map<string, Set<string>>;
+  monthWalletSpend: Map<string, number>;
   rows: number;
   walletRows: number;
   pricedRows: number;
@@ -365,6 +372,7 @@ const blank = (): PlatformAcc => ({
   win: { total24h: 0, total7d: 0, total30d: 0, totalLife: 0, attr24h: 0, attr7d: 0, attr30d: 0, attrLife: 0 },
   monthly: new Map(),
   monthWallets: new Map(),
+  monthWalletSpend: new Map(),
   rows: 0,
   walletRows: 0,
   pricedRows: 0,
@@ -523,6 +531,7 @@ export async function aggregatePlayerAnalytics(opts: {
             let set = acc.monthWallets.get(month);
             if (!set) acc.monthWallets.set(month, (set = new Set()));
             set.add(buyer);
+            acc.monthWalletSpend.set(month, (acc.monthWalletSpend.get(month) ?? 0) + price);
           }
         }
       }
@@ -688,7 +697,7 @@ function buildPlatform(platform: string, acc: PlatformAcc): PlatformPlayerAnalyt
     tiers,
     monthly,
     concentration,
-    monthlyPlayers: monthlyPlayersFrom(acc.monthWallets, firstMonths(acc.wallets.values())),
+    monthlyPlayers: monthlyPlayersFrom(acc.monthWallets, firstMonths(acc.wallets.values()), acc.monthWalletSpend),
   };
 }
 
@@ -708,10 +717,19 @@ export function firstMonths(wallets: Iterable<{ firstAt: number }>): Map<string,
  * oldest first. Pure: Renaiss's monthly read (renaiss/players.ts) uses it too,
  * so first-time and returning are counted one way for every venue.
  */
-export function monthlyPlayersFrom(monthWallets: Map<string, Set<string>>, firstByMonth: Map<string, number>): MonthlyPlayersRow[] {
+export function monthlyPlayersFrom(
+  monthWallets: Map<string, Set<string>>,
+  firstByMonth: Map<string, number>,
+  monthSpend?: Map<string, number>,
+): MonthlyPlayersRow[] {
   return [...monthWallets.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([month, set]) => ({ month, players: set.size, firstTime: Math.min(set.size, firstByMonth.get(month) ?? 0) }));
+    .map(([month, set]) => ({
+      month,
+      players: set.size,
+      firstTime: Math.min(set.size, firstByMonth.get(month) ?? 0),
+      ...(monthSpend ? { spendUsd: monthSpend.get(month) ?? 0 } : {}),
+    }));
 }
 
 /**
