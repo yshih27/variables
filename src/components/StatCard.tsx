@@ -78,7 +78,14 @@ export function StatCard({
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-[11px] font-medium uppercase tracking-[0.07em] text-ink-3">
-          {metric ? <MetricInfo metric={metric}>{label}</MetricInfo> : label}
+          {metric ? (
+            // Inside the card's own link, the ⓘ keeps its tooltip and drops its hidden link.
+            <MetricInfo metric={metric} link={!href}>
+              {label}
+            </MetricInfo>
+          ) : (
+            label
+          )}
         </span>
         {deltaPct != null && Number.isFinite(deltaPct) && (
           <span className="inline-flex items-center gap-1">
