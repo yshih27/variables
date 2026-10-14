@@ -28,17 +28,19 @@ const dayIso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const fileOf = (cache: string, day: string) => join(cache, `arb-${day}.json`);
 
 /**
- * One read, retried in place: the public endpoint times out under load, and a
- * failed read must not send the span back to its first unwritten day.
+ * One RPC step, retried in place: the public endpoint times out under load and
+ * refuses connections for minutes at a time (measured Oct 13: ~7 minutes of
+ * "fetch failed" ended a run). A failed step must not send the span back to its
+ * first unwritten day, and it must outlast an outage.
  */
-async function readWithRetry(a: number, b: number, tag: string): Promise<Awaited<ReturnType<typeof fetchExchangeTrades>>> {
+async function withRetry<T>(label: string, tag: string, step: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await fetchExchangeTrades(a, b);
+      return await step();
     } catch (e) {
-      if (attempt >= 10) throw e;
-      const wait = Math.min(attempt * 20_000, 180_000);
-      console.warn(`  [${tag}] blocks ${a.toLocaleString()}–${b.toLocaleString()}: ${(e as Error).message} — read retry ${attempt} in ${wait / 1000}s`);
+      if (attempt >= 30) throw e;
+      const wait = Math.min(attempt * 20_000, 300_000);
+      console.warn(`  [${tag}] ${label}: ${(e as Error).message} — retry ${attempt} in ${wait / 1000}s`);
       await new Promise((r) => setTimeout(r, wait));
     }
   }
@@ -57,10 +59,10 @@ function runs(days: number[]): [number, number][] {
 
 /** One span [d0, d1): read through d1 + the window, write each day once it is final. */
 async function measureSpan(d0: number, d1: number, cache: string, tag: string): Promise<number> {
-  const tip = await polygonSafeTip();
-  const a0 = await blockAtOrAfter(d0);
+  const tip = await withRetry("tip", tag, () => polygonSafeTip());
+  const a0 = await withRetry("first block", tag, () => blockAtOrAfter(d0));
   const endMs = d1 + ARBITRAGE_WINDOW_MS;
-  const a1 = Math.min(tip, (await blockAtOrAfter(endMs)) - 1);
+  const a1 = Math.min(tip, (await withRetry("last block", tag, () => blockAtOrAfter(endMs))) - 1);
   const matcher = new ArbitrageMatcher();
   const purchases = new Map<string, { day: number; usd: number }>();
   const buybacks = new Map<number, { n: number; usd: number }>();
@@ -107,7 +109,7 @@ async function measureSpan(d0: number, d1: number, cache: string, tag: string): 
 
   for (let a = a0; a <= a1; a += READ_BLOCKS) {
     const b = Math.min(a1, a + READ_BLOCKS - 1);
-    const batch = await readWithRetry(a, b, tag);
+    const batch = await withRetry(`blocks ${a.toLocaleString()}–${b.toLocaleString()}`, tag, () => fetchExchangeTrades(a, b));
     for (const t of batch) {
       const ms = Date.parse(t.ts);
       const day = Math.floor(ms / DAY) * DAY;
@@ -134,7 +136,7 @@ async function measureSpan(d0: number, d1: number, cache: string, tag: string): 
   }
   // The read reached d1 + the window, or the tip when that came first: every day
   // whose window ends by then is final.
-  finalize(a1 === tip ? await blockTimeMs(tip) : endMs);
+  finalize(a1 === tip ? await withRetry("tip time", tag, () => blockTimeMs(tip)) : endMs);
   return written;
 }
 
@@ -151,12 +153,16 @@ async function main() {
   for (let d = from; d < to; d += DAY) if (!existsSync(fileOf(cache, dayIso(d)))) todo.push(d);
   console.log(`Courtyard arbitrage: ${(to - from) / DAY} day(s) in range, ${todo.length} to measure, ${streams} stream(s) · cache ${cache}`);
 
-  // Split the days to measure into `streams` contiguous slices of near-equal size.
-  const per = Math.ceil(todo.length / streams);
-  const slices = Array.from({ length: streams }, (_, i) => todo.slice(i * per, (i + 1) * per)).filter((s) => s.length);
-  await Promise.all(
-    slices.map(async (slice, i) => {
-      for (const [d0, d1] of runs(slice)) {
+  // Contiguous chunks of up to CHUNK_DAYS, dealt round-robin: each stream gets a
+  // mix of light and heavy months (a summer day reads ~10× the logs of an autumn
+  // one), and a chunk costs one extra day of reading for its 24-hour window.
+  const CHUNK_DAYS = 10;
+  const chunks: [number, number][] = [];
+  for (const [r0, r1] of runs(todo)) for (let c = r0; c < r1; c += CHUNK_DAYS * DAY) chunks.push([c, Math.min(r1, c + CHUNK_DAYS * DAY)]);
+  const lanes = Array.from({ length: streams }, (_, i) => chunks.filter((_, j) => j % streams === i)).filter((l) => l.length);
+  const results = await Promise.allSettled(
+    lanes.map(async (lane, i) => {
+      for (const [d0, d1] of lane) {
         for (let attempt = 1; ; attempt++) {
           try {
             // A retry resumes after the days the failed attempt already wrote.
@@ -167,13 +173,17 @@ async function main() {
             break;
           } catch (e) {
             if (attempt >= 5) throw e;
-            console.warn(`  [s${i + 1}] ${dayIso(d0)}…: ${(e as Error).message} — retry ${attempt} in ${attempt * 30}s`);
-            await new Promise((r) => setTimeout(r, attempt * 30_000));
+            console.warn(`  [s${i + 1}] ${dayIso(d0)}…: ${(e as Error).message} — span retry ${attempt} in ${attempt * 60}s`);
+            await new Promise((r) => setTimeout(r, attempt * 60_000));
           }
         }
       }
     }),
   );
+  // One stream's failure never stops the others; the cache keeps every day any of
+  // them finished, and a re-run measures only what is left.
+  const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+  for (const f of failed) console.error(`  a stream stopped: ${(f.reason as Error)?.message ?? f.reason}`);
 
   // The range as measured, per month.
   const months = new Map<string, { days: number; p2p: number; arb: number; arbN: number; p2pN: number }>();
@@ -193,6 +203,10 @@ async function main() {
   for (const [m, v] of [...months.entries()].sort()) {
     console.log(`| ${m} | ${v.days} | ${v.p2pN.toLocaleString()} · $${Math.round(v.p2p).toLocaleString()} | ${v.arbN.toLocaleString()} · $${Math.round(v.arb).toLocaleString()} | ${v.p2p > 0 ? ((100 * v.arb) / v.p2p).toFixed(1) : "0.0"}% |`);
   }
+  const measured = [...months.values()].reduce((n, v) => n + v.days, 0);
+  console.log(`
+${measured} of ${(to - from) / DAY} day(s) measured${failed.length ? ` · ${failed.length} stream(s) stopped: re-run to finish` : ""}`);
+  if (failed.length) process.exitCode = 1;
 }
 
 main().catch((e) => {
