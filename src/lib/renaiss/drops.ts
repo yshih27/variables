@@ -1,7 +1,8 @@
 /**
  * Renaiss's limited drops: one-time packs that sell their whole run inside a
- * day. Measured Oct 14 2026: eight $100 drops since Aug 21, released at 09:00
- * UTC, 666 to 1,000 packs each, the fastest run gone in 23 minutes.
+ * day. Measured Oct 14 2026: 17 weekly $100 drops from Jun 18 to Oct 9, 666 to
+ * 1,000 packs each; every one since Aug 21 released at 09:00 UTC, the fastest
+ * run gone in 24 minutes.
  *
  * Per drop: its run, how long the last pack took, how many wallets bought, how
  * concentrated the buying was, how many buyers were new to Renaiss and how many
@@ -11,9 +12,11 @@
  *
  * ⚠️ A DROP IS INFERRED, NEVER DECLARED. Renaiss publishes no drop calendar and
  * no supply: a product is a drop when at least DROP_MIN_PACKS paid pulls all fall
- * within DROP_MAX_SPAN_MS of its first, and it is only judged once that span has
- * passed, so a regular machine launched today is never mistaken for one. "Last
- * pack after" is when the last pull came, not a stated sell-out.
+ * within DROP_MAX_SPAN_MS of its first, and it is only judged once that span and
+ * DROP_SETTLE_MS more have passed, so a regular machine in a lull is not mistaken
+ * for one. A later read that sees a stored drop still selling removes it
+ * (sellingPastSpan). "Last pack after" is when the last pull came, not a stated
+ * sell-out.
  */
 import { db } from "../db/client";
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
@@ -21,7 +24,15 @@ import { readSnapshot, writeSnapshot } from "../db/snapshots";
 export const RENAISS_DROPS_SNAPSHOT_KEY = "renaiss-drops";
 export const DROP_MIN_PACKS = 100;
 export const DROP_MAX_SPAN_MS = 24 * 3_600_000;
-/** An incremental run re-reads this many days: a drop finishes inside one. */
+/** Quiet time after the span before a drop is judged: a machine in a lull sells again inside it. */
+export const DROP_SETTLE_MS = 24 * 3_600_000;
+/**
+ * A read counts a product only when its first pull came at least this long after
+ * the read began, so the read saw a day without it. The history therefore starts
+ * this long after the earliest read.
+ */
+export const DROP_LEAD_MS = 24 * 3_600_000;
+/** An incremental run re-reads this many days: each drop is judged on several runs, so a missed batch loses nothing. */
 export const DROPS_READ_DAYS = 10;
 /** Top buyers whose share of a drop is published. */
 export const DROP_TOP_BUYERS = 10;
@@ -71,35 +82,47 @@ const num = (v: number | string | null): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/**
- * The drops among `pulls` (paid checkouts, any order), judged at `nowMs`. A
- * product counts only when its first pull is at least a day after `readFromMs`
- * (its start was read, so it did not begin before the window) and its span has
- * fully passed. `newPlayers` and `returningBuyers` are left at 0: scoreDrops
- * fills them against the whole history.
- */
-export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number): DropRow[] {
-  const byProduct = new Map<string, DropPull[]>();
+/** Paid pulls by product. */
+function byProduct(pulls: DropPull[]): Map<string, DropPull[]> {
+  const out = new Map<string, DropPull[]>();
   for (const p of pulls) {
     if (!p.product_id || !(num(p.price_usd)! > 0)) continue;
-    const list = byProduct.get(p.product_id) ?? [];
+    const list = out.get(p.product_id) ?? [];
     list.push(p);
-    byProduct.set(p.product_id, list);
+    out.set(p.product_id, list);
   }
+  return out;
+}
+
+/**
+ * First and last pull. A loop, not Math.min(...): a regular machine carries
+ * hundreds of thousands of pulls, past the spread-argument limit.
+ */
+function bounds(list: DropPull[]): { first: number; last: number } {
+  let first = Infinity;
+  let last = -Infinity;
+  for (const p of list) {
+    const t = Date.parse(p.pulled_at);
+    if (!Number.isFinite(t)) continue;
+    if (t < first) first = t;
+    if (t > last) last = t;
+  }
+  return { first, last };
+}
+
+/**
+ * The drops among `pulls` (paid checkouts, any order), judged at `nowMs`. A
+ * product counts only when its first pull is at least DROP_LEAD_MS after
+ * `readFromMs` (the read saw a day without it) and its span plus DROP_SETTLE_MS
+ * has passed. `newPlayers` and `returningBuyers` are left at 0: scoreDrops fills
+ * them against the whole history.
+ */
+export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number): DropRow[] {
   const out: DropRow[] = [];
-  for (const [productId, list] of byProduct) {
+  for (const [productId, list] of byProduct(pulls)) {
     if (list.length < DROP_MIN_PACKS) continue;
-    // A loop, not Math.min(...): a regular machine carries hundreds of thousands
-    // of pulls, past the spread-argument limit.
-    let first = Infinity;
-    let last = -Infinity;
-    for (const p of list) {
-      const t = Date.parse(p.pulled_at);
-      if (!Number.isFinite(t)) continue;
-      if (t < first) first = t;
-      if (t > last) last = t;
-    }
-    if (first < readFromMs + DAY_MS || last - first > DROP_MAX_SPAN_MS || nowMs - first < DROP_MAX_SPAN_MS) continue;
+    const { first, last } = bounds(list);
+    if (first < readFromMs + DROP_LEAD_MS || last - first > DROP_MAX_SPAN_MS || nowMs - first < DROP_MAX_SPAN_MS + DROP_SETTLE_MS) continue;
     const named = [...list].sort((a, b) => b.pulled_at.localeCompare(a.pulled_at)).find((p) => p.machine_name?.trim());
     const prices = new Map<number, number>();
     for (const p of list) {
@@ -131,14 +154,29 @@ export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number
 }
 
 /**
- * The history: stored drops with fresh detections replacing them by product,
- * newest first, each scored against every drop before it. `firstPullMs` is each
- * wallet's first Renaiss pull of all (renaiss_wallet_spend).
+ * Products this read saw selling across more than DROP_MAX_SPAN_MS: never a
+ * drop, whatever an earlier run judged. A read can only shorten a span it
+ * clips, so this is proof, and scoreDrops removes their stored rows.
  */
-export function scoreDrops(stored: DropRow[], fresh: DropRow[], firstPullMs: Map<string, number>): DropRow[] {
-  const byProduct = new Map(stored.map((d) => [d.productId, d]));
-  for (const d of fresh) byProduct.set(d.productId, d);
-  const chronological = [...byProduct.values()].sort((a, b) => a.firstAt.localeCompare(b.firstAt));
+export function sellingPastSpan(pulls: DropPull[]): Set<string> {
+  const out = new Set<string>();
+  for (const [productId, list] of byProduct(pulls)) {
+    const { first, last } = bounds(list);
+    if (last - first > DROP_MAX_SPAN_MS) out.add(productId);
+  }
+  return out;
+}
+
+/**
+ * The history: stored drops with fresh detections replacing them by product,
+ * less any product in `notDrops`, newest first, each scored against every drop
+ * before it. `firstPullMs` is each wallet's first Renaiss pull of all
+ * (renaiss_wallet_spend).
+ */
+export function scoreDrops(stored: DropRow[], fresh: DropRow[], firstPullMs: Map<string, number>, notDrops: Set<string> = new Set()): DropRow[] {
+  const byId = new Map(stored.filter((d) => !notDrops.has(d.productId)).map((d) => [d.productId, d]));
+  for (const d of fresh) byId.set(d.productId, d);
+  const chronological = [...byId.values()].sort((a, b) => a.firstAt.localeCompare(b.firstAt));
   const seen = new Set<string>();
   const scored = chronological.map((d) => {
     const first = Date.parse(d.firstAt);

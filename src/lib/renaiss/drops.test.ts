@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detectDrops, scoreDrops, DROP_MIN_PACKS, type DropPull } from "./drops";
+import { detectDrops, scoreDrops, sellingPastSpan, DROP_MIN_PACKS, type DropPull } from "./drops";
 
 const READ_FROM = Date.parse("2026-09-01T00:00:00Z");
 const NOW = Date.parse("2026-10-14T03:00:00Z");
@@ -24,6 +24,7 @@ test("a drop: enough packs, all within a day of the first, judged once the day h
     ...run("machine", "2026-09-28T09:00:00Z", 200, ["0xe"]),
     ...run("early", "2026-09-01T09:00:00Z", 300, ["0xf"]), // began inside the window's first day: its start may be earlier
     ...run("today", "2026-10-14T01:00:00Z", 300, ["0xg"]), // its day has not passed
+    ...run("lull", "2026-10-12T20:00:00Z", 150, ["0xh"]), // its day has passed, but not the settle day after it
   ];
   const drops = detectDrops(pulls, READ_FROM, NOW);
   assert.deepEqual(drops.map((d) => d.productId).sort(), ["lunar", "sep18"]);
@@ -61,4 +62,19 @@ test("new players and returning buyers, scored against the whole history", () =>
   const again = scoreDrops(history, detectDrops(run("sep", "2026-09-12T09:00:00Z", 150, ["0xa", "0xc"]), READ_FROM, NOW), firstPull);
   assert.equal(again.length, 2);
   assert.equal(again[0].packs, 150);
+});
+
+test("a stored drop that a later read sees still selling is removed, and the next drop rescored", () => {
+  const firstPull = new Map([["0xa", Date.parse("2026-01-01T00:00:00Z")]]);
+  const history = scoreDrops([], detectDrops([...run("aug", "2026-09-05T09:00:00Z", 100, ["0xa"]), ...run("sep", "2026-09-12T09:00:00Z", 100, ["0xa"])], READ_FROM, NOW), firstPull);
+  assert.equal(history[0].returningBuyers, 1);
+  // A later read: "aug" sold again three days on, so it was a machine in a lull.
+  const later = [...run("aug", "2026-09-05T09:00:00Z", 100, ["0xa"]), ...run("aug", "2026-09-08T09:00:00Z", 5, ["0xz"])];
+  const notDrops = sellingPastSpan(later);
+  assert.deepEqual([...notDrops], ["aug"]);
+  const fixed = scoreDrops(history, detectDrops(later, READ_FROM, NOW), firstPull, notDrops);
+  assert.deepEqual(fixed.map((d) => d.productId), ["sep"]);
+  assert.equal(fixed[0].returningBuyers, 0, "no earlier drop left to have bought");
+  // A read that clips a drop's start never shortens it into a removal.
+  assert.equal(sellingPastSpan(run("sep", "2026-09-12T12:00:00Z", 50, ["0xa"])).size, 0);
 });

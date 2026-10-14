@@ -1,4 +1,4 @@
-import { DROP_MIN_PACKS, DROP_TOP_BUYERS, type RenaissDrops } from "@/lib/renaiss/drops";
+import { DROP_MAX_SPAN_MS, DROP_MIN_PACKS, DROP_SETTLE_MS, DROP_TOP_BUYERS, type RenaissDrops } from "@/lib/renaiss/drops";
 import { formatMonthDayUtc } from "@/lib/format";
 import { Section } from "./Section";
 
@@ -16,6 +16,7 @@ const span = (fromIso: string, toIso: string): string => {
   return h ? `${h}h ${String(mins % 60).padStart(2, "0")}m` : `${mins}m`;
 };
 const share = (n: number, of: number) => (of > 0 ? ` · ${Math.round((100 * n) / of)}%` : "");
+const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
 
 export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefined }) {
   if (!snap?.drops?.length) return null;
@@ -77,7 +78,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
         </table>
       </div>
       <p className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within 24 hours of its first: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = the wallet's first Renaiss pull was in that drop · earlier drops are counted from ${formatMonthDayUtc(snap.historyFrom)} on`}
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} more pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = the wallet's first Renaiss pull was in that drop · earlier drops are counted from ${formatMonthDayUtc(snap.historyFrom)} on`}
       </p>
     </Section>
   );
