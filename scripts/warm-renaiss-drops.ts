@@ -59,11 +59,12 @@ async function main() {
 
   console.log(`Renaiss drops · read ${days} day(s) from ${fromIso.slice(0, 10)}: ${pulls.length.toLocaleString()} paid pulls, ${fresh.length} drop(s) detected · history ${drops.length} drop(s) from ${historyFrom.slice(0, 10)} · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   for (const d of removed) console.log(`  removed ${d.productId} (${d.name}): its pulls run past ${DROP_MAX_SPAN_MS / 3_600_000}h, so it was never a drop`);
-  console.log(`\n| Drop | Price | Packs | Last pack after | Buyers | Top 10 | New players | Bought an earlier drop |\n|---|---|---|---|---|---|---|---|`);
+  // No top-buyers share here: Actions logs are public, and that figure is private to Renaiss.
+  console.log(`\n| Drop | Price | Packs | Last pack after | Buyers | New players | Bought an earlier drop |\n|---|---|---|---|---|---|---|`);
   for (const d of drops) {
     const mins = Math.round((Date.parse(d.lastAt) - Date.parse(d.firstAt)) / 60_000);
     console.log(
-      `| ${d.firstAt.slice(0, 10)} ${d.name} | $${d.priceUsd ?? "—"} | ${d.packs} | ${Math.floor(mins / 60)}h ${mins % 60}m | ${d.buyers} | ${d.topBuyersSharePct.toFixed(0)}% | ${d.newPlayers} | ${d.returningBuyers} |`,
+      `| ${d.firstAt.slice(0, 10)} ${d.name} | $${d.priceUsd ?? "—"} | ${d.packs} | ${Math.floor(mins / 60)}h ${mins % 60}m | ${d.buyers} | ${d.newPlayers} | ${d.returningBuyers} |`,
     );
   }
 

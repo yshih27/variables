@@ -1,4 +1,4 @@
-import { DROP_MAX_SPAN_MS, DROP_MIN_PACKS, DROP_SETTLE_MS, DROP_TOP_BUYERS, type RenaissDrops } from "@/lib/renaiss/drops";
+import { DROP_MAX_SPAN_MS, DROP_MIN_PACKS, DROP_SETTLE_MS, type RenaissDrops } from "@/lib/renaiss/drops";
 import { formatMonthDayUtc } from "@/lib/format";
 import { Section } from "./Section";
 
@@ -9,6 +9,9 @@ import { Section } from "./Section";
  * ⚠️ INFERRED, AND SAYS SO. Renaiss publishes no drop calendar or supply; the
  * receipt line states the rule (src/lib/renaiss/drops.ts) and how far back the
  * history reaches, since "bought an earlier drop" can only count drops in it.
+ *
+ * ⚠️ NOT RENDERED: topBuyersSharePct. How concentrated a drop's buying is stays
+ * private to Renaiss (owner's call, Oct 14 2026); the snapshot keeps it.
  */
 const span = (fromIso: string, toIso: string): string => {
   const mins = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60_000));
@@ -33,7 +36,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
       flush
     >
       <div className="scroll-x">
-        <table className="w-full min-w-[920px] border-collapse text-[13px]" data-drops>
+        <table className="w-full min-w-[800px] border-collapse text-[13px]" data-drops>
           <thead>
             <tr className="border-b border-line">
               <Th>Drop</Th>
@@ -41,7 +44,6 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
               <Th align="right">Packs</Th>
               <Th align="right">Last pack after</Th>
               <Th align="right">Buyers</Th>
-              <Th align="right">{`Top ${DROP_TOP_BUYERS} buyers`}</Th>
               <Th align="right">First-time players</Th>
               <Th align="right">Bought an earlier drop</Th>
             </tr>
@@ -65,7 +67,6 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
                 <Td align="right" className="font-mono tabular text-ink-2">
                   {d.buyers.toLocaleString("en-US")}
                 </Td>
-                <Td align="right" className="font-mono tabular text-ink-2">{`${Math.round(d.topBuyersSharePct)}% of packs`}</Td>
                 <Td align="right" className="font-mono tabular text-ink-2">
                   {`${d.newPlayers.toLocaleString("en-US")}${share(d.newPlayers, d.buyers)}`}
                 </Td>

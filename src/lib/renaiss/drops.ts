@@ -5,8 +5,8 @@
  * run gone in 24 minutes.
  *
  * Per drop: its run, how long the last pack took, how many wallets bought, how
- * concentrated the buying was, how many buyers were new to Renaiss and how many
- * had bought an earlier drop. Renaiss sees its own pulls; this reads them as a
+ * concentrated the buying was (kept, never published: private to Renaiss), how
+ * many buyers were new to Renaiss and how many had bought an earlier drop. Renaiss sees its own pulls; this reads them as a
  * series and keeps the history, `renaiss-drops`, written by
  * scripts/warm-renaiss-drops.ts.
  *
@@ -34,7 +34,7 @@ export const DROP_SETTLE_MS = 24 * 3_600_000;
 export const DROP_LEAD_MS = 24 * 3_600_000;
 /** An incremental run re-reads this many days: each drop is judged on several runs, so a missed batch loses nothing. */
 export const DROPS_READ_DAYS = 10;
-/** Top buyers whose share of a drop is published. */
+/** Top buyers whose share of a drop is kept. Never published or logged: private to Renaiss. */
 export const DROP_TOP_BUYERS = 10;
 
 const DAY_MS = 86_400_000;
@@ -61,6 +61,7 @@ export type DropRow = {
   buyers: number;
   /** Kept so a later drop can tell its returning buyers; never rendered. */
   buyerWallets: string[];
+  /** Never rendered or logged (the repo and its Actions logs are public). */
   topBuyersSharePct: number;
   /** Buyers whose first Renaiss pull of all was in this drop. */
   newPlayers: number;
