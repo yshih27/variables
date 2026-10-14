@@ -34,6 +34,8 @@ import {
 import { readPlayerAnalytics } from "@/lib/data/playerAnalytics";
 import { readVenueInsights } from "@/lib/data/venueInsights";
 import { readRenaissDrops } from "@/lib/renaiss/drops";
+import { readVenueBoxes } from "@/lib/data/venueBoxes";
+import { VenueBoxesTable } from "@/components/VenueBoxesTable";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { VenueMarketPosition } from "@/components/VenueMarketPosition";
 import { SameCardElsewhere } from "@/components/SameCardElsewhere";
@@ -71,7 +73,7 @@ export default async function PlatformDetailPage({
   const { key } = await params;
   // Both cached (unstable_cache) — one memoized call each instead of 5 uncached
   // round-trips per request (R2-B1).
-  const [detail, series, playersSnap, studioSeed, ledger, machineBoard, venuePlayer, insights, drops] = await Promise.all([
+  const [detail, series, playersSnap, studioSeed, ledger, machineBoard, venuePlayer, insights, drops, boxes] = await Promise.all([
     getPlatformDetail(key),
     getPlatformActivitySeries(key),
     // Snapshot read; degrades to null (readSnapshot never throws), so a missing
@@ -89,6 +91,9 @@ export default async function PlatformDetailPage({
     // (warm-renaiss-drops): snapshot reads, null when the warmer has not run.
     readVenueInsights(),
     key === "renaiss" ? readRenaissDrops() : Promise.resolve(null),
+    // A venue's boxes from the /gacha catalog, for a venue with no machine board
+    // (readVenueBoxes: DYLI). Null elsewhere.
+    readVenueBoxes(key),
   ]);
   if (!detail) notFound();
   const venueNames = Object.fromEntries(PLATFORM_SOURCES.map((s) => [s.key, s.name]));
@@ -536,6 +541,10 @@ export default async function PlatformDetailPage({
           {machineBoard && machineBoard.rows.length > 0 && (
             <PlatformMachines board={machineBoard} platformKey={key} />
           )}
+
+          {/* Boxes: the venue's catalog from /gacha, in the Machines slot for a
+              venue that has no machine board, so the two never stack. */}
+          {!(machineBoard && machineBoard.rows.length > 0) && <VenueBoxesTable venueName={detail.source.name} boxes={boxes} />}
 
           {/* Limited drops: one-time packs that sold their whole run in a day.
               After Machines: those are the always-on machines, these the drops. */}
