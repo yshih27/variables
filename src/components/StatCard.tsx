@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { MetricInfo } from "./MetricInfo";
 import { deltaDir, formatDelta } from "@/lib/format";
 import type { MetricKey } from "@/lib/metrics/glossary";
@@ -33,6 +33,8 @@ export function StatCard({
   deltaLabel,
   tone,
   accent,
+  valueKind = "number",
+  fitTo,
   className,
 }: {
   label: ReactNode;
@@ -51,12 +53,34 @@ export function StatCard({
   tone?: number | null;
   /** Brand-lime value (the page's own headline). */
   accent?: boolean;
+  /** "number" (default): a figure, mono and tabular, on one line. "name": an
+   *  entity (Top Platform's venue), in the sans face, wrapping between words. */
+  valueKind?: "number" | "name";
+  /** Characters to size a figure against: the row's longest, so a row's figures
+   *  share one size. Defaults to the value's own length. */
+  fitTo?: number;
   className?: string;
 }) {
+  // ⚠️ SIZED TO THE CARD, CAPPED AT THE BREAKPOINT SIZE. The body is a size
+  // container, and the value's font size is the smaller of the breakpoint size
+  // and what its own characters can take of the card's width (cqi), so a value
+  // never runs past its card and only shrinks when it would. Measured Oct 15 2026
+  // on /platforms: a 5-up card is 140px wide at 1024 and 154px at 1280, where a
+  // fixed 48px "$7.63M" needed 164px and "Collector Crypt" 246px, and both were
+  // clipped. A figure's mono glyphs are 0.57em with the tracking (0.6 leaves a
+  // margin); a name wraps between words, so its longest word decides, at 0.65em
+  // a letter for the sans face.
+  const fitChars =
+    valueKind === "name" ? Math.max(1, ...value.split(/\s+/).map((w) => [...w].length)) : Math.max(1, fitTo ?? [...value].length);
+  const fit = { "--fit": `${(100 / (fitChars * (valueKind === "name" ? 0.65 : 0.6))).toFixed(1)}cqi` } as CSSProperties;
   const valueCls =
-    size === "hero"
-      ? "text-[44px] sm:text-[56px] lg:text-[64px]"
-      : "text-[34px] sm:text-[40px] lg:text-[48px]";
+    valueKind === "name"
+      ? "font-sans leading-[1.05] tracking-[-0.02em] break-words text-[length:min(24px,var(--fit))] sm:text-[length:min(28px,var(--fit))] lg:text-[length:min(32px,var(--fit))]"
+      : `font-mono leading-[0.95] tracking-[-0.03em] tabular ${
+          size === "hero"
+            ? "text-[length:min(44px,var(--fit))] sm:text-[length:min(56px,var(--fit))] lg:text-[length:min(64px,var(--fit))]"
+            : "text-[length:min(34px,var(--fit))] sm:text-[length:min(40px,var(--fit))] lg:text-[length:min(48px,var(--fit))]"
+        }`;
 
   const toneCls =
     tone == null || !Number.isFinite(tone)
@@ -69,11 +93,11 @@ export function StatCard({
           ? "text-red"
           : "text-ink";
 
+  // The container is this padding-free wrapper, so 100cqi is exactly the width
+  // the value has; the card around it keeps its padding and stretch.
   const body = (
-    <>
-      <div
-        className={`font-mono font-bold leading-[0.95] tracking-[-0.03em] tabular ${valueCls} ${toneCls}`}
-      >
+    <div className="@container min-w-0">
+      <div className={`font-bold ${valueCls} ${toneCls}`} style={fit}>
         {value}
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -95,7 +119,7 @@ export function StatCard({
         )}
       </div>
       {sub && <div className="mt-1 text-[10.5px] leading-snug text-ink-4">{sub}</div>}
-    </>
+    </div>
   );
 
   // ⚠️ TOP-ALIGNED, NOT BOTTOM. Cards in a row stretch to a common height but carry

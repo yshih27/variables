@@ -185,6 +185,9 @@ export default async function AllPlatformsPage() {
     },
   ];
 
+  // The longest figure in the KPI row, in characters (StatCard `fitTo`).
+  const kpiFit = Math.max(...rows.filter((r) => r.valueText == null).map((r) => kpiValue(r.value, r.unit).length));
+
   // ── Zone 2: top-N platform cards (U5) ───────────────────────────────────────
   // The top MAX_CARDS platforms by 24h vol, each showing its own marketplace +
   // gacha daily total. The rest are one click away in the table, flagged by the
@@ -260,10 +263,14 @@ export default async function AllPlatformsPage() {
           <StatCardRow cols={5}>
             {rows.map((r) => (
               <StatCard
+                // The row's figures share one size: each is fitted to the longest.
+                fitTo={kpiFit}
                 key={r.label}
                 label={r.label}
                 metric={r.metric}
                 value={r.valueText ?? kpiValue(r.value, r.unit)}
+                // Top Platform's value is a venue's name, not a figure.
+                valueKind={r.valueText != null ? "name" : "number"}
                 // Uniform scale across a 5-up row: a 64px value does not fit a
                 // fifth of the width, and the hero is already marked by the lime
                 // accent — two signals for one row is one too many anyway.

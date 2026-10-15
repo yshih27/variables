@@ -438,6 +438,8 @@ export default async function PlatformDetailPage({
           <StatCardRow cols={5}>
             {railRows.map((r) => (
               <StatCard
+                // The row's figures share one size: each is fitted to the longest.
+                fitTo={Math.max(...railRows.map((x) => (x.valueText ?? kpiValue(x.value, x.unit)).length))}
                 key={r.label}
                 label={r.label}
                 metric={r.metric}
