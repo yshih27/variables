@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Section } from "./Section";
 import { MetricInfo } from "./MetricInfo";
 import { ChartTooltip, anchorFromEvent, type TooltipAnchor } from "./ChartTooltip";
@@ -79,6 +79,8 @@ export function PlatformPlayers({
   data,
   monthCoverage,
   overallCoverage,
+  lead,
+  leadReason,
 }: {
   /** null → render nothing (no attribution, or the warmer hasn't run). */
   data: { player: PlatformPlayerAnalytics; generatedAt?: string } | null;
@@ -88,6 +90,11 @@ export function PlatformPlayers({
   /** Capture rate across every month we hold pulls for; qualifies the LIFETIME
    *  figures (tiers, concentration), which sum over all months regardless. */
   overallCoverage?: number | null;
+  /** The venue's players each month (VenuePlayersMonths), drawn beside the stat
+   *  row, which then stacks in a column. Absent: the stat row runs full width. */
+  lead?: ReactNode;
+  /** Why there is no `lead`, when the comparison leaves this venue unmeasured. */
+  leadReason?: string | null;
 }) {
   if (!data) return null;
   const { player } = data;
@@ -125,8 +132,13 @@ export function PlatformPlayers({
       subtitle={subtitle}
       className="font-sans"
     >
+      {/* Players each month ‖ the stat row: who plays over time, then the three-
+          number summary the tier table explains. Paired from lg, where the stats
+          stack into a column the chart's height; without a chart they run as a row. */}
+      <div className={lead ? "grid grid-cols-1 gap-x-8 gap-y-6 border-b border-line pb-5 lg:grid-cols-[minmax(0,1fr)_240px]" : ""}>
+      {lead}
       {/* Stat row — the three-number summary the tier table then explains. */}
-      <div className="grid grid-cols-1 gap-x-5 gap-y-5 border-b border-line pb-5 sm:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-x-5 gap-y-5 sm:grid-cols-3 ${lead ? "lg:grid-cols-1 lg:content-center" : "border-b border-line pb-5"}`}>
         <Stat
           metric="activePlayers30d"
           label="Active wallets 30d"
@@ -148,6 +160,12 @@ export function PlatformPlayers({
           caption={`median ${formatCompactUsd(c.medianLifetimeSpendUsd)}`}
         />
       </div>
+      </div>
+      {!lead && leadReason ? (
+        <p className="mt-3 font-mono text-[10.5px] leading-snug text-ink-4" data-players-months-reason>
+          {`Players each month: not measured · ${leadReason}`}
+        </p>
+      ) : null}
 
       <TierTable tiers={tiers} totalWallets={c.totalWallets} totalSpend={c.totalSpendUsd} />
       {monthly.length === 0 && player.monthlyReason ? (

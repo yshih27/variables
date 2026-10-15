@@ -48,6 +48,7 @@ import { VenueMarketPosition } from "@/components/VenueMarketPosition";
 import { SameCardElsewhere } from "@/components/SameCardElsewhere";
 import { RenaissDropsTable } from "@/components/RenaissDropsTable";
 import { VenueCompareStrips } from "@/components/VenueCompareStrips";
+import { VenuePlayersMonths } from "@/components/VenuePlayersMonths";
 import { VenueChapterNav, VenueChapterSection } from "@/components/VenueChapters";
 import { buildVenueStrips } from "@/lib/data/venueStrips";
 import { formatCompactNumber, formatCompactUsd, formatMonthDayUtc } from "@/lib/format";
@@ -441,6 +442,8 @@ export default async function PlatformDetailPage({
     },
   ];
   const shownChapters = chapters.filter((c) => c.on);
+  // This venue's row of the players comparison: the Players chapter's lead chart.
+  const myPlayers = venuePlayers.find((r) => r.venue === key);
   const nOf = (id: string) => shownChapters.findIndex((c) => c.id === id) + 1;
   // Against the other venues: one figure per venue from the four comparisons on
   // /platforms (built above for exactly those charts), this venue marked.
@@ -633,6 +636,8 @@ export default async function PlatformDetailPage({
             data={playersData}
             monthCoverage={monthCoverage}
             overallCoverage={overallCoverage}
+            lead={myPlayers?.measured ? <VenuePlayersMonths row={myPlayers} venueName={detail.source.name} /> : undefined}
+            leadReason={myPlayers && !myPlayers.measured ? myPlayers.reason : null}
           />
           </VenueChapterSection>
           )}
