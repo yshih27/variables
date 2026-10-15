@@ -58,4 +58,10 @@ test("each strip takes one figure per venue from the full chart's rows; unmeasur
   assert.deepEqual(r.points.map((x) => [x.venue, x.text, x.window]), [["renaiss", "75%", "Sep 2026"]]);
   assert.ok(r.unmeasured.includes("phygitals"));
   assert.equal(r.href, "/platforms#players-venues");
+  // One sentence per bar, from the same row; a window every bar shares is the chart's.
+  assert.equal(m.points[0].detail, "24.4% of its volume was resale on its own marketplace in the 30 days to Oct 13; on a typical day, 2.8%");
+  assert.equal(r.points[0].detail, "705 of its 936 players in Sep 2026 had played in an earlier month");
+  assert.equal(t.points[1].detail, "its top 1% of wallets spent 13.6% of all its pack spend since Nov 6, 2025; these wallets cover 100% of its pack spend");
+  assert.equal(m.window, "30 days to Oct 13");
+  assert.equal(p.window, null, "Collector Crypt's 24 hours and Renaiss's 7 days differ");
 });
