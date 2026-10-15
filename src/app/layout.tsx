@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
   title: "VARIBLE · Tokenized Collectibles Market",
   description:
-    "Real cards. Real prices. Indexed. Track prices, volume, and holders across tokenized trading-card platforms.",
+    "Real collectibles. Real prices. Indexed. Track prices, volume, and holders across tokenized-collectibles platforms.",
 };
 
 export default function RootLayout({

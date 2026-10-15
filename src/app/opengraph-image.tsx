@@ -13,7 +13,7 @@ import { PLATFORM_SOURCES } from "@/lib/data/sources";
  */
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "VARIBLE — real cards, real prices, indexed";
+export const alt = "VARIBLE — real collectibles, real prices, indexed";
 
 // Footer venue list derives from the platform catalog so a new platform can never
 // ship with a share card that still names the old roster.
@@ -60,7 +60,7 @@ export default function OpengraphImage() {
               display: "flex",
               flexWrap: "wrap",
               // Longhand, not `gap: "0 20px"` — satori ignores the shorthand here
-              // and the phrases render touching ("Real cards.Real prices.").
+              // and the phrases render touching ("Real collectibles.Real prices.").
               columnGap: 20,
               rowGap: 0,
               fontSize: 80,
@@ -70,7 +70,7 @@ export default function OpengraphImage() {
               maxWidth: 1040,
             }}
           >
-            <span>Real cards.</span>
+            <span>Real collectibles.</span>
             <span style={{ color: "#bfef01" }}>Real prices.</span>
             <span>Indexed.</span>
           </div>
