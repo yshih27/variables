@@ -18,8 +18,8 @@ import { outboundDisclosureFor } from "@/lib/metrics/outboundDisclosure";
 import { PlatformPartners, type PartnerAttribution } from "@/components/PlatformPartners";
 import { PlatformMachines } from "@/components/PlatformMachines";
 import { PlatformPlayers } from "@/components/PlatformPlayers";
-import { PlatformBiggestPulls } from "@/components/PlatformBiggestPulls";
-import { readVenueMachineBoard, readVenuePlayers } from "@/lib/data/venueBoards";
+import { PlatformBiggestPulls, PlatformLatestPulls } from "@/components/PlatformBiggestPulls";
+import { readLatestPulls, readVenueMachineBoard, readVenuePlayers } from "@/lib/data/venueBoards";
 import { unsourcedLeg } from "@/lib/methodology/venueLegs";
 import { monthlyPullCoverage, overallPullCoverage } from "@/lib/metrics/pullCoverage";
 import { getPlatformDetail, getPlatformActivitySeries, type PlatformIPRow } from "@/lib/data/fetchPlatform";
@@ -108,12 +108,15 @@ export default async function PlatformDetailPage({
   ]);
   // Every venue's packs-vs-marketplace split, this venue's row marked: the
   // cached series /platforms reads (getPlatformSeries), so no extra query.
-  const [allMarket, allPacks, renaissPlayers, gachaData] = await Promise.all([
+  const [allMarket, allPacks, renaissPlayers, gachaData, latestPulls] = await Promise.all([
     getPlatformSeries("volume_usd"),
     getPlatformSeries("gacha_volume_usd"),
     readRenaissPlayers(),
     // The /gacha catalog (cached), for packs on sale by price.
     getGachaData().catch(() => null),
+    // The newest named pulls, for a venue whose pulls are stored row by row
+    // (Renaiss); null elsewhere. One indexed query; never throws.
+    readLatestPulls(key),
   ]);
   const venuePrices = buildVenuePrices(gachaData?.packs ?? [], PLATFORM_SOURCES.map((s) => s.key));
   const venuePlayers = buildVenuePlayers(
@@ -430,11 +433,12 @@ export default async function PlatformDetailPage({
   const hasBoxes = !hasMachines && (boxes?.packs.length ?? 0) > 0;
   const hasDrops = (drops?.drops?.length ?? 0) > 0;
   const hasPosition = (insights?.market?.venues[key]?.spendUsd ?? []).some((x) => x > 0);
+  const pullsPaired = (latestPulls?.length ?? 0) > 0 && (detail.biggestPulls?.length ?? 0) > 0;
   const chapters: { id: string; label: string; on: boolean }[] = [
     { id: "platform", label: "Platform", on: true },
     { id: "sells", label: hasMachines ? "Machines" : hasBoxes ? "Boxes" : "Drops", on: hasMachines || hasBoxes || hasDrops || partners != null },
     { id: "players", label: "Players", on: playersData != null },
-    { id: "pulls", label: "Pulls", on: (detail.biggestPulls?.length ?? 0) > 0 },
+    { id: "pulls", label: "Pulls", on: (detail.biggestPulls?.length ?? 0) > 0 || (latestPulls?.length ?? 0) > 0 },
     {
       id: "cards",
       label: "Cards",
@@ -645,9 +649,16 @@ export default async function PlatformDetailPage({
           {/* ── 04 PULLS: what came out. ── */}
           {nOf("pulls") > 0 && (
           <VenueChapterSection id="pulls" n={nOf("pulls")} label="Pulls">
-          {/* Biggest pulls — the 12 most valuable prizes over 30 days, each value
-              in its venue's basis. Full width; nothing beside it. */}
-          <PlatformBiggestPulls pulls={detail.biggestPulls} />
+          {/* Latest pulls ‖ Biggest pulls: what is coming out now, and the most
+              valuable prizes of the last 30 days, each value in its venue's
+              basis. Twelve rows each, so the pair shares a height honestly (§7);
+              the grid forms only when both render, else the one table runs full
+              width as before. Latest exists where pulls are stored row by row
+              (Renaiss). */}
+          <div className={`grid grid-cols-1 gap-3 ${pullsPaired ? "lg:grid-cols-2" : ""}`}>
+            <PlatformLatestPulls pulls={latestPulls} compact={pullsPaired} />
+            <PlatformBiggestPulls pulls={detail.biggestPulls} compact={pullsPaired} />
+          </div>
           </VenueChapterSection>
           )}
 

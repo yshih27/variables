@@ -222,7 +222,35 @@ export async function readRenaissBiggestPulls(days: number, nowMs: number = Date
     ({ data, error } = await run("product_id, pulled_at, prize_value_usd, prize_card_name, prize_grade_label"));
   }
   if (error) throw new Error(`[renaiss_pulls] biggest pulls read failed: ${error.message}`);
-  return ((data ?? []) as unknown as (BoardPull & { product_id: string })[]).map((r) => ({
+  return ((data ?? []) as unknown as BoardPull[]).map(toPulledPrize);
+}
+
+/**
+ * The newest pulls whose prize Renaiss has named, newest first: one query down
+ * the `pulled_at` index (renaiss_pulls_pulled_at_idx, descending). A prize is
+ * named after the pull, so an unnamed one waits for a later refill rather than
+ * printing as "—". Same shape as readRenaissBiggestPulls.
+ */
+export async function readRenaissLatestPulls(limit = 12): Promise<(MachinePrize & { machine: string | null })[]> {
+  const run = (cols: string) =>
+    db()
+      .from("renaiss_pulls")
+      .select(cols)
+      .not("prize_card_name", "is", null)
+      .not("prize_value_usd", "is", null)
+      .order("pulled_at", { ascending: false })
+      .limit(limit);
+  let { data, error } = await run("product_id, machine_name, pulled_at, prize_value_usd, prize_card_name, prize_grade_label, prize_image_url");
+  if (error && /machine_name|prize_image_url/.test(error.message)) {
+    ({ data, error } = await run("product_id, pulled_at, prize_value_usd, prize_card_name, prize_grade_label"));
+  }
+  if (error) throw new Error(`[renaiss_pulls] latest pulls read failed: ${error.message}`);
+  return ((data ?? []) as unknown as BoardPull[]).map(toPulledPrize);
+}
+
+/** One stored pull as a prize with its machine. */
+function toPulledPrize(r: BoardPull): MachinePrize & { machine: string | null } {
+  return {
     cardName: r.prize_card_name,
     grade: r.prize_grade_label,
     valueUsd: Number(r.prize_value_usd),
@@ -231,7 +259,7 @@ export async function readRenaissBiggestPulls(days: number, nowMs: number = Date
     // The feed's name or nothing: a raw machine id is not a name (BiggestPull.machine
     // is "where the feed names one"); the page prints "—" until the refill names it.
     machine: r.machine_name ?? null,
-  }));
+  };
 }
 
 export function readRenaissMachineBoard(): Promise<MachineBoard | null> {
