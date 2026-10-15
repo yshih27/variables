@@ -6,6 +6,8 @@
  *   npx tsx scripts/warm-renaiss-players.ts               # DRY RUN: builds and prints, writes nothing
  *   npx tsx scripts/warm-renaiss-players.ts --out=<dir>   # LOCAL: <dir>/players:renaiss.json
  *   npx tsx scripts/warm-renaiss-players.ts --apply       # writes the snapshot (core batch)
+ *   … --reseed   rebuild players-per-month from the first pull (about 5-7 min); otherwise
+ *                only the previous and current month are re-read and older months kept
  *
  * ⚠️ BEFORE THE MIGRATION IS APPLIED the function does not exist: the run says
  * so in one line and exits 0 without writing, so the step stays green until the
@@ -17,7 +19,18 @@ config({ path: ".env.local" });
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildRenaissPlayers, isMissingFunction, readPullCoverage, readWalletSpend, writeRenaissPlayers, RENAISS_PLAYERS_SNAPSHOT_KEY, type RenaissPlayersSnapshot } from "../src/lib/renaiss/players";
+import {
+  buildRenaissPlayers,
+  isMissingFunction,
+  readMonthlyBuyers,
+  readPullCoverage,
+  readRenaissPlayers,
+  readWalletSpend,
+  renaissMonthlyPlayers,
+  writeRenaissPlayers,
+  RENAISS_PLAYERS_SNAPSHOT_KEY,
+  type RenaissPlayersSnapshot,
+} from "../src/lib/renaiss/players";
 import { runWarmer } from "../src/lib/db/runWarmer";
 
 const argv = process.argv.slice(2);
@@ -38,6 +51,30 @@ async function main(): Promise<{ rowsWritten: number }> {
   }
   const coverage = await readPullCoverage();
   const platform = buildRenaissPlayers(read.rows, coverage);
+
+  // Players per month. Stored months stay; the previous and current month are
+  // re-read (late pulls land there). A failed read keeps the stored months and
+  // never fails the snapshot.
+  const stored = (await readRenaissPlayers())?.platform.monthlyPlayers;
+  const now = Date.now();
+  const firstPull = read.rows.reduce((m, r) => (r.first_pull && r.first_pull < m ? r.first_pull : m), "9999");
+  const reseed = argv.includes("--reseed") || !stored?.length;
+  const prev = new Date(now);
+  prev.setUTCDate(1);
+  prev.setUTCMonth(prev.getUTCMonth() - 1);
+  const recomputeFrom = reseed ? firstPull.slice(0, 7) : prev.toISOString().slice(0, 7);
+  try {
+    const t0 = Date.now();
+    const monthly = await readMonthlyBuyers(Date.parse(`${recomputeFrom}-01T00:00:00Z`), now, (l) => console.log(l));
+    platform.monthlyPlayers = renaissMonthlyPlayers(monthly.months, read.rows, stored, recomputeFrom, monthly.spend);
+    console.log(`  players per month: re-read from ${recomputeFrom}${reseed ? " (reseed)" : ""} · ${monthly.rows.toLocaleString()} checkouts · ${monthly.queries} queries · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    for (const m of platform.monthlyPlayers) {
+      console.log(`    ${m.month} ${m.players.toLocaleString().padStart(6)} players · ${m.firstTime.toLocaleString().padStart(5)} first-time · ${(m.players ? (100 * (m.players - m.firstTime)) / m.players : 0).toFixed(1)}% returning`);
+    }
+  } catch (e) {
+    platform.monthlyPlayers = stored;
+    console.log(`  players per month: read failed, kept ${stored?.length ?? 0} stored month(s): ${e instanceof Error ? e.message : e}`);
+  }
   const snap: RenaissPlayersSnapshot = { generatedAt: new Date().toISOString(), platform, read: { pages: read.pages, wallets: read.rows.length, ms: read.ms } };
   const c = platform.concentration;
   console.log(

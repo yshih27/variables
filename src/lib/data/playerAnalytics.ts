@@ -58,6 +58,22 @@ export type MonthlySpendRow = {
   pulls: number;
 };
 
+/** One month of a venue's players: how many, and how many were new to our records. */
+export type MonthlyPlayersRow = {
+  /** UTC month, "YYYY-MM". */
+  month: string;
+  /** Wallets with at least one priced pull that month. */
+  players: number;
+  /** Of those, wallets whose first priced pull in our records came that month. */
+  firstTime: number;
+  /**
+   * What those wallets spent that month. Against the venue's pack spend it says
+   * how much of the venue the month's records cover (venuePlayers.ts draws a
+   * month only from half up). Absent on rows written before Oct 15 2026.
+   */
+  spendUsd?: number;
+};
+
 export type ConcentrationStats = {
   totalWallets: number;
   totalSpendUsd: number;
@@ -83,6 +99,13 @@ export type PlatformPlayerAnalytics = {
   /** Why `monthly` is empty when the venue's spend exists (Renaiss: its aggregate is per wallet, not per month). */
   monthlyReason?: string;
   concentration: ConcentrationStats;
+  /**
+   * Players per month, first-time vs returning (Oct 15 2026). Absent on a
+   * snapshot written before it, which the chart treats as not measured.
+   * ⚠️ "First-time" is first in OUR records: for a venue older than them, the
+   * early months overcount first-timers (the chart says so).
+   */
+  monthlyPlayers?: MonthlyPlayersRow[];
 };
 
 /**
@@ -303,7 +326,7 @@ export function writePlayerAnalytics(snap: PlayerAnalyticsSnapshot): Promise<voi
 
 // ── Aggregation ────────────────────────────────────────────────────────────
 
-type WalletAcc = { spend: number; pulls: number; lastAt: number };
+type WalletAcc = { spend: number; pulls: number; lastAt: number; firstAt: number };
 type PartnerAcc = {
   pulls24h: number; usd24h: number;
   pulls7d: number; usd7d: number;
@@ -333,6 +356,9 @@ type PlatformAcc = {
   partners: Map<string, PartnerAcc>;
   win: WindowCounts;
   monthly: Map<string, { byPrice: Map<number, number>; total: number; pulls: number }>;
+  /** UTC month → the wallets with a priced pull that month, and what they spent. */
+  monthWallets: Map<string, Set<string>>;
+  monthWalletSpend: Map<string, number>;
   rows: number;
   walletRows: number;
   pricedRows: number;
@@ -345,6 +371,8 @@ const blank = (): PlatformAcc => ({
   partners: new Map(),
   win: { total24h: 0, total7d: 0, total30d: 0, totalLife: 0, attr24h: 0, attr7d: 0, attr30d: 0, attrLife: 0 },
   monthly: new Map(),
+  monthWallets: new Map(),
+  monthWalletSpend: new Map(),
   rows: 0,
   walletRows: 0,
   pricedRows: 0,
@@ -492,8 +520,18 @@ export async function aggregatePlayerAnalytics(opts: {
             w.spend += price;
             w.pulls += 1;
             if (Number.isFinite(t) && t > w.lastAt) w.lastAt = t;
+            if (Number.isFinite(t) && t < w.firstAt) w.firstAt = t;
           } else {
-            acc.wallets.set(buyer, { spend: price, pulls: 1, lastAt: Number.isFinite(t) ? t : 0 });
+            acc.wallets.set(buyer, { spend: price, pulls: 1, lastAt: Number.isFinite(t) ? t : 0, firstAt: Number.isFinite(t) ? t : Infinity });
+          }
+          // The scan runs in pull_id order, not time: a month's set and each
+          // wallet's earliest pull settle only once the scan is complete.
+          if (at.length >= 7) {
+            const month = at.slice(0, 7);
+            let set = acc.monthWallets.get(month);
+            if (!set) acc.monthWallets.set(month, (set = new Set()));
+            set.add(buyer);
+            acc.monthWalletSpend.set(month, (acc.monthWalletSpend.get(month) ?? 0) + price);
           }
         }
       }
@@ -659,7 +697,39 @@ function buildPlatform(platform: string, acc: PlatformAcc): PlatformPlayerAnalyt
     tiers,
     monthly,
     concentration,
+    monthlyPlayers: monthlyPlayersFrom(acc.monthWallets, firstMonths(acc.wallets.values()), acc.monthWalletSpend),
   };
+}
+
+/** Wallet count per UTC month of its first pull ("YYYY-MM" → n), from each wallet's earliest pull. Pure. */
+export function firstMonths(wallets: Iterable<{ firstAt: number }>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const w of wallets) {
+    if (!Number.isFinite(w.firstAt) || w.firstAt <= 0) continue;
+    const m = new Date(w.firstAt).toISOString().slice(0, 7);
+    out.set(m, (out.get(m) ?? 0) + 1);
+  }
+  return out;
+}
+
+/**
+ * Players per month from each month's wallet set and the first-pull months,
+ * oldest first. Pure: Renaiss's monthly read (renaiss/players.ts) uses it too,
+ * so first-time and returning are counted one way for every venue.
+ */
+export function monthlyPlayersFrom(
+  monthWallets: Map<string, Set<string>>,
+  firstByMonth: Map<string, number>,
+  monthSpend?: Map<string, number>,
+): MonthlyPlayersRow[] {
+  return [...monthWallets.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, set]) => ({
+      month,
+      players: set.size,
+      firstTime: Math.min(set.size, firstByMonth.get(month) ?? 0),
+      ...(monthSpend ? { spendUsd: monthSpend.get(month) ?? 0 } : {}),
+    }));
 }
 
 /**
