@@ -108,7 +108,7 @@ export const METRICS = {
   },
   variableIndex: {
     term: "The Varible Index (the V)",
-    text: "The market-wide resale comparables index, monthly — one number for what the tokenized-card market's cards actually resold for. Sub-indices per IP and category carry V- tickers (V-MKT is the market, V-PKM Pokémon, V-TCG the TCG category). Its resale skew and a market-cap anchor print beside the level.",
+    text: "The market-wide resale comparables index, monthly — one number for what tokenized cards actually resold for, across every venue tracked. Sub-indices per IP and category carry V- tickers (V-MKT is the market, V-PKM Pokémon, V-TCG the TCG category). Its resale skew and a market-cap anchor print beside the level.",
     href: "/methodology#naming",
   },
   vsBenchmarks: {

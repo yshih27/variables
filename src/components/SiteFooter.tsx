@@ -40,14 +40,14 @@ export function SiteFooter() {
       <div className="mx-auto flex max-w-[1760px] flex-col gap-5">
         <div className="flex flex-col gap-4 border-b border-line/50 pb-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-[420px] text-[13px] text-ink-2">
-            The tokenized-card market, distilled into one email every Monday.
+            The tokenized-collectibles market, distilled into one email every Monday.
           </p>
           <SubscribeForm source="footer" variant="slim" />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
           <div className="flex items-center gap-2.5 text-[13px]">
             <BrandLockup className="h-[15px] w-auto text-ink" title="VARIBLE" />
-            <span className="text-ink-3">· real cards. real prices. indexed</span>
+            <span className="text-ink-3">· real collectibles. real prices. indexed</span>
           </div>
           <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-ink-3">
             {LINKS.map((l) =>
@@ -79,7 +79,7 @@ export function SiteFooter() {
           </nav>
         </div>
         <p className="max-w-3xl text-[11.5px] leading-relaxed text-ink-4">
-          Varible tracks prices, volume, and holders across tokenized trading-card platforms. All
+          Varible tracks prices, volume, and holders across tokenized-collectibles platforms. All
           figures are derived from on-chain activity and platform APIs. Spotted a wrong number?
           Corrections route through the{" "}
           <Link href="/methodology" className="text-ink-3 transition-colors hover:text-yellow">

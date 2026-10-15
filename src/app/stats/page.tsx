@@ -21,7 +21,7 @@ export const revalidate = 1800;
 export const metadata = {
   title: "Market Stats · VARIBLE",
   description:
-    "The tokenized trading-card market in public, citable numbers: volume by venue, resale vs gacha, holders and cards tracked — each with its window, its as-of date and a permalink.",
+    "The tokenized-collectibles market in public, citable numbers: volume by venue, resale vs gacha, holders and cards tracked — each with its window, its as-of date and a permalink.",
 };
 
 export default async function StatsPage() {
@@ -47,7 +47,7 @@ export default async function StatsPage() {
       <div className="px-8 pt-6 pb-20 font-sans">
         <h1 className="mb-1 text-[20px] font-bold leading-none tracking-[-0.01em]">Market Stats</h1>
         <p className="mb-3 max-w-2xl text-[13px] leading-relaxed text-ink-3">
-          The tokenized trading-card market in numbers built to be quoted — every chart
+          The tokenized-collectibles market in numbers built to be quoted — every chart
           exports, every figure carries its window and its as-of date
           {asOf ? `, currently ${asOf}` : ""}.{" "}
           <a href="/methodology" className="text-ink-2 underline-offset-2 hover:text-yellow hover:underline">
@@ -78,7 +78,7 @@ export default async function StatsPage() {
               />
               <CiteBlock
                 figure={money(board.kpis.gacha30d + board.kpis.resale30d)}
-                label="Total tokenized trading-card market turnover"
+                label="Total tokenized-collectibles market turnover"
                 window="30 complete days"
                 asOf={asOf}
                 anchor="volume-by-venue"

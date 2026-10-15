@@ -230,12 +230,12 @@ export default async function Home() {
       <div className="px-8 pt-8 pb-20 font-sans">
         <div className="mb-9">
           <h1 className="text-[30px] font-bold leading-[1.1] tracking-[-0.02em] md:text-[34px]">
-            Real cards. Real <span className="text-yellow">prices</span>. Indexed.
+            Real collectibles. Real <span className="text-yellow">prices</span>. Indexed.
           </h1>
           <p className="mt-2 max-w-xl text-[13.5px] leading-relaxed text-ink-3">
             Live prices, volume, and holders across{" "}
-            <span className="tabular text-ink-2">{data.hero.platformsTracked}</span> tokenized trading-card
-            platforms and <span className="tabular text-ink-2">{formatCompactNumber(data.hero.totalCards)}</span>{" "}
+            <span className="tabular text-ink-2">{data.hero.platformsTracked}</span>{" "}platforms and{" "}
+            <span className="tabular text-ink-2">{formatCompactNumber(data.hero.totalCards)}</span>{" "}tokenized
             collectibles.
           </p>
         </div>
