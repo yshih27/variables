@@ -123,7 +123,7 @@ export function PlatformPlayers({
       title="Players"
       readMe="who funds the machine — lifetime spend per wallet. thin bar left, thick bar right = whales."
       subtitle={subtitle}
-      className="mb-12 font-sans"
+      className="font-sans"
     >
       {/* Stat row — the three-number summary the tier table then explains. */}
       <div className="grid grid-cols-1 gap-x-5 gap-y-5 border-b border-line pb-5 sm:grid-cols-3">

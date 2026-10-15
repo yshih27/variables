@@ -324,10 +324,13 @@ export default async function AllPlatformsPage() {
 
           {/* Compare venues: what each venue's money is, packs or collectors
               trading, over the same days — the rows, the median day and every
-              day, no written conclusion. */}
+              day, no written conclusion. This is the comparisons' home: a venue
+              page carries one figure from each ("Against the other venues") and
+              links here, so they run in its chapter order — the platform's mix,
+              what it sells, then its players. */}
           <VenueMixCompare mix={venueMix} names={venueNames} />
-          <VenueSpendCompare rows={venueSpend} names={venueNames} />
           <VenuePricesCompare rows={venuePrices} names={venueNames} />
+          <VenueSpendCompare rows={venueSpend} names={venueNames} />
           <VenuePlayersCompare rows={venuePlayers} names={venueNames} />
 
           {/* ZONE 2 — the top-4 platform cards, in leaderboard order, so

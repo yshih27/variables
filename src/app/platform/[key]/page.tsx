@@ -36,11 +36,7 @@ import { readVenueInsights } from "@/lib/data/venueInsights";
 import { readRenaissDrops } from "@/lib/renaiss/drops";
 import { readVenueBoxes } from "@/lib/data/venueBoxes";
 import { VenueBoxesTable } from "@/components/VenueBoxesTable";
-import { VenueMixCompare } from "@/components/VenueMixCompare";
 import { buildVenueMix } from "@/lib/data/venueMix";
-import { VenueSpendCompare } from "@/components/VenueSpendCompare";
-import { VenuePricesCompare } from "@/components/VenuePricesCompare";
-import { VenuePlayersCompare } from "@/components/VenuePlayersCompare";
 import { buildVenuePlayers } from "@/lib/data/venuePlayers";
 import { buildVenuePrices } from "@/lib/data/venuePrices";
 import { getGachaData } from "@/lib/data/fetchGacha";
@@ -51,6 +47,9 @@ import { PLATFORM_SOURCES } from "@/lib/data/sources";
 import { VenueMarketPosition } from "@/components/VenueMarketPosition";
 import { SameCardElsewhere } from "@/components/SameCardElsewhere";
 import { RenaissDropsTable } from "@/components/RenaissDropsTable";
+import { VenueCompareStrips } from "@/components/VenueCompareStrips";
+import { VenueChapterNav, VenueChapterSection } from "@/components/VenueChapters";
+import { buildVenueStrips } from "@/lib/data/venueStrips";
 import { formatCompactNumber, formatCompactUsd, formatMonthDayUtc } from "@/lib/format";
 
 // ISR: cached HTML, 30-min background revalidate (data changes every ~6h) — R2-B1.
@@ -422,14 +421,41 @@ export default async function PlatformDetailPage({
   const partners =
     (playersSnap as { partners?: Record<string, PartnerAttribution> } | null)?.partners?.[key] ?? null;
 
+  // ── Chapters ────────────────────────────────────────────────────────────────
+  // The page reads as a story: the platform, what it sells, who plays, what
+  // comes out, the cards. A chapter is listed only when something in it renders,
+  // so each flag below mirrors the null-return of the sections it holds.
+  const hasMachines = machineBoard != null && machineBoard.rows.length > 0;
+  const hasBoxes = !hasMachines && (boxes?.packs.length ?? 0) > 0;
+  const hasDrops = (drops?.drops?.length ?? 0) > 0;
+  const hasPosition = (insights?.market?.venues[key]?.spendUsd ?? []).some((x) => x > 0);
+  const chapters: { id: string; label: string; on: boolean }[] = [
+    { id: "platform", label: "Platform", on: true },
+    { id: "sells", label: hasMachines ? "Machines" : hasBoxes ? "Boxes" : "Drops", on: hasMachines || hasBoxes || hasDrops || partners != null },
+    { id: "players", label: "Players", on: playersData != null },
+    { id: "pulls", label: "Pulls", on: (detail.biggestPulls?.length ?? 0) > 0 },
+    {
+      id: "cards",
+      label: "Cards",
+      on: Boolean(insights?.sameCard[key]?.all) || ipRows.length > 0 || detail.topCards.length > 0 || detail.recentSales.length > 0,
+    },
+  ];
+  const shownChapters = chapters.filter((c) => c.on);
+  const nOf = (id: string) => shownChapters.findIndex((c) => c.id === id) + 1;
+  // Against the other venues: one figure per venue from the four comparisons on
+  // /platforms (built above for exactly those charts), this venue marked.
+  const strips = buildVenueStrips({ mix: venueMix, prices: venuePrices, spend: venueSpend, players: venuePlayers, venues: PLATFORM_SOURCES.map((s) => s.key) });
+
   return (
     <>
       <NavBar ticker={await buildMarketTicker()} />
       <div className="px-8 pt-6 pb-20 font-sans">
         <PlatformOverviewHeader detail={detail} listingsWithheld={listingsLeg != null} />
+        <VenueChapterNav chapters={shownChapters} />
 
-        <div className="space-y-3">
-          {/* ZONE 1 — platform levels + the Index Studio scoped to this platform. */}
+        <div className="mt-3 space-y-3">
+          {/* ── 01 PLATFORM: how big, what kind of business, where it stands. ── */}
+          <VenueChapterSection id="platform" n={nOf("platform")} label="Platform" alone={shownChapters.length < 2}>
           {/* KPIs as dedicated stat cards, full width, with the studio beneath at
               full width too. The 264px rail put five headline figures in a column
               narrower than the numbers deserve; at card scale they read first and
@@ -514,17 +540,14 @@ export default async function PlatformDetailPage({
             </div>
           </div>
 
-          {/* "Where does the money route" — two small panels, side by side from lg.
-              Volume mix answers by CHANNEL (packs vs resale vs direct), Top partners
-              by STOREFRONT: different questions, so they may share a row (terminal-
-              ux-study §3). Partners had a full-width band to itself for a two-column
-              table. The grid only forms when BOTH render — `partners == null` is the
-              honest absence PlatformPartners returns null for, and a lone half-width
-              chart beside a gap reads as something failed to load. */}
-          {volumeMix.length > 0 || partners ? (
-            <div
-              className={`grid grid-cols-1 gap-3 ${volumeMix.length > 0 && partners ? "lg:grid-cols-2" : ""}`}
-            >
+          {/* Volume mix ‖ Where this venue stands. The venue's own money by
+              channel (packs vs resale vs direct, 30 days), and its share of all
+              pack spend with its rank by month: the platform's shape, then its
+              place, so they share a row from lg (terminal-ux-study §3). The grid
+              only forms when BOTH render: a lone half-width chart beside a gap
+              reads as something failed to load. */}
+          {volumeMix.length > 0 || hasPosition ? (
+            <div className={`grid grid-cols-1 gap-3 ${volumeMix.length > 0 && hasPosition ? "lg:grid-cols-2" : ""}`}>
               {volumeMix.length > 0 && (
                 <CompositionChart
                   title="Volume mix"
@@ -538,20 +561,9 @@ export default async function PlatformDetailPage({
                   fill
                 />
               )}
-              <PlatformPartners partners={partners} platformKey={key} />
+              <VenueMarketPosition venueKey={key} venueName={detail.source.name} market={insights?.market} fill={volumeMix.length > 0} />
             </div>
           ) : null}
-
-          {/* Where this venue stands among all of them: its share of pack spend and
-              its rank by month. A question about the market, not the venue's own
-              volume, so it sits under the venue's own mix. */}
-          <VenueMarketPosition venueKey={key} venueName={detail.source.name} market={insights?.market} />
-
-          {/* Every venue's split between packs and its marketplace, this one marked. */}
-          <VenueMixCompare mix={venueMix} names={venueNames} highlight={key} />
-          <VenueSpendCompare rows={venueSpend} names={venueNames} highlight={key} />
-          <VenuePricesCompare rows={venuePrices} names={venueNames} highlight={key} />
-          <VenuePlayersCompare rows={venuePlayers} names={venueNames} highlight={key} />
 
           {/* Platform economics — gacha flows (spend vs gross wallet outflow) plus
               net where it is publishable. `detail.netGachaRevenue` is null unless
@@ -578,82 +590,103 @@ export default async function PlatformDetailPage({
             </p>
           ) : null}
 
+          {/* Against the other venues: the four comparisons, one figure per venue,
+              this one marked. The full charts live on /platforms (one link per
+              row): a venue page tells the venue's story, /platforms compares. */}
+          <VenueCompareStrips strips={strips} venue={key} names={venueNames} />
+          </VenueChapterSection>
 
-          {/* Machines — for each CC machine, how much is pulled and whose traffic
-              it is. Beneath the partners board: that answers "which storefronts
-              route pulls here" and this answers "into which machines", so they are
-              two questions and get two zones (terminal-ux-study §1).
-
-              ⚠️ NOT paired beside the partners board. §7 pairing requires both
-              frames to fill the shared height honestly, and a 48-row table beside
-              a 5-row podium cannot — the podium would have to stretch to a height
-              its content never earns. Full width, stacked. */}
+          {/* ── 02 WHAT IT SELLS: machines or boxes, and the drops. ── */}
+          {nOf("sells") > 0 && (
+          <VenueChapterSection id="sells" n={nOf("sells")} label={chapters[1].label}>
+          {/* Machines — for each machine, how much is pulled and whose traffic it
+              is. ⚠️ Full width, stacked: §7 pairing requires both frames to fill
+              the shared height honestly, and a 48-row table beside a short panel
+              cannot. */}
           {/* ⚠️ Gated HERE, not only inside the component. PlatformMachines is a
               client component, so a `board` prop reaches the RSC payload even
               when the component returns null — every other platform's HTML was
               carrying all 48 of Collector Crypt's machines for nothing. The gate
               is the venue's own board existing (readVenueMachineBoard returns null
               for a venue without one); a venue without a board sends nothing. */}
-          {machineBoard && machineBoard.rows.length > 0 && (
-            <PlatformMachines board={board} platformKey={key} dropKeys={[...dropByKey.keys()]} />
-          )}
+          {hasMachines && <PlatformMachines board={board} platformKey={key} dropKeys={[...dropByKey.keys()]} />}
 
           {/* Boxes: the venue's catalog from /gacha, in the Machines slot for a
               venue that has no machine board, so the two never stack. */}
-          {!(machineBoard && machineBoard.rows.length > 0) && <VenueBoxesTable venueName={detail.source.name} boxes={boxes} />}
+          {!hasMachines && <VenueBoxesTable venueName={detail.source.name} boxes={boxes} />}
+
+          {/* Which storefronts route pulls into those machines (memo_slug
+              attribution). Renders nothing until the snapshot carries partners. */}
+          <PlatformPartners partners={partners} platformKey={key} />
 
           {/* Limited drops: one-time packs that sold their whole run in a day.
               After Machines: those are the always-on machines, these the drops. */}
           <RenaissDropsTable snap={drops} />
+          </VenueChapterSection>
+          )}
 
-          {/* Biggest pulls — the 12 most valuable prizes over 30 days, each value
-              in its venue's basis. After Machines: that answers "where the money
-              goes", this "what came out". Full width; nothing beside it. */}
-          <PlatformBiggestPulls pulls={detail.biggestPulls} />
-
+          {/* ── 03 PLAYERS: who spends, and how unevenly. ── */}
+          {nOf("players") > 0 && (
+          <VenueChapterSection id="players" n={nOf("players")} label="Players">
           {/* Player analytics — only for platforms the snapshot covers. */}
           <PlatformPlayers
             data={playersData}
             monthCoverage={monthCoverage}
             overallCoverage={overallCoverage}
           />
+          </VenueChapterSection>
+          )}
 
+          {/* ── 04 PULLS: what came out. ── */}
+          {nOf("pulls") > 0 && (
+          <VenueChapterSection id="pulls" n={nOf("pulls")} label="Pulls">
+          {/* Biggest pulls — the 12 most valuable prizes over 30 days, each value
+              in its venue's basis. Full width; nothing beside it. */}
+          <PlatformBiggestPulls pulls={detail.biggestPulls} />
+          </VenueChapterSection>
+          )}
+
+          {/* ── 05 CARDS: the cards themselves, here and elsewhere. ── */}
+          {nOf("cards") > 0 && (
+          <VenueChapterSection id="cards" n={nOf("cards")} label="Cards">
+          {/* Same card, other venues: what this venue's buyers paid against the
+              same card elsewhere. Beside the venue's own resale tables, which say
+              what sold here; this says how it compares. */}
+          <SameCardElsewhere venueName={detail.source.name} data={insights?.sameCard[key]} names={venueNames} />
           {/* ⚠️ "IP dominance" REMOVED from this page (one question per zone,
               terminal-ux-study §1): it asked "what share does each IP hold here",
               which is exactly what the By IP donut + table below answer, with the
               per-IP numbers attached. The component stays — other pages use it. */}
-      {ipRows.length > 0 && (
-        <IPByPlatform
-          rows={ipRows}
-          title="By IP"
-          readMe={salesWindow === "7d" ? "this platform's activity by IP over the last 7 days" : "this platform's 24h activity by IP"}
-          salesWindow={salesWindow}
-          entityHeader="IP"
-          donutTitle="IP share"
-          showChain={false}
-          hrefBase="/ip/"
-        />
-      )}
-      {/* ⚠️ "Gacha sales" REMOVED from this page (one question per zone): its 24h
-          pull volume duplicates the KPI row's "24h Gacha Vol" and its revenue-mix
-          split duplicates Volume mix above. Dropping it also takes the 7d pull
-          volume and the 7d daily average off this page — they exist nowhere else
-          here, and are called out in the commit rather than silently lost. The
-          component stays for other surfaces. */}
-      {/* ⚠️ DELIBERATELY NOT PAIRED. Top Cards and Recent Sales do answer different
-          questions (ranked vs chronological), but both tables carry `min-w-[900px]`
-          and side-by-side they do not fit below roughly 1900px: measured at 1280 the
-          columns are 602px with 389px and 300px of internal horizontal scroll, while
-          stacked at 1150 both overflow zero. Tables are the density anchor
-          (terminal-ux-study §4) — crushing one to satisfy a layout pattern inverts
-          the point of the doctrine, and pairing is not a goal in itself. Volume mix ‖
-          Top partners above is this page's consolidation win. Both stay full-width. */}
-      {/* Same card, other venues: what this venue's buyers paid against the same
-          card elsewhere. Beside the venue's own resale tables, which say what
-          sold here; this says how it compares. */}
-      <SameCardElsewhere venueName={detail.source.name} data={insights?.sameCard[key]} names={venueNames} />
-      <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} salesWindow={salesWindow} />
-      <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} salesWindow={salesWindow} />
+          {ipRows.length > 0 && (
+            <IPByPlatform
+              rows={ipRows}
+              title="By IP"
+              readMe={salesWindow === "7d" ? "this platform's activity by IP over the last 7 days" : "this platform's 24h activity by IP"}
+              salesWindow={salesWindow}
+              entityHeader="IP"
+              donutTitle="IP share"
+              showChain={false}
+              hrefBase="/ip/"
+            />
+          )}
+          {/* ⚠️ "Gacha sales" REMOVED from this page (one question per zone): its 24h
+              pull volume duplicates the KPI row's "24h Gacha Vol" and its revenue-mix
+              split duplicates Volume mix above. Dropping it also takes the 7d pull
+              volume and the 7d daily average off this page — they exist nowhere else
+              here, and are called out in the commit rather than silently lost. The
+              component stays for other surfaces. */}
+          {/* ⚠️ DELIBERATELY NOT PAIRED. Top Cards and Recent Sales do answer different
+              questions (ranked vs chronological), but both tables carry `min-w-[900px]`
+              and side-by-side they do not fit below roughly 1900px: measured at 1280 the
+              columns are 602px with 389px and 300px of internal horizontal scroll, while
+              stacked at 1150 both overflow zero. Tables are the density anchor
+              (terminal-ux-study §4) — crushing one to satisfy a layout pattern inverts
+              the point of the doctrine, and pairing is not a goal in itself. Both stay
+              full-width. */}
+          <PlatformTopCardsTable rows={detail.topCards} maxRows={10} seeAllHref={`/platform/${key}/cards`} salesWindow={salesWindow} />
+          <RecentSalesTable rows={detail.recentSales} maxRows={12} salesTotal={detail.salesTotal} seeAllHref={`/platform/${key}/sales`} salesWindow={salesWindow} />
+          </VenueChapterSection>
+          )}
         </div>
       </div>
     </>
