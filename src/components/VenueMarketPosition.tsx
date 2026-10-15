@@ -20,10 +20,14 @@ export function VenueMarketPosition({
   venueKey,
   venueName,
   market,
+  fill = false,
 }: {
   venueKey: string;
   venueName: string;
   market: MarketPosition | null | undefined;
+  /** Paired beside a taller card: the month bars grow to the shared height
+   *  (Section's `fill`), with 96px as their floor. */
+  fill?: boolean;
 }) {
   const v = market?.venues[venueKey];
   if (!market || !v || !v.spendUsd.some((x) => x > 0)) return null;
@@ -41,9 +45,10 @@ export function VenueMarketPosition({
       title={`Where ${venueName} stands`}
       readMe="its share of all pack spend across the venues Varible tracks, and its rank, month by month"
       subtitle={`Complete months · ${monthLong(market.months[0])} – ${monthLong(market.months[last])}`}
+      fill={fill}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-8">
-        <div className="shrink-0" data-market-share>
+      <div className={`flex flex-col gap-4 sm:flex-row sm:gap-8 ${fill ? "min-h-0 flex-1 sm:items-stretch" : "sm:items-end"}`}>
+        <div className={`shrink-0 ${fill ? "sm:self-end" : ""}`} data-market-share>
           <div className="font-mono text-[34px] font-bold leading-none tracking-[-0.03em] tabular text-ink">
             {share == null ? "—" : `${share.toFixed(1)}%`}
           </div>
@@ -57,10 +62,12 @@ export function VenueMarketPosition({
             ) : null}
           </div>
         </div>
-        <div className="grid min-w-0 flex-1 grid-cols-12 items-end gap-1.5" role="img" aria-label={`${venueName}'s share of pack spend and rank, by month`}>
+        <div className={`grid min-w-0 flex-1 grid-cols-12 gap-1.5 ${fill ? "items-stretch" : "items-end"}`} role="img" aria-label={`${venueName}'s share of pack spend and rank, by month`}>
           {market.months.map((m, i) => {
             const s = v.sharePct[i];
             const h = s == null ? 0 : Math.max(4, Math.round((s / maxShare) * 96));
+            // In fill mode the bar is a share of its column's grown height.
+            const hPct = s == null ? 0 : Math.max(4, (100 * s) / maxShare);
             return (
               <div
                 key={m}
@@ -72,8 +79,8 @@ export function VenueMarketPosition({
                 }
               >
                 <span className="font-mono text-[10px] tabular text-ink-3">{v.rank[i] == null ? "—" : `#${v.rank[i]}`}</span>
-                <div className="flex h-[96px] w-full items-end">
-                  <div className={`w-full ${i === last ? "bg-yellow" : "bg-lime-dim"}`} style={{ height: `${h}px` }} />
+                <div className={`flex w-full items-end ${fill ? "min-h-[96px] flex-1" : "h-[96px]"}`}>
+                  <div className={`w-full ${i === last ? "bg-yellow" : "bg-lime-dim"}`} style={{ height: fill ? `${hPct}%` : `${h}px` }} />
                 </div>
                 <span className="font-mono text-[10px] tabular text-ink-4">{monthShort(m)}</span>
               </div>
