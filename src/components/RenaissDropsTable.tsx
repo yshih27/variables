@@ -158,25 +158,26 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
   const smallLabel = smallSizes.length ? `${smallSizes[0].toLocaleString("en-US")}${smallSizes.length > 1 ? `–${smallSizes[smallSizes.length - 1].toLocaleString("en-US")}` : ""} packs` : null;
 
   return (
-    <div className="min-w-0" data-drops-chart>
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+    <div className="flex min-w-0 flex-col" data-drops-chart>
+      <div className="mb-3 flex shrink-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <span className="text-[12px] text-ink-2">Hours from the first pack to the last</span>
         <span className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]">
           <Swatch color={FULL} label="1,000 packs" />
           {smallLabel ? <Swatch color={SMALL} label={smallLabel} /> : null}
         </span>
       </div>
-      <div className="grid grid-cols-[30px_minmax(0,1fr)] gap-x-2">
-        <div className="relative font-mono text-[10px] text-ink-4" style={{ height: PLOT_H }} aria-hidden>
+      {/* The plot fills the card beside the table (its row's height), never under PLOT_H. */}
+      <div className="grid min-h-0 flex-1 grid-cols-[30px_minmax(0,1fr)] gap-x-2" style={{ gridTemplateRows: `minmax(${PLOT_H}px, 1fr) auto` }}>
+        <div className="relative font-mono text-[10px] text-ink-4" aria-hidden>
           {grid.map((g) => (
-            <span key={g} className="absolute right-0 -translate-y-1/2" style={{ top: PLOT_H - (PLOT_H * g) / top }}>
+            <span key={g} className="absolute right-0 -translate-y-1/2" style={{ top: `${100 - (100 * g) / top}%` }}>
               {g}h
             </span>
           ))}
         </div>
-        <div className="relative" style={{ height: PLOT_H }}>
+        <div className="relative">
           {grid.map((g) => (
-            <span key={g} className="absolute inset-x-0 h-px bg-line/60" style={{ top: PLOT_H - (PLOT_H * g) / top }} aria-hidden />
+            <span key={g} className="absolute inset-x-0 h-px bg-line/60" style={{ top: `${100 - (100 * g) / top}%` }} aria-hidden />
           ))}
           <span className="absolute inset-x-0 bottom-0 h-px bg-line" aria-hidden />
           <div className="absolute inset-0 flex items-end gap-[5px]">
@@ -194,7 +195,7 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
                 >
                   <span
                     className="block w-full transition-opacity group-hover:opacity-80"
-                    style={{ height: Math.max(2, Math.round((PLOT_H * hoursOf(d)) / top)), background: d.packs < 1000 ? SMALL : FULL }}
+                    style={{ height: `max(2px, ${(100 * hoursOf(d)) / top}%)`, background: d.packs < 1000 ? SMALL : FULL }}
                   />
                   <span
                     role="tooltip"
