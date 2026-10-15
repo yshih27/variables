@@ -8,7 +8,10 @@
  *     analytics, Renaiss's from `players:renaiss`;
  *   • `readBiggestPulls(key, days)`: the 12 biggest prizes over `days`, for
  *     every venue with a named pull feed, each tagged with the basis of its
- *     value (the venue's own claim, wherever it travels).
+ *     value (the venue's own claim, wherever it travels);
+ *   • `readLatestPulls(key)`: the 12 newest named pulls, for a venue whose pulls
+ *     are stored row by row (Renaiss). Collector Crypt's and Phygitals' snapshots
+ *     keep only their biggest hits from a winners sample, so they have none.
  *
  * Every reader returns null for a venue it does not cover — absence, never an
  * empty board or a zero. DYLI's pulls carry no item title yet (PR B stores it),
@@ -19,7 +22,7 @@ import { readCCGacha } from "./ccGachaCache";
 import { readPhygitalsGacha } from "./phygitalsGachaCache";
 import type { GachaBigHit } from "./gachaDuneCache";
 import { parseGrade } from "../card/grade";
-import { readRenaissBiggestPulls, readRenaissMachineBoard, RENAISS_VALUE_BASIS } from "../renaiss/machines";
+import { readRenaissBiggestPulls, readRenaissLatestPulls, readRenaissMachineBoard, RENAISS_VALUE_BASIS } from "../renaiss/machines";
 import { readRenaissPlayers } from "../renaiss/players";
 
 export type BiggestPull = {
@@ -79,6 +82,19 @@ export async function readBiggestPulls(key: string, days = 30, nowMs: number = D
     if (key === "phygitals") {
       const snap = await readPhygitalsGacha();
       return snap ? fromBigHits(snap.bigHits ?? [], PULL_VALUE_BASIS[key], days, nowMs) : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** The newest named pulls, newest first, or null for a venue with no stored pull rows. Never throws. */
+export async function readLatestPulls(key: string): Promise<BiggestPull[] | null> {
+  try {
+    if (key === "renaiss") {
+      const rows = await readRenaissLatestPulls(LIMIT);
+      return rows.map((r) => ({ ...r, valueBasis: PULL_VALUE_BASIS.renaiss }));
     }
     return null;
   } catch {
