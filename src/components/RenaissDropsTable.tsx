@@ -193,17 +193,24 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
                   aria-label={sentence}
                   className="group relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-yellow/60"
                 >
+                  {/* The bar carries its read: the tooltip opens just above the bar's top,
+                      wherever that is, not at the top of the plot. */}
                   <span
-                    className="block w-full transition-opacity group-hover:opacity-80"
-                    style={{ height: `max(2px, ${(100 * hoursOf(d)) / top}%)`, background: d.packs < 1000 ? SMALL : FULL }}
-                  />
-                  <span
-                    role="tooltip"
-                    className={`pointer-events-none absolute bottom-full ${side} z-20 mb-1.5 hidden w-max max-w-[260px] border border-line bg-bg-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-2 shadow-lg group-hover:block group-focus:block`}
+                    className="relative block w-full"
+                    style={{ height: `max(2px, ${(100 * hoursOf(d)) / top}%)` }}
                   >
-                    <span className="block font-semibold text-ink">{`${d.named ? d.name : "Drop"} · ${formatMonthDayUtc(d.firstAt)}`}</span>
-                    <span className="block font-mono tabular">{`${d.packs.toLocaleString("en-US")} packs · last pack after ${span(d.firstAt, d.lastAt)}`}</span>
-                    <span className="block font-mono tabular">{`${d.buyers.toLocaleString("en-US")} buyers · ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop · ${pct(d.newPlayers, d.buyers)}% first-time`}</span>
+                    <span
+                      className="block h-full w-full transition-opacity group-hover:opacity-80"
+                      style={{ background: d.packs < 1000 ? SMALL : FULL }}
+                    />
+                    <span
+                      role="tooltip"
+                      className={`pointer-events-none absolute bottom-full ${side} z-20 mb-1.5 hidden w-max max-w-[260px] border border-line bg-bg-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-2 shadow-lg group-hover:block group-focus:block`}
+                    >
+                      <span className="block font-semibold text-ink">{`${d.named ? d.name : "Drop"} · ${formatMonthDayUtc(d.firstAt)}`}</span>
+                      <span className="block font-mono tabular">{`${d.packs.toLocaleString("en-US")} packs · last pack after ${span(d.firstAt, d.lastAt)}`}</span>
+                      <span className="block font-mono tabular">{`${d.buyers.toLocaleString("en-US")} buyers · ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop · ${pct(d.newPlayers, d.buyers)}% first-time`}</span>
+                    </span>
                   </span>
                 </div>
               );
