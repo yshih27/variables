@@ -24,11 +24,16 @@ export type StripPoint = {
   text: string;
   /** What the figure covers, for this venue ("Sep 2026", "7 days"). */
   window: string | null;
+  /** The figure in one sentence, from the same row, for the hover read
+   *  (the venue's name goes in front). */
+  detail: string;
 };
 
 export type VenueStrip = {
   key: StripKey;
   title: string;
+  /** What the figures cover, when every venue's is the same; else null (each bar says its own). */
+  window: string | null;
   /** The full chart on /platforms. */
   href: string;
   /** "pct": 0-100, linear. "usd": dollars, log. */
@@ -79,33 +84,58 @@ export function buildVenueStrips(input: {
   const mixPoints: StripPoint[] = [];
   const mixWindow = mix ? `${mix.days} days to ${monthDay(mix.to)}` : null;
   for (const r of mix?.rows ?? []) {
-    if (r.marketPct != null) mixPoints.push({ venue: r.venue, value: r.marketPct, text: pct(r.marketPct), window: mixWindow });
+    if (r.marketPct != null) {
+      const typical = r.typicalPct != null ? `; on a typical day, ${pct(r.typicalPct)}` : "";
+      mixPoints.push({ venue: r.venue, value: r.marketPct, text: pct(r.marketPct), window: mixWindow, detail: `${pct(r.marketPct)} of its volume was resale on its own marketplace in the ${mixWindow}${typical}` });
+    }
   }
 
   const pricePoints: StripPoint[] = [];
   for (const r of prices) {
     const m = r.window ? medianPackPrice(r) : null;
-    if (m != null) pricePoints.push({ venue: r.venue, value: m, text: usd(m), window: r.window === "7d" ? "7 days" : r.estimated ? "24 hours, estimated" : "24 hours" });
+    if (m != null) {
+      const window = r.window === "7d" ? "7 days" : r.estimated ? "24 hours, estimated" : "24 hours";
+      pricePoints.push({ venue: r.venue, value: m, text: usd(m), window, detail: `half its pack spend went on packs of ${usd(m)} or less (last ${window})` });
+    }
   }
 
   const spendPoints: StripPoint[] = spend
     .filter((r) => r.measured && r.top1Pct != null)
-    .map((r) => ({ venue: r.venue, value: r.top1Pct!, text: pct(r.top1Pct!), window: r.since ? `since ${monthDayYear(r.since)}` : null }));
+    .map((r) => ({
+      venue: r.venue,
+      value: r.top1Pct!,
+      text: pct(r.top1Pct!),
+      window: r.since ? `since ${monthDayYear(r.since)}` : null,
+      detail: `its top 1% of wallets spent ${pct(r.top1Pct!)} of all its pack spend${r.since ? ` since ${monthDayYear(r.since)}` : ""}${
+        r.coveragePct != null ? `; these wallets cover ${Math.round(r.coveragePct)}% of its pack spend` : ""
+      }`,
+    }));
 
   const playerPoints: StripPoint[] = [];
   for (const r of players) {
     const last = r.measured ? r.months[r.months.length - 1] : undefined;
     if (last && last.players > 0) {
       const v = (100 * last.returning) / last.players;
-      playerPoints.push({ venue: r.venue, value: v, text: `${Math.round(v)}%`, window: monthLong(last.month) });
+      playerPoints.push({
+        venue: r.venue,
+        value: v,
+        text: `${Math.round(v)}%`,
+        window: monthLong(last.month),
+        detail: `${last.returning.toLocaleString("en-US")} of its ${last.players.toLocaleString("en-US")} players in ${monthLong(last.month)} had played in an earlier month`,
+      });
     }
   }
 
   const missing = (pts: StripPoint[]) => venues.filter((v) => !pts.some((p) => p.venue === v));
+  /** The one window every bar shares, or null when they differ. */
+  const shared = (pts: StripPoint[]) => {
+    const w = [...new Set(pts.map((p) => p.window))];
+    return w.length === 1 ? w[0] : null;
+  };
   return [
-    { key: "marketplace", title: "Marketplace share of volume", href: "/platforms#volume-mix-venues", scale: "pct", points: mixPoints.sort(byValue), unmeasured: missing(mixPoints) },
-    { key: "packPrice", title: "Median pack price, by spend", href: "/platforms#packs-by-price-venues", scale: "usd", points: pricePoints.sort(byValue), unmeasured: missing(pricePoints) },
-    { key: "top1", title: "Top 1% of players' share of spend", href: "/platforms#who-spends-venues", scale: "pct", points: spendPoints.sort(byValue), unmeasured: missing(spendPoints) },
-    { key: "returning", title: "Returning players, latest month", href: "/platforms#players-venues", scale: "pct", points: playerPoints.sort(byValue), unmeasured: missing(playerPoints) },
+    { key: "marketplace", title: "Resale share of volume", window: shared(mixPoints), href: "/platforms#volume-mix-venues", scale: "pct", points: mixPoints.sort(byValue), unmeasured: missing(mixPoints) },
+    { key: "packPrice", title: "Median pack price, by spend", window: shared(pricePoints), href: "/platforms#packs-by-price-venues", scale: "usd", points: pricePoints.sort(byValue), unmeasured: missing(pricePoints) },
+    { key: "top1", title: "Top 1% of players' share of spend", window: shared(spendPoints), href: "/platforms#who-spends-venues", scale: "pct", points: spendPoints.sort(byValue), unmeasured: missing(spendPoints) },
+    { key: "returning", title: "Players back from an earlier month", window: shared(playerPoints), href: "/platforms#players-venues", scale: "pct", points: playerPoints.sort(byValue), unmeasured: missing(playerPoints) },
   ];
 }
