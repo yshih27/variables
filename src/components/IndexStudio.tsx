@@ -518,9 +518,14 @@ export function IndexStudio({
    * Rebase happens downstream in `model`, so it rebases the AGGREGATED series to
    * 100 at its first in-window point — the order the brief asks for.
    */
+  // ⚠️ THE LINES ON THE CHART, NOT EVERY LINE LOADED. Once the full catalog
+  // lands, `seriesData` holds every index series (all monthly), so testing it
+  // hid D and W on every page and locked the grain on M (Oct 15 2026: clicking
+  // M on /platform/renaiss could not be undone, and the choice is stored per
+  // page). Only a monthly line the reader has on the chart narrows the grain.
   const anyMonthly = useMemo(
-    () => [...seriesData.keys()].some((id) => byId.get(id)?.cadence === "monthly"),
-    [seriesData, byId],
+    () => active.some((id) => seriesData.has(id) && byId.get(id)?.cadence === "monthly"),
+    [active, seriesData, byId],
   );
   const shaped = useMemo(() => {
     if (period === "D") return seriesData;
@@ -1312,13 +1317,19 @@ export function IndexStudio({
               the control band's height — the band is sized by its tallest child
               and all three are the identical control. */}
           {/* A monthly series has nothing to resample DOWN to, so D and W hide
-              while one is on the chart — offering them would draw the same
-              month-end points under a label that promises finer grain. */}
+              while one is ON THE CHART (anyMonthly) — offering them would draw
+              the same month-end points under a label that promises finer grain. */}
           <Seg
             variant="mode"
             options={(anyMonthly ? (["M"] as Period[]) : PERIODS).map((p) => ({ key: p, label: PERIOD_LABEL[p] }))}
             value={anyMonthly ? "M" : period}
-            onChange={(k) => setPeriod(k as Period)}
+            onChange={(k) => {
+              setPeriod(k as Period);
+              // A monthly view in a window under three months is one or two
+              // month-end bars with nothing between them to hover: picking M
+              // widens a short window to 6M so the months have a shape.
+              if (k === "M" && window0 && window0[1] - window0[0] < 85 * DAY) setRange(RANGES[2]);
+            }}
           />
           <Seg
             variant="range"
