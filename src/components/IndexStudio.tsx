@@ -481,9 +481,32 @@ export function IndexStudio({
     toastTimer.current = window.setTimeout(() => setToast(null), 1600);
   }, []);
 
+  // The page's default view: the lines it opens with, its default mode, the
+  // daily grain and no hand-set window. A link to it needs no hash.
+  const defaultIds = useMemo(
+    () => new Set(seed?.active ?? (scope ? scopedDefaultActive(scope) : DEFAULT_ACTIVE)),
+    [seed, scope],
+  );
+  const isDefaultView = useMemo(() => {
+    if (win || period !== "D" || mode !== (scope ? "abs" : "rebase")) return false;
+    const wanted = [...defaultIds].filter((id) => byId.has(id));
+    return activeValid.length === wanted.length && activeValid.every((id) => defaultIds.has(id));
+  }, [win, period, mode, scope, defaultIds, byId, activeValid]);
+
   // Write URL hash on state change (after load).
+  // ⚠️ ONLY WHEN THE READER HAS CHANGED THE CHART. It used to write the default
+  // view too, so every page's address bar read "#m=…&s=…&sc=…" (the link the
+  // owner copied to share, Oct 19 2026) and a chapter anchor like #players was
+  // replaced before the browser could scroll to it. At the default view a hash
+  // this studio wrote is cleared and any other fragment is left alone.
   useEffect(() => {
     if (!loaded) return;
+    if (isDefaultView) {
+      if (/(^#|&)(m|sc)=/.test(window.location.hash)) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      }
+      return;
+    }
     const p = new URLSearchParams();
     p.set("m", activeValid.join(","));
     p.set("s", mode);
@@ -495,7 +518,7 @@ export function IndexStudio({
     // the stale fragment with sc=<thisPage>.
     p.set("sc", pageTag);
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${p.toString()}`);
-  }, [activeValid, mode, win, period, loaded, pageTag]);
+  }, [activeValid, mode, win, period, loaded, pageTag, isDefaultView]);
 
   /**
    * ⚠️ THE ONLY THING THE D|W|M TOGGLE TOUCHES. Everything downstream — fullRange,
