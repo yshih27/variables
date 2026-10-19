@@ -23,7 +23,7 @@
  * Shared by the CLI (scripts/warm-core-dune.ts). Pass `cachedOnly` to read Dune's
  * last cached results (0 credits) instead of forcing a fresh execution.
  */
-import { runQuery, getResultsAutoRefresh, type DuneRow } from "../../dune/client";
+import { runQuery, getResultsAutoRefresh, getLatestResultsMeta, type DuneRow } from "../../dune/client";
 import { CC_SECONDARY_QUERY_ID } from "../../dune/queryIds";
 import { PLATFORM_SOURCES } from "../sources";
 import { cleanSecondarySales, formatHygiene } from "../secondaryHygiene";
@@ -157,11 +157,17 @@ export type SecondaryScan<Raw = unknown> = {
 async function fetchDuneSecondaryScan(
   queryId: number,
   label: string,
-  opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; log?: (msg: string) => void } = {},
+  opts: { cachedOnly?: boolean; reuseIfUnchanged?: boolean; latestOnly?: boolean; log?: (msg: string) => void } = {},
 ): Promise<SecondaryScan<DuneRow> | null> {
   let rows: DuneRow[];
   let executionEndedAt: string | null = null;
-  if (opts.cachedOnly) {
+  if (opts.latestOnly) {
+    // Dune's latest stored result as it stands: no staleness probe, no execution.
+    // The fallback when a fresh run cannot be waited for (runCoreWarm).
+    const r = await getLatestResultsMeta(queryId, { maxRows: 250_000 });
+    rows = r.rows;
+    executionEndedAt = r.executionEndedAt;
+  } else if (opts.cachedOnly) {
     const r = await getResultsAutoRefresh(queryId, {
       maxAgeMs: CC_SECONDARY_MAX_CACHE_AGE_MS,
       freshnessSource: "core-volume",
@@ -369,7 +375,26 @@ export async function runCoreWarm(
   // ── Collector Crypt: Dune (full chain scan, no Helius 429) ──
   try {
     const t0 = Date.now();
-    const ccScan = await fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, reuseIfUnchanged: true });
+    let ccScan: SecondaryScan<DuneRow> | null;
+    try {
+      ccScan = await fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, reuseIfUnchanged: true });
+    } catch (err) {
+      if (opts.cachedOnly) throw err;
+      // The daily's fresh execution can outlast our wait: Oct 19 2026 it queued 11 min
+      // and ran 23.5 min against the 8-min wait. Dropping the leg erased Collector
+      // Crypt's marketplace and the board printed "primary only". Serve Dune's latest
+      // stored result instead (what the 6h job reads); the execution keeps running on
+      // Dune and the next core run ingests it.
+      log(`→ collector-crypt (Dune) fresh run failed (${(err as Error).message}) — serving Dune's latest stored result`);
+      ccScan = await fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, latestOnly: true });
+    }
+    // Unchanged since our last ingest, but the previous snapshot has no entry to carry
+    // forward (the run that wrote it lost this leg): re-derive from the same stored
+    // result rather than skip the venue.
+    if (ccScan === null && !prev?.platforms?.["collector-crypt"]) {
+      log("→ collector-crypt (Dune) unchanged, nothing to carry forward — re-deriving from the stored result");
+      ccScan = await fetchDuneSecondaryScan(CC_SECONDARY_QUERY_ID, "cc-secondary", { ...opts, latestOnly: true });
+    }
     if (ccScan === null) {
       carryForward("collector-crypt", "collector-crypt (Dune)");
     } else {
