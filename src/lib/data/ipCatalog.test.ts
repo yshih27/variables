@@ -48,6 +48,16 @@ test("c: short codes match whole words only", () => {
   assert.equal(ip("MLS Next Pro"), "soccer");
 });
 
+test("m: a named F1 driver is F1 whatever sport the venue filed him under", () => {
+  assert.equal(ip("2010 #129 Michael Schumacher PSA", "Card", "Soccer", "2010"), "f1");
+  assert.equal(ip("2020 #163 Charles Leclerc PSA 9", "Card", "Misc Sports", "2020", "Topps Chrome Formula 1 Sapphire Edition"), "f1");
+});
+
+test("c: a surname alone is not a driver, and a card code is not 'F1'", () => {
+  assert.equal(ip("1982 Panini Toni Schumacher", "Soccer"), "soccer"); // the German goalkeeper
+  assert.equal(ip("2023 Topps Chrome UEFA #F1 Erling Haaland", "Soccer"), "soccer");
+});
+
 test("c: no bare 'world cup' rule — a hockey World Cup card stays hockey", () => {
   assert.equal(ip("2016 Upper Deck World Cup of Hockey Connor McDavid"), "hockey");
 });
