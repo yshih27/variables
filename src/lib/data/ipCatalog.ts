@@ -218,7 +218,36 @@ export const IP_CATALOG: IPMeta[] = [
     short: "F1",
     color: "#5fa3ff",
     emoji: "🏎️",
-    patterns: [" f1 ", "formula 1"],
+    // Plus drivers by FULL name: venues file F1 cards under other sports
+    // (Collector Crypt labels a 2010 Michael Schumacher "Soccer"). Never a bare
+    // surname: Toni Schumacher was a German goalkeeper. Checked before soccer
+    // and American football (CLASSIFY_ORDER).
+    patterns: [
+      " f1 ",
+      "formula 1",
+      "formula one",
+      "michael schumacher",
+      "mick schumacher",
+      "ralf schumacher",
+      "lewis hamilton",
+      "max verstappen",
+      "ayrton senna",
+      "charles leclerc",
+      "lando norris",
+      "fernando alonso",
+      "sebastian vettel",
+      "kimi raikkonen",
+      "kimi räikkönen",
+      "niki lauda",
+      "oscar piastri",
+      "valtteri bottas",
+      "daniel ricciardo",
+      "alain prost",
+      "nico rosberg",
+      "jenson button",
+      "kimi antonelli",
+      "franco colapinto",
+    ],
   },
 
   // ─── Streetwear / Comics ───────────────────────────────────────
@@ -252,16 +281,21 @@ const OTHER: IPMeta = {
 };
 
 /**
- * Matching precedence: IP_CATALOG order, except that soccer is checked before
- * American football. Both are "football" somewhere, and the soccer markers are
- * the specific ones, so they have to win first. IP_CATALOG itself keeps its
- * order (it is also the display order of indexRegistry and the sitemap).
+ * Matching precedence: IP_CATALOG order, except that F1 and then soccer are
+ * checked before American football. Both soccer and American football are
+ * "football" somewhere, and the soccer markers are the specific ones; a named
+ * F1 driver outranks whatever sport the venue filed the card under. IP_CATALOG
+ * itself keeps its order (it is also the display order of indexRegistry and
+ * the sitemap).
  */
 const CLASSIFY_ORDER: IPMeta[] = (() => {
-  const order = [...IP_CATALOG];
-  const soc = order.findIndex((i) => i.key === "soccer");
+  // F1 drivers, then soccer, both ahead of American football: a named driver
+  // outranks the venue's sport label, and soccer markers outrank "football".
+  const ahead = ["f1", "soccer"];
+  const lifted = ahead.map((k) => IP_CATALOG.find((i) => i.key === k)).filter((i): i is IPMeta => Boolean(i));
+  const order = IP_CATALOG.filter((i) => !ahead.includes(i.key));
   const nfl = order.findIndex((i) => i.key === "football");
-  if (soc > nfl && nfl >= 0) order.splice(nfl, 0, ...order.splice(soc, 1));
+  order.splice(nfl >= 0 ? nfl : order.length, 0, ...lifted);
   return order;
 })();
 
