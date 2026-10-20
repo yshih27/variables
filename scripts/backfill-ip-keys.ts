@@ -11,6 +11,7 @@
  *   npx tsx scripts/backfill-ip-keys.ts            # dry run (report only)
  *   npx tsx scripts/backfill-ip-keys.ts --apply    # write the changes
  *   npx tsx scripts/backfill-ip-keys.ts --apply --platform collector-crypt
+ *   npx tsx scripts/backfill-ip-keys.ts --apply --allow-demote   # also IP → other
  *
  * ⚠ AFTER a real reclassification, you MUST also migrate the metric spine's STOCK
  * history (scripts/migrate-taxonomy-spine.ts) or the leaderboard deltas read the
@@ -37,12 +38,13 @@ function ipKeyFromRow(name: string | null, attributes: unknown): string {
   return classifyIP(hints).key;
 }
 
-async function backfillPlatform(platform: string, apply: boolean) {
+async function backfillPlatform(platform: string, apply: boolean, allowDemote: boolean) {
   const PAGE = 1000;
   let lastId: string | null = null;
   let scanned = 0;
   const transitions = new Map<string, number>(); // "from→to" → count
   const updates: { id: string; ip_key: string }[] = [];
+  const demotions: { id: string; from: string; name: string | null }[] = [];
 
   for (;;) {
     let q = db()
@@ -62,9 +64,18 @@ async function backfillPlatform(platform: string, apply: boolean) {
       // Only ever PROMOTE (→ a real IP). Never demote a card to "other": a row
       // classified by a richer signal than its stored attributes (e.g. an API
       // category) must not be regressed just because this recompute can't see it.
+      // Exception, opt-in: --allow-demote, for a classifier fix that takes a card
+      // OUT of an IP it never belonged to (Oct 20 2026: "Star Trek Inflexions"
+      // matched "nfl"). The dry run always lists these rows, so they are seen first.
       if (next !== cur && next !== "other") {
         transitions.set(`${cur}→${next}`, (transitions.get(`${cur}→${next}`) ?? 0) + 1);
         updates.push({ id: r.id as string, ip_key: next });
+      } else if (next !== cur && next === "other" && cur !== "other") {
+        demotions.push({ id: r.id as string, from: cur, name: (r.name as string | null) ?? null });
+        if (allowDemote) {
+          transitions.set(`${cur}→other`, (transitions.get(`${cur}→other`) ?? 0) + 1);
+          updates.push({ id: r.id as string, ip_key: "other" });
+        }
       }
     }
     if (rows.length < PAGE) break;
@@ -74,6 +85,10 @@ async function backfillPlatform(platform: string, apply: boolean) {
   console.log(`\n${platform}: scanned ${scanned}, ${updates.length} ip_key changes`);
   for (const [t, n] of [...transitions.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
     console.log(`  ${t.padEnd(28)} ${n}`);
+  }
+  if (demotions.length) {
+    console.log(`  → other (${allowDemote ? "applied with --allow-demote" : "NOT applied; pass --allow-demote"}): ${demotions.length}`);
+    for (const d of demotions.slice(0, 20)) console.log(`    ${d.from}→other  ${d.id}  ${d.name ?? ""}`);
   }
 
   if (apply && updates.length) {
@@ -103,12 +118,13 @@ async function backfillPlatform(platform: string, apply: boolean) {
 
 async function main() {
   const apply = process.argv.includes("--apply");
+  const allowDemote = process.argv.includes("--allow-demote");
   const pi = process.argv.indexOf("--platform");
   const only = pi >= 0 ? process.argv[pi + 1] : null;
   const targets = only ? [only] : [...PLATFORMS];
   console.log(apply ? "APPLYING ip_key backfill" : "DRY RUN (pass --apply to write)");
   let total = 0;
-  for (const p of targets) total += await backfillPlatform(p, apply);
+  for (const p of targets) total += await backfillPlatform(p, apply, allowDemote);
   console.log(`\n${apply ? "applied" : "would change"} ${total} rows total`);
 }
 
