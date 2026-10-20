@@ -162,6 +162,9 @@ export const IP_CATALOG: IPMeta[] = [
     short: "NFL",
     color: "#6cf48a",
     emoji: "🏈",
+    // American football. Classification checks `soccer` FIRST (CLASSIFY_ORDER
+    // below), so a soccer card whose set says "football"/"footballers" never
+    // lands here; what reaches this entry is American football only.
     patterns: ["football", "nfl"],
   },
   {
@@ -170,7 +173,36 @@ export const IP_CATALOG: IPMeta[] = [
     short: "SOC",
     color: "#6cf48a",
     emoji: "⚽",
-    patterns: ["soccer"],
+    // Soccer, which much of the world calls football. The venue's own "Soccer"
+    // label, plus markers that only soccer cards carry: governing bodies,
+    // leagues and competitions, soccer-only products, and "footballers" (Topps
+    // Finest UEFA "Prized Footballers"). No bare "world cup": hockey, rugby and
+    // cricket have World Cups too.
+    patterns: [
+      "soccer",
+      "fifa",
+      "uefa",
+      "ucl",
+      "ucc",
+      "premier league",
+      "champions league",
+      "europa league",
+      "club competitions",
+      "la liga",
+      "laliga",
+      "bundesliga",
+      "serie a",
+      "ligue 1",
+      "eredivisie",
+      "mls",
+      "copa america",
+      "merlin chrome",
+      "topps merlin",
+      "match attax",
+      "footballers",
+      "futbol",
+      "fútbol",
+    ],
   },
   {
     key: "hockey",
@@ -219,13 +251,45 @@ const OTHER: IPMeta = {
   patterns: [],
 };
 
+/**
+ * Matching precedence: IP_CATALOG order, except that soccer is checked before
+ * American football. Both are "football" somewhere, and the soccer markers are
+ * the specific ones, so they have to win first. IP_CATALOG itself keeps its
+ * order (it is also the display order of indexRegistry and the sitemap).
+ */
+const CLASSIFY_ORDER: IPMeta[] = (() => {
+  const order = [...IP_CATALOG];
+  const soc = order.findIndex((i) => i.key === "soccer");
+  const nfl = order.findIndex((i) => i.key === "football");
+  if (soc > nfl && nfl >= 0) order.splice(nfl, 0, ...order.splice(soc, 1));
+  return order;
+})();
+
+/**
+ * A short code (≤4 letters/digits: nfl, nba, mlb, nhl, ucl, mls, nike) matches
+ * as a whole word only; longer patterns match as substrings. Substring matching
+ * on codes misfiled cards: "Star Trek Inflexions" contained "nfl" and sat under
+ * Football (NFL).
+ */
+const SHORT_CODE = /^[a-z0-9]{1,4}$/;
+const WORD_RE = new Map<string, RegExp>();
+function hasPattern(value: string, pattern: string): boolean {
+  if (!SHORT_CODE.test(pattern)) return value.includes(pattern);
+  let re = WORD_RE.get(pattern);
+  if (!re) {
+    re = new RegExp(`(?:^|[^a-z0-9])${pattern}(?:$|[^a-z0-9])`);
+    WORD_RE.set(pattern, re);
+  }
+  return re.test(value);
+}
+
 export function classifyIP(rawValues: (string | number | undefined)[]): IPMeta {
   const lowered = rawValues
     .filter((v): v is string | number => v != null)
     .map((v) => String(v).toLowerCase());
-  for (const ip of IP_CATALOG) {
+  for (const ip of CLASSIFY_ORDER) {
     for (const pattern of ip.patterns) {
-      if (lowered.some((v) => v.includes(pattern))) return ip;
+      if (lowered.some((v) => hasPattern(v, pattern))) return ip;
     }
   }
   return OTHER;
