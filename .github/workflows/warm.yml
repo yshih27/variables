@@ -270,8 +270,12 @@ jobs:
       - name: Homepage payload precompute # re-derive off the fresh daily data (B9-1)
         continue-on-error: true
         run: npx tsx scripts/warm-homepage.ts
+      # `phygitals` (the listings warmer) left the --require list on Oct 20 2026:
+      # Phygitals stopped serving listings publicly (404 since Oct 18), so it errors
+      # by design and would redden every daily. It still runs and /status still
+      # shows its error; the market cap it fed is withheld with its reason.
       - name: Freshness gate # fails the job (→ Actions notifies) if any warmer errored
-        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,phygitals,primary-revenue,core-volume,metric-snapshots,homepage,dyli-listings,dyli-boxes
+        run: npx tsx scripts/check-freshness.ts --require=holders,beezie-traits,secondary-sales,gacha-dune,primary-revenue,core-volume,metric-snapshots,homepage,dyli-listings,dyli-boxes
       # Data-integrity gate (D10-4) — everything above is fresh now. A HARD invariant
       # violation (fan-out dupes, holders union>sum, hero≠Σrows, avgTrade≠vol/trades,
       # cards>0 while vol=0) fails the run red; SOFT heuristics only warn.

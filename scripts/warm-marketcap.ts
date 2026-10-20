@@ -34,10 +34,10 @@ import {
 import { readCardValuations } from "../src/lib/data/cards";
 import { readHolders } from "../src/lib/data/holders";
 import { PLATFORM_SOURCES } from "../src/lib/data/sources";
-import { db } from "../src/lib/db/client";
 import { readSnapshot } from "../src/lib/db/snapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
 import { readRenaissHoldings, STATED_MCAP_MIN_COVERAGE } from "../src/lib/renaiss/holders";
+import { phygitalsFloorIsCurrent, readPhygitalsListingsState } from "../src/lib/phygitals/listingsState";
 
 type Acc = {
   cards: number;
@@ -131,21 +131,24 @@ async function processBeezie(byPlatform: Map<string, PlatAcc>) {
   console.log(`→ Beezie: ${cards.length} cards · ${priced} matched a listing`);
 }
 
-/** Phygitals' platform floor (min active listing) as written by warm-phygitals. */
+/**
+ * Phygitals' platform floor (min active listing) as written by warm-phygitals —
+ * only while it is current. A floor older than PHYGITALS_FLOOR_MAX_AGE_MS is not
+ * priced: from Oct 18 2026 the listings route answered 404 and every 6h run kept
+ * multiplying the Oct 17 floor by today's supply under a fresh timestamp.
+ */
 async function readPhygitalsFloorUsd(): Promise<number | null> {
-  const { data, error } = await db()
-    .from("entity_metrics")
-    .select("floor_usd")
-    .eq("entity_type", "platform")
-    .eq("entity_id", "phygitals")
-    .eq("period", "all")
-    .maybeSingle();
-  if (error) {
-    console.warn(`  phygitals floor read failed: ${error.message}`);
+  const state = await readPhygitalsListingsState().catch((e: Error) => {
+    console.warn(`  phygitals floor read failed: ${e.message}`);
+    return null;
+  });
+  if (state && !phygitalsFloorIsCurrent(state)) {
+    console.log(
+      `  phygitals floor withheld: ${state.listingsUnavailable ?? "no current reading"} (last read ${state.floorLastReadAt ?? "never"})`,
+    );
     return null;
   }
-  const f = (data as { floor_usd?: number } | null)?.floor_usd;
-  return typeof f === "number" && Number.isFinite(f) && f > 0 ? f : null;
+  return state?.floorUsd ?? null;
 }
 
 /**

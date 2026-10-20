@@ -15,6 +15,7 @@ import { readMarketCap, type MarketCapPlatformIP } from "./marketcap";
 import { readCardsWithIp } from "./cards";
 import { readBiggestPulls, type BiggestPull } from "./venueBoards";
 import { readRenaissHoldings, STATED_MCAP_MIN_COVERAGE } from "@/lib/renaiss/holders";
+import { phygitalsFloorIsCurrent, readPhygitalsListingsState, type PhygitalsListingsState } from "@/lib/phygitals/listingsState";
 import { chooseSalesWindow, holdersReasonFor, ipMetaByKey, ipOfSale } from "./platformTables";
 import { readGachaDune } from "./gachaDuneCache";
 import {
@@ -431,10 +432,11 @@ export async function buildPlatformDetail(
   // carried the week — the trailing 7 days. Never an empty table while the
   // store holds sales in the week.
   const { window: salesWindow, sales: tableSales } = chooseSalesWindow(bucket.sales24h, bucket.sales7d);
-  const [enriched, biggestPulls, renaissHoldings] = await Promise.all([
+  const [enriched, biggestPulls, renaissHoldings, phygitalsListings] = await Promise.all([
     enrichSales(key, tableSales),
     readBiggestPulls(key, 30),
     key === "renaiss" ? readRenaissHoldings().catch(() => null) : Promise.resolve(null),
+    key === "phygitals" ? readPhygitalsListingsState().catch(() => null) : Promise.resolve(null),
   ]);
 
   const allSales = bucket.sales24h;
@@ -468,13 +470,17 @@ export async function buildPlatformDetail(
     platformMcapEntry && platformMcapEntry.cards > 0 ? (platformMcapEntry.cardsValued / platformMcapEntry.cards) * 100 : null;
   // Renaiss's market cap is its stated prize value, published only above its
   // coverage floor (renaiss/holders.ts); below it the entry is absent and the
-  // reason is the measured coverage.
-  const mcapReason =
-    platformMcapEntry || key !== "renaiss"
-      ? null
-      : renaissHoldings
+  // reason is the measured coverage. Phygitals' is floor × supply, withheld once
+  // its floor is not current; the reason dates the last floor read.
+  const mcapReason = platformMcapEntry
+    ? null
+    : key === "renaiss"
+      ? renaissHoldings
         ? `Renaiss's stated prize value covers ${renaissHoldings.stated.coveragePct.toFixed(1)}% of the ${renaissHoldings.stated.held.toLocaleString("en-US")} tokens its holders hold; ${Math.round(STATED_MCAP_MIN_COVERAGE * 100)}% is needed`
-        : "no holders run has counted Renaiss's tokens yet";
+        : "no holders run has counted Renaiss's tokens yet"
+      : key === "phygitals" && phygitalsListings && !phygitalsFloorIsCurrent(phygitalsListings)
+        ? phygitalsMcapReason(phygitalsListings)
+        : null;
 
   // 7d volume + the 24h change, both from the NATIVE spine (B3/M4). These used to
   // read the Rarible-era `readHistory()` blobs — the last legacy path on this page —
@@ -721,3 +727,15 @@ export const getPlatformActivitySeries = unstable_cache(
 );
 
 export { PLATFORM_SOURCES };
+
+/** Why Phygitals' floor × supply market cap is "—": the last floor read, dated from data. */
+function phygitalsMcapReason(s: PhygitalsListingsState): string {
+  const t = s.floorLastReadAt ? Date.parse(s.floorLastReadAt) : NaN;
+  const since = Number.isFinite(t)
+    ? new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    : null;
+  const why = s.listingsUnavailable ? "Phygitals no longer publishes its listings" : null;
+  if (since && why) return `No floor read since ${since}: ${why}`;
+  if (since) return `No floor read since ${since}`;
+  return why ? `${why}, so no floor is read` : "no current floor reading";
+}
