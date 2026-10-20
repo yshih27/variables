@@ -17,6 +17,7 @@ import {
   type PhygitalsListing,
 } from "../../phygitals/client";
 import { db } from "../../db/client";
+import { readPhygitalsListingsState } from "../../phygitals/listingsState";
 
 // API category string → our ip_key. Pokémon (~87%) + One Piece (~3.5%) cover
 // ~90% of Phygitals; extend as we confirm more category strings.
@@ -48,6 +49,41 @@ function parseGrade(g?: string): { grader: string | null; num: number | null; la
   return { grader, num: nm ? parseFloat(nm[1]) : null, label: g };
 }
 
+/**
+ * The listings route is gone: write floor_usd = null with the reason and the
+ * date the last floor was read (carried forward from the previous row), plus the
+ * headline totals from the sales route, which still answers. The market-cap
+ * warmer then skips Phygitals and the platform page prints why.
+ */
+async function recordListingsUnavailable(reason: string, log: (m: string) => void): Promise<void> {
+  const prev = await readPhygitalsListingsState().catch(() => null);
+  const row: Record<string, unknown> = {
+    entity_type: "platform",
+    entity_id: "phygitals",
+    period: "all",
+    floor_usd: null,
+    generated_at: new Date().toISOString(),
+    source: "phygitals-api",
+  };
+  const extra: Record<string, unknown> = {
+    cards_indexed: 0,
+    listings_unavailable: reason,
+    floor_last_read_at: prev?.floorLastReadAt ?? null,
+  };
+  try {
+    const { totalVolume, totalActiveListingsCount } = await fetchPhygitalsSales(0);
+    row.vol_usd = totalVolume / 1e6;
+    extra.active_listings = totalActiveListingsCount;
+  } catch (err) {
+    // Leave vol_usd untouched (the upsert only writes the columns it carries).
+    log(`  sales totals unavailable too — ${(err as Error).message}`);
+  }
+  row.extra = extra;
+  const { error } = await db().from("entity_metrics").upsert(row);
+  if (error) throw new Error(`entity_metrics upsert: ${error.message}`);
+  log(`  listings unavailable (${reason}); floor withheld, last read ${prev?.floorLastReadAt ?? "unknown"}`);
+}
+
 export type PhygitalsWarmResult = {
   cards: number;
   listings: number;
@@ -69,6 +105,10 @@ export async function runPhygitalsWarm(
   const listingById = new Map<string, Record<string, unknown>>();
   let floorUsd: number | null = null;
   let hadError = false; // a page failed mid-crawl → write the partial we have
+  let lastError: string | null = null;
+  // A 404 is not a throttle: since Oct 18 2026 the route answers "Cannot GET"
+  // (Phygitals moved its listings behind its own app). Stop at the first one.
+  let endpointGone: string | null = null;
 
   for (const { api, ip } of CATEGORIES) {
     let total = 0;
@@ -83,7 +123,9 @@ export async function runPhygitalsWarm(
         // keep the cheapest-first listings already collected (floor stays correct)
         // and move on. A true total failure is caught below + by runWarmer.
         hadError = true;
-        log(`  ${api}: stopped at page ${page} — ${(err as Error).message}`);
+        lastError = (err as Error).message;
+        if (/^Phygitals 404\b/.test(lastError)) endpointGone = lastError.split("?")[0];
+        log(`  ${api}: stopped at page ${page} — ${lastError}`);
         break;
       }
       if (listings.length === 0) break;
@@ -137,15 +179,24 @@ export async function runPhygitalsWarm(
       await sleep(PAGE_DELAY_MS);
     }
     log(`  ${api}: ${total} listed${hadError ? " (partial)" : ""} (cumulative cards ${cardById.size})`);
+    if (endpointGone) break;
   }
 
   const cardRows = [...cardById.values()];
   const listingRows = [...listingById.values()];
   if (cardRows.length === 0) {
+    if (endpointGone) {
+      // No floor exists to write. Record that, keep the date of the last floor
+      // read, and refresh the headline totals the sales route still serves, so
+      // the market cap (floor × supply) is withheld with its reason rather than
+      // priced off a floor that is days old.
+      await recordListingsUnavailable(endpointGone, log);
+      throw new Error(`Phygitals: listings unavailable (${endpointGone}); floor withheld, headline totals written`);
+    }
     // Collected nothing — surface it (runWarmer records an error row) instead of
     // silently writing an empty "ok" snapshot. This is the bug that hid a 21-day
     // outage: the warmer threw before recording, so it read "stale", not "error".
-    throw new Error(`Phygitals: no listings collected${hadError ? " (rate-limited)" : ""}`);
+    throw new Error(`Phygitals: no listings collected${lastError ? ` (${lastError.split("?")[0]})` : ""}`);
   }
   const CHUNK = 500;
   for (let i = 0; i < cardRows.length; i += CHUNK) {
