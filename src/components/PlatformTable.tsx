@@ -217,8 +217,11 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
             {visible.map((p, i) => {
               // Primary-market venues (gacha / tokenization) can post real revenue
               // with no secondary trades — tag them so the dashed row reads as
-              // intentional rather than broken data.
-              const primaryOnly = !(p.vol24Usd > 0) && p.primaryUsd != null && p.primaryUsd > 0;
+              // intentional rather than broken data. "No marketplace source" is a
+              // NaN vol24Usd (revived from JSON null), never a quiet day: a tracked
+              // venue with no sales in 24h reads $0.00 (Oct 19 2026, Renaiss).
+              const tracked = Number.isFinite(p.vol24Usd);
+              const primaryOnly = !tracked && p.primaryUsd != null && p.primaryUsd > 0;
               return (
               <TableRowLink key={p.key} href={`/platform/${p.key}`} className="[&:last-child>td]:border-b-0">
                 <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
@@ -257,7 +260,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                   <Td align="right" className="hidden md:table-cell">
                     {(() => {
                       const v = vw === "24h" ? p.vol24Usd : p.vol7Usd;
-                      return Number.isFinite(v) && v > 0 ? formatCompactUsd(v) : "—";
+                      return Number.isFinite(v) && (v > 0 || tracked) ? formatCompactUsd(v) : "—";
                     })()}
                   </Td>
                 )}
@@ -271,7 +274,7 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                 {full && <Td align="right" className="hidden md:table-cell">{formatInt(p.active24h)}</Td>}
                 {full && (
                 <Td align="right" className="hidden md:table-cell">
-                  {Number.isFinite(p.cards) && p.cards > 0 ? formatCompactNumber(p.cards) : "—"}
+                  {Number.isFinite(p.cards) ? formatCompactNumber(p.cards) : "—"}
                 </Td>
                 )}
                 {full && <Td align="right" className="hidden md:table-cell">{formatInt(p.holders)}</Td>}

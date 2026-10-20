@@ -80,6 +80,26 @@ jobs:
       - name: Courtyard exchange (resale + buybacks, Polygon)
         continue-on-error: true
         run: npx tsx scripts/warm-courtyard-exchange.ts
+      # The native feeds' row stores: DYLI's own sales feed and Renaiss's index API.
+      # BEFORE core volume, which reads both stores for each venue's 24h/7d/30d (the
+      # Courtyard exchange rule above). Run after it, every 24h figure missed the hours
+      # since the previous core run: on Oct 19 2026 all five of Renaiss's sales that
+      # day landed after the morning run, so the board read $0 and tagged Renaiss
+      # "primary only" while its own API listed $2,181.90.
+      - name: DYLI sales (native feed, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-dyli-sales.ts
+      # Renaiss's own index API. Both warmers are dry runs unless told otherwise,
+      # so the batch passes --apply; each caps itself at RENAISS_MAX_CALLS (1,500).
+      # In the health gate's --require list since the Oct 5 2026 cutover: the key is
+      # in Actions and the backfill wrote both stores (18,304 sales, ~720K pulls), so
+      # a run that fails or goes silent now reddens the gate like every other feed.
+      - name: Renaiss sales (native index API, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-sales.ts --apply
+      - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-pulls.ts --apply
       - name: Core volume (cached Dune + Rarible)
         continue-on-error: true
         run: npx tsx scripts/warm-core-dune.ts --cached
@@ -104,20 +124,6 @@ jobs:
       - name: Backfill history
         continue-on-error: true
         run: npx tsx scripts/backfill-history.ts
-      - name: DYLI sales (native feed, incremental)
-        continue-on-error: true
-        run: npx tsx scripts/warm-dyli-sales.ts
-      # Renaiss's own index API. Both warmers are dry runs unless told otherwise,
-      # so the batch passes --apply; each caps itself at RENAISS_MAX_CALLS (1,500).
-      # In the health gate's --require list since the Oct 5 2026 cutover: the key is
-      # in Actions and the backfill wrote both stores (18,304 sales, ~720K pulls), so
-      # a run that fails or goes silent now reddens the gate like every other feed.
-      - name: Renaiss sales (native index API, incremental)
-        continue-on-error: true
-        run: npx tsx scripts/warm-renaiss-sales.ts --apply
-      - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
-        continue-on-error: true
-        run: npx tsx scripts/warm-renaiss-pulls.ts --apply
       # Renaiss's machine board and players, from the rows just stored. No API call.
       # Machines: a 30-complete-day windowed read (~166K pulls, ~70 s measured Oct 7).
       # Players: one RPC, renaiss_wallet_spend() (migration 20261007000002); until
@@ -225,6 +231,18 @@ jobs:
       - name: DYLI boxes (catalog + declared EV, then realized pulls)
         continue-on-error: true
         run: npx tsx scripts/warm-dyli-boxes.ts
+      # Catch the native feeds up before core volume, as the core job does: the daily
+      # payload replaces the core one until the next core run, so it must read the
+      # same just-caught-up stores. All three are incremental and idempotent.
+      - name: DYLI sales (native feed, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-dyli-sales.ts
+      - name: Renaiss sales (native index API, incremental)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-sales.ts --apply
+      - name: Renaiss pack pulls (native index API, trailing re-read, changed rows only)
+        continue-on-error: true
+        run: npx tsx scripts/warm-renaiss-pulls.ts --apply
       # Courtyard's own exchange (peer-to-peer resale → secondary_sales,
       # buybacks → the spine's outflow_gross_usd), read from Polygon over a public
       # RPC. BEFORE core volume, which reads those rows for Courtyard's 24h/7d/30d.
