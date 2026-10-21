@@ -12,6 +12,7 @@ import { OverviewMetricColumn, type OverviewMetricRow } from "@/components/Overv
 import { formatCompactUsd, formatCompactNumber, staleAsOfLabel } from "@/lib/format";
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
+import { readIpPackSpend } from "@/lib/data/ipPackSpend";
 import { CategoryLanding } from "@/components/CategoryLanding";
 import { CATEGORY_ANCHORS } from "@/lib/shell/categoryAnchors";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
@@ -101,7 +102,7 @@ export const metadata = {
 };
 
 export default async function AllIPsPage() {
-  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries, studioSeed, ledger] =
+  const [data, volSeries, cardsSeries, platVol, platGacha, holdersSeries, mcapSeries, studioSeed, ledger, packSnap] =
     await Promise.all([
       getData(),
       getIpSeries("volume_usd"),
@@ -116,7 +117,10 @@ export default async function AllIPsPage() {
       // the API as it always did.
       readStudioSeed(),
       readMethodChanges(),
+      // Pack spend by IP (one snapshot read): the table's "Packs 30d" column.
+      readIpPackSpend().catch(() => null),
     ]);
+  const packSpend = packSnap ? Object.fromEntries(Object.entries(packSnap.byIp).map(([k, v]) => [k, v.usd30d])) : null;
 
   const categories = rollupByCategory(data.ips, volSeries);
 
@@ -338,7 +342,7 @@ export default async function AllIPsPage() {
               />
             )}
           </div>
-          <IPTable rows={data.ips} surface="table:ips" />
+          <IPTable rows={data.ips} surface="table:ips" packSpend={packSpend} />
         </div>
       </div>
     </>

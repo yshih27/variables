@@ -45,6 +45,10 @@ export const METRICS = {
     term: "Avg trade",
     text: "Volume ÷ trades — the mean sale price in the window.",
   },
+  packSpend30d: {
+    term: "Pack spend · 30d",
+    text: "Money paid for packs and machines over the last 30 complete days, credited to the IP each one sells: Collector Crypt machines that sell one IP (from the pulls we capture) and Renaiss pulls by the prize each paid out. Mixed machines are not credited, and Courtyard, Phygitals, Beezie and DYLI packs are not split by IP.",
+  },
   holders: {
     term: "Holders",
     text: "Unique wallets holding at least one tracked card. The homepage total is a cross-platform union (a wallet on two platforms counts once); per-IP counts can overlap — a wallet holding two IPs is counted in both.",

@@ -87,6 +87,9 @@ export const SOURCE_INTERVALS_MS: Record<string, number> = {
   "renaiss-pulls": 6 * HOUR_MS,
   "renaiss-machines": 6 * HOUR_MS,
   "renaiss-players": 6 * HOUR_MS,
+  // Pack spend by IP (ip-pack-spend), derived from stored rows at the end of the
+  // core batch: Collector Crypt's machine board + Renaiss pulls by prize.
+  "ip-pack-spend": 6 * HOUR_MS,
   // Dispatch-only, run once after migration 20261007000001; a long interval so
   // /status does not call a finished refill stale.
   "renaiss-pulls-refill": 365 * DAY_MS,

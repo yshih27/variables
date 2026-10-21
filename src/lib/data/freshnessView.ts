@@ -36,6 +36,7 @@ const LABELS: Record<string, string> = {
   "gacha-dune": "Gacha",
   "phygitals-gacha": "Phygitals gacha",
   "gacha-packs": "Pack catalog",
+  "ip-pack-spend": "Pack spend",
   holders: "Holders",
   "beezie-traits": "Beezie traits",
   phygitals: "Phygitals",

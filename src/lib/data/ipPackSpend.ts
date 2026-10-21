@@ -181,6 +181,30 @@ export function buildIpPackSpend(input: {
   return { generatedAt: input.generatedAt ?? new Date().toISOString(), windowDays: PACK_SPEND_WINDOW_DAYS, byIp, venues };
 }
 
+/** Venue keys → display names for the coverage line (kept here: no import of the registry). */
+const VENUE_NAMES: Record<string, string> = {
+  "collector-crypt": "Collector Crypt",
+  courtyard: "Courtyard",
+  phygitals: "Phygitals",
+  renaiss: "Renaiss",
+  beezie: "Beezie",
+  dyli: "DYLI",
+};
+
+/**
+ * The coverage behind every IP's pack spend, from the snapshot: what is credited
+ * across venues, out of all venues' pack spend, which venues with pack spend are
+ * not split, and the window's last complete day (the latest a credited venue covers).
+ */
+export function packCoverageOf(s: IpPackSpendSnapshot): { creditedUsd: number; totalUsd: number; notSplit: string[]; asOf: string | null } {
+  const venues = Object.entries(s.venues);
+  const creditedUsd = venues.reduce((a, [, v]) => a + v.creditedUsd30d, 0);
+  const totalUsd = venues.reduce((a, [, v]) => a + (v.packSpend30dUsd ?? 0), 0);
+  const notSplit = venues.filter(([, v]) => v.creditedUsd30d === 0 && (v.packSpend30dUsd ?? 0) > 0).map(([k]) => VENUE_NAMES[k] ?? k);
+  const days = venues.map(([, v]) => v.asOf).filter((d): d is string => Boolean(d)).sort();
+  return { creditedUsd, totalUsd, notSplit, asOf: days.length ? days[days.length - 1] : null };
+}
+
 export async function readIpPackSpend(): Promise<IpPackSpendSnapshot | null> {
   return readSnapshot<IpPackSpendSnapshot>(IP_PACK_SPEND_KEY);
 }
