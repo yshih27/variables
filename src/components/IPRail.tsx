@@ -22,8 +22,8 @@ type Props = {
 };
 
 const venueName = (key: string) => PLATFORM_SOURCES.find((p) => p.key === key)?.name ?? key;
-/** "2026-10-20" → "Oct 20" (UTC), so the receipt never breaks a date at its hyphens. */
-const shortDay = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+/** "2026-10-20" → "Oct 20" (UTC, non-breaking space), so the receipt never breaks a date across lines. */
+const shortDay = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).replace(" ", "\u00a0");
 
 /**
  * Pinned left rail for the IP/category page — the key live stats. Sticky under
