@@ -10,7 +10,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyIP, IP_CATALOG } from "./ipCatalog";
+import { IP_CATALOG } from "./ipCatalog";
+import { classifyIP } from "./ipClassify";
 
 const ip = (...hints: string[]) => classifyIP(hints).key;
 
@@ -56,6 +57,36 @@ test("m: a named F1 driver is F1 whatever sport the venue filed him under", () =
 test("c: a surname alone is not a driver, and a card code is not 'F1'", () => {
   assert.equal(ip("1982 Panini Toni Schumacher", "Soccer"), "soccer"); // the German goalkeeper
   assert.equal(ip("2023 Topps Chrome UEFA #F1 Erling Haaland", "Soccer"), "soccer");
+});
+
+test("m: a bare title that names a Pokémon is Pokémon (character fallback)", () => {
+  assert.equal(ip("2022 #015 Radiant Charizard PSA"), "pokemon"); // Collector Crypt token with no attributes
+  assert.equal(ip("2022 #232 Full Art/Zamazenta V P"), "pokemon");
+  assert.equal(ip("Latias Delta Species", "Latias Delta Species", "Holon Research Tower", "041", "2005", "Japanese"), "pokemon"); // Renaiss
+  assert.equal(ip("Mew", "Mew", "WotC Promos", "9", "English"), "pokemon");
+});
+
+test("m: One Piece cards a venue files under 'Collectible Card Games' are One Piece", () => {
+  assert.equal(ip("2024 #OP05-060 Monkey.D.Luffy TA", "Card", "Collectible Card Games", "2024"), "one_piece");
+  assert.equal(ip("2025 #002 Edward Newgate PSA 10", "Card", "Collectible Card Games", "2025"), "one_piece");
+  assert.equal(ip("2023 #OP05069 Trafalgar Law MANG", "Collectible Card Games"), "one_piece"); // code without the dash
+  assert.equal(ip("2024 #OP06118 Roronoa Zoro BGS 9", "Collectible Card Games"), "one_piece");
+});
+
+test("m: a title cut mid-name stays Pokémon: '…Hisuian Zoro' is a Zoroark, not Roronoa Zoro", () => {
+  assert.equal(ip("2023 #GG56 Full Art/Hisuian Zoro"), "pokemon");
+});
+
+test("m: Vibes TCG cards that never say Pudgy are Pudgy Penguins", () => {
+  assert.equal(ip("2024 #75 Karate Penguin CGC 10 V", "Card", "Vibes", "2024"), "pudgy_penguins");
+});
+
+test("c: the fallback never overrides a pattern, and ordinary words are not characters", () => {
+  assert.equal(ip("2023 Prizm Victor Wembanyama Basketball"), "basketball"); // a pattern wins first
+  assert.equal(ip("2019 Prizm Kevin Durant"), "other"); // Durant is a species name too; never decides a card
+  assert.equal(ip("Persian Rug Collector Card"), "other");
+  assert.equal(ip("Law & Order Season 1 Autograph"), "other"); // "Law" alone is not Trafalgar Law
+  assert.equal(ip("Digimon ST1-01 Agumon"), "other"); // a Digimon code is not a One Piece code
 });
 
 test("c: no bare 'world cup' rule — a hockey World Cup card stays hockey", () => {

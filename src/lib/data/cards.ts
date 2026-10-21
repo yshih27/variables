@@ -10,7 +10,7 @@
 import { db } from "../db/client";
 import type { TokenMetadata } from "../onchain/tokenUri";
 import { normalizeTraits, gradeLabel } from "./traits";
-import { classifyIP } from "./ipCatalog";
+import { classifyIP } from "./ipClassify";
 import { extractCardIdentity, supersededCardName, type CardIdentityParts } from "./traits";
 import { normalizeSetName } from "../card/setName";
 

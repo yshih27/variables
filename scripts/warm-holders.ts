@@ -31,7 +31,7 @@ import {
   getBeezieMetadataCachedOnly,
   extractCategoryHints,
 } from "../src/lib/data/beezieTraits";
-import { classifyIP, classifyIPFromMeta } from "../src/lib/data/ipCatalog";
+import { classifyIP, classifyIPFromMeta } from "../src/lib/data/ipClassify";
 import { readHolders, writeHolders, type HoldersIPEntry } from "../src/lib/data/holders";
 import { readMetricSeries } from "../src/lib/data/metricSnapshots";
 import { raribleGet } from "../src/lib/rarible/client";

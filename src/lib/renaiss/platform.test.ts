@@ -17,7 +17,7 @@ import { buildRenaissMachineBoard, RENAISS_VALUE_BASIS, type BoardPull } from ".
 import { buildRenaissPlayers, isMissingFunction } from "./players";
 import { summarizeHoldings, STATED_MCAP_MIN_COVERAGE } from "./holders";
 import { chooseSalesWindow, holdersReasonFor, ipOfSale } from "../data/platformTables";
-import { classifyIP } from "../data/ipCatalog";
+import { classifyIP } from "../data/ipClassify";
 import { extractCategoryHints } from "../data/beezieTraits";
 import { SALES_TABLE_MIN } from "../data/coreVolumeCache";
 import type { TokenMetadata } from "../onchain/tokenUri";
@@ -28,12 +28,15 @@ const week = JSON.parse(readFileSync(join(FIX, "pulls-week.json"), "utf8")).pull
 // ── The enrich branch: the stored ip_key, not keywords ──────────────────────
 
 test("a Renaiss sale's IP comes from its stored ip_key; keywords would misread the card", () => {
-  // CONSTRUCTED from the Sep 23 sample's shape: Sunflora (Mask of Change, SV6), whose
-  // catalog image names its game. Keyword matching reads its name as football ("nfl").
+  // CONSTRUCTED from the Sep 23 sample's shape: a trainer card (Lillie's
+  // Determination, Shiny Treasure ex, SV4a) whose catalog image names its game. Its
+  // title names no franchise and no species, so the keyword path cannot place it.
+  // (The original example, Sunflora, read as football through "nfl" until short
+  // codes matched whole words (#227); the species fallback now reads it right.)
   const row = renaissCardRow(
     "1",
     { cert: "PSA1", company: "PSA", grade: "10 Gem Mint" },
-    { id: "c", renaissItemId: null, name: "Sunflora", setName: "Mask of Change", setCode: "SV6", cardNumber: "7", year: 2024, language: "Japanese", imageUrl: "https://x.test/cards/pokemon_sv6_007_ja_abc_lg.png" },
+    { id: "c", renaissItemId: null, name: "Lillie's Determination", setName: "Shiny Treasure ex", setCode: "SV4a", cardNumber: "339", year: 2023, language: "Japanese", imageUrl: "https://x.test/cards/pokemon_sv4a_339_ja_abc_lg.png" },
   );
   const meta: TokenMetadata = { name: row.name ?? undefined, attributes: row.attributes ?? undefined };
   assert.equal(row.ip_key, "pokemon");

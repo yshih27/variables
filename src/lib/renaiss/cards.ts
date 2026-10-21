@@ -25,7 +25,7 @@
  */
 import { parseGrade } from "../card/grade";
 import { identitySlug } from "../card/identity";
-import { classifyIPFromMeta } from "../data/ipCatalog";
+import { classifyIPFromMeta } from "../data/ipClassify";
 import { cardRowFromMeta, inChunk, upsertCards, type CardRow } from "../data/cards";
 import { db } from "../db/client";
 import { extractCardIdentity, gradeLabel, identityKey, normalizeTraits, type CardIdentityParts } from "../data/traits";
