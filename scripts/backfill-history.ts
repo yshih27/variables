@@ -13,7 +13,7 @@ import { fetchCCSecondarySales } from "../src/lib/data/warmers/core";
 import { bucketsFromSales, writeHistory, writeIpHistory, type HourBucket } from "../src/lib/data/history";
 import { getBeezieMetadataCachedOnly, extractCategoryHints } from "../src/lib/data/beezieTraits";
 import { getCCMetadataCachedOnly } from "../src/lib/data/ccTraits";
-import { classifyIP } from "../src/lib/data/ipCatalog";
+import { classifyIP } from "../src/lib/data/ipClassify";
 import type { TokenMetadata } from "../src/lib/onchain/tokenUri";
 import { runWarmer } from "../src/lib/db/runWarmer";
 

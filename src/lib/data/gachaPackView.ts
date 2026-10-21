@@ -9,7 +9,7 @@
  *   • Net-EV folds in the buyback haircut (the real cost if you flip every card).
  */
 import type { GachaPack, GachaPrize, MetricBasis } from "./gachaPacksCache";
-import { classifyIP } from "./ipCatalog";
+import { matchIPPatterns } from "./ipCatalog";
 
 /** Below this many realized pulls, a measured number is "thin" (badge it). */
 export const THIN_N = 10;
@@ -42,7 +42,7 @@ export const MIXED_POOL_MIN_PRIZES = 2;
  */
 export function prizeGame(p: Pick<GachaPrize, "category" | "name" | "traits">): string | null {
   if (p.category) return p.category;
-  const ip = classifyIP([p.name ?? undefined, ...(p.traits ?? [])]);
+  const ip = matchIPPatterns([p.name ?? undefined, ...(p.traits ?? [])]);
   return ip.key === "other" ? null : ip.key;
 }
 

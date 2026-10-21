@@ -6,7 +6,8 @@ import {
   extractCategoryHints,
 } from "./beezieTraits";
 import { getCCMetadataCachedOnly } from "./ccTraits";
-import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
+import { IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
+import { classifyIP } from "./ipClassify";
 import { type HourBucket } from "./history";
 import { getPlatformBuckets, DAY, type PlatformBucket } from "./buckets";
 import { PLATFORM_SOURCES } from "./sources";

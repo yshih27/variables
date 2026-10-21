@@ -8,7 +8,7 @@ config({ path: ".env.local" });
 import { collectSales } from "../src/lib/rarible/queries";
 import { getBeezieMetadataCachedOnly } from "../src/lib/data/beezieTraits";
 import { extractCategoryHints } from "../src/lib/data/beezieTraits";
-import { classifyIP } from "../src/lib/data/ipCatalog";
+import { classifyIP } from "../src/lib/data/ipClassify";
 
 const BEEZIE = "BASE:0xbb5ec6fd4b61723bd45c399840f1d868840ca16f";
 const DAY = 24 * 60 * 60 * 1000;

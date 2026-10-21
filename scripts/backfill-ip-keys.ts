@@ -21,7 +21,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { db } from "../src/lib/db/client";
-import { classifyIP } from "../src/lib/data/ipCatalog";
+import { classifyIP } from "../src/lib/data/ipClassify";
 
 // Only the platforms whose ip_key is derived by classifyIP([name,...attributes])
 // in cardRowFromMeta. Phygitals sets ip_key DIRECTLY from its marketplace API

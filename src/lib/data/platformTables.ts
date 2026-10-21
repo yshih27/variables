@@ -3,7 +3,8 @@
  * cached fetcher (fetchPlatform.ts) or a database.
  */
 import { extractCategoryHints } from "./beezieTraits";
-import { classifyIP, IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
+import { IP_CATALOG, OTHER_IP, type IPMeta } from "./ipCatalog";
+import { classifyIP } from "./ipClassify";
 import { SALES_TABLE_MIN } from "./coreVolumeCache";
 import type { TokenMetadata } from "@/lib/onchain/tokenUri";
 
