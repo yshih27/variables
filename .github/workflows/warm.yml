@@ -156,6 +156,13 @@ jobs:
         # Must run AFTER phygitals-gacha and cc-gacha (reads what they write).
         continue-on-error: true
         run: npx tsx scripts/warm-gacha-packs.ts
+      # Pack spend by IP (ip-pack-spend): Collector Crypt machines that sell one IP
+      # (the player-analytics machine board) + Renaiss pulls by the prize each paid
+      # out, over 30 complete days; the other venues' pack spend shows as not split.
+      # Stored rows only, no API call. After the Renaiss steps (pulls caught up).
+      - name: Pack spend by IP (ip-pack-spend)
+        continue-on-error: true
+        run: npx tsx scripts/warm-ip-pack-spend.ts --apply
       - name: Homepage payload precompute
         # Pure derivation of the one-row blob fetchHomepage serves (B9-1). Runs
         # LAST — it reads what every step above wrote.
