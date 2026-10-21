@@ -49,10 +49,13 @@ import { readMarketCap, readMarketCapHistory } from "../src/lib/data/marketcap";
 import { sanitizeStockSeries } from "../src/lib/data/indices";
 import { readHolders } from "../src/lib/data/holders";
 import { readCardDims } from "../src/lib/data/cards";
+import { ipWalletsCardsByDay, staleIpDays } from "../src/lib/data/ipDailyFlow";
+import { IP_RESALE_VENUES } from "../src/lib/data/sources";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
 import {
   writeMetricSnapshots,
   readMetricSeries,
+  readMetricSeriesBulk,
   dayStartUtc,
   type MetricRow,
 } from "../src/lib/data/metricSnapshots";
@@ -214,16 +217,24 @@ async function main() {
   // bucket per UTC day. This reconciles per-IP + Beezie volume to the native feeds
   // over 30d (the history path drew Beezie from Rarible → ~20-90× inflated) AND
   // records per-set/grade/platform-IP dominance so those panels grow a real trend.
+  // A failed Beezie read leaves the per-IP series alone this run (ipSeriesOk):
+  // rewriting them from Collector Crypt alone would overwrite good days.
+  let beezieFailed = false;
   const beezieSales = await fetchBeezieSales(30 * DAY).catch((e) => {
     console.warn(`  beezie /activity failed: ${(e as Error).message}`);
+    beezieFailed = true;
     return [] as NormalizedSale[];
   });
   const ccDims = await readCardDims("collector-crypt");
   const bzDims = await readCardDims("beezie");
 
+  // `matched` = the token has a `cards` row, so its IP is known. An unmatched sale
+  // still counts in its venue's totals below, but never in a per-IP or dominance
+  // series, where it could only land in "other" (the IP pages and /ips leave it
+  // out the same way: IP_RESALE_VENUES, fetchIP.enrichSales).
   type Tagged = {
     date: string; tokenId: string; priceUsd: number;
-    platform: "collector-crypt" | "beezie"; ip: string; set: string | null; grade: string;
+    platform: "collector-crypt" | "beezie"; ip: string; set: string | null; grade: string; matched: boolean;
   };
   const tagged: Tagged[] = [];
   const tag = (
@@ -234,7 +245,7 @@ async function main() {
     const d = dims.get(s.tokenId);
     tagged.push({
       date: s.date, tokenId: s.tokenId, priceUsd: s.priceUsd, platform,
-      ip: d?.ip ?? "other", set: d?.set ?? null, grade: d?.grade ?? "Ungraded",
+      ip: d?.ip ?? "other", set: d?.set ?? null, grade: d?.grade ?? "Ungraded", matched: d != null,
     });
   };
   for (const s of ccSales) tag(s, "collector-crypt", ccDims);
@@ -271,10 +282,12 @@ async function main() {
     const ms = Date.parse(t.date);
     if (!Number.isFinite(ms)) continue;
     const day = dayStartUtc(ms);
-    bump(ipDay, day, t.ip, t);
-    if (t.set) bump(setDay, day, `${t.ip}:${t.set}`, t);
-    bump(gradeDay, day, `${t.ip}:${t.grade}`, t);
-    bump(platIpDay, day, `${t.platform}:${t.ip}`, t);
+    if (t.matched) {
+      bump(ipDay, day, t.ip, t);
+      if (t.set) bump(setDay, day, `${t.ip}:${t.set}`, t);
+      bump(gradeDay, day, `${t.ip}:${t.grade}`, t);
+      bump(platIpDay, day, `${t.platform}:${t.ip}`, t);
+    }
     if (t.platform === "beezie") {
       let a = bzPlatDay.get(day); if (!a) { a = blank(); bzPlatDay.set(day, a); }
       a.vol += t.priceUsd; a.trades += 1;
@@ -282,7 +295,9 @@ async function main() {
   }
 
   // per-IP daily volume + trades (native 30d — replaces the inflated history path)
-  for (const [day, dm] of ipDay) {
+  const ipSeriesOk = !beezieFailed;
+  if (!ipSeriesOk) console.warn("  per-IP and dominance series left as stored: the Beezie read failed");
+  for (const [day, dm] of ipSeriesOk ? ipDay : []) {
     if (!completeDay(day)) continue;
     for (const [ip, a] of dm) {
       push("ip", ip, "volume_usd", a.vol, day);
@@ -308,31 +323,46 @@ async function main() {
       }
     }
   };
-  pushDom(setDay, "set");
-  pushDom(gradeDay, "grade");
-  pushDom(platIpDay, "platform_ip");
-
-  // ── Family 1d: per-IP active_wallets + cards_traded from CC's 30d sale rows ──
-  const ccIpByDay = new Map<string, Map<string, { wallets: Set<string>; cards: Set<string> }>>();
-  for (const s of ccSales) {
-    const t = Date.parse(s.date);
-    if (!Number.isFinite(t)) continue;
-    const day = dayStartUtc(t);
-    const ip = ccDims.get(s.tokenId)?.ip ?? "other";
-    let dayMap = ccIpByDay.get(day);
-    if (!dayMap) { dayMap = new Map(); ccIpByDay.set(day, dayMap); }
-    let acc = dayMap.get(ip);
-    if (!acc) { acc = { wallets: new Set(), cards: new Set() }; dayMap.set(ip, acc); }
-    if (s.buyer) acc.wallets.add(s.buyer);
-    if (s.seller) acc.wallets.add(s.seller);
-    if (s.tokenId) acc.cards.add(s.tokenId);
+  if (ipSeriesOk) {
+    pushDom(setDay, "set");
+    pushDom(gradeDay, "grade");
+    pushDom(platIpDay, "platform_ip");
   }
-  for (const [day, dayMap] of ccIpByDay) {
+
+  // ── Family 1d: per-IP active_wallets + cards_traded — the same venues as the
+  //    IP page's live 24h values (IP_RESALE_VENUES: CC + Beezie, until Oct 2026
+  //    CC only), matched sales only. Each run rewrites the trailing complete days
+  //    both feeds cover (~30), so older points keep the CC-only count. ──
+  const ipFeeds = { "collector-crypt": { sales: ccSales, dims: ccDims }, beezie: { sales: beezieSales, dims: bzDims } };
+  const ipWalletsByDay = ipWalletsCardsByDay(IP_RESALE_VENUES.map((v) => ({ platform: v, ...ipFeeds[v] })));
+  for (const [day, dayMap] of ipSeriesOk ? ipWalletsByDay : []) {
     if (!completeDay(day)) continue;
     for (const [ip, acc] of dayMap) {
       push("ip", ip, "active_wallets", acc.wallets.size, day);
       push("ip", ip, "cards_traded", acc.cards.size, day);
     }
+  }
+
+  // Zero what this run rewrites but no longer computes: a stored per-IP flow row on
+  // a complete day where the IP had no matched sale under today's taxonomy (see
+  // staleIpDays). Without it the spine only ever upserts, so a reclassification
+  // left the moved sales in BOTH IPs' series for every day of the window.
+  if (ipSeriesOk) {
+    const ipFlow: [string, Map<string, Map<string, unknown>>][] = [
+      ["volume_usd", ipDay],
+      ["trades", ipDay],
+      ["active_wallets", ipWalletsByDay],
+      ["cards_traded", ipWalletsByDay],
+    ];
+    let zeroed = 0;
+    for (const [metric, fresh] of ipFlow) {
+      const stored = await readMetricSeriesBulk("ip", metric);
+      for (const { key, day } of staleIpDays(stored, fresh, completeDay)) {
+        push("ip", key, metric, 0, day);
+        zeroed += 1;
+      }
+    }
+    if (zeroed) console.log(`  per-IP flow: ${zeroed} stored row(s) with no matched sale today set to 0`);
   }
 
   // ── Courtyard secondary daily flow — Rarible activity index (30d, live) ──

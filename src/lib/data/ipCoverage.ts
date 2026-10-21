@@ -2,7 +2,8 @@
  * Which venues each per-IP figure covers, in words — built from the same list and
  * snapshots the figures are computed from, so a coverage line can never name a
  * venue its figure doesn't read, or leave out one it does:
- *   • resale (24h/7d volume, trades, cards, wallets, avg trade): IP_RESALE_VENUES;
+ *   • resale (24h/7d volume, trades, cards, wallets, avg trade — live values and
+ *     the spine's daily per-IP series alike): IP_RESALE_VENUES;
  *   • market cap and its card counts: the venues with a per-IP entry in the
  *     marketcap snapshot (Renaiss joins only while its stated value clears its
  *     coverage floor; Phygitals and DYLI are valued at venue level only);
@@ -26,14 +27,6 @@ export function andList(items: string[]): string {
 }
 
 const names = (keys: string[]) => andList(keys.map(venueName));
-
-/**
- * The venues behind the spine's per-IP active_wallets and cards_traded daily
- * series (scripts/warm-metric-snapshots.ts, "Family 1d"): Collector Crypt's sale
- * rows only, while the live 24h values count every IP_RESALE_VENUES venue. Kept
- * beside the other lists so the IP chart can print both.
- */
-export const IP_WALLET_SERIES_VENUES = ["collector-crypt"] as const;
 
 /** The venues whose resale reaches per-IP figures, in registry order. */
 export const ipResaleVenues = (): string[] => ordered(IP_RESALE_VENUES);

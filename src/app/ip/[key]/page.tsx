@@ -22,7 +22,6 @@ import { readHolders } from "@/lib/data/holders";
 import { PLATFORM_SOURCES, isIpResaleVenue } from "@/lib/data/sources";
 import { venueColor } from "@/lib/data/platformSeries";
 import {
-  IP_WALLET_SERIES_VENUES,
   andList,
   byPlatformCoverageLine,
   ipCoverage,
@@ -151,16 +150,15 @@ export default async function IPDetailPage({
     })
     .filter((p) => Number.isFinite(p.value));
 
-  // Coverage notes under the chart. Wallets and cards traded: the spine's daily
-  // series counts fewer venues than the live 24h value, so the note says both.
+  // Coverage notes under the chart: the live values and the spine's daily lines
+  // count the same venues (IP_RESALE_VENUES), so one note serves each metric.
   const resaleWords = `${andList(coverage.resale.map(venueName))} resale`;
-  const seriesWords = `line: ${andList(IP_WALLET_SERIES_VENUES.map(venueName))} resale · 24h value: ${resaleWords}`;
   const metrics: ActivityMetric[] = [
     { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), note: resaleWords, series: buildWindows(volS, detail.hourlyVol) },
     { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", note: coverage.mcap.length ? mcapBasisList(coverage.mcap) : undefined, series: buildWindows(mcapS, null) },
-    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), note: seriesWords, series: buildWindows(cardsS, null) },
+    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), note: resaleWords, series: buildWindows(cardsS, null) },
     { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), note: resaleWords, series: buildWindows(avgS, null) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), note: seriesWords, series: buildWindows(walletsS, null) },
+    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), note: resaleWords, series: buildWindows(walletsS, null) },
   ];
 
   // IP vs market — prefer the constant-quality PRICE index vs BTC/ETH/S&P/NASDAQ
