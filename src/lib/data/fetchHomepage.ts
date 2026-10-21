@@ -1,4 +1,4 @@
-import { NO_IDENTITY_VENUES } from "./sources";
+import { isIpResaleVenue } from "./sources";
 import type { NormalizedSale } from "@/lib/rarible/queries";
 import type { HomepagePayload, HotIP, IPRow, PlatformRow, TopSale, Trend } from "@/lib/types";
 import {
@@ -17,12 +17,14 @@ import { readGachaDune } from "./gachaDuneCache";
 import {
   readMetricSeriesBulk,
   sumLastCompleteDays,
+  lastDaysSums,
   bulkDayOverDayPctComplete,
   DELTA_MIN_BASE_USD,
   pctChange as spinePctChange,
   type SeriesPoint,
 } from "./metricSnapshots";
 import { readSnapshot } from "../db/snapshots";
+import { ipCoverage } from "./ipCoverage";
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
@@ -176,19 +178,20 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
 
   for (const b of buckets) {
     if (b.sales24h.length === 0) continue;
-    // ⚠️ A venue whose sales carry no card identity cannot be split by IP: its
-    // whole 24h would land in "Other". Courtyard has no `cards` rows yet, and its
-    // exchange trades ~$280K a day; it counts in the venue totals, not here.
-    if (NO_IDENTITY_VENUES.has(b.source.key)) continue;
-    let metas: Map<string, AssetMeta> = new Map();
-    if (b.source.key === "beezie") {
-      metas = await getBeezieMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));
-    } else if (b.source.key === "collector-crypt") {
-      metas = await getCCMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));
-    }
+    // ⚠️ Only venues whose sales we match to a card (IP_RESALE_VENUES), and only
+    // the sales we matched — the same rule as the IP page (fetchIP.enrichSales).
+    // Anything else would land in "Other": until Oct 2026 every DYLI and Renaiss
+    // resale and every unmatched sale did, so the table's Other row read volume
+    // its own page (/ip/other) never showed. They count in the venue totals.
+    if (!isIpResaleVenue(b.source.key)) continue;
+    const metas: Map<string, AssetMeta> =
+      b.source.key === "beezie"
+        ? await getBeezieMetadataCachedOnly(b.sales24h.map((s) => s.tokenId))
+        : await getCCMetadataCachedOnly(b.sales24h.map((s) => s.tokenId));
     for (const sale of b.sales24h) {
       const meta = metas.get(sale.tokenId);
-      const ip = meta ? classifyIP(extractCategoryHints(meta)) : classifyIP(["other"]);
+      if (!meta) continue;
+      const ip = classifyIP(extractCategoryHints(meta));
       let acc = accByIp.get(ip.key);
       if (!acc) {
         acc = {
@@ -207,7 +210,7 @@ async function buildAggregateIPRows(buckets: PlatformBucket[]): Promise<IPRow[]>
       acc.cardIds.add(sale.tokenId);
       acc.platforms.add(b.source.key);
       acc.trades += 1;
-      if (meta?.name && (!acc.topCard || sale.priceUsd > acc.topCard.price)) {
+      if (meta.name && (!acc.topCard || sale.priceUsd > acc.topCard.price)) {
         acc.topCard = {
           name: meta.name,
           price: sale.priceUsd,
@@ -452,10 +455,23 @@ export async function buildHomepagePayload(
 
   // Per-IP market-cap change (1d/7d/30d) from the spine, for the leaderboard Δ
   // columns. One bulk query; null where the spine lacks that much history.
-  const ipMcapHist = await readMetricSeriesBulk("ip", "mcap_usd");
+  // 7d volume: the last 7 complete days of the spine's per-IP volume_usd (the same
+  // venues as the 24h column, IP_RESALE_VENUES), every IP on one window — the
+  // table's 7d toggle read "—" on every row before this (vol7Usd was never set).
+  const [ipMcapHist, ipVolHist] = await Promise.all([
+    readMetricSeriesBulk("ip", "mcap_usd"),
+    readMetricSeriesBulk("ip", "volume_usd"),
+  ]);
+  const ipVol7 = lastDaysSums(ipVolHist, 7);
   const ips: IPRow[] = ipRows.map((r) => {
     const s = ipMcapHist.get(r.key) ?? [];
-    return { ...r, pct1d: spinePctChange(s, 1), pct7d: spinePctChange(s, 7), pct30d: spinePctChange(s, 30) };
+    return {
+      ...r,
+      vol7Usd: ipVol7.sumFor(r.key),
+      pct1d: spinePctChange(s, 1),
+      pct7d: spinePctChange(s, 7),
+      pct30d: spinePctChange(s, 30),
+    };
   });
 
   // Hottest IPs: top 3 by 24h volume.
@@ -609,6 +625,7 @@ export async function buildHomepagePayload(
     topSales,
     ips,
     platforms: platformRows,
+    ipCoverage: ipCoverage(mcap, holders),
   };
 }
 

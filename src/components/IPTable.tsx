@@ -31,6 +31,9 @@ type Props = {
   /** IP key → pack spend credited over 30 complete days (ip-pack-spend). Omit to
    *  hide the column; an IP absent from the map reads "—". Full table only. */
   packSpend?: Record<string, number> | null;
+  /** Receipt line under the table: which venues each per-IP column covers
+   *  (ipCoverage.ipTableCoverageLine). Omit to print none. */
+  coverage?: string;
 };
 
 type SortKey = "mcap" | "dom" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers" | "packs";
@@ -106,7 +109,7 @@ function rankReadMe(key: SortKey, vw: VolWindow): string {
                   : key === "packs"
                     ? "30d pack spend"
                     : "24h buyers";
-  return `the whole tracked market by IP — ranked by ${by}`;
+  return `every tracked IP — ranked by ${by}`;
 }
 
 function cmp(a: number, b: number, dir: 1 | -1): number {
@@ -128,7 +131,7 @@ function categoryGroup(key: string): string {
   return "Other";
 }
 
-export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, packSpend }: Props) {
+export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, packSpend, coverage }: Props) {
   // ⚠️ DEFAULT IS VOLUME, NOT MARKET CAP. Ranking by cap pinned dormant IPs to the
   // top — Moonbirds sat at #3 on a cap it never trades against — so the table's
   // first screen described stored value while every other surface on the page
@@ -319,6 +322,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, pac
         </table>
       </div>
       <TableFoot shown={visible.length} total={facetRows.length} noun="IP" filtered={facetRows.length !== rows.length ? rows.length : null} />
+      {coverage && <p className="mt-2 font-mono text-[10.5px] leading-[1.5] text-ink-4">{coverage}</p>}
     </Section>
   );
 }

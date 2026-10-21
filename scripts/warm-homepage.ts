@@ -4,6 +4,8 @@
  * the 14–22s live aggregation (bulk spine reads + per-sale metadata lookups).
  *
  *   npx tsx scripts/warm-homepage.ts
+ *   npx tsx scripts/warm-homepage.ts --out=<dir>   # LOCAL: writes <dir>/homepage-payload.json,
+ *       not the database (no freshness row); serve it with SNAPSHOT_LOCAL_DIR=<dir>
  *
  * PURE DERIVATION: reads only what the other warmers already wrote (core-volume,
  * marketcap, holders, gacha-dune, history, metric spine, cached traits) — zero
@@ -17,6 +19,11 @@ import { buildPlatformBuckets } from "../src/lib/data/buckets";
 import { buildHomepagePayload, HOMEPAGE_SNAPSHOT_KEY } from "../src/lib/data/fetchHomepage";
 import { writeSnapshot } from "../src/lib/db/snapshots";
 import { runWarmer } from "../src/lib/db/runWarmer";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+const outArg = process.argv.find((a) => a.startsWith("--out="));
+const outDir = outArg ? outArg.slice("--out=".length) : null;
 
 async function main() {
   const t0 = Date.now();
@@ -36,7 +43,13 @@ async function main() {
     );
   }
 
-  await writeSnapshot(HOMEPAGE_SNAPSHOT_KEY, payload);
+  if (outDir) {
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, `${HOMEPAGE_SNAPSHOT_KEY}.json`), JSON.stringify(payload));
+    console.log(`wrote ${join(outDir, `${HOMEPAGE_SNAPSHOT_KEY}.json`)} (local only)`);
+  } else {
+    await writeSnapshot(HOMEPAGE_SNAPSHOT_KEY, payload);
+  }
   console.log(
     `Homepage payload precomputed in ${((Date.now() - t0) / 1000).toFixed(1)}s · ` +
       `${payload.ips.length} IPs · ${payload.platforms.length} platforms · ` +
@@ -45,7 +58,8 @@ async function main() {
   return { rowsWritten: 1 };
 }
 
-runWarmer("homepage", main).catch((e) => {
+// A local --out run records nothing: runWarmer writes a freshness row on every outcome.
+(outDir ? main() : runWarmer("homepage", main)).catch((e) => {
   console.error(e);
   process.exit(1);
 });

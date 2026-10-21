@@ -23,10 +23,12 @@ export type PlatformRow = {
   emoji?: string;
   iconBlendMode?: "normal" | "screen" | "lighten";
   cards: number | null;
-  vol24Usd: number;
+  /** Resale in the window. null = this venue's resale is not read for this row
+   *  (shown "—"); 0 = read, and nothing sold. */
+  vol24Usd: number | null;
   mcapUsd: number | null;
-  trades24h: number;
-  avgTradeUsd: number;
+  trades24h: number | null;
+  avgTradeUsd: number | null;
   holders: number | null;
 };
 
@@ -37,14 +39,17 @@ const METRIC_OPTS = [
 ];
 
 function metricValue(r: PlatformRow, m: DonutMetric): number {
-  return m === "trades" ? r.trades24h : r.vol24Usd;
+  return (m === "trades" ? r.trades24h : r.vol24Usd) ?? NaN;
 }
 
 /**
- * "By Platform" table (how this IP trades across marketplaces) + a Platform-share
- * donut. vol / trades / avg-trade / holders / chain are real; per-platform market
- * cap is holder-share apportioned; per-platform card counts aren't tracked ("—").
- * Only platforms with IP-scoped sales data appear (today: Beezie, Collector Crypt).
+ * "By Platform" table + a share donut. On an IP page the rows are every venue that
+ * holds or trades the IP; on a platform page, every IP on that venue. Cards and
+ * market cap come from the marketcap snapshot's per-venue composition, holders from
+ * the holders snapshot, resale from the live 24h feeds. A venue whose resale isn't
+ * read for the row (vol null) shows "—" there and stays out of the donut, which
+ * shares out only the resale that was read. `coverage` prints under the table: the
+ * venues each column covers (src/lib/data/ipCoverage.ts).
  */
 export function IPByPlatform({
   rows,
@@ -56,6 +61,7 @@ export function IPByPlatform({
   showChain = true,
   hrefBase,
   salesWindow = "24h",
+  coverage,
 }: {
   rows: PlatformRow[];
   title?: string;
@@ -73,6 +79,8 @@ export function IPByPlatform({
   /** The window the rows' volume and trades cover (a thin venue's platform page
    *  reads 7 days; PlatformDetail.salesWindow). The column labels follow it. */
   salesWindow?: "24h" | "7d";
+  /** Receipt line under the table: which venues each column covers. */
+  coverage?: string;
 }) {
   const w = salesWindow === "7d" ? "7d" : "24h";
   const [metric, setMetric] = useState<DonutMetric>("volume");
@@ -84,8 +92,11 @@ export function IPByPlatform({
   // ⚠️ Shares are computed off the UNSORTED rows and keyed by row key, so the
   // donut and the segment colours stay put while the table re-sorts. Deriving
   // them from the sorted array would recolour the donut on every header click.
-  const total = rows.reduce((a, r) => a + metricValue(r, metric), 0) || 1;
-  const shares = rows.map((r) => ({ ...r, share: metricValue(r, metric) / total }));
+  // Only rows whose resale was read take part; a window with none sold leaves the
+  // donut empty ("—") rather than splitting zero.
+  const read = rows.filter((r) => Number.isFinite(metricValue(r, metric)));
+  const total = read.reduce((a, r) => a + metricValue(r, metric), 0);
+  const shares = read.map((r) => ({ ...r, share: total > 0 ? metricValue(r, metric) / total : 0 }));
 
   const sortedRows = [...rows].sort((a, b) => {
     const av = sortValue(a, sortKey);
@@ -190,10 +201,10 @@ export function IPByPlatform({
                       </Td>
                     )}
                     <Td>{r.cards != null ? formatCompactNumber(r.cards) : "—"}</Td>
-                    <Td strong>{formatCompactUsd(r.vol24Usd)}</Td>
+                    <Td strong>{r.vol24Usd != null ? formatCompactUsd(r.vol24Usd) : "—"}</Td>
                     <Td>{r.mcapUsd != null ? formatCompactUsd(r.mcapUsd) : "—"}</Td>
-                    <Td>{formatInt(r.trades24h)}</Td>
-                    <Td muted>{formatCompactUsd(r.avgTradeUsd)}</Td>
+                    <Td>{r.trades24h != null ? formatInt(r.trades24h) : "—"}</Td>
+                    <Td muted>{r.avgTradeUsd != null && (r.trades24h ?? 0) > 0 ? formatCompactUsd(r.avgTradeUsd) : "—"}</Td>
                     <Td>{r.holders != null ? formatInt(r.holders) : "—"}</Td>
                   </tr>
                   );
@@ -202,6 +213,7 @@ export function IPByPlatform({
             </table>
           </div>
           <TableFoot shown={sortedRows.length} total={sortedRows.length} noun="row" />
+          {coverage && <p className="mt-2 font-mono text-[10.5px] leading-[1.5] text-ink-4">{coverage}</p>}
         </div>
 
         {/* Right — donut */}
@@ -213,7 +225,7 @@ export function IPByPlatform({
             </div>
             <Dropdown value={metric} options={METRIC_OPTS} onChange={setMetric} />
           </header>
-          <Donut shares={shares} hover={hover} setHover={setHover} metricLabel={METRIC_OPTS.find((o) => o.value === metric)!.label} />
+          <Donut shares={shares} empty={total === 0} hover={hover} setHover={setHover} metricLabel={METRIC_OPTS.find((o) => o.value === metric)!.label} />
         </div>
       </div>
     </Section>
@@ -222,11 +234,14 @@ export function IPByPlatform({
 
 function Donut({
   shares,
+  empty,
   hover,
   setHover,
   metricLabel,
 }: {
   shares: Array<PlatformRow & { share: number }>;
+  /** Nothing sold in the window: the ring stays empty and every share reads "—". */
+  empty: boolean;
   hover: string | null;
   setHover: (k: string | null) => void;
   metricLabel: string;
@@ -269,7 +284,7 @@ function Donut({
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <span className="font-mono text-[24px] font-semibold tabular text-ink">
-            {active ? `${Math.round(active.share * 100)}%` : "100%"}
+            {empty ? "—" : active ? `${Math.round(active.share * 100)}%` : "100%"}
           </span>
           <span className="mt-0.5 max-w-[110px] truncate text-center font-mono text-[10px] uppercase tracking-[0.06em] text-ink-3">
             {active ? active.name : metricLabel}
@@ -288,7 +303,7 @@ function Donut({
             <span className="h-2.5 w-2.5 rounded-md" style={{ background: s.color }} />
             <span className="flex-1 truncate text-[13px] text-ink-2">{s.name}</span>
             <span className="font-mono text-[13px] font-semibold tabular text-ink">
-              {Math.round(s.share * 100)}%
+              {empty ? "—" : `${Math.round(s.share * 100)}%`}
             </span>
           </div>
         ))}
@@ -304,10 +319,10 @@ function sortValue(r: PlatformRow, k: SortKey): number | string {
     case "name": return r.name;
     case "cards": return r.cards ?? NaN;
     case "mcap": return r.mcapUsd ?? NaN;
-    case "trades": return r.trades24h;
-    case "avgTrade": return r.avgTradeUsd;
+    case "trades": return r.trades24h ?? NaN;
+    case "avgTrade": return r.avgTradeUsd ?? NaN;
     case "holders": return r.holders ?? NaN;
-    default: return r.vol24Usd;
+    default: return r.vol24Usd ?? NaN;
   }
 }
 

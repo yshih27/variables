@@ -5,6 +5,8 @@ import { readIndexMeta, readIndexSeries, completeMonthsOnly } from "@/lib/data/i
 import { formatMonthDayUtc } from "@/lib/format";
 import { X_URL } from "@/lib/site";
 import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { andList, ipResaleVenues, venueName } from "@/lib/data/ipCoverage";
+import { STATED_MCAP_MIN_COVERAGE } from "@/lib/renaiss/constants";
 import { VENUE_LEGS, type VenueLegs } from "@/lib/methodology/venueLegs";
 import { readMethodChanges, type MethodLedger } from "@/lib/data/methodChanges";
 import { labelFor } from "@/lib/indices/entityLabels";
@@ -159,7 +161,13 @@ export default async function MethodologyPage() {
           </p>
           <ul className="mt-3 list-disc pl-5 text-[13.5px] leading-relaxed">
             <li>Floor per IP = min per-token value within the IP.</li>
-            <li>Market cap per IP = sum of per-token values across all tracked platforms.</li>
+            <li>
+              Market cap per IP = sum of per-token values on the venues valued card by card: Collector
+              Crypt (insured value), Beezie (lowest listing) and Renaiss (its stated prize value, only
+              while that covers at least {Math.round(STATED_MCAP_MIN_COVERAGE * 100)}% of the tokens
+              held). Phygitals (floor × supply) and DYLI (listed inventory at ask) are valued at venue
+              level only, so they add to venue market cap, never to an IP&apos;s.
+            </li>
             <li>Spam filter: token values outside <code>[$1, $5M]</code> are dropped.</li>
             <li>Hidden when total mcap &lt; $1K — surfaces as <code>—</code> rather than a figure too small to mean anything. A cap is never gated on 24h trading: what changed hands today doesn&apos;t change what the float is worth.</li>
           </ul>
@@ -169,12 +177,21 @@ export default async function MethodologyPage() {
           <p>
             Sum of qualifying secondary-market sales in the last rolling 24h, read
             from each venue&apos;s resale feed listed under Sources: Beezie&apos;s own order
-            feed, Rarible&apos;s index of Courtyard&apos;s on-chain trades, the Dune query
-            over the Collector Crypt marketplace program, and DYLI&apos;s resale lane.
+            feed, Courtyard&apos;s exchange plus Rarible&apos;s index of its OpenSea trades,
+            the Dune query over the Collector Crypt marketplace program, DYLI&apos;s resale
+            lane, and Renaiss&apos;s own index API (counted only while that feed is current).
             Every feed passes the same hygiene before it is counted: exact-duplicate
             rows, self-trades, wallet-pair ring washes and one-seller bulk sweeps are
             dropped. Phygitals&apos; resale market has no source yet, so its resale
             figures read <code>—</code> rather than zero.
+          </p>
+          <p className="mt-3">
+            Per-IP figures (an IP&apos;s volume, trades, cards traded, wallets, average trade)
+            count {andList(ipResaleVenues().map(venueName))}{" "}resale only: the venues whose
+            sales we match to a card, so each sale&apos;s IP is known. Every other venue&apos;s
+            resale counts in its venue totals and never in an IP row, where it could only land
+            in &ldquo;Other&rdquo;. Each IP page and the Categories table print the venues behind
+            their figures.
           </p>
           <p className="mt-3">
             <span className="font-semibold text-ink">Active 24h</span> = the

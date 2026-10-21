@@ -19,6 +19,8 @@ type Props = {
   /** The coverage behind every IP's pack spend: credited ÷ all venues' packs, the
    *  venues not split, and the window's last complete day. Null without a snapshot. */
   packCoverage?: { creditedUsd: number; totalUsd: number; notSplit: string[]; asOf: string | null } | null;
+  /** Which venues the 24h figures and the market cap cover (ipCoverage.railCoverageLine). */
+  coverage?: string;
 };
 
 const venueName = (key: string) => PLATFORM_SOURCES.find((p) => p.key === key)?.name ?? key;
@@ -30,7 +32,7 @@ const shortDay = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateStrin
  * the nav on desktop (only the right column scrolls); stacks on top on mobile.
  * Display text is Space Grotesk; every number is mono + tabular.
  */
-export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage }: Props) {
+export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, coverage }: Props) {
   // Pack spend: credited only where a pack sells one IP (src/lib/data/ipPackSpend.ts).
   const packVenues = packSpend
     ? Object.entries(packSpend.byVenue)
@@ -129,8 +131,9 @@ export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage }: Pr
           ))}
         </div>
 
-        {/* The receipt behind the pack-spend row, from data: what is credited
-            across all venues, and which venues are not split by IP. */}
+        {/* Receipts, from data: the venues behind the 24h figures and the market
+            cap, then what pack spend credits across venues and what it can't split. */}
+        {coverage && <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">{coverage}</p>}
         {packCoverage && (
           <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">
             pack spend: packs that sell one IP · {formatCompactUsd(packCoverage.creditedUsd)} of {formatCompactUsd(packCoverage.totalUsd)} credited across venues

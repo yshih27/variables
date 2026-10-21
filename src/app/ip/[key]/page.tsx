@@ -19,6 +19,17 @@ import { readMarketCap } from "@/lib/data/marketcap";
 import { readIpPackSpend, packCoverageOf } from "@/lib/data/ipPackSpend";
 import { tickerOf } from "@/lib/indices/naming";
 import { readHolders } from "@/lib/data/holders";
+import { PLATFORM_SOURCES, isIpResaleVenue } from "@/lib/data/sources";
+import { venueColor } from "@/lib/data/platformSeries";
+import {
+  IP_WALLET_SERIES_VENUES,
+  andList,
+  byPlatformCoverageLine,
+  ipCoverage,
+  mcapBasisList,
+  railCoverageLine,
+  venueName,
+} from "@/lib/data/ipCoverage";
 import { type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd, formatInt } from "@/lib/format";
 import { gradeColor } from "@/lib/gradeColor";
@@ -36,9 +47,12 @@ export async function generateStaticParams() {
   return [];
 }
 
-const PLATFORM_META: Record<string, { name: string; chain: string; chainColor: string; color: string }> = {
-  beezie: { name: "Beezie", chain: "Base", chainColor: "#5fa3ff", color: "#a78bfa" },
-  "collector-crypt": { name: "Collector Crypt", chain: "Solana", chainColor: "#14f195", color: "#5b9bff" },
+/** Chain dot colours (as on the card page); a chain not listed takes neutral grey. */
+const CHAIN_COLOR: Record<string, string> = {
+  Solana: "#14f195",
+  Base: "#5fa3ff",
+  Polygon: "#a18cff",
+  Ethereum: "#b8b8b8",
 };
 
 const SET_PALETTE = ["#bfef01", "#5b9bff", "#a78bfa", "#2bd6a0", "#f5c451", "#9aa6ff"];
@@ -93,28 +107,38 @@ export default async function IPDetailPage({
   // Real per-IP market cap from the marketcap snapshot (fetchIP doesn't carry it).
   const mcapUsd = mcapSnap?.byIp?.[key]?.mcapUsd ?? 0;
 
-  // By-Platform rows: vol / trades / avg-trade real (byPlatform); holders real
-  // (holders snapshot); per-platform card counts + market cap real (marketcap
-  // byPlatform breakdown). null → "—" for platforms we don't value (Courtyard/Phygitals).
+  // Which venues each figure covers (ipCoverage.ts): printed under the rail, the
+  // By Platform table and the activity chart, from the lists the figures use.
+  const coverage = ipCoverage(mcapSnap, holdersSnap);
+
+  // By-Platform rows: every venue that holds or trades this IP, in registry order.
+  // Resale (vol / trades / avg) only where we match sales to a card — elsewhere
+  // "—", never a $0 we didn't measure; cards + market cap from the marketcap
+  // snapshot's per-venue composition; holders from the holders snapshot. So an IP
+  // held mostly on Phygitals shows those holders here even on a day with no sale.
   const perPlatHolders = holdersSnap?.byIp?.[key]?.perPlatform ?? {};
-  const platformRows: PlatformRow[] = detail.byPlatform.map((p) => {
-    const meta =
-      PLATFORM_META[p.platform] ??
-      { name: p.platform, chain: "—", chainColor: "#707070", color: "#707070" };
-    const comp = mcapSnap?.byPlatform?.[p.platform]?.byIp?.[key];
-    return {
-      key: p.platform,
-      name: meta.name,
-      chain: meta.chain,
-      chainColor: meta.chainColor,
-      color: meta.color,
-      cards: comp?.cards ?? null,
-      vol24Usd: p.vol24Usd,
-      mcapUsd: comp?.mcapUsd ?? null,
-      trades24h: p.trades24h,
-      avgTradeUsd: p.trades24h > 0 ? p.vol24Usd / p.trades24h : 0,
-      holders: perPlatHolders[p.platform] ?? null,
-    };
+  const resaleByVenue = new Map<string, (typeof detail.byPlatform)[number]>(detail.byPlatform.map((p) => [p.platform, p]));
+  const platformRows: PlatformRow[] = PLATFORM_SOURCES.flatMap((src) => {
+    const comp = mcapSnap?.byPlatform?.[src.key]?.byIp?.[key];
+    const holders = perPlatHolders[src.key];
+    const sale = resaleByVenue.get(src.key);
+    if (!sale && !((comp?.cards ?? 0) > 0) && !((holders ?? 0) > 0)) return [];
+    const resale = isIpResaleVenue(src.key);
+    return [
+      {
+        key: src.key,
+        name: src.name,
+        chain: src.chain,
+        chainColor: CHAIN_COLOR[src.chain] ?? "#707070",
+        color: venueColor(src.key),
+        cards: comp?.cards ?? null,
+        vol24Usd: resale ? (sale?.vol24Usd ?? 0) : null,
+        mcapUsd: comp?.mcapUsd ?? null,
+        trades24h: resale ? (sale?.trades24h ?? 0) : null,
+        avgTradeUsd: sale && sale.trades24h > 0 ? sale.vol24Usd / sale.trades24h : null,
+        holders: holders ?? null,
+      },
+    ];
   });
 
   // Activity metrics — real time-series from metric_snapshots where it has data;
@@ -127,12 +151,16 @@ export default async function IPDetailPage({
     })
     .filter((p) => Number.isFinite(p.value));
 
+  // Coverage notes under the chart. Wallets and cards traded: the spine's daily
+  // series counts fewer venues than the live 24h value, so the note says both.
+  const resaleWords = `${andList(coverage.resale.map(venueName))} resale`;
+  const seriesWords = `line: ${andList(IP_WALLET_SERIES_VENUES.map(venueName))} resale · 24h value: ${resaleWords}`;
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), series: buildWindows(volS, detail.hourlyVol) },
-    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", series: buildWindows(mcapS, null) },
-    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), series: buildWindows(cardsS, null) },
-    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), series: buildWindows(avgS, null) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), series: buildWindows(walletsS, null) },
+    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), note: resaleWords, series: buildWindows(volS, detail.hourlyVol) },
+    { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", note: coverage.mcap.length ? mcapBasisList(coverage.mcap) : undefined, series: buildWindows(mcapS, null) },
+    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), note: seriesWords, series: buildWindows(cardsS, null) },
+    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), note: resaleWords, series: buildWindows(avgS, null) },
+    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), note: seriesWords, series: buildWindows(walletsS, null) },
   ];
 
   // IP vs market — prefer the constant-quality PRICE index vs BTC/ETH/S&P/NASDAQ
@@ -199,6 +227,7 @@ export default async function IPDetailPage({
             mcapPct={null}
             packSpend={packSnap?.byIp[key] ?? null}
             packCoverage={packSnap ? packCoverageOf(packSnap) : null}
+            coverage={railCoverageLine(coverage)}
           />
         ),
         activity: metrics,
@@ -229,7 +258,14 @@ export default async function IPDetailPage({
           third={topCharacters.length ? <TopCharacters rows={topCharacters} ip={key} /> : null}
         />
       )}
-      {platformRows.length > 0 && <IPByPlatform rows={platformRows} hrefBase="/platform/" />}
+      {platformRows.length > 0 && (
+        <IPByPlatform
+          rows={platformRows}
+          hrefBase="/platform/"
+          readMe="every venue that holds or trades this IP"
+          coverage={byPlatformCoverageLine(coverage)}
+        />
+      )}
       <IPTopCards rows={detail.topCards.slice(0, 10)} seeAllHref={`/ip/${key}/cards`} total={detail.topCards.length} />
       <IPSets rows={detail.sets.slice(0, 10)} seeAllHref={`/ip/${key}/sets`} total={detail.sets.length} />
     </SliceView>

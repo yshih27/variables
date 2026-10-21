@@ -3,9 +3,14 @@
  * `snapshots` blobs (key='marketcap' and key='marketcap-history'); populated by
  * `npm run warm-marketcap`.
  *
- * Methodology hybrid per platform:
- *   Beezie + Courtyard tokens → lowest active listing in USD
- *   Collector Crypt tokens   → "Insured Value" trait (vault appraisal)
+ * Methodology hybrid per platform (scripts/warm-marketcap.ts):
+ *   Collector Crypt → "Insured Value" trait (vault appraisal), per card, per IP
+ *   Beezie          → lowest active listing in USD, per card, per IP
+ *   Renaiss         → its stated prize value, per token, per IP — only while that
+ *                     covers STATED_MCAP_MIN_COVERAGE of the tokens held
+ *   Phygitals       → floor × supply, venue level only (no per-IP split)
+ *   DYLI            → listed inventory at ask, venue level only
+ *   Courtyard       → not valued (no `cards` rows)
  */
 import { readSnapshot, writeSnapshot } from "../db/snapshots";
 
@@ -76,7 +81,9 @@ export type MarketCapSnapshot = {
   /** Across all platforms, keyed by IP (drives the IP pages). */
   byIp: Record<string, MarketCapIPEntry>;
   /** Per platform, with each platform's IP composition (drives the platform breakdown).
-   *  Only platforms whose cards carry a value appear (CC = insured, Beezie = listing). */
+   *  Every platform with a market cap appears; only the per-card venues (CC, Beezie,
+   *  Renaiss above its coverage floor) carry a non-empty `byIp` — ipCoverage.ts reads
+   *  that to say which venues an IP's market cap covers. */
   byPlatform?: Record<string, MarketCapPlatformEntry>;
   totals: {
     mcapUsd: number;
