@@ -65,6 +65,15 @@ export function closedResaleFeed(s: ResaleFeedsSnapshot | null | undefined, venu
   return e?.unavailable && e.unavailable.includes(CLOUDFLARE_CHALLENGE) ? e : null;
 }
 
+/**
+ * What a writer does when a venue's live read fails: read our own stored rows
+ * when the feed is closed to us (they hold every sale read until it closed), or
+ * skip that run's per-venue writes when the failure may pass.
+ */
+export function onFailedRead(s: ResaleFeedsSnapshot | null | undefined, venue: string): "store" | "skip" {
+  return closedResaleFeed(s, venue) ? "store" : "skip";
+}
+
 /** "Oct 21" (UTC), month and day kept on one line. */
 export function shortUtcDay(iso: string): string {
   return (formatMonthDayUtc(iso) ?? "").replace(" ", "\u00a0");
