@@ -45,6 +45,7 @@ import { readCoreVolume } from "../src/lib/data/coreVolumeCache";
 import { readMetricSeriesBulk, bulkDayOverDayPctComplete, dayStartUtc, DELTA_MIN_BASE_USD } from "../src/lib/data/metricSnapshots";
 import type { HomepagePayload } from "../src/lib/types";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
+import { closedResaleFeed, readResaleFeeds } from "../src/lib/data/resaleFeedState";
 
 type Severity = "hard" | "soft";
 type Status = "pass" | "fail" | "skip";
@@ -486,6 +487,8 @@ const DEATH_METRICS = ["volume_usd", "gacha_volume_usd", "direct_volume_usd", "b
  * failing every second daily run. This fired for real on Aug 29 — the alarm
  * was correct that the stream was silent, wrong that silence meant death.
  */
+/** The streams a venue's resale feed writes — the ones a closed feed silences. */
+const RESALE_STREAMS: ReadonlySet<string> = new Set(["volume_usd", "trades"]);
 const DEATH_RECENT_DAYS: Partial<Record<(typeof DEATH_METRICS)[number], number>> = {
   buyback_payout_usd: 4,
 };
@@ -498,6 +501,11 @@ async function checkSourceDeath(): Promise<Result> {
   const dead: string[] = [];
   let judged = 0;
   let sparse = 0;
+  // A venue whose resale feed is closed to us (resaleFeedState.ts: Beezie behind a
+  // Cloudflare challenge since Oct 22 2026) stops writing its resale streams by
+  // design. They are listed, not judged; its other streams (packs) still are.
+  const feeds = await readResaleFeeds().catch(() => null);
+  const closed: string[] = [];
   for (const metric of DEATH_METRICS) {
     // The N most recent COMPLETE days (today is still filling up); N is 2 unless
     // the metric declares a slower expected cadence (see DEATH_RECENT_DAYS).
@@ -505,6 +513,10 @@ async function checkSourceDeath(): Promise<Result> {
     const recent = Array.from({ length: recentDays }, (_, i) => dayStartUtc(today - (i + 1) * DAY));
     const bulk = await readMetricSeriesBulk("platform", metric).catch(() => new Map<string, { ts: string }[]>());
     for (const [entity, points] of bulk) {
+      if (RESALE_STREAMS.has(metric) && closedResaleFeed(feeds, entity)) {
+        closed.push(`${entity}:${metric}`);
+        continue;
+      }
       const days = new Set<string>();
       for (const p of points) {
         const t = Date.parse(p.ts);
@@ -522,7 +534,9 @@ async function checkSourceDeath(): Promise<Result> {
     }
   }
 
-  const detail = `${judged} regular stream(s) checked, ${sparse} sparse skipped (<${DEATH_MIN_ACTIVE_DAYS}/${DEATH_LOOKBACK_DAYS}d)`;
+  const detail =
+    `${judged} regular stream(s) checked, ${sparse} sparse skipped (<${DEATH_MIN_ACTIVE_DAYS}/${DEATH_LOOKBACK_DAYS}d)` +
+    (closed.length ? `, ${closed.length} on a closed resale feed not judged (${closed.join(", ")})` : "");
   return dead.length
     ? bad("source-death", "hard", `${dead.length} stream(s) silent past their expected cadence — ${detail}`, dead)
     : ok("source-death", "hard", `no dead streams — ${detail}`);

@@ -17,6 +17,8 @@ import type { NormalizedSale } from "../rarible/queries";
 import type { ObservedSale } from "../data/salesStore";
 
 const BASE = "https://api.beezie.com";
+/** Marks a refusal that is Cloudflare's bot challenge (cf-mitigated: challenge). */
+export const CLOUDFLARE_CHALLENGE = "(Cloudflare challenge)";
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const HEADERS = {
@@ -104,7 +106,12 @@ async function fetchActivityPage(page: number, attempt = 0): Promise<BeezieActiv
     await new Promise((r) => setTimeout(r, backoffMs(attempt)));
     return fetchActivityPage(page, attempt + 1);
   }
-  if (!res.ok) throw new Error(`Beezie /activity page ${page}: ${res.status}`);
+  // A Cloudflare challenge (since Oct 22 2026) is named, so the warmer can record
+  // the feed as closed rather than as a passing failure. Never retried around.
+  if (!res.ok) {
+    const challenge = res.headers.get("cf-mitigated") === "challenge";
+    throw new Error(`Beezie /activity page ${page}: ${res.status}${challenge ? ` ${CLOUDFLARE_CHALLENGE}` : ""}`);
+  }
   const d = (await res.json()) as { activity?: BeezieActivity[] };
   return Array.isArray(d.activity) ? d.activity : [];
 }

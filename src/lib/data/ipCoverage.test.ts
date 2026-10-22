@@ -130,3 +130,18 @@ test("7d window: empty input or a bad window reads NaN", () => {
   assert.ok(Number.isNaN(lastDaysSums(new Map(), 7).sumFor("pokemon")));
   assert.ok(Number.isNaN(lastDaysSums(new Map([["pokemon", [day("20", 1)]]]), 0).sumFor("pokemon")));
 });
+
+test("a per-IP venue this snapshot did not read is named with its last read, and leaves the resale list", () => {
+  const c = ipCoverage(mcap, holders, { venues: ["collector-crypt", "courtyard", "dyli", "renaiss"], lastReadAt: (v) => (v === "beezie" ? "2026-10-21T16:24:00Z" : null) });
+  assert.deepEqual(c.resale, ["collector-crypt"]);
+  assert.deepEqual(c.notRead, [{ venue: "beezie", lastReadAt: "2026-10-21T16:24:00Z" }]);
+  assert.equal(
+    railCoverageLine(c),
+    "24h figures: Collector Crypt resale (Beezie not read since Oct\u00a021) · market cap: Beezie lowest listing, Collector Crypt insured value",
+  );
+  // The table's line: Beezie is not "counted in venue totals" either — it isn't read at all.
+  assert.equal(
+    ipTableCoverageLine(c, ["collector-crypt", "courtyard", "dyli", "renaiss"]),
+    "per IP: volume, cards, buyers and avg trade count Collector Crypt resale (Beezie not read since Oct\u00a021) · market cap: Beezie lowest listing, Collector Crypt insured value · holders: wallets on Beezie, Collector Crypt, Phygitals and Renaiss · Courtyard, DYLI and Renaiss resale counts in venue totals only",
+  );
+});

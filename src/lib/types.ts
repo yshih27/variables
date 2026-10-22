@@ -83,6 +83,9 @@ export type PlatformRow = {
   /** 7-day change (%) in the platform's 24h marketplace volume; null when the
    *  bucket history doesn't reach back a full week. The teaser momentum column. */
   pct7d?: number | null;
+  /** The venue's resale feed is closed to us (bot protection, resaleFeedState.ts):
+   *  when it was last read and why it isn't now. Absent while the feed is read. */
+  resaleClosed?: { lastReadAt: string | null; why: string } | null;
   spark: number[];
   trend: Trend;
 };

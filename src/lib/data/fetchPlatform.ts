@@ -16,6 +16,7 @@ import { readCardsWithIp } from "./cards";
 import { readBiggestPulls, type BiggestPull } from "./venueBoards";
 import { readRenaissHoldings, STATED_MCAP_MIN_COVERAGE } from "@/lib/renaiss/holders";
 import { phygitalsFloorIsCurrent, readPhygitalsListingsState, type PhygitalsListingsState } from "@/lib/phygitals/listingsState";
+import { closedFeedWhy, closedResaleFeed, notReadSince, readResaleFeeds } from "@/lib/data/resaleFeedState";
 import { chooseSalesWindow, holdersReasonFor, ipMetaByKey, ipOfSale } from "./platformTables";
 import { readGachaDune } from "./gachaDuneCache";
 import {
@@ -150,6 +151,9 @@ export type PlatformDetail = {
   mcapCoveragePct: number | null;
   /** Why `mcapUsd` is "—" when it is (Renaiss below its stated-value coverage floor); null otherwise. */
   mcapReason: string | null;
+  /** Why the resale figures are "—" when the venue's feed is closed to us (Beezie
+   *  since Oct 22 2026: "Resale not read since Oct 21: …"); null otherwise. */
+  resaleReason: string | null;
   /** The 12 biggest prizes over 30 days, each with its value basis; null for a venue with no named pull feed. */
   biggestPulls: BiggestPull[] | null;
   /** How many of the 24h sales the tables below could enrich with card metadata,
@@ -432,11 +436,12 @@ export async function buildPlatformDetail(
   // carried the week — the trailing 7 days. Never an empty table while the
   // store holds sales in the week.
   const { window: salesWindow, sales: tableSales } = chooseSalesWindow(bucket.sales24h, bucket.sales7d);
-  const [enriched, biggestPulls, renaissHoldings, phygitalsListings] = await Promise.all([
+  const [enriched, biggestPulls, renaissHoldings, phygitalsListings, resaleFeeds] = await Promise.all([
     enrichSales(key, tableSales),
     readBiggestPulls(key, 30),
     key === "renaiss" ? readRenaissHoldings().catch(() => null) : Promise.resolve(null),
     key === "phygitals" ? readPhygitalsListingsState().catch(() => null) : Promise.resolve(null),
+    readResaleFeeds().catch(() => null),
   ]);
 
   const allSales = bucket.sales24h;
@@ -481,6 +486,11 @@ export async function buildPlatformDetail(
       : key === "phygitals" && phygitalsListings && !phygitalsFloorIsCurrent(phygitalsListings)
         ? phygitalsMcapReason(phygitalsListings)
         : null;
+
+  // A closed resale feed (bot protection) dates the last read; a venue we never
+  // had a resale feed for (Phygitals) keeps its "primary only" coverage note.
+  const closedFeed = tracked ? null : closedResaleFeed(resaleFeeds, key);
+  const resaleReason = closedFeed ? `Resale ${notReadSince(closedFeed)}: ${closedFeedWhy(closedFeed)}` : null;
 
   // 7d volume + the 24h change, both from the NATIVE spine (B3/M4). These used to
   // read the Rarible-era `readHistory()` blobs — the last legacy path on this page —
@@ -637,6 +647,7 @@ export async function buildPlatformDetail(
     holdersReason: holdersReasonFor(key, holders?.platforms),
     mcapCoveragePct,
     mcapReason,
+    resaleReason,
     biggestPulls,
     netGachaRevenue,
     heldReason,
@@ -684,7 +695,9 @@ export const getPlatformDetail = unstable_cache(
   // deserializes without them.
   // v11: + resaleArbitrage30d (Courtyard's buyback arbitrage, left out of resale);
   // a v10 row has no receipt line to give.
-  ["platform-detail:v11"],
+  // v12: + resaleReason (a venue whose resale feed is closed to us: Beezie, Oct
+  // 2026); a v11 row would print "—" with no reason.
+  ["platform-detail:v12"],
   { revalidate: 3600, tags: ["platform-detail", "platform-buckets"] },
 );
 
