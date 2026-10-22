@@ -98,3 +98,39 @@ test("c: soccer is checked before American football, and IP_CATALOG's display or
   assert.ok(keys.indexOf("football") < keys.indexOf("soccer"), "display order keeps Football (NFL) before Soccer");
   assert.equal(ip("Football", "FIFA"), "soccer");
 });
+
+// ── New IPs, Oct 22 2026: Nobody Sausage and Watches ─────────────────────────
+
+test("m: Collector Crypt's Nobody Sausage blind boxes are Nobody Sausage, not Sealed Wax", () => {
+  // Category, set and names as Collector Crypt writes them (433 tokens on Oct 21).
+  assert.equal(ip("Nobody Sausage", "Nobody Sausage Blind Box", "Nobody Sausage Single Box"), "nobody_sausage");
+  assert.equal(ip("Nobody Sausage", "Nobody Sausage Blind Box", "Nobody Sausage Sausage Pack (12)"), "nobody_sausage");
+  assert.equal(ip("Nobody Sausage Collector (6)"), "nobody_sausage");
+  // An unbranded sealed box stays Sealed Wax.
+  assert.equal(ip("Sealed Products", "Pokemon Booster Box"), "pokemon");
+  assert.equal(ip("Sealed Products"), "wax");
+});
+
+test("c: watch brands are Watches; Watchog, Watchmen and Omega Ruby are not", () => {
+  assert.equal(ip("Rolex Submariner Date 126610LN"), "watches");
+  assert.equal(ip("Patek Philippe Nautilus 5711"), "watches");
+  assert.equal(ip("Omega Speedmaster Professional"), "watches");
+  assert.equal(ip("2013 Pokemon XY Watchog 108/146"), "pokemon");
+  assert.equal(ip("Watchog"), "pokemon"); // the species fallback, not a watch
+  assert.equal(ip("Watchmen #1 CGC 9.8"), "other");
+  assert.equal(ip("Omega Ruby Alpha Sapphire Booster Box"), "wax");
+});
+
+test("c: the new IPs' tickers are new codes and every existing ticker is unchanged", async () => {
+  const { tickerOf } = await import("../indices/naming");
+  assert.equal(tickerOf("ip", "nobody_sausage"), "V-NSG");
+  assert.equal(tickerOf("ip", "watches"), "V-WCH");
+  const before: Record<string, string> = {
+    pokemon: "V-PKM", one_piece: "V-OP", yugioh: "V-YGO", magic: "V-MTG", lorcana: "V-DSN", dragon_ball: "V-DBZ",
+    veefriends: "V-VFR", riftbound: "V-RFT", azuki: "V-AZK", moonbirds: "V-MOON", pudgy_penguins: "V-PPG", wax: "V-WAX",
+    basketball: "V-NBA", baseball: "V-MLB", football: "V-NFL", soccer: "V-SOC", hockey: "V-NHL", f1: "V-F1",
+    sneakers: "V-SNK", comics: "V-CMX", other: "V-ETC",
+  };
+  for (const [key, ticker] of Object.entries(before)) assert.equal(tickerOf("ip", key), ticker, key);
+  assert.equal(IP_CATALOG.filter((i) => i.tokensNotIndexed).map((i) => i.key).join(","), "watches");
+});

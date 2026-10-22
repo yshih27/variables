@@ -21,6 +21,9 @@ type Props = {
   packCoverage?: { creditedUsd: number; totalUsd: number; notSplit: string[]; asOf: string | null } | null;
   /** Which venues the 24h figures and the market cap cover (ipCoverage.railCoverageLine). */
   coverage?: string;
+  /** Set when the IP's tokens aren't indexed (IPMeta.tokensNotIndexed): its 24h
+   *  figures read "—" and this note stands in for the coverage line. */
+  notIndexed?: string;
 };
 
 const venueName = (key: string) => PLATFORM_SOURCES.find((p) => p.key === key)?.name ?? key;
@@ -32,7 +35,9 @@ const shortDay = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateStrin
  * the nav on desktop (only the right column scrolls); stacks on top on mobile.
  * Display text is Space Grotesk; every number is mono + tabular.
  */
-export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, coverage }: Props) {
+export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, coverage, notIndexed }: Props) {
+  // Not indexed: we read none of its resale, so "—", never a 0 we didn't measure.
+  const na = (v: string) => (notIndexed ? "—" : v);
   // Pack spend: credited only where a pack sells one IP (src/lib/data/ipPackSpend.ts).
   const packVenues = packSpend
     ? Object.entries(packSpend.byVenue)
@@ -50,16 +55,18 @@ export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, cove
           },
         ]
       : []),
-    { k: "24h Trades", sub: "secondary sales", v: formatInt(detail.trades24h) },
+    { k: "24h Trades", sub: "secondary sales", v: na(formatInt(detail.trades24h)) },
     {
       k: "Active Wallets",
-      sub: `${formatInt(detail.uniqueBuyers)} buyer${detail.uniqueBuyers === 1 ? "" : "s"} · ${formatInt(detail.uniqueSellers)} seller${detail.uniqueSellers === 1 ? "" : "s"}`,
-      v: formatInt(detail.uniqueWallets),
+      sub: notIndexed
+        ? "buyers · sellers"
+        : `${formatInt(detail.uniqueBuyers)} buyer${detail.uniqueBuyers === 1 ? "" : "s"} · ${formatInt(detail.uniqueSellers)} seller${detail.uniqueSellers === 1 ? "" : "s"}`,
+      v: na(formatInt(detail.uniqueWallets)),
     },
-    { k: "Cards Traded", sub: "distinct tokens", v: formatInt(detail.uniqueCards) },
-    { k: "Avg Trade", sub: "per sale", v: formatCompactUsd(detail.avgTradeUsd) },
-    { k: "Highest Sale", sub: "last 24h", v: formatCompactUsd(detail.highSaleUsd) },
-    { k: "Platforms", sub: "with sales · 24h", v: formatInt(detail.uniquePlatforms) },
+    { k: "Cards Traded", sub: "distinct tokens", v: na(formatInt(detail.uniqueCards)) },
+    { k: "Avg Trade", sub: "per sale", v: na(formatCompactUsd(detail.avgTradeUsd)) },
+    { k: "Highest Sale", sub: "last 24h", v: na(formatCompactUsd(detail.highSaleUsd)) },
+    { k: "Platforms", sub: "with sales · 24h", v: na(formatInt(detail.uniquePlatforms)) },
   ];
 
   return (
@@ -97,9 +104,9 @@ export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, cove
         <div className="grid grid-cols-2">
           <HeroStat
             label="24h Volume"
-            value={formatCompactUsd(detail.vol24Usd)}
+            value={na(formatCompactUsd(detail.vol24Usd))}
             valueClass="text-yellow"
-            pct={detail.vol24Pct}
+            pct={notIndexed ? null : detail.vol24Pct}
           />
           <div className="border-l border-line pl-[18px]">
             <HeroStat
@@ -133,7 +140,11 @@ export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, cove
 
         {/* Receipts, from data: the venues behind the 24h figures and the market
             cap, then what pack spend credits across venues and what it can't split. */}
-        {coverage && <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">{coverage}</p>}
+        {notIndexed ? (
+          <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">{notIndexed}</p>
+        ) : (
+          coverage && <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">{coverage}</p>
+        )}
         {packCoverage && (
           <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">
             pack spend: packs that sell one IP · {formatCompactUsd(packCoverage.creditedUsd)}

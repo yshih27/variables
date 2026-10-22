@@ -286,7 +286,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, pac
                   {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
                   <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
                   {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}
-                  {full && <Td align="right" className="hidden md:table-cell">{ip.trades24h > 0 ? formatCompactNumber(ip.cards) : "0"}</Td>}
+                  {full && <Td align="right" className="hidden md:table-cell">{Number.isFinite(ip.trades24h) ? (ip.trades24h > 0 ? formatCompactNumber(ip.cards) : "0") : "—"}</Td>}
                   {full && <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>}
                   {full && (
                   <Td align="right" muted className="hidden md:table-cell">

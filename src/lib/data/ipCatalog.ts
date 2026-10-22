@@ -22,6 +22,12 @@ export type IPMeta = {
   emoji?: string;
   /** Match raw trait values (case-insensitive substring) */
   patterns: string[];
+  /**
+   * Set when the IP's tokens aren't indexed yet, so only its pack spend is read
+   * (Collector Crypt's watch machines, Oct 2026). Pages print "—" for its resale,
+   * market cap and holders — never a $0 we didn't measure — and show this note.
+   */
+  tokensNotIndexed?: string;
 };
 
 // Order matters: more specific patterns must come before generic ones.
@@ -130,6 +136,17 @@ export const IP_CATALOG: IPMeta[] = [
     // the Vibes TCG cards that never say Pudgy (Collector Crypt labels them
     // Category "Vibes": 91 sat in Other on Oct 21 2026).
     patterns: ["pudgy", "vibes"],
+  },
+  {
+    key: "nobody_sausage",
+    name: "Nobody Sausage",
+    short: "NSG",
+    color: "#FF8FA3",
+    emoji: "🌭",
+    // Collector Crypt files these under its own Category "Nobody Sausage" (blind
+    // boxes, set "Nobody Sausage Blind Box"): 433 sat in Other on Oct 21 2026.
+    // Above Sealed Wax on purpose: a branded box keeps its brand.
+    patterns: ["nobody sausage"],
   },
 
   // ─── Sealed wax / boxes (above sports so a "Topps Baseball Blaster Box" stays Sealed) ──
@@ -263,6 +280,34 @@ export const IP_CATALOG: IPMeta[] = [
     patterns: ["sneakers", "nike", "adidas", "jordan retro", "yeezy"],
   },
   {
+    key: "watches",
+    name: "Watches",
+    short: "WCH",
+    color: "#C9A227",
+    emoji: "⌚",
+    // Brand phrases only. A bare "watch" would take the Pokémon Watchog and
+    // Watchmen comics; a bare "omega", the "Omega Ruby" set.
+    patterns: [
+      "rolex",
+      "patek philippe",
+      "audemars piguet",
+      "richard mille",
+      "vacheron constantin",
+      "jaeger-lecoultre",
+      "omega speedmaster",
+      "omega seamaster",
+      "grand seiko",
+      "tag heuer",
+      "breitling",
+      "hublot",
+      "panerai",
+      "luxury watch",
+      "wristwatch",
+    ],
+    tokensNotIndexed:
+      "Collector Crypt's watch machines are counted in pack spend; the watch tokens themselves aren't indexed yet, so this IP has no resale, market cap or holders here",
+  },
+  {
     key: "comics",
     name: "Comics",
     short: "CMX",
@@ -362,7 +407,8 @@ const CATEGORY_BY_IP: Record<string, IPCategory> = {
   soccer: "sports",
   hockey: "sports",
   f1: "sports",
-  // veefriends / wax / sneakers / comics / moonbirds / pudgy_penguins → "other"
+  // veefriends / wax / sneakers / comics / moonbirds / pudgy_penguins /
+  // nobody_sausage / watches → "other"
   // (NFT-native collectible brands & sealed product, not a TCG or sports league)
 };
 

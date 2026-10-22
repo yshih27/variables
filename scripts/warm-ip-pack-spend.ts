@@ -9,6 +9,8 @@
  *
  *   npx tsx scripts/warm-ip-pack-spend.ts           # dry run: prints the split, writes nothing
  *   npx tsx scripts/warm-ip-pack-spend.ts --apply
+ *   npx tsx scripts/warm-ip-pack-spend.ts --out=<dir>   # LOCAL: writes <dir>/ip-pack-spend.json,
+ *       not the database; serve it with SNAPSHOT_LOCAL_DIR=<dir>
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -17,11 +19,15 @@ import { runWarmer } from "../src/lib/db/runWarmer";
 import { readPlayerAnalytics } from "../src/lib/data/playerAnalytics";
 import { readMetricSeries, sumLastCompleteDays, sumWindowDays } from "../src/lib/data/metricSnapshots";
 import { readBoardPulls } from "../src/lib/renaiss/machines";
-import { buildIpPackSpend, packSpendWindow, writeIpPackSpend, PACK_SPEND_WINDOW_DAYS } from "../src/lib/data/ipPackSpend";
+import { buildIpPackSpend, packSpendWindow, writeIpPackSpend, IP_PACK_SPEND_KEY, PACK_SPEND_WINDOW_DAYS } from "../src/lib/data/ipPackSpend";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const DAY = 86_400_000;
 const VENUES = ["collector-crypt", "courtyard", "phygitals", "renaiss", "beezie", "dyli"];
 const apply = process.argv.includes("--apply");
+const outArg = process.argv.find((a) => a.startsWith("--out="));
+const outDir = outArg ? outArg.slice("--out=".length) : null;
 
 async function main() {
   const players = await readPlayerAnalytics();
@@ -63,6 +69,12 @@ async function main() {
   }
   for (const [v, c] of Object.entries(snap.venues)) console.log(`  ${v.padEnd(16)} credited ${fmt(c.creditedUsd30d)} of ${fmt(c.packSpend30dUsd)} · ${c.basis}`);
 
+  if (outDir) {
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, `${IP_PACK_SPEND_KEY}.json`), JSON.stringify(snap));
+    console.log(`wrote ${join(outDir, `${IP_PACK_SPEND_KEY}.json`)} (local only)`);
+    return { rowsWritten: 0 };
+  }
   if (!apply) {
     console.log("dry run: pass --apply to write the snapshot");
     return { rowsWritten: 0 };

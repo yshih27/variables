@@ -35,11 +35,14 @@ test("m: event machines read their theme from the key", () => {
   assert.equal(cc("comic_250"), "comics");
 });
 
-test("m: mixed machines are not credited, watches before Pokémon", () => {
-  assert.equal(cc("ewatch_500", "WATCH 500"), null);
-  assert.equal(cc("ewatches_500"), null);
-  assert.equal(cc("epokewatch_2000"), null); // pays out watches
-  assert.equal(cc("pokewatch_50_jup1"), null);
+test("m: watch machines are credited to Watches, before Pokémon", () => {
+  assert.equal(cc("ewatch_500", "WATCH 500"), "watches");
+  assert.equal(cc("ewatches_500"), "watches");
+  assert.equal(cc("epokewatch_2000"), "watches"); // pays out watches
+  assert.equal(cc("pokewatch_50_jup1"), "watches");
+});
+
+test("m: mixed machines are not credited", () => {
   assert.equal(cc("sports_100", "Sports Gacha Pack"), null);
   assert.equal(cc("sports_500", "All-Star Sports Gacha Pack 500"), null);
   assert.equal(cc("e10_10", "PSA 10's ONLY 10/10 Day"), null);
@@ -76,7 +79,8 @@ test("c: assembly credits by venue, keeps the 7-day share, and reports coverage"
   });
   assert.deepEqual(snap.byIp.soccer, { usd30d: 1000, usd7d: 300, byVenue: { "collector-crypt": { usd30d: 1000, usd7d: 300 } } });
   assert.deepEqual(snap.byIp.pokemon, { usd30d: 100, usd7d: 50, byVenue: { renaiss: { usd30d: 100, usd7d: 50 } } }); // Sep 1 is outside 30 days
-  assert.equal(snap.venues["collector-crypt"].creditedUsd30d, 1000); // the watch machine is not credited
+  assert.deepEqual(snap.byIp.watches, { usd30d: 1000, usd7d: 500, byVenue: { "collector-crypt": { usd30d: 1000, usd7d: 500 } } });
+  assert.equal(snap.venues["collector-crypt"].creditedUsd30d, 2000); // soccer + the watch machine
   assert.equal(snap.venues["collector-crypt"].packSpend30dUsd, 5000);
   assert.equal(snap.venues.courtyard.creditedUsd30d, 0);
   assert.equal(snap.venues.courtyard.basis, "no pull feed");
