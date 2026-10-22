@@ -9,7 +9,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildIpPackSpend, ccMachineIp, renaissPullIps, type RenaissPackPull } from "./ipPackSpend";
+import { buildIpPackSpend, ccMachineIp, packCoverageOf, packSpendWindow, renaissPullIps, type RenaissPackPull } from "./ipPackSpend";
+import { sumWindowDays } from "./metricSnapshots";
 import type { MachineBoard } from "./playerAnalytics";
 
 const cc = (key: string, name?: string) => ccMachineIp(`collector-crypt:${key}`, name ?? `collector-crypt:${key}`);
@@ -79,4 +80,53 @@ test("c: assembly credits by venue, keeps the 7-day share, and reports coverage"
   assert.equal(snap.venues["collector-crypt"].packSpend30dUsd, 5000);
   assert.equal(snap.venues.courtyard.creditedUsd30d, 0);
   assert.equal(snap.venues.courtyard.basis, "no pull feed");
+});
+
+// ── One window for every source (c) ─────────────────────────────────────────
+
+test("c: the window ends on the board's last complete day, never past yesterday", () => {
+  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const now = Date.parse("2026-10-22T00:13:00Z"); // after UTC midnight, before the daily run
+  const w = packSpendWindow("2026-10-20T00:00:00.000Z", now);
+  assert.equal(iso(w.endMs - 86_400_000), "2026-10-20"); // Renaiss reads the board's days, not Oct 21
+  assert.equal(iso(w.startMs), "2026-09-21");
+  assert.equal((w.endMs - w.startMs) / 86_400_000, 30);
+  // A board refreshed today: ends yesterday.
+  assert.equal(iso(packSpendWindow("2026-10-21T00:00:00.000Z", now).endMs - 86_400_000), "2026-10-21");
+  // No board: yesterday.
+  assert.equal(iso(packSpendWindow(null, now).endMs - 86_400_000), "2026-10-21");
+});
+
+test("c: venue totals sum exactly the window, and a lagging series reads unknown", () => {
+  const days = (from: number, n: number, v = 10) =>
+    Array.from({ length: n }, (_, i) => ({ ts: new Date(Date.UTC(2026, 8, from + i)).toISOString(), value: v }));
+  const start = Date.UTC(2026, 8, 21); // Sep 21
+  const end = Date.UTC(2026, 9, 21); // Oct 21 (exclusive): 30 days
+  assert.equal(sumWindowDays(days(15, 40), start, end), 300); // points outside the window ignored
+  assert.ok(Number.isNaN(sumWindowDays(days(21, 29), start, end))); // spine one day short
+});
+
+test("c: a credited venue with no known total leaves the total out of the line", () => {
+  const snap = buildIpPackSpend({
+    ccBoard: null,
+    renaissPulls: [{ product_id: "m1", price_usd: 50, pulled_at: "2026-10-20T10:00:00Z", prize_card_name: "Pikachu", prize_set_name: null }],
+    windowEndMs: Date.UTC(2026, 9, 21),
+    venueTotals: { renaiss: null, courtyard: 100 },
+  });
+  const cov = packCoverageOf(snap);
+  assert.equal(cov.creditedUsd, 50);
+  assert.ok(Number.isNaN(cov.totalUsd));
+});
+
+test("c: venues not split are listed in registry order, whatever order the snapshot's keys come back in", () => {
+  const snap = buildIpPackSpend({
+    ccBoard: null,
+    renaissPulls: [],
+    windowEndMs: Date.UTC(2026, 9, 21),
+    venueTotals: { "collector-crypt": 100, courtyard: 50, phygitals: 20, renaiss: 10, beezie: 5, dyli: 1 },
+  });
+  // jsonb hands keys back shortest-first: dyli, beezie, renaiss, courtyard, phygitals, collector-crypt.
+  const order = ["dyli", "beezie", "renaiss", "courtyard", "phygitals", "collector-crypt"];
+  const shuffled = { ...snap, venues: Object.fromEntries(order.map((k) => [k, snap.venues[k]])) };
+  assert.deepEqual(packCoverageOf(shuffled).notSplit, ["Courtyard", "Beezie", "Collector Crypt", "Phygitals", "DYLI", "Renaiss"]);
 });

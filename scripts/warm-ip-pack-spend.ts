@@ -2,10 +2,10 @@
  * Pack spend by IP → the `ip-pack-spend` snapshot (src/lib/data/ipPackSpend.ts).
  *
  * Reads, with no API call: Collector Crypt's machine board (the player-analytics
- * snapshot, 30 complete days of captured pulls per machine), Renaiss's pulls over
- * the last 30 complete days (renaiss_pulls, one day per query, as the machine
- * board reads them), and each venue's gacha_volume_usd over the same window
- * (spine), for the coverage line.
+ * snapshot, 30 complete days of captured pulls per machine), Renaiss's pulls
+ * (renaiss_pulls, one day per query, as the machine board reads them) and each
+ * venue's gacha_volume_usd (spine), for the coverage line — all three over ONE
+ * window, the board's 30 complete days (packSpendWindow).
  *
  *   npx tsx scripts/warm-ip-pack-spend.ts           # dry run: prints the split, writes nothing
  *   npx tsx scripts/warm-ip-pack-spend.ts --apply
@@ -15,32 +15,42 @@ config({ path: ".env.local" });
 
 import { runWarmer } from "../src/lib/db/runWarmer";
 import { readPlayerAnalytics } from "../src/lib/data/playerAnalytics";
-import { readMetricSeries, sumLastCompleteDays } from "../src/lib/data/metricSnapshots";
+import { readMetricSeries, sumLastCompleteDays, sumWindowDays } from "../src/lib/data/metricSnapshots";
 import { readBoardPulls } from "../src/lib/renaiss/machines";
-import { buildIpPackSpend, writeIpPackSpend, PACK_SPEND_WINDOW_DAYS } from "../src/lib/data/ipPackSpend";
+import { buildIpPackSpend, packSpendWindow, writeIpPackSpend, PACK_SPEND_WINDOW_DAYS } from "../src/lib/data/ipPackSpend";
 
 const DAY = 86_400_000;
 const VENUES = ["collector-crypt", "courtyard", "phygitals", "renaiss", "beezie", "dyli"];
 const apply = process.argv.includes("--apply");
 
 async function main() {
-  const now = new Date();
-  const windowEndMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const startMs = windowEndMs - PACK_SPEND_WINDOW_DAYS * DAY;
+  const players = await readPlayerAnalytics();
+  const board = players?.machines ?? null;
+  if (board && board.windowDays !== PACK_SPEND_WINDOW_DAYS) {
+    console.warn(`  Collector Crypt board covers ${board.windowDays} days, not ${PACK_SPEND_WINDOW_DAYS}: its machines are credited over its own window`);
+  }
+  const { startMs, endMs: windowEndMs } = packSpendWindow(board?.asOf, Date.now());
 
-  const [players, { pulls, queries }, ...series] = await Promise.all([
-    readPlayerAnalytics(),
+  const [{ pulls, queries }, ...series] = await Promise.all([
     readBoardPulls(startMs, windowEndMs),
     ...VENUES.map((v) => readMetricSeries("platform", v, "gacha_volume_usd").catch(() => [])),
   ]);
+  // Each venue's pack spend over exactly the window's days. A venue whose spine
+  // stops short of the window's last day keeps its own latest 30 complete days
+  // instead of dropping out of the total: Beezie's Claw lands on Dune after the
+  // daily run (Oct 21: Sep 21–Oct 20 complete for every venue but Beezie, through
+  // Oct 19). That shifts one venue's share of the "of $Y" denominator by a day;
+  // the credited figures always use the window.
   const venueTotals: Record<string, number | null> = {};
   VENUES.forEach((v, i) => {
-    const s = sumLastCompleteDays(series[i], PACK_SPEND_WINDOW_DAYS);
+    const exact = sumWindowDays(series[i], startMs, windowEndMs);
+    const s = Number.isFinite(exact) ? exact : sumLastCompleteDays(series[i], PACK_SPEND_WINDOW_DAYS);
     venueTotals[v] = Number.isFinite(s) ? s : null;
+    if (!Number.isFinite(exact) && Number.isFinite(s)) console.log(`  ${v}: spine short of the window's last day — total from its own latest ${PACK_SPEND_WINDOW_DAYS} complete days`);
   });
 
   const snap = buildIpPackSpend({
-    ccBoard: players?.machines ?? null,
+    ccBoard: board,
     renaissPulls: pulls.map((p) => ({ product_id: p.product_id, price_usd: p.price_usd, pulled_at: p.pulled_at, prize_card_name: p.prize_card_name, prize_set_name: null })),
     windowEndMs,
     venueTotals,

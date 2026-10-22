@@ -243,6 +243,27 @@ export function lastDaysSums(
   };
 }
 
+/**
+ * Σ of a daily series over exactly [startMs, endMs) — a fixed window shared with
+ * other sources, not "the last N days this series recorded". NaN unless every UTC
+ * day of the window has a point, so a lagging series reads unknown, not short.
+ */
+export function sumWindowDays(series: SeriesPoint[], startMs: number, endMs: number): number {
+  const dayIdx = (ms: number) => Math.floor(ms / 86_400_000);
+  const first = dayIdx(startMs);
+  const last = dayIdx(endMs - 1);
+  if (!(last >= first)) return NaN;
+  const seen = new Set<number>();
+  let sum = 0;
+  for (const p of series) {
+    const t = Date.parse(p.ts);
+    if (!Number.isFinite(t) || !Number.isFinite(p.value) || t < startMs || t >= endMs) continue;
+    seen.add(dayIdx(t));
+    sum += p.value;
+  }
+  return seen.size === last - first + 1 ? sum : NaN;
+}
+
 export function sumLastCompleteDays(series: SeriesPoint[], days: number): number {
   if (days < 1) return NaN;
   const sorted = series
