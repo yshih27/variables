@@ -8,6 +8,7 @@
  *
  *   npx tsx scripts/migrate-taxonomy-spine.ts --keys other --before 2026-07-02
  *   npx tsx scripts/migrate-taxonomy-spine.ts --keys other --before 2026-07-02 --apply
+ *   … --apply --backup=<file.json>   # first writes every row it deletes + the history blob
  *
  * WHY ONLY STOCK METRICS:
  *   • FLOW metrics (volume_usd, trades, active_wallets, cards_traded) SELF-HEAL —
@@ -27,11 +28,20 @@
  * Pass the SHRINKING bucket(s) — normally just "other". Promoted keys have no
  * pre-migration stock rows, so listing them is harmless but usually unnecessary.
  * Dry-run by default; --apply performs the delete.
+ *
+ * ⚠️ THE HISTORY BLOB TOO. warm-metric-snapshots re-creates each IP's past
+ * mcap_usd points from the `marketcap-history` blob on every daily run
+ * ("Family 3"), so this also removes the keys' readings from that blob before
+ * --before (pruneHistoryIps). Without it the Oct 21 2026 reset of other and
+ * pudgy_penguins was undone by the next daily. --before may be a full ISO time:
+ * pass the first market-cap write of the new taxonomy so it is kept.
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { db } from "../src/lib/db/client";
+import { pruneHistoryIps, readMarketCapHistory, writeMarketCapHistory } from "../src/lib/data/marketcap";
+import { writeFileSync } from "node:fs";
 
 const STOCK_METRICS = ["mcap_usd", "holders", "floor_usd"];
 
@@ -59,6 +69,33 @@ async function main() {
     process.exit(2);
   }
   const beforeIso = new Date(beforeMs).toISOString();
+
+  // --backup=<file>: before anything is deleted, write every row the reset will
+  // delete and the whole history blob, so the reset can be undone by hand.
+  const backup = arg("--backup") ?? process.argv.find((a) => a.startsWith("--backup="))?.slice("--backup=".length) ?? null;
+  if (apply && backup) {
+    const rows: unknown[] = [];
+    for (const key of keys) {
+      for (const metric of metrics) {
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await db()
+            .from("metric_snapshots")
+            .select("entity_type, entity_key, metric, ts, value")
+            .eq("entity_type", "ip")
+            .eq("entity_key", key)
+            .eq("metric", metric)
+            .lt("ts", beforeIso)
+            .order("ts", { ascending: true })
+            .range(from, from + 999);
+          if (error) throw new Error(`backup read ${key}/${metric} failed: ${error.message}`);
+          rows.push(...(data ?? []));
+          if ((data ?? []).length < 1000) break;
+        }
+      }
+    }
+    writeFileSync(backup, JSON.stringify({ keys, before: beforeIso, rows, marketcapHistory: await readMarketCapHistory() }));
+    console.log(`backup: ${rows.length} rows + the history blob → ${backup}`);
+  }
 
   console.log(apply ? "APPLYING taxonomy spine reset" : "DRY RUN (pass --apply to delete)");
   console.log(`  entity_type=ip · keys=[${keys.join(", ")}] · metrics=[${metrics.join(", ")}] · ts < ${beforeIso}\n`);
@@ -93,6 +130,13 @@ async function main() {
     }
   }
   console.log(`\n${apply ? "deleted" : "would delete"} ${totalWould} stock rows across ${keys.length} key(s).`);
+
+  // The blob the daily mcap backfill re-creates those rows from (see above).
+  if (metrics.includes("mcap_usd")) {
+    const { hist, removed } = pruneHistoryIps(await readMarketCapHistory(), keys, beforeMs);
+    if (apply && removed > 0) await writeMarketCapHistory(hist);
+    console.log(`marketcap-history: ${apply ? "removed" : "would remove"} ${removed} per-IP reading(s) before ${beforeIso}`);
+  }
   console.log(
     "Reminder: flow metrics (volume_usd/trades/…) self-heal over 30d — not touched. " +
       "Re-run warm-homepage after this so the leaderboard deltas refresh.",
