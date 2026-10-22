@@ -112,6 +112,24 @@ export function renaissPullIps(pulls: RenaissPackPull[]): (string | null)[] {
   return pulls.map((p, i) => direct[i] ?? dominant.get(p.product_id) ?? null);
 }
 
+// ── Window ───────────────────────────────────────────────────────────────────
+
+/**
+ * The one window every source is read over: the 30 complete days that end on the
+ * Collector Crypt machine board's last complete day (its `asOf`), never past
+ * yesterday. The board is precomputed once a day while Renaiss pulls and the
+ * spine are read live, so a wall-clock window put Renaiss a day ahead of
+ * Collector Crypt and of every venue total from UTC midnight until the next
+ * daily run — and the receipt printed Renaiss's date for all of them.
+ */
+export function packSpendWindow(boardAsOf: string | null | undefined, nowMs: number): { startMs: number; endMs: number } {
+  const d = new Date(nowMs);
+  const todayMs = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  const asOfMs = boardAsOf ? Date.parse(`${boardAsOf.slice(0, 10)}T00:00:00Z`) : NaN;
+  const endMs = Number.isFinite(asOfMs) ? Math.min(todayMs, asOfMs + 86_400_000) : todayMs;
+  return { startMs: endMs - PACK_SPEND_WINDOW_DAYS * 86_400_000, endMs };
+}
+
 // ── Assembly ─────────────────────────────────────────────────────────────────
 
 const usd = (v: number | string | null | undefined) => {
@@ -193,13 +211,16 @@ const VENUE_NAMES: Record<string, string> = {
 
 /**
  * The coverage behind every IP's pack spend, from the snapshot: what is credited
- * across venues, out of all venues' pack spend, which venues with pack spend are
- * not split, and the window's last complete day (the latest a credited venue covers).
+ * across venues, out of all venues' pack spend (NaN when a venue that is credited
+ * has no known total — the line then leaves the total out rather than understate
+ * it), which venues with pack spend are not split, and the window's last complete
+ * day (the latest a credited venue covers).
  */
 export function packCoverageOf(s: IpPackSpendSnapshot): { creditedUsd: number; totalUsd: number; notSplit: string[]; asOf: string | null } {
   const venues = Object.entries(s.venues);
   const creditedUsd = venues.reduce((a, [, v]) => a + v.creditedUsd30d, 0);
-  const totalUsd = venues.reduce((a, [, v]) => a + (v.packSpend30dUsd ?? 0), 0);
+  const totalUnknown = venues.some(([, v]) => v.creditedUsd30d > 0 && v.packSpend30dUsd == null);
+  const totalUsd = totalUnknown ? NaN : venues.reduce((a, [, v]) => a + (v.packSpend30dUsd ?? 0), 0);
   const notSplit = venues.filter(([, v]) => v.creditedUsd30d === 0 && (v.packSpend30dUsd ?? 0) > 0).map(([k]) => VENUE_NAMES[k] ?? k);
   const days = venues.map(([, v]) => v.asOf).filter((d): d is string => Boolean(d)).sort();
   return { creditedUsd, totalUsd, notSplit, asOf: days.length ? days[days.length - 1] : null };

@@ -136,7 +136,8 @@ export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage, cove
         {coverage && <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">{coverage}</p>}
         {packCoverage && (
           <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">
-            pack spend: packs that sell one IP · {formatCompactUsd(packCoverage.creditedUsd)} of {formatCompactUsd(packCoverage.totalUsd)} credited across venues
+            pack spend: packs that sell one IP · {formatCompactUsd(packCoverage.creditedUsd)}
+            {Number.isFinite(packCoverage.totalUsd) ? ` of ${formatCompactUsd(packCoverage.totalUsd)}` : ""} credited across venues
             {packCoverage.notSplit.length ? ` · ${packCoverage.notSplit.join(", ")} not split by IP` : ""}
             {packCoverage.asOf ? ` · 30 complete days to ${shortDay(packCoverage.asOf)}` : ""}
           </p>
