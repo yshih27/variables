@@ -50,6 +50,8 @@ import { sanitizeStockSeries } from "../src/lib/data/indices";
 import { readHolders } from "../src/lib/data/holders";
 import { readCardDims } from "../src/lib/data/cards";
 import { ipWalletsCardsByDay, staleIpDays } from "../src/lib/data/ipDailyFlow";
+import { closedResaleFeed, notReadSince, onFailedRead, readResaleFeeds } from "../src/lib/data/resaleFeedState";
+import { readStoreFeed } from "../src/lib/data/salesStore";
 import { IP_RESALE_VENUES } from "../src/lib/data/sources";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
 import {
@@ -217,14 +219,29 @@ async function main() {
   // bucket per UTC day. This reconciles per-IP + Beezie volume to the native feeds
   // over 30d (the history path drew Beezie from Rarible → ~20-90× inflated) AND
   // records per-set/grade/platform-IP dominance so those panels grow a real trend.
-  // A failed Beezie read leaves the per-IP series alone this run (ipSeriesOk):
-  // rewriting them from Collector Crypt alone would overwrite good days.
+  // Beezie's sales come from its own /activity feed. A passing failure leaves the
+  // per-IP series as stored this run (ipSeriesOk): rewriting them from Collector
+  // Crypt alone would overwrite good days. A CLOSED feed (bot protection,
+  // resaleFeedState.ts) reads our secondary_sales store instead — it holds every
+  // Beezie sale read until the feed closed — so past days keep their Beezie sales
+  // and the series go on updating from Collector Crypt. (Oct 22 2026: skipping on
+  // a closed feed froze every IP's daily series.)
   let beezieFailed = false;
-  const beezieSales = await fetchBeezieSales(30 * DAY).catch((e) => {
-    console.warn(`  beezie /activity failed: ${(e as Error).message}`);
-    beezieFailed = true;
-    return [] as NormalizedSale[];
-  });
+  let beezieSales: NormalizedSale[];
+  try {
+    beezieSales = await fetchBeezieSales(30 * DAY);
+  } catch (e) {
+    const feeds = await readResaleFeeds().catch(() => null);
+    if (onFailedRead(feeds, "beezie") === "store") {
+      beezieSales = await readStoreFeed("beezie", { sinceMs: now - 30 * DAY });
+      const closed = closedResaleFeed(feeds, "beezie")!;
+      console.warn(`  beezie /activity closed (${notReadSince(closed)}): ${beezieSales.length} stored Beezie sales stand in`);
+    } else {
+      console.warn(`  beezie /activity failed: ${(e as Error).message}`);
+      beezieFailed = true;
+      beezieSales = [];
+    }
+  }
   const ccDims = await readCardDims("collector-crypt");
   const bzDims = await readCardDims("beezie");
 

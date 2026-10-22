@@ -8,7 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { closedFeedWhy, closedResaleFeed, nextResaleFeedEntry, notReadSince, type ResaleFeedsSnapshot } from "./resaleFeedState";
+import { closedFeedWhy, closedResaleFeed, nextResaleFeedEntry, notReadSince, onFailedRead, type ResaleFeedsSnapshot } from "./resaleFeedState";
 
 const CHALLENGE = "Beezie /activity page 0: 403 (Cloudflare challenge)";
 
@@ -52,4 +52,17 @@ test("only bot protection counts as a closed feed; a passing failure does not", 
   assert.equal(closedResaleFeed(snap, "dyli"), null);
   assert.equal(closedResaleFeed(snap, "renaiss"), null);
   assert.equal(closedResaleFeed(null, "beezie"), null);
+});
+
+test("a failed live read uses our stored rows only when the feed is closed", () => {
+  const snap: ResaleFeedsSnapshot = {
+    generatedAt: "2026-10-22T13:00:00Z",
+    venues: {
+      beezie: { lastReadAt: "2026-10-21T16:24:00Z", unavailable: CHALLENGE, unavailableSince: "2026-10-22T04:27:00Z" },
+      dyli: { lastReadAt: "2026-10-22T10:00:00Z", unavailable: "DYLI /sales: 502", unavailableSince: "2026-10-22T12:00:00Z" },
+    },
+  };
+  assert.equal(onFailedRead(snap, "beezie"), "store");
+  assert.equal(onFailedRead(snap, "dyli"), "skip"); // may pass: leave the series as stored
+  assert.equal(onFailedRead(null, "beezie"), "skip");
 });
