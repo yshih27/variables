@@ -199,15 +199,19 @@ export function buildIpPackSpend(input: {
   return { generatedAt: input.generatedAt ?? new Date().toISOString(), windowDays: PACK_SPEND_WINDOW_DAYS, byIp, venues };
 }
 
-/** Venue keys → display names for the coverage line (kept here: no import of the registry). */
+/** Venue keys → display names for the coverage line, in registry order (as every
+ *  other coverage line lists venues). Kept here: no import of the registry. The
+ *  snapshot's own key order can't be used — Postgres jsonb reorders keys. */
 const VENUE_NAMES: Record<string, string> = {
-  "collector-crypt": "Collector Crypt",
   courtyard: "Courtyard",
-  phygitals: "Phygitals",
-  renaiss: "Renaiss",
   beezie: "Beezie",
+  "collector-crypt": "Collector Crypt",
+  phygitals: "Phygitals",
   dyli: "DYLI",
+  renaiss: "Renaiss",
 };
+const VENUE_ORDER = Object.keys(VENUE_NAMES);
+const venueRank = (k: string) => (VENUE_ORDER.includes(k) ? VENUE_ORDER.indexOf(k) : VENUE_ORDER.length);
 
 /**
  * The coverage behind every IP's pack spend, from the snapshot: what is credited
@@ -221,7 +225,10 @@ export function packCoverageOf(s: IpPackSpendSnapshot): { creditedUsd: number; t
   const creditedUsd = venues.reduce((a, [, v]) => a + v.creditedUsd30d, 0);
   const totalUnknown = venues.some(([, v]) => v.creditedUsd30d > 0 && v.packSpend30dUsd == null);
   const totalUsd = totalUnknown ? NaN : venues.reduce((a, [, v]) => a + (v.packSpend30dUsd ?? 0), 0);
-  const notSplit = venues.filter(([, v]) => v.creditedUsd30d === 0 && (v.packSpend30dUsd ?? 0) > 0).map(([k]) => VENUE_NAMES[k] ?? k);
+  const notSplit = venues
+    .filter(([, v]) => v.creditedUsd30d === 0 && (v.packSpend30dUsd ?? 0) > 0)
+    .sort(([a], [b]) => venueRank(a) - venueRank(b))
+    .map(([k]) => VENUE_NAMES[k] ?? k);
   const days = venues.map(([, v]) => v.asOf).filter((d): d is string => Boolean(d)).sort();
   return { creditedUsd, totalUsd, notSplit, asOf: days.length ? days[days.length - 1] : null };
 }

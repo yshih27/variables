@@ -117,3 +117,16 @@ test("c: a credited venue with no known total leaves the total out of the line",
   assert.equal(cov.creditedUsd, 50);
   assert.ok(Number.isNaN(cov.totalUsd));
 });
+
+test("c: venues not split are listed in registry order, whatever order the snapshot's keys come back in", () => {
+  const snap = buildIpPackSpend({
+    ccBoard: null,
+    renaissPulls: [],
+    windowEndMs: Date.UTC(2026, 9, 21),
+    venueTotals: { "collector-crypt": 100, courtyard: 50, phygitals: 20, renaiss: 10, beezie: 5, dyli: 1 },
+  });
+  // jsonb hands keys back shortest-first: dyli, beezie, renaiss, courtyard, phygitals, collector-crypt.
+  const order = ["dyli", "beezie", "renaiss", "courtyard", "phygitals", "collector-crypt"];
+  const shuffled = { ...snap, venues: Object.fromEntries(order.map((k) => [k, snap.venues[k]])) };
+  assert.deepEqual(packCoverageOf(shuffled).notSplit, ["Courtyard", "Beezie", "Collector Crypt", "Phygitals", "DYLI", "Renaiss"]);
+});
