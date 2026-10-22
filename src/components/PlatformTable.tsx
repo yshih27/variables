@@ -224,12 +224,14 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
               // A closed resale feed is not "primary only": we read it until the
               // date shown, and it refuses our reads since (Beezie, Oct 22 2026).
               const resaleClosed = !tracked && p.resaleClosed ? p.resaleClosed : null;
+              const packsClosed = p.packsClosed ?? null;
               const primaryOnly = !tracked && !resaleClosed && p.primaryUsd != null && p.primaryUsd > 0;
               return (
               <TableRowLink key={p.key} href={`/platform/${p.key}`} className="[&:last-child>td]:border-b-0">
                 <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
                 <Td>
-                  <div className="flex items-center gap-2.5">
+                  {/* Wraps: a venue with two closed feeds (Beezie) carries two tags. */}
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                     <Link
                       href={`/platform/${p.key}`}
                       className="flex items-center gap-2.5 font-semibold"
@@ -252,6 +254,12 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                       <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
                         {resaleClosed.lastReadAt ? `resale not read since ${formatMonthDayUtc(resaleClosed.lastReadAt)}` : "resale not read"}
                         <MetricInfo metric="resaleNotRead" />
+                      </span>
+                    )}
+                    {packsClosed && (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
+                        {packsClosed.lastDay ? `packs not read since ${formatMonthDayUtc(packsClosed.lastDay)}` : "packs not read"}
+                        <MetricInfo metric="packsNotRead" />
                       </span>
                     )}
                   </div>

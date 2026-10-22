@@ -86,6 +86,9 @@ export type PlatformRow = {
   /** The venue's resale feed is closed to us (bot protection, resaleFeedState.ts):
    *  when it was last read and why it isn't now. Absent while the feed is read. */
   resaleClosed?: { lastReadAt: string | null; why: string } | null;
+  /** The venue's pack feed is closed to us (packFeedState.ts): the last day its
+   *  gacha series recorded and why nothing since. Absent while its packs are read. */
+  packsClosed?: { lastDay: string | null; why: string } | null;
   spark: number[];
   trend: Trend;
 };
