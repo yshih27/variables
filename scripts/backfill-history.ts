@@ -12,6 +12,15 @@
  *     and the IP rail's 24h change measured those instead of the 24h level beside it;
  *   • Courtyard: Rarible's activity index (OpenSea trades; its exchange is not here).
  *
+ * One venue's feed failing does not stop the others. Beezie's and Courtyard's are
+ * third-party feeds that can close (Oct 22 2026: Beezie's API began answering
+ * automated reads with a Cloudflare challenge, and the whole step — Collector
+ * Crypt's blob and the per-IP history with it — stopped refreshing). A failed
+ * venue's blob is emptied, not left stale: a stale blob keeps drawing last week's
+ * shape as if it were current. The per-IP history is built from the venues read,
+ * as core-volume is (it drops a failed venue too). Collector Crypt failing is
+ * still fatal: without it the per-IP history would mean nothing.
+ *
  *   npx tsx scripts/backfill-history.ts
  *   npx tsx scripts/backfill-history.ts --dry-run [--only=beezie]   # prints, writes nothing
  */
@@ -38,23 +47,34 @@ async function main() {
   // A partial run must not overwrite history:by-ip with some platforms missing.
   if (only && !dryRun) throw new Error("--only needs --dry-run: it would write a partial history:by-ip");
   let platforms = 0;
+  const failed: string[] = [];
   // Per-IP sales accumulated across platforms (Beezie + CC, which have metadata
   // readers — the same scope fetchIP enriches). Bucketed into history:by-ip below.
   const ipSales = new Map<string, NormalizedSale[]>();
   for (const p of PLATFORM_SOURCES) {
     if (only && !only.includes(p.key)) continue;
     const t0 = Date.now();
-    let sales: NormalizedSale[];
+    let read: () => Promise<NormalizedSale[]>;
     if (p.key === "collector-crypt") {
       // Dune cached results (no Helius 429 — the old collectCCSales path that
       // left history:collector-crypt 32 days stale).
-      sales = await fetchCCSecondarySales({ cachedOnly: true });
+      read = () => fetchCCSecondarySales({ cachedOnly: true });
     } else if (p.key === "beezie") {
-      sales = await fetchBeezieSales(168 * HOUR_MS);
+      read = () => fetchBeezieSales(168 * HOUR_MS);
     } else if (p.kind === "rarible") {
-      sales = await collectSales(p.collectionId, 168 * HOUR_MS);
+      const collectionId = p.collectionId;
+      read = () => collectSales(collectionId, 168 * HOUR_MS);
     } else {
       continue; // no secondary-sales source yet (e.g. Phygitals)
+    }
+    let sales: NormalizedSale[];
+    try {
+      sales = await read();
+    } catch (e) {
+      failed.push(p.key);
+      console.warn(`→ ${p.name}: FAILED (${(e as Error).message}) — history:${p.key} ${dryRun ? "would be " : ""}emptied; per-IP history from the other venues`);
+      if (!dryRun) await writeHistory(p.key, { generatedAt: new Date().toISOString(), buckets: [] });
+      continue;
     }
     const buckets = bucketsFromSales(sales, 168);
     if (!dryRun) await writeHistory(p.key, { generatedAt: new Date().toISOString(), buckets });
@@ -88,6 +108,10 @@ async function main() {
     }
   }
 
+  if (failed.includes("collector-crypt")) {
+    throw new Error(`Collector Crypt history failed — history:by-ip left as stored${failed.length > 1 ? ` (also failed: ${failed.filter((k) => k !== "collector-crypt").join(", ")})` : ""}`);
+  }
+
   // Per-IP 7d hourly history (history:by-ip) → IP pages get 7d vol + 24h change.
   const byIp: Record<string, HourBucket[]> = {};
   for (const [ipKey, ipSaleRows] of ipSales) byIp[ipKey] = bucketsFromSales(ipSaleRows, 168);
@@ -100,7 +124,7 @@ async function main() {
     return { rowsWritten: 0 };
   }
   await writeIpHistory({ generatedAt: new Date().toISOString(), byIp });
-  console.log(`→ per-IP history: ${Object.keys(byIp).length} IPs bucketed`);
+  console.log(`→ per-IP history: ${Object.keys(byIp).length} IPs bucketed${failed.length ? ` (without ${failed.join(", ")})` : ""}`);
 
   return { rowsWritten: platforms };
 }
