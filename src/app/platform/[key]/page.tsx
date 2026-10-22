@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { readMethodChanges } from "@/lib/data/methodChanges";
 import { MCAP_BASIS, MCAP_BASIS_LABEL } from "@/lib/data/marketcap";
+import { closedPackFeed, lastSeriesDay } from "@/lib/data/packFeedState";
 import { NavBar } from "@/components/NavBar";
 import { buildMarketTicker } from "@/lib/data/contextStrip";
 import { PlatformOverviewHeader } from "@/components/PlatformOverviewHeader";
@@ -149,6 +150,13 @@ export default async function PlatformDetailPage({
         }
       : machineBoard;
   const { volume: volS, trades: tradesS, mcap: mcapS, gacha: gachaS, holders: holdersS } = series;
+  // A venue whose pack feed is closed to us (packFeedState.ts) says so under its
+  // gacha figure, dated by the series' own last day.
+  const packsClosed = closedPackFeed(key);
+  const packsLastDay = packsClosed ? lastSeriesDay(gachaS) : null;
+  const packsClosedSub = packsClosed
+    ? `Packs not read${packsLastDay ? ` since ${formatMonthDayUtc(packsLastDay)}` : ""}: ${packsClosed.why}`
+    : undefined;
 
   // ── Zone-1 rail rows ────────────────────────────────────────────────────────
   // Built here, not in OverviewMetricColumn, because delta units are a property
@@ -210,7 +218,7 @@ export default async function PlatformDetailPage({
       // what it showed rather than a second, subtly different calculation.
       // Honest absence: a platform with no gacha 7d figure gets NO line, never a
       // "$0 · avg $0/day", which would assert we measured a week of nothing.
-      sub: gacha7dSub(detail.gachaVol7Usd),
+      sub: packsClosedSub ?? gacha7dSub(detail.gachaVol7Usd),
     },
     {
       label: "Market Cap",

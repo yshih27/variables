@@ -91,6 +91,10 @@ export const METRICS = {
     term: "Resale not read",
     text: "Coverage note: we read this venue's resale until the date shown. Its feed has refused our reads since (the venue's page says why), so its resale counts as unknown from then on — never as zero — while its other figures are read as before.",
   },
+  packsNotRead: {
+    term: "Packs not read",
+    text: "Coverage note: we read this venue's pack spend until the date shown. Its payments stopped reaching the contract we read (the venue's page says why), so its pack spend counts as unknown from then on — never as zero.",
+  },
   total24h: {
     term: "Total 24h",
     text: "All 24h activity: marketplace resale + gacha + direct sales. The honest 'how big is this platform' figure.",

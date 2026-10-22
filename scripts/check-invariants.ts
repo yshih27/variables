@@ -46,6 +46,7 @@ import { readMetricSeriesBulk, bulkDayOverDayPctComplete, dayStartUtc, DELTA_MIN
 import type { HomepagePayload } from "../src/lib/types";
 import type { NormalizedSale } from "../src/lib/rarible/queries";
 import { closedResaleFeed, readResaleFeeds } from "../src/lib/data/resaleFeedState";
+import { closedPackFeed } from "../src/lib/data/packFeedState";
 
 type Severity = "hard" | "soft";
 type Status = "pass" | "fail" | "skip";
@@ -517,6 +518,11 @@ async function checkSourceDeath(): Promise<Result> {
         closed.push(`${entity}:${metric}`);
         continue;
       }
+      // A pack feed listed closed by hand, with its evidence (packFeedState.ts).
+      if (metric === "gacha_volume_usd" && closedPackFeed(entity)) {
+        closed.push(`${entity}:${metric}`);
+        continue;
+      }
       const days = new Set<string>();
       for (const p of points) {
         const t = Date.parse(p.ts);
@@ -536,7 +542,7 @@ async function checkSourceDeath(): Promise<Result> {
 
   const detail =
     `${judged} regular stream(s) checked, ${sparse} sparse skipped (<${DEATH_MIN_ACTIVE_DAYS}/${DEATH_LOOKBACK_DAYS}d)` +
-    (closed.length ? `, ${closed.length} on a closed resale feed not judged (${closed.join(", ")})` : "");
+    (closed.length ? `, ${closed.length} on a closed feed not judged (${closed.join(", ")})` : "");
   return dead.length
     ? bad("source-death", "hard", `${dead.length} stream(s) silent past their expected cadence — ${detail}`, dead)
     : ok("source-death", "hard", `no dead streams — ${detail}`);

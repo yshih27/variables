@@ -26,8 +26,13 @@ import {
 import { readSnapshot } from "../db/snapshots";
 import { ipCoverage } from "./ipCoverage";
 import { closedFeedWhy, closedResaleFeed, readResaleFeeds, type ResaleFeedEntry } from "./resaleFeedState";
+import { closedPackFeed, lastSeriesDay } from "./packFeedState";
 
 const resaleClosedRow = (e: ResaleFeedEntry | null) => (e ? { lastReadAt: e.lastReadAt, why: closedFeedWhy(e) } : null);
+const packsClosedRow = (venue: string, gachaSeries: SeriesPoint[]) => {
+  const closed = closedPackFeed(venue);
+  return closed ? { lastDay: lastSeriesDay(gachaSeries), why: closed.why } : null;
+};
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
@@ -414,8 +419,11 @@ export async function buildHomepagePayload(
         cards: secondary(cards.size),
         holders: holdersForPlatform(holders, b.source.key),
         avgTradeUsd: b.stats24h.avgTradeUsd,
-        pct7d: pct7dByPlatform.get(b.source.key) ?? null,
+        // A closed feed leaves the trailing week comparing days from before it
+        // closed: no Δ beside a row of "—".
+        pct7d: closedResaleFeed(resaleFeeds, b.source.key) || closedPackFeed(b.source.key) ? null : (pct7dByPlatform.get(b.source.key) ?? null),
         resaleClosed: resaleClosedRow(b.hasSecondarySource ? null : closedResaleFeed(resaleFeeds, b.source.key)),
+        packsClosed: packsClosedRow(b.source.key, platGachaHist.get(b.source.key) ?? []),
         spark,
         trend: trendOf(spark),
       };
