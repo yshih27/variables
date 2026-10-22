@@ -19,15 +19,16 @@ import { readMarketCap } from "@/lib/data/marketcap";
 import { readIpPackSpend, packCoverageOf } from "@/lib/data/ipPackSpend";
 import { tickerOf } from "@/lib/indices/naming";
 import { readHolders } from "@/lib/data/holders";
-import { PLATFORM_SOURCES, isIpResaleVenue } from "@/lib/data/sources";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import { getPlatformBuckets } from "@/lib/data/buckets";
+import { readResaleFeeds } from "@/lib/data/resaleFeedState";
 import { venueColor } from "@/lib/data/platformSeries";
 import {
-  andList,
   byPlatformCoverageLine,
   ipCoverage,
   mcapBasisList,
   railCoverageLine,
-  venueName,
+  resaleWords,
 } from "@/lib/data/ipCoverage";
 import { type SeriesPoint } from "@/lib/data/metricSnapshots";
 import { formatCompactUsd, formatInt } from "@/lib/format";
@@ -89,7 +90,7 @@ export default async function IPDetailPage({
   const { key } = await params;
   // getIPDetail + getIPActivitySeries are both cached (unstable_cache) — one memoized
   // call each instead of 6 uncached readMetricSeries round-trips per request (R2-B1).
-  const [detail, mcapSnap, holdersSnap, series, topCharacters, packSnap] = await Promise.all([
+  const [detail, mcapSnap, holdersSnap, series, topCharacters, packSnap, buckets, resaleFeeds] = await Promise.all([
     getIPDetail(key),
     readMarketCap(),
     readHolders(),
@@ -99,6 +100,10 @@ export default async function IPDetailPage({
     hasCharacterExtractor(key) ? readCharacterLeaderboard(key, 5) : Promise.resolve([]),
     // Pack spend by IP (one snapshot read); null keeps the rail as it was.
     readIpPackSpend().catch(() => null),
+    // Which venues' resale this snapshot read (cached, shared with getIPDetail),
+    // and when a closed feed was last read — for the coverage lines.
+    getPlatformBuckets(),
+    readResaleFeeds().catch(() => null),
   ]);
   if (!detail) notFound();
   const { volume: volS, mcap: mcapS, wallets: walletsS, trades: tradesS, cards: cardsS, marketMcap: marketMcapS } = series;
@@ -108,7 +113,10 @@ export default async function IPDetailPage({
 
   // Which venues each figure covers (ipCoverage.ts): printed under the rail, the
   // By Platform table and the activity chart, from the lists the figures use.
-  const coverage = ipCoverage(mcapSnap, holdersSnap);
+  const coverage = ipCoverage(mcapSnap, holdersSnap, {
+    venues: buckets.filter((b) => b.hasSecondarySource).map((b) => b.source.key),
+    lastReadAt: (v) => resaleFeeds?.venues?.[v]?.lastReadAt ?? null,
+  });
 
   // By-Platform rows: every venue that holds or trades this IP, in registry order.
   // Resale (vol / trades / avg) only where we match sales to a card — elsewhere
@@ -122,7 +130,9 @@ export default async function IPDetailPage({
     const holders = perPlatHolders[src.key];
     const sale = resaleByVenue.get(src.key);
     if (!sale && !((comp?.cards ?? 0) > 0) && !((holders ?? 0) > 0)) return [];
-    const resale = isIpResaleVenue(src.key);
+    // Resale cells only for venues read per IP in this snapshot: a closed feed
+    // (Beezie, Oct 22 2026) reads "—", never a $0 we didn't measure.
+    const resale = coverage.resale.includes(src.key);
     return [
       {
         key: src.key,
@@ -151,14 +161,15 @@ export default async function IPDetailPage({
     .filter((p) => Number.isFinite(p.value));
 
   // Coverage notes under the chart: the live values and the spine's daily lines
-  // count the same venues (IP_RESALE_VENUES), so one note serves each metric.
-  const resaleWords = `${andList(coverage.resale.map(venueName))} resale`;
+  // count the same venues (IP_RESALE_VENUES), so one note serves each metric —
+  // naming a venue whose feed this snapshot did not read.
+  const resaleNote = resaleWords(coverage);
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), note: resaleWords, series: buildWindows(volS, detail.hourlyVol) },
+    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), note: resaleNote, series: buildWindows(volS, detail.hourlyVol) },
     { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", note: coverage.mcap.length ? mcapBasisList(coverage.mcap) : undefined, series: buildWindows(mcapS, null) },
-    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), note: resaleWords, series: buildWindows(cardsS, null) },
-    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), note: resaleWords, series: buildWindows(avgS, null) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), note: resaleWords, series: buildWindows(walletsS, null) },
+    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), note: resaleNote, series: buildWindows(cardsS, null) },
+    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), note: resaleNote, series: buildWindows(avgS, null) },
+    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), note: resaleNote, series: buildWindows(walletsS, null) },
   ];
 
   // IP vs market — prefer the constant-quality PRICE index vs BTC/ETH/S&P/NASDAQ

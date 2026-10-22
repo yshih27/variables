@@ -87,6 +87,10 @@ export const METRICS = {
     term: "Primary only",
     text: "Coverage note: we ingest this platform's primary market (gacha / mints) but not its secondary trading yet — e.g. Phygitals resale on Tensor / Magic Eden isn't ingested.",
   },
+  resaleNotRead: {
+    term: "Resale not read",
+    text: "Coverage note: we read this venue's resale until the date shown. Its feed has refused our reads since (the venue's page says why), so its resale counts as unknown from then on — never as zero — while its other figures are read as before.",
+  },
   total24h: {
     term: "Total 24h",
     text: "All 24h activity: marketplace resale + gacha + direct sales. The honest 'how big is this platform' figure.",

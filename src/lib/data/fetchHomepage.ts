@@ -25,6 +25,9 @@ import {
 } from "./metricSnapshots";
 import { readSnapshot } from "../db/snapshots";
 import { ipCoverage } from "./ipCoverage";
+import { closedFeedWhy, closedResaleFeed, readResaleFeeds, type ResaleFeedEntry } from "./resaleFeedState";
+
+const resaleClosedRow = (e: ResaleFeedEntry | null) => (e ? { lastReadAt: e.lastReadAt, why: closedFeedWhy(e) } : null);
 import { cardHref, cardSupported } from "@/lib/card/ids";
 
 function trendOf(values: number[]): Trend {
@@ -322,7 +325,7 @@ export const HOMEPAGE_SNAPSHOT_KEY = "homepage-payload";
 export async function buildHomepagePayload(
   getBuckets: () => Promise<PlatformBucket[]> = getPlatformBuckets,
 ): Promise<HomepagePayload> {
-  const [buckets, holders, mcap, mcapHist, gacha, platVolHist, platGachaHist] = await Promise.all([
+  const [buckets, holders, mcap, mcapHist, gacha, platVolHist, platGachaHist, resaleFeeds] = await Promise.all([
     getBuckets(),
     readHolders(),
     readMarketCap(),
@@ -332,6 +335,9 @@ export async function buildHomepagePayload(
     // far deeper than the hourly buckets (which don't reach a full week).
     readMetricSeriesBulk("platform", "volume_usd"),
     readMetricSeriesBulk("platform", "gacha_volume_usd"),
+    // Venues whose resale feed is closed to us (resaleFeedState.ts): their rows
+    // say "not read since …" instead of "primary only".
+    readResaleFeeds().catch(() => null),
   ]);
 
   // Δ7d = this platform's trailing-7d TOTAL activity (marketplace + gacha) vs the
@@ -409,6 +415,7 @@ export async function buildHomepagePayload(
         holders: holdersForPlatform(holders, b.source.key),
         avgTradeUsd: b.stats24h.avgTradeUsd,
         pct7d: pct7dByPlatform.get(b.source.key) ?? null,
+        resaleClosed: resaleClosedRow(b.hasSecondarySource ? null : closedResaleFeed(resaleFeeds, b.source.key)),
         spark,
         trend: trendOf(spark),
       };
@@ -625,7 +632,10 @@ export async function buildHomepagePayload(
     topSales,
     ips,
     platforms: platformRows,
-    ipCoverage: ipCoverage(mcap, holders),
+    ipCoverage: ipCoverage(mcap, holders, {
+      venues: buckets.filter((b) => b.hasSecondarySource).map((b) => b.source.key),
+      lastReadAt: (v) => resaleFeeds?.venues?.[v]?.lastReadAt ?? null,
+    }),
   };
 }
 

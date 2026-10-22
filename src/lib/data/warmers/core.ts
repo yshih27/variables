@@ -50,12 +50,14 @@ import {
   storedFromCourtyard,
   readStoreFeed,
   writeSalesStore,
+  newestStoredSoldAt,
   COURTYARD_EXCHANGE_SOURCE,
   COURTYARD_ARBITRAGE_SOURCE,
   type ObservedSale,
   type StoredSecondarySale,
 } from "../salesStore";
 import { fetchDyliLaneWindows } from "../../dyli/sales";
+import { nextResaleFeedEntry, readResaleFeeds, writeResaleFeeds, type ReadAttempt } from "../resaleFeedState";
 import { readRenaissSales } from "../../renaiss/sales";
 import { SALES_TABLE_MIN } from "../coreVolumeCache";
 import { packWindows, readPackSpend } from "../../renaiss/pulls";
@@ -69,6 +71,23 @@ import {
 } from "../coreVolumeCache";
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Record one resale-feed read attempt in `resale-feeds`. Metadata about the read,
+ * so a failed write is logged, never thrown: the venue's figures already landed
+ * (or failed) on their own.
+ */
+async function recordResaleRead(venue: string, attempt: ReadAttempt, log: (msg: string) => void): Promise<void> {
+  try {
+    const prev = await readResaleFeeds();
+    const venues = { ...(prev?.venues ?? {}) };
+    venues[venue] = nextResaleFeedEntry(venues[venue], attempt);
+    await writeResaleFeeds({ generatedAt: attempt.at, venues });
+    if (!attempt.ok) log(`  ${venue} resale feed: last read ${venues[venue].lastReadAt ?? "unknown"} · unavailable since ${venues[venue].unavailableSince}`);
+  } catch (err) {
+    log(`  ${venue} resale feed state not recorded: ${(err as Error).message}`);
+  }
+}
 const num = (v: unknown): number => {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -415,12 +434,16 @@ export async function runCoreWarm(
   // ── Beezie: its OWN /activity feed (no Rarible quota dependency). Reaches
   //    back months, so we get real 7d/30d too. This is the fix for the Pokémon
   //    $0 — Rarible's 429 used to drop Beezie sales entirely. ──
+  //    Every attempt is recorded in `resale-feeds` (resaleFeedState.ts): a read
+  //    dates the feed; a refusal by bot protection marks it closed, and the site
+  //    then says "not read since <last read>" instead of showing nothing. ──
   try {
     const t0 = Date.now();
     const rows = await fetchBeezieSaleRows(30 * DAY);
     const sales = rows.map((r) => r.sale);
     kept.push(...rows.map(storedFromBeezie));
     platforms["beezie"] = buildPlatform("beezie", "beezie", sales, 30);
+    await recordResaleRead("beezie", { ok: true, at: new Date().toISOString() }, log);
     log(
       `→ beezie (Beezie /activity) ${sales.length} sales/30d · 24h $${Math.round(
         platforms["beezie"].stats24h.volumeUsd,
@@ -428,6 +451,8 @@ export async function runCoreWarm(
     );
   } catch (err) {
     log(`→ beezie (Beezie /activity) FAILED: ${(err as Error).message}`);
+    const seed = await newestStoredSoldAt("beezie").catch(() => null);
+    await recordResaleRead("beezie", { ok: false, at: new Date().toISOString(), error: (err as Error).message, seedLastReadAt: seed }, log);
   }
 
   // ── Courtyard: OpenSea trades (Rarible's activity index) + Courtyard's own

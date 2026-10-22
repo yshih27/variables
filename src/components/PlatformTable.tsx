@@ -9,7 +9,7 @@ import { TableFoot } from "./TableFoot";
 import { MetricInfo } from "./MetricInfo";
 import { TableRowLink } from "./TableRowLink";
 import type { MetricKey } from "@/lib/metrics/glossary";
-import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta } from "@/lib/format";
+import { formatCompactUsd, formatCompactNumber, formatInt, deltaDir, formatDelta, formatMonthDayUtc } from "@/lib/format";
 import { useWindowPref } from "@/lib/windowPref";
 
 const CHAIN_DOT: Record<Chain, string> = {
@@ -221,7 +221,10 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
               // NaN vol24Usd (revived from JSON null), never a quiet day: a tracked
               // venue with no sales in 24h reads $0.00 (Oct 19 2026, Renaiss).
               const tracked = Number.isFinite(p.vol24Usd);
-              const primaryOnly = !tracked && p.primaryUsd != null && p.primaryUsd > 0;
+              // A closed resale feed is not "primary only": we read it until the
+              // date shown, and it refuses our reads since (Beezie, Oct 22 2026).
+              const resaleClosed = !tracked && p.resaleClosed ? p.resaleClosed : null;
+              const primaryOnly = !tracked && !resaleClosed && p.primaryUsd != null && p.primaryUsd > 0;
               return (
               <TableRowLink key={p.key} href={`/platform/${p.key}`} className="[&:last-child>td]:border-b-0">
                 <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
@@ -243,6 +246,12 @@ export function PlatformTable({ rows, maxRows, seeAllHref, chainFacets, teaser, 
                       <span className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
                         primary only
                         <MetricInfo metric="primaryOnly" />
+                      </span>
+                    )}
+                    {resaleClosed && (
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-line px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.06em] text-ink-3">
+                        {resaleClosed.lastReadAt ? `resale not read since ${formatMonthDayUtc(resaleClosed.lastReadAt)}` : "resale not read"}
+                        <MetricInfo metric="resaleNotRead" />
                       </span>
                     )}
                   </div>

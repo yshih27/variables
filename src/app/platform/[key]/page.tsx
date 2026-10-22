@@ -194,6 +194,8 @@ export default async function PlatformDetailPage({
         Number.isFinite(detail.vol7Usd) && detail.vol7Usd > 0
           ? [{ label: "7d volume", value: formatCompactUsd(detail.vol7Usd) }]
           : undefined,
+      // "—" with its reason when the venue's resale feed is closed to us.
+      sub: Number.isFinite(detail.vol24Usd) ? undefined : (detail.resaleReason ?? undefined),
     },
     {
       label: "24h Gacha Vol",
