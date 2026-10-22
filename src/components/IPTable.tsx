@@ -28,9 +28,12 @@ type Props = {
   title?: string;
   /** localStorage surface for the volume-window choice. Omit to opt out. */
   surface?: string | null;
+  /** IP key → pack spend credited over 30 complete days (ip-pack-spend). Omit to
+   *  hide the column; an IP absent from the map reads "—". Full table only. */
+  packSpend?: Record<string, number> | null;
 };
 
-type SortKey = "mcap" | "dom" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers";
+type SortKey = "mcap" | "dom" | "d7" | "d30" | "cards" | "holders" | "avgTrade" | "vol" | "buyers" | "packs";
 /**
  * ⚠️ NO 30d OPTION, DELIBERATELY. `IPRow` carries vol24Usd and vol7Usd and nothing
  * else; the only 30d figure on the row is `pct30d`, which is a MARKET-CAP delta,
@@ -49,8 +52,10 @@ function mcapValue(ip: IPRow): number {
   return hasRealMcap(ip) ? ip.mcapUsd : NaN;
 }
 
-function valueFor(ip: IPRow, key: SortKey, vw: VolWindow): number {
+function valueFor(ip: IPRow, key: SortKey, vw: VolWindow, packs?: Record<string, number> | null): number {
   switch (key) {
+    case "packs":
+      return packs?.[ip.key] ?? NaN;
     case "mcap":
     case "dom":
       return mcapValue(ip); // dominance ranks identically to market cap
@@ -98,7 +103,9 @@ function rankReadMe(key: SortKey, vw: VolWindow): string {
                 ? "holders"
                 : key === "avgTrade"
                   ? "average trade"
-                  : "24h buyers";
+                  : key === "packs"
+                    ? "30d pack spend"
+                    : "24h buyers";
   return `the whole tracked market by IP — ranked by ${by}`;
 }
 
@@ -121,7 +128,7 @@ function categoryGroup(key: string): string {
   return "Other";
 }
 
-export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface }: Props) {
+export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, packSpend }: Props) {
   // ⚠️ DEFAULT IS VOLUME, NOT MARKET CAP. Ranking by cap pinned dormant IPs to the
   // top — Moonbirds sat at #3 on a cap it never trades against — so the table's
   // first screen described stored value while every other surface on the page
@@ -158,7 +165,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface }: P
   // first). Always DESC regardless of `dir`: the tie-break ranks the tail, it does
   // not invert with the column being sorted.
   const sorted = [...facetRows].sort((a, b) => {
-    const primary = cmp(valueFor(a, sortKey, vw), valueFor(b, sortKey, vw), dir);
+    const primary = cmp(valueFor(a, sortKey, vw, packSpend), valueFor(b, sortKey, vw, packSpend), dir);
     if (primary !== 0) return primary;
     if (sortKey === "mcap" || sortKey === "dom") return 0;
     return cmp(mcapValue(a), mcapValue(b), -1);
@@ -224,6 +231,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface }: P
               <Th>IP / Category</Th>
               <SortTh align="right" info="marketCap" {...sortProps("mcap")}>Market Cap</SortTh>
               <SortTh align="right" className={keptCls} info={vw === "24h" ? "volume24h" : "volume7d"} {...sortProps("vol")}>{teaser ? "24h Vol" : `${vw} Vol`}</SortTh>
+              {full && packSpend && <SortTh align="right" className="hidden md:table-cell" info="packSpend30d" {...sortProps("packs")}>Packs 30d</SortTh>}
               {full && <SortTh align="right" className="hidden lg:table-cell" info="dominance" {...sortProps("dom")}>Dom %</SortTh>}
               {/* 24h Δ dropped (F8-1): it derived from mcap_usd, which is ~static
                   day-to-day, so the column read "+0.0%" everywhere. mcap Δ needs a
@@ -271,6 +279,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface }: P
                   </Td>
                   <Td align="right" strong>{formatMcap(ip)}</Td>
                   <Td align="right" className={keptCls}>{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
+                  {full && packSpend && <Td align="right" className="hidden md:table-cell">{(packSpend[ip.key] ?? 0) > 0 ? formatCompactUsd(packSpend[ip.key]) : "—"}</Td>}
                   {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
                   <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
                   {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}

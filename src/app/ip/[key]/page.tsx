@@ -16,6 +16,7 @@ import { readCharacterLeaderboard } from "@/lib/data/characterRollups";
 import { hasCharacterExtractor } from "@/lib/card/character";
 import { getIPDetail, getIPActivitySeries } from "@/lib/data/fetchIP";
 import { readMarketCap } from "@/lib/data/marketcap";
+import { readIpPackSpend, packCoverageOf } from "@/lib/data/ipPackSpend";
 import { tickerOf } from "@/lib/indices/naming";
 import { readHolders } from "@/lib/data/holders";
 import { type SeriesPoint } from "@/lib/data/metricSnapshots";
@@ -75,7 +76,7 @@ export default async function IPDetailPage({
   const { key } = await params;
   // getIPDetail + getIPActivitySeries are both cached (unstable_cache) — one memoized
   // call each instead of 6 uncached readMetricSeries round-trips per request (R2-B1).
-  const [detail, mcapSnap, holdersSnap, series, topCharacters] = await Promise.all([
+  const [detail, mcapSnap, holdersSnap, series, topCharacters, packSnap] = await Promise.all([
     getIPDetail(key),
     readMarketCap(),
     readHolders(),
@@ -83,6 +84,8 @@ export default async function IPDetailPage({
     // The character board's first five (one snapshot read, memoised); [] for
     // an IP with no character extractor, so the row keeps its pair.
     hasCharacterExtractor(key) ? readCharacterLeaderboard(key, 5) : Promise.resolve([]),
+    // Pack spend by IP (one snapshot read); null keeps the rail as it was.
+    readIpPackSpend().catch(() => null),
   ]);
   if (!detail) notFound();
   const { volume: volS, mcap: mcapS, wallets: walletsS, trades: tradesS, cards: cardsS, marketMcap: marketMcapS } = series;
@@ -189,7 +192,15 @@ export default async function IPDetailPage({
     <SliceView
       ticker={await buildMarketTicker()}
       slice={{
-        rail: <IPRail detail={detail} mcapUsd={mcapUsd} mcapPct={null} />,
+        rail: (
+          <IPRail
+            detail={detail}
+            mcapUsd={mcapUsd}
+            mcapPct={null}
+            packSpend={packSnap?.byIp[key] ?? null}
+            packCoverage={packSnap ? packCoverageOf(packSnap) : null}
+          />
+        ),
         activity: metrics,
       }}
     >

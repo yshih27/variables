@@ -5,6 +5,8 @@ import { IPIcon } from "./IPIcon";
 import { RailActions } from "./RailActions";
 import { FreshnessChips } from "./FreshnessChip";
 import { formatCompactUsd, formatInt } from "@/lib/format";
+import { PLATFORM_SOURCES } from "@/lib/data/sources";
+import type { IpPackSpendRow } from "@/lib/data/ipPackSpend";
 
 type Props = {
   detail: IPDetail;
@@ -12,15 +14,40 @@ type Props = {
   mcapUsd: number;
   /** Market-cap 24h change %, or null when history isn't available yet. */
   mcapPct: number | null;
+  /** This IP's credited pack spend (ip-pack-spend), null when none is credited. */
+  packSpend?: IpPackSpendRow | null;
+  /** The coverage behind every IP's pack spend: credited ÷ all venues' packs, the
+   *  venues not split, and the window's last complete day. Null without a snapshot. */
+  packCoverage?: { creditedUsd: number; totalUsd: number; notSplit: string[]; asOf: string | null } | null;
 };
+
+const venueName = (key: string) => PLATFORM_SOURCES.find((p) => p.key === key)?.name ?? key;
+/** "2026-10-20" → "Oct 20" (UTC, non-breaking space), so the receipt never breaks a date across lines. */
+const shortDay = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).replace(" ", "\u00a0");
 
 /**
  * Pinned left rail for the IP/category page — the key live stats. Sticky under
  * the nav on desktop (only the right column scrolls); stacks on top on mobile.
  * Display text is Space Grotesk; every number is mono + tabular.
  */
-export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
+export function IPRail({ detail, mcapUsd, mcapPct, packSpend, packCoverage }: Props) {
+  // Pack spend: credited only where a pack sells one IP (src/lib/data/ipPackSpend.ts).
+  const packVenues = packSpend
+    ? Object.entries(packSpend.byVenue)
+        .filter(([, v]) => v.usd30d > 0)
+        .sort((a, b) => b[1].usd30d - a[1].usd30d)
+        .map(([k, v]) => `${venueName(k)} ${formatCompactUsd(v.usd30d)}`)
+    : [];
   const rows = [
+    ...(packCoverage
+      ? [
+          {
+            k: "Pack Spend · 30d",
+            sub: packVenues.length ? packVenues.join(" · ") : "no pack we can credit sells only this IP",
+            v: packSpend && packSpend.usd30d > 0 ? formatCompactUsd(packSpend.usd30d) : "—",
+          },
+        ]
+      : []),
     { k: "24h Trades", sub: "secondary sales", v: formatInt(detail.trades24h) },
     {
       k: "Active Wallets",
@@ -102,13 +129,23 @@ export function IPRail({ detail, mcapUsd, mcapPct }: Props) {
           ))}
         </div>
 
+        {/* The receipt behind the pack-spend row, from data: what is credited
+            across all venues, and which venues are not split by IP. */}
+        {packCoverage && (
+          <p className="mt-3 font-mono text-[10.5px] leading-[1.5] text-ink-4">
+            pack spend: packs that sell one IP · {formatCompactUsd(packCoverage.creditedUsd)} of {formatCompactUsd(packCoverage.totalUsd)} credited across venues
+            {packCoverage.notSplit.length ? ` · ${packCoverage.notSplit.join(", ")} not split by IP` : ""}
+            {packCoverage.asOf ? ` · 30 complete days to ${shortDay(packCoverage.asOf)}` : ""}
+          </p>
+        )}
+
         {/* Actions */}
         <RailActions name={detail.ip.name} placement="up" />
 
         {/* X7 — honest per-source freshness for what this page reads; /status
             stays the deep view (no global "data as of" banner). */}
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <FreshnessChips sources={["core-volume", "marketcap", "holders"]} />
+          <FreshnessChips sources={["core-volume", "marketcap", "holders", ...(packCoverage ? ["ip-pack-spend"] : [])]} />
           <Link href="/status" className="text-[11px] text-ink-4 transition-colors hover:text-yellow">
             /status →
           </Link>
