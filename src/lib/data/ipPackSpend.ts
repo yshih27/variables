@@ -6,8 +6,8 @@
  * Only what can be credited honestly is credited:
  *   • Collector Crypt, per machine, from its machine board (player analytics,
  *     the pulls we capture). A machine whose name or key names one IP is credited
- *     to it ("Soccer $100 Pack", pokemon_5000, esnorlax_5000); a mixed machine
- *     (watches, "PSA 10's ONLY", mixed sports, anime, degen) is not.
+ *     to it ("Soccer $100 Pack", pokemon_5000, esnorlax_5000); a watch machine to
+ *     Watches; a mixed machine ("PSA 10's ONLY", mixed sports, anime, degen) is not.
  *   • Renaiss, per pull, by the prize it paid out: every pull names its card. A
  *     prize whose title names no IP (a trainer card) takes its machine's IP when
  *     at least RENAISS_MACHINE_SHARE of that machine's identified prizes share it.
@@ -47,19 +47,22 @@ export type IpPackSpendSnapshot = {
 
 // ── Collector Crypt: one machine → one IP, or none ──────────────────────────
 
-/** Machines whose prizes are not one IP: watches, PSA-10 days, mixed sports, themes. */
-const CC_MIXED = /watch|(^|_)sports?(_|$)|anime|degen|vintage|v90s|fire|spooky|spider|(^|_)e?10(_|$)/;
+/** Machines whose prizes are not one IP: PSA-10 days, mixed sports, themes. */
+const CC_MIXED = /(^|_)sports?(_|$)|anime|degen|vintage|v90s|fire|spooky|spider|(^|_)e?10(_|$)/;
+/** A watch machine pays out watches, whatever else its name says ("epokewatch"). */
+const CC_WATCH = /watch/;
 
 /**
  * The IP a Collector Crypt machine sells, or null for a mixed or unknown one.
  * Reads the display name first ("Celestial Pokémon Gacha Pack"), then the key
  * with its event prefix stripped ("esnorlax_5000" → "snorlax", "ejup_poke_100"
- * → "poke"). Watches are checked before Pokémon: "epokewatch" pays out watches.
+ * → "poke"). Watches are checked first: "epokewatch" pays out watches.
  */
 export function ccMachineIp(key: string, name: string | null): string | null {
   const k = key.replace(/^collector-crypt:/, "").toLowerCase();
   const display = name && name !== key ? name : null;
-  if (CC_MIXED.test(k) || (display && /\bwatch|sports gacha|all-star sports|psa 10's only|anime/i.test(display))) return null;
+  if (CC_WATCH.test(k) || (display && /\bwatch/i.test(display))) return "watches";
+  if (CC_MIXED.test(k) || (display && /sports gacha|all-star sports|psa 10's only|anime/i.test(display))) return null;
   if (display) {
     const byName = classifyIP([display]).key;
     if (byName !== "other") return byName;

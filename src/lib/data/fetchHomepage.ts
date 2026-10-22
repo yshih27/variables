@@ -306,6 +306,16 @@ function mcapOnlyIpRow(ip: IPMeta, cardsTracked: number): IPRow {
 }
 
 /**
+ * A row for an IP whose tokens aren't indexed (IPMeta.tokensNotIndexed): only its
+ * pack spend is read, so its resale and market figures are NaN ("—"), never a $0
+ * or a 0 holders we didn't measure. It exists so the Categories table can show
+ * the IP and its pack spend (Watches: Collector Crypt's watch machines).
+ */
+function packOnlyIpRow(ip: IPMeta): IPRow {
+  return { ...mcapOnlyIpRow(ip, NaN), cards: NaN, buyers24h: NaN, trades24h: NaN, vol24Usd: NaN };
+}
+
+/**
  * Σ-based 24h % change from a daily spine bulk (one metric across all platforms):
  * the latest SOURCE-COMPLETE day vs the prior complete day. A merged day counts only
  * when every source that wrote the prior day has written it — so a Dune-lagged newest
@@ -446,12 +456,17 @@ export async function buildHomepagePayload(
     const ip = key === OTHER_IP.key ? OTHER_IP : IP_CATALOG.find((i) => i.key === key);
     if (ip) rollupOnlyRows.push(mcapOnlyIpRow(ip, entry.cards));
   }
+  for (const ip of IP_CATALOG) {
+    if (ip.tokensNotIndexed && !tradedKeys.has(ip.key) && !mcap?.byIp?.[ip.key]) rollupOnlyRows.push(packOnlyIpRow(ip));
+  }
   const ipRows = [...baseIpRows, ...rollupOnlyRows]
     .map((r) => {
       const entry = mcap?.byIp?.[r.key];
+      const notIndexed = !!IP_CATALOG.find((i) => i.key === r.key)?.tokensNotIndexed;
       return {
         ...r,
-        holders: holdersForIp(holders, r.key),
+        // No tokens indexed → no holders counted: NaN, not the snapshot's 0.
+        holders: notIndexed ? NaN : holdersForIp(holders, r.key),
         mcapUsd: entry?.mcapUsd ?? NaN,
         floorUsd: entry?.floorUsd ?? NaN,
         insuredUsd: entry?.insuredUsd ?? 0,
@@ -482,7 +497,7 @@ export async function buildHomepagePayload(
     const s = ipMcapHist.get(r.key) ?? [];
     return {
       ...r,
-      vol7Usd: ipVol7.sumFor(r.key),
+      vol7Usd: IP_CATALOG.find((i) => i.key === r.key)?.tokensNotIndexed ? NaN : ipVol7.sumFor(r.key),
       pct1d: spinePctChange(s, 1),
       pct7d: spinePctChange(s, 7),
       pct30d: spinePctChange(s, 30),

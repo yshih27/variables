@@ -163,13 +163,16 @@ export default async function IPDetailPage({
   // Coverage notes under the chart: the live values and the spine's daily lines
   // count the same venues (IP_RESALE_VENUES), so one note serves each metric —
   // naming a venue whose feed this snapshot did not read.
-  const resaleNote = resaleWords(coverage);
+  // An IP whose tokens aren't indexed reads none of this: "—" and its own note.
+  const notIndexed = detail.ip.tokensNotIndexed;
+  const resaleNote = notIndexed ?? resaleWords(coverage);
+  const chipValue = (v: string) => (notIndexed ? "—" : v);
   const metrics: ActivityMetric[] = [
-    { key: "volume", label: "Volume", color: "#bfef01", value: formatCompactUsd(detail.vol24Usd), note: resaleNote, series: buildWindows(volS, detail.hourlyVol) },
+    { key: "volume", label: "Volume", color: "#bfef01", value: chipValue(formatCompactUsd(detail.vol24Usd)), note: resaleNote, series: buildWindows(volS, detail.hourlyVol) },
     { key: "marketCap", label: "Market Cap", color: "#5b9bff", value: mcapUsd > 0 ? formatCompactUsd(mcapUsd) : "—", note: coverage.mcap.length ? mcapBasisList(coverage.mcap) : undefined, series: buildWindows(mcapS, null) },
-    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: formatInt(detail.uniqueCards), note: resaleNote, series: buildWindows(cardsS, null) },
-    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: formatCompactUsd(detail.avgTradeUsd), note: resaleNote, series: buildWindows(avgS, null) },
-    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: formatInt(detail.uniqueWallets), note: resaleNote, series: buildWindows(walletsS, null) },
+    { key: "cardsTraded", label: "Cards Traded", color: "#a78bfa", value: chipValue(formatInt(detail.uniqueCards)), note: resaleNote, series: buildWindows(cardsS, null) },
+    { key: "avgTrade", label: "Avg Trade", color: "#2bd6a0", value: chipValue(formatCompactUsd(detail.avgTradeUsd)), note: resaleNote, series: buildWindows(avgS, null) },
+    { key: "activeWallets", label: "Active Wallets", color: "#f5c451", value: chipValue(formatInt(detail.uniqueWallets)), note: resaleNote, series: buildWindows(walletsS, null) },
   ];
 
   // IP vs market — prefer the constant-quality PRICE index vs BTC/ETH/S&P/NASDAQ
@@ -237,6 +240,7 @@ export default async function IPDetailPage({
             packSpend={packSnap?.byIp[key] ?? null}
             packCoverage={packSnap ? packCoverageOf(packSnap) : null}
             coverage={railCoverageLine(coverage)}
+            notIndexed={detail.ip.tokensNotIndexed}
           />
         ),
         activity: metrics,
