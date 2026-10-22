@@ -1,5 +1,6 @@
 import type { NetHeldReason, OutboundDisclosure } from "@/lib/metrics/outboundDisclosure";
 import type { SeriesPoint } from "@/lib/data/metricSnapshots";
+import type { IpCoverage } from "@/lib/data/ipCoverage";
 
 export type Chain = "Polygon" | "Solana" | "Base" | "Ethereum" | "Abstract" | "BNB Chain";
 
@@ -159,6 +160,9 @@ export type HomepagePayload = {
   topSales: TopSale[];
   ips: IPRow[];
   platforms: PlatformRow[];
+  /** The venues each per-IP figure covers, read off the same snapshots as `ips`
+   *  (ipCoverage.ts). Absent on payloads written before Oct 2026. */
+  ipCoverage?: IpCoverage;
 };
 
 // ─── SHELL_V2 contracts ──────────────────────────────────────────────────────

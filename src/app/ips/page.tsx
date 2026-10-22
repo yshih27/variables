@@ -13,6 +13,7 @@ import { formatCompactUsd, formatCompactNumber, staleAsOfLabel } from "@/lib/for
 import { MetricBarCard } from "@/components/MetricBarCard";
 import { IPTable } from "@/components/IPTable";
 import { readIpPackSpend } from "@/lib/data/ipPackSpend";
+import { ipTableCoverageLine } from "@/lib/data/ipCoverage";
 import { CategoryLanding } from "@/components/CategoryLanding";
 import { CATEGORY_ANCHORS } from "@/lib/shell/categoryAnchors";
 import { Breadcrumbs } from "@/components/shell/Breadcrumbs";
@@ -121,6 +122,10 @@ export default async function AllIPsPage() {
       readIpPackSpend().catch(() => null),
     ]);
   const packSpend = packSnap ? Object.fromEntries(Object.entries(packSnap.byIp).map(([k, v]) => [k, v.usd30d])) : null;
+  // Under the table: the venues each per-IP column covers, and the venues whose
+  // resale (a finite 24h figure = a feed we read) counts in venue totals only.
+  const resaleVenues = data.platforms.filter((p) => Number.isFinite(p.vol24Usd)).map((p) => p.key);
+  const tableCoverage = data.ipCoverage ? ipTableCoverageLine(data.ipCoverage, resaleVenues) : undefined;
 
   const categories = rollupByCategory(data.ips, volSeries);
 
@@ -342,7 +347,7 @@ export default async function AllIPsPage() {
               />
             )}
           </div>
-          <IPTable rows={data.ips} surface="table:ips" packSpend={packSpend} />
+          <IPTable rows={data.ips} surface="table:ips" packSpend={packSpend} coverage={tableCoverage} />
         </div>
       </div>
     </>

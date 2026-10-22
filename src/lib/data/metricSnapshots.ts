@@ -193,6 +193,56 @@ export function lastNDays(series: SeriesPoint[], days: number): SeriesPoint[] {
   return series.filter((p) => dayIdx(p.ts) >= cutoff);
 }
 
+/**
+ * Σ over the last `days` recorded days for every key of a bulk read, all keys on
+ * the SAME window: the `days` days ending at the newest day ANY key recorded (for
+ * the per-IP flow series, the last complete day the spine writer covered).
+ *
+ * Unlike sumLastCompleteDays, a key with no point on a day of that window counts
+ * 0 for it: the writer records a per-IP point only on days the IP traded, so a
+ * missing point is a quiet day, and a sparse IP must neither read "—" nor sum a
+ * week that ended on its last sale. That inference needs the writer to have run
+ * on every day of the window: each day must carry a point for at least one key,
+ * or the window is incomplete and every key reads NaN. A key absent from the bulk
+ * read entirely (it never traded) reads 0 over a complete window.
+ */
+export function lastDaysSums(
+  bulk: Map<string, SeriesPoint[]>,
+  days: number,
+): { complete: boolean; endDay: string | null; sumFor: (key: string) => number } {
+  const dayIdx = (ts: string) => Math.floor(Date.parse(ts) / 86_400_000);
+  const covered = new Set<number>();
+  let end = -Infinity;
+  for (const series of bulk.values()) {
+    for (const p of series) {
+      const d = dayIdx(p.ts);
+      if (!Number.isFinite(d) || !Number.isFinite(p.value)) continue;
+      covered.add(d);
+      if (d > end) end = d;
+    }
+  }
+  if (days < 1 || !Number.isFinite(end)) return { complete: false, endDay: null, sumFor: () => NaN };
+  const start = end - (days - 1);
+  let complete = true;
+  for (let d = start; d <= end; d++) if (!covered.has(d)) complete = false;
+  const sums = new Map<string, number>();
+  if (complete) {
+    for (const [key, series] of bulk) {
+      let s = 0;
+      for (const p of series) {
+        const d = dayIdx(p.ts);
+        if (d >= start && d <= end && Number.isFinite(p.value)) s += p.value;
+      }
+      sums.set(key, s);
+    }
+  }
+  return {
+    complete,
+    endDay: new Date(end * 86_400_000).toISOString().slice(0, 10),
+    sumFor: (key) => (complete ? (sums.get(key) ?? 0) : NaN),
+  };
+}
+
 export function sumLastCompleteDays(series: SeriesPoint[], days: number): number {
   if (days < 1) return NaN;
   const sorted = series

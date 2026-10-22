@@ -13,7 +13,9 @@
  *   • FLOW metrics (volume_usd, trades, active_wallets, cards_traded) SELF-HEAL —
  *     warm-metric-snapshots recomputes the trailing 30d from row-level sales tagged
  *     with the CURRENT cards.ip_key every run, so within 30d they already reflect
- *     the new taxonomy. Nothing to migrate.
+ *     the new taxonomy. Nothing to migrate. (Only since Oct 2026: the spine upserts,
+ *     so a day the shrinking IP no longer trades on kept its old value until the
+ *     writer began zeroing stored rows it no longer computes — ipDailyFlow.staleIpDays.)
  *   • STOCK metrics (mcap_usd, holders, floor_usd) are point-in-time and forward-
  *     only — a promoted IP's pre-migration mcap was recorded inside "other" and can
  *     NEVER be decomposed after the fact. So the only honest fix is to RESET the

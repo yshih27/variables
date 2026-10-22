@@ -5,6 +5,8 @@
  * across components) means one place to keep them honest, and each links to the
  * relevant /methodology section for the full formula.
  */
+import { STATED_MCAP_MIN_COVERAGE } from "@/lib/renaiss/constants";
+
 export type MetricDef = {
   /** Display term in the tooltip heading. */
   term: string;
@@ -19,7 +21,7 @@ export const METHODOLOGY = "/methodology";
 export const METRICS = {
   marketCap: {
     term: "Market cap",
-    text: "Sum of every tracked card's value — a stock, not a flow. The basis differs by platform, and the two aren't interchangeable: Collector Crypt uses each card's vault appraisal (insured value), while Beezie and Phygitals use the lowest active listing, which makes their cap a floor-based lower bound rather than a valuation. Courtyard's cards aren't indexed yet, so it has no cap.",
+    text: `Sum of every tracked card's value — a stock, not a flow. The basis differs by venue, and the bases aren't interchangeable: Collector Crypt uses each card's vault appraisal (insured value); Beezie and DYLI the lowest active listing, a floor-based lower bound rather than a valuation; Phygitals its floor × supply while its listings can be read; Renaiss its own stated prize value, only while that covers at least ${Math.round(STATED_MCAP_MIN_COVERAGE * 100)}% of the tokens held. Per IP, only venues valued card by card count: Phygitals and DYLI are valued at venue level only. Courtyard's cards aren't indexed yet, so it has no cap.`,
   },
   volume24h: {
     term: "24h volume",
@@ -27,7 +29,7 @@ export const METRICS = {
   },
   volume7d: {
     term: "7d volume",
-    text: "USD value of secondary-market sales over the trailing 7 days.",
+    text: "USD value of secondary-market sales over the last 7 complete days.",
   },
   momentum7d: {
     term: "Δ 7d",

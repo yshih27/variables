@@ -344,8 +344,14 @@ export const PLATFORM_SOURCES: PlatformSource[] = [
 ];
 
 /**
- * Venues whose sales carry no card identity yet (no `cards` rows): their volume
- * counts in venue totals, never in per-IP rows, where it could only land in
- * "Other". Courtyard leaves this set when its card metadata is read.
+ * The venues whose resale reaches per-IP figures: those whose sales we match to a
+ * card, so each sale's IP is known (a cached-metadata reader per venue). Every
+ * other venue's resale counts in its venue totals only, never in a per-IP row,
+ * where it could only land in "Other" (Courtyard and DYLI have no card identity;
+ * Renaiss has `cards` rows but no per-sale reader on these pages). The per-IP
+ * coverage lines name this list, so a venue added here shows up in them.
  */
-export const NO_IDENTITY_VENUES: ReadonlySet<string> = new Set(["courtyard"]);
+export const IP_RESALE_VENUES = ["collector-crypt", "beezie"] as const;
+export type IpResaleVenue = (typeof IP_RESALE_VENUES)[number];
+export const isIpResaleVenue = (key: string): key is IpResaleVenue =>
+  (IP_RESALE_VENUES as readonly string[]).includes(key);
