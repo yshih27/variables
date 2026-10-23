@@ -195,7 +195,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, pac
   // "Smaller IPs" (smallIps.ts) gather in a collapsed group at the foot of the
   // full table; the teaser keeps its top rows as they are. A facet holding only
   // smaller IPs lists them plainly: a group needs rows above it.
-  const small = full ? visible.filter((ip) => isSmallIp(ip, packSpend?.[ip.key])) : [];
+  const small = full ? visible.filter((ip) => isSmallIp(ip, packSpend)) : [];
   const grouped = small.length > 0 && small.length < visible.length;
   const mainRows = grouped ? visible.filter((ip) => !small.includes(ip)) : visible;
   const smallRows = grouped ? small : [];
