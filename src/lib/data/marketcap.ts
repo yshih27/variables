@@ -125,6 +125,40 @@ export async function appendMarketCapHistory(snap: MarketCapSnapshot): Promise<v
 }
 
 /**
+ * The history with the given IPs' readings removed from every entry before
+ * `beforeMs` (pure; market totals untouched). A taxonomy reset uses it
+ * (scripts/migrate-taxonomy-spine.ts): the spine's mcap backfill
+ * (warm-metric-snapshots, "Family 3") re-creates each IP's past mcap_usd points
+ * from this blob every day, so deleting the spine rows alone came undone at the
+ * next daily run — Other's and Pudgy's Oct 21 2026 reset was back by Oct 22, and
+ * the Categories table printed their reclassification as −36.5% / +23.9%.
+ */
+export function pruneHistoryIps(
+  hist: MarketCapHistory,
+  keys: readonly string[],
+  beforeMs: number,
+): { hist: MarketCapHistory; removed: number } {
+  let removed = 0;
+  const hourly = hist.hourly.map((h) => {
+    if (!(Date.parse(h.at) < beforeMs)) return h;
+    const byIp = { ...h.byIp };
+    for (const k of keys) {
+      if (k in byIp) {
+        delete byIp[k];
+        removed += 1;
+      }
+    }
+    return { ...h, byIp };
+  });
+  return { hist: { hourly }, removed };
+}
+
+/** Rewrite the history blob, keeping its own as-of (its newest entry's time). */
+export async function writeMarketCapHistory(hist: MarketCapHistory): Promise<void> {
+  await writeSnapshot("marketcap-history", hist, hist.hourly[hist.hourly.length - 1]?.at ?? new Date().toISOString());
+}
+
+/**
  * Percent change in total market cap over the last `hoursBack` hours.
  * Returns null if history is too thin, the older snapshot is malformed, or the
  * older value is zero.
