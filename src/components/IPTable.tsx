@@ -7,6 +7,7 @@ import { Section } from "./Section";
 import { Sparkline } from "./Sparkline";
 import { IPIcon } from "./IPIcon";
 import { TableFoot } from "./TableFoot";
+import { isSmallIp, SMALL_IP_FLOOR_LABEL } from "@/lib/data/smallIps";
 import { MetricInfo } from "./MetricInfo";
 import { categoryOf } from "@/lib/data/ipCatalog";
 import { TableRowLink } from "./TableRowLink";
@@ -142,6 +143,7 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, pac
   // the server's "24h" during hydration (see useWindowPref).
   const [vw, setVw] = useWindowPref<VolWindow>(teaser ? null : surface ?? null, VOL_WINDOWS, "24h");
   const [facet, setFacet] = useState<string>("All");
+  const [smallOpen, setSmallOpen] = useState(false);
   const full = !teaser;
   // Kept-in-teaser columns show earlier (sm) than the deep full-table columns (md).
   const keptCls = full ? "hidden md:table-cell" : "hidden sm:table-cell";
@@ -189,6 +191,83 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, pac
     dir,
     onClick: () => onSort(key),
   });
+
+  // "Smaller IPs" (smallIps.ts) gather in a collapsed group at the foot of the
+  // full table; the teaser keeps its top rows as they are. A facet holding only
+  // smaller IPs lists them plainly: a group needs rows above it.
+  const small = full ? visible.filter((ip) => isSmallIp(ip, packSpend)) : [];
+  const grouped = small.length > 0 && small.length < visible.length;
+  const mainRows = grouped ? visible.filter((ip) => !small.includes(ip)) : visible;
+  const smallRows = grouped ? small : [];
+
+  const renderRow = (ip: IPRow, i: number) => {
+    const vol = vw === "24h" ? ip.vol24Usd : ip.vol7Usd;
+    // Δ is a market-cap change — only meaningful when the mcap itself is
+    // (a tiny/suppressed IP would show a wild % off a near-zero base).
+    const hasMcap = Number.isFinite(mcapValue(ip));
+    return (
+      <TableRowLink
+        key={ip.key}
+        href={`/ip/${ip.key}`}
+        className="[&:last-child>td]:border-b-0"
+        data-category={categoryOf(ip.key)}
+      >
+        <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
+        <Td>
+          <Link
+            href={`/ip/${ip.key}`}
+            className="flex items-center gap-3"
+          >
+            <IPIcon
+              name={ip.name}
+              short={ip.short}
+              color={ip.color}
+              logo={ip.logo}
+              iconBlendMode={ip.iconBlendMode}
+              emoji={ip.emoji}
+              size={32}
+            />
+            <span className="font-sans font-semibold group-hover:text-yellow">{ip.name}</span>
+          </Link>
+        </Td>
+        <Td align="right" strong>{formatMcap(ip)}</Td>
+        <Td align="right" className={keptCls}>{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
+        {full && packSpend && <Td align="right" className="hidden md:table-cell">{(packSpend[ip.key] ?? 0) > 0 ? formatCompactUsd(packSpend[ip.key]) : "—"}</Td>}
+        {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
+        <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
+        {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}
+        {full && <Td align="right" className="hidden md:table-cell">{Number.isFinite(ip.trades24h) ? (ip.trades24h > 0 ? formatCompactNumber(ip.cards) : "0") : "—"}</Td>}
+        {full && <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>}
+        {full && (
+        <Td align="right" muted className="hidden md:table-cell">
+          {ip.trades24h > 0 ? formatCompactUsd(ip.vol24Usd / ip.trades24h) : "—"}
+        </Td>
+        )}
+        {full && <Td align="right" muted className="hidden md:table-cell">{formatInt(ip.buyers24h)}</Td>}
+        {full && (
+        <Td className="hidden md:table-cell">
+          <Sparkline data={ip.spark} trend={ip.trend} />
+        </Td>
+        )}
+        <Td className={`max-w-[280px] text-[12px] text-ink-2 ${keptCls}`}>
+          {ip.topCard ? (
+            ip.topCardHref ? (
+              <Link
+                href={ip.topCardHref}
+                className="block truncate font-sans underline-offset-2 hover:text-yellow hover:underline"
+              >
+                {ip.topCard}
+              </Link>
+            ) : (
+              <span title={ip.topCard} className="block truncate font-sans">{ip.topCard}</span>
+            )
+          ) : (
+            "—"
+          )}
+        </Td>
+      </TableRowLink>
+    );
+  };
 
   return (
     <Section
@@ -250,74 +329,27 @@ export function IPTable({ rows, maxRows, seeAllHref, teaser, title, surface, pac
             </tr>
           </thead>
           <tbody>
-            {visible.map((ip, i) => {
-              const vol = vw === "24h" ? ip.vol24Usd : ip.vol7Usd;
-              // Δ is a market-cap change — only meaningful when the mcap itself is
-              // (a tiny/suppressed IP would show a wild % off a near-zero base).
-              const hasMcap = Number.isFinite(mcapValue(ip));
-              return (
-                <TableRowLink
-                  key={ip.key}
-                  href={`/ip/${ip.key}`}
-                  className="[&:last-child>td]:border-b-0"
-                  data-category={categoryOf(ip.key)}
-                >
-                  <Td className="w-[44px] text-ink-3">{String(i + 1).padStart(2, "0")}</Td>
-                  <Td>
-                    <Link
-                      href={`/ip/${ip.key}`}
-                      className="flex items-center gap-3"
-                    >
-                      <IPIcon
-                        name={ip.name}
-                        short={ip.short}
-                        color={ip.color}
-                        logo={ip.logo}
-                        iconBlendMode={ip.iconBlendMode}
-                        emoji={ip.emoji}
-                        size={32}
-                      />
-                      <span className="font-sans font-semibold group-hover:text-yellow">{ip.name}</span>
-                    </Link>
-                  </Td>
-                  <Td align="right" strong>{formatMcap(ip)}</Td>
-                  <Td align="right" className={keptCls}>{Number.isFinite(vol) ? formatCompactUsd(vol) : "—"}</Td>
-                  {full && packSpend && <Td align="right" className="hidden md:table-cell">{(packSpend[ip.key] ?? 0) > 0 ? formatCompactUsd(packSpend[ip.key]) : "—"}</Td>}
-                  {full && <Td align="right" muted className="hidden lg:table-cell">{domCell(ip, totalMcap)}</Td>}
-                  <Td align="right" className={keptCls}><DeltaCell pct={hasMcap ? ip.pct7d : null} /></Td>
-                  {full && <Td align="right" className="hidden md:table-cell"><DeltaCell pct={hasMcap ? ip.pct30d : null} /></Td>}
-                  {full && <Td align="right" className="hidden md:table-cell">{Number.isFinite(ip.trades24h) ? (ip.trades24h > 0 ? formatCompactNumber(ip.cards) : "0") : "—"}</Td>}
-                  {full && <Td align="right" className="hidden md:table-cell">{formatInt(ip.holders)}</Td>}
-                  {full && (
-                  <Td align="right" muted className="hidden md:table-cell">
-                    {ip.trades24h > 0 ? formatCompactUsd(ip.vol24Usd / ip.trades24h) : "—"}
-                  </Td>
-                  )}
-                  {full && <Td align="right" muted className="hidden md:table-cell">{formatInt(ip.buyers24h)}</Td>}
-                  {full && (
-                  <Td className="hidden md:table-cell">
-                    <Sparkline data={ip.spark} trend={ip.trend} />
-                  </Td>
-                  )}
-                  <Td className={`max-w-[280px] text-[12px] text-ink-2 ${keptCls}`}>
-                    {ip.topCard ? (
-                      ip.topCardHref ? (
-                        <Link
-                          href={ip.topCardHref}
-                          className="block truncate font-sans underline-offset-2 hover:text-yellow hover:underline"
-                        >
-                          {ip.topCard}
-                        </Link>
-                      ) : (
-                        <span title={ip.topCard} className="block truncate font-sans">{ip.topCard}</span>
-                      )
-                    ) : (
-                      "—"
-                    )}
-                  </Td>
-                </TableRowLink>
-              );
-            })}
+            {mainRows.map((ip, i) => renderRow(ip, i))}
+            {/* Smaller IPs (smallIps.ts): collapsed at the foot, the rule printed beside the toggle. */}
+            {smallRows.length > 0 && (
+              <tr className="[&:last-child>td]:border-b-0">
+                <td colSpan={20} className="border-b border-line/60 px-3 py-2.5 sm:px-4">
+                  <button
+                    type="button"
+                    onClick={() => setSmallOpen((o) => !o)}
+                    aria-expanded={smallOpen}
+                    className="inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.06em] text-ink-3 transition-colors hover:text-ink"
+                  >
+                    Smaller IPs · {smallRows.length}
+                    <span className="text-[9px] leading-none">{smallOpen ? "▲" : "▼"}</span>
+                  </button>
+                  <span className="mt-1 block font-mono text-[10.5px] text-ink-4 sm:ml-3 sm:mt-0 sm:inline">
+                    market cap and 30-day pack spend each under {SMALL_IP_FLOOR_LABEL}, no trade in the last 24h
+                  </span>
+                </td>
+              </tr>
+            )}
+            {smallOpen && smallRows.map((ip, i) => renderRow(ip, mainRows.length + i))}
           </tbody>
         </table>
       </div>
