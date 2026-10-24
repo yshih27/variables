@@ -1,5 +1,6 @@
 import { DROP_MAX_SPAN_MS, DROP_MIN_PACKS, DROP_SETTLE_MS, type DropRow, type RenaissDrops } from "@/lib/renaiss/drops";
 import { formatMonthDayUtc } from "@/lib/format";
+import { dropLabel } from "@/lib/renaiss/dropNames";
 import { Section } from "./Section";
 
 /**
@@ -37,12 +38,21 @@ const span = (fromIso: string, toIso: string): string => {
 const pct = (n: number, of: number) => (of > 0 ? Math.round((100 * n) / of) : 0);
 const share = (n: number, of: number) => (of > 0 ? ` · ${pct(n, of)}%` : "");
 const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
+/** The feed's name, else Varible's (dropNames.ts), else "Drop". */
+const nameOf = (d: DropRow) => dropLabel(d)?.name ?? "Drop";
+/** "A, B and C". */
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefined }) {
   if (!snap?.drops?.length) return null;
   const drops = snap.drops;
   const oldest = drops[drops.length - 1];
   const recent = drops.slice(0, RECENT);
+  // Names Varible added where the feed has none, oldest first, said in the receipt line.
+  const ours = [...drops].reverse().flatMap((d) => {
+    const l = dropLabel(d);
+    return l?.source === "varible" ? [l.name.replace(/ Pack$/, "")] : [];
+  });
 
   return (
     <Section
@@ -69,7 +79,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
               {recent.map((d) => (
                 <tr key={d.productId} className="[&:last-child>td]:border-b-0">
                   <Td compact>
-                    <span className="font-semibold text-ink">{d.named ? d.name : "Drop"}</span>
+                    <span className="font-semibold text-ink">{nameOf(d)}</span>
                     <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(d.firstAt)}</span>
                   </Td>
                   <Td compact align="right" className="font-mono tabular text-ink">
@@ -110,7 +120,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
               {drops.map((d) => (
                 <tr key={d.productId} className="[&:last-child>td]:border-b-0">
                   <Td>
-                    <span className="font-semibold text-ink">{d.named ? d.name : "Drop"}</span>
+                    <span className="font-semibold text-ink">{nameOf(d)}</span>
                     <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(d.firstAt)}</span>
                   </Td>
                   <Td align="right" className="font-mono tabular text-ink-2">
@@ -138,7 +148,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
         </div>
       </details>
       <p className="px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = their first Renaiss pull was in that drop · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)} · "Drop" = no name in Renaiss's feed`}
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = their first Renaiss pull was in that drop · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)}${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
       </p>
     </Section>
   );
@@ -184,7 +194,7 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
             {drops.map((d, i) => {
               // The read opens toward the plot's middle, so an edge bar's stays inside the card.
               const side = i < drops.length / 3 ? "left-0" : i >= (2 * drops.length) / 3 ? "right-0" : "left-1/2 -translate-x-1/2";
-              const sentence = `${d.named ? d.name : "Drop"}, ${formatMonthDayUtc(d.firstAt)}: ${d.packs.toLocaleString("en-US")} packs, last pack after ${span(d.firstAt, d.lastAt)}; ${d.buyers.toLocaleString("en-US")} buyers, ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop, ${pct(d.newPlayers, d.buyers)}% first-time players`;
+              const sentence = `${nameOf(d)}, ${formatMonthDayUtc(d.firstAt)}: ${d.packs.toLocaleString("en-US")} packs, last pack after ${span(d.firstAt, d.lastAt)}; ${d.buyers.toLocaleString("en-US")} buyers, ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop, ${pct(d.newPlayers, d.buyers)}% first-time players`;
               return (
                 <div
                   key={d.productId}
@@ -207,7 +217,7 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
                       role="tooltip"
                       className={`pointer-events-none absolute bottom-full ${side} z-20 mb-1.5 hidden w-max max-w-[260px] border border-line bg-bg-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-2 shadow-lg group-hover:block group-focus:block`}
                     >
-                      <span className="block font-semibold text-ink">{`${d.named ? d.name : "Drop"} · ${formatMonthDayUtc(d.firstAt)}`}</span>
+                      <span className="block font-semibold text-ink">{`${nameOf(d)} · ${formatMonthDayUtc(d.firstAt)}`}</span>
                       <span className="block font-mono tabular">{`${d.packs.toLocaleString("en-US")} packs · last pack after ${span(d.firstAt, d.lastAt)}`}</span>
                       <span className="block font-mono tabular">{`${d.buyers.toLocaleString("en-US")} buyers · ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop · ${pct(d.newPlayers, d.buyers)}% first-time`}</span>
                     </span>
