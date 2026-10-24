@@ -1,8 +1,8 @@
 /**
  * Renaiss's limited drops: one-time packs that sell their whole run inside a
  * day. Measured Oct 14 2026: 17 weekly $100 drops from Jun 18 to Oct 9, 666 to
- * 1,000 packs each; every one since Aug 21 released at 09:00 UTC, the fastest
- * run gone in 24 minutes.
+ * 1,000 packs each, the fastest run gone in 24 minutes. Every one opened at 09:00
+ * UTC (Oct 24 2026; see openingOf).
  *
  * Per drop: its run, how long the last pack took, how many wallets bought, how
  * concentrated the buying was (kept, never published: private to Renaiss), how
@@ -36,6 +36,16 @@ export const DROP_LEAD_MS = 24 * 3_600_000;
 export const DROPS_READ_DAYS = 10;
 /** Top buyers whose share of a drop is kept. Never published or logged: private to Renaiss. */
 export const DROP_TOP_BUYERS = 10;
+/**
+ * A drop opens with a burst, and its clock starts there: the opening is the
+ * first paid pull followed by OPEN_BURST_PACKS − 1 more within OPEN_BURST_MS.
+ * Measured Oct 24 2026: all 18 drops opened at 09:00 UTC, and on the nine from
+ * Jun 18 to Aug 14 one to three packs were bought before the opening. The Jun 18
+ * drop's first came 19 hours early, which had stretched its "last pack after"
+ * from 1h 32m to 20h 36m.
+ */
+export const OPEN_BURST_PACKS = 10;
+export const OPEN_BURST_MS = 5 * 60_000;
 
 const DAY_MS = 86_400_000;
 
@@ -57,6 +67,8 @@ export type DropRow = {
   priceUsd: number | null;
   packs: number;
   firstAt: string;
+  /** The opening (openingOf): where the clock starts. Absent on a row stored before it was measured, until the warmer fills it. */
+  openAt?: string;
   lastAt: string;
   buyers: number;
   /** Kept so a later drop can tell its returning buyers; never rendered. */
@@ -111,6 +123,20 @@ function bounds(list: DropPull[]): { first: number; last: number } {
   return { first, last };
 }
 
+/** The opening among `times` (ms, ascending): the first time a burst follows, else the first time; null when there are none. */
+export function openingOf(times: number[]): number | null {
+  if (!times.length) return null;
+  for (let i = 0; i + OPEN_BURST_PACKS - 1 < times.length; i++) {
+    if (times[i + OPEN_BURST_PACKS - 1] - times[i] <= OPEN_BURST_MS) return times[i];
+  }
+  return times[0];
+}
+
+/** A drop's paid pull times, ascending. */
+function pullTimes(list: DropPull[]): number[] {
+  return list.map((p) => Date.parse(p.pulled_at)).filter(Number.isFinite).sort((a, b) => a - b);
+}
+
 /**
  * The drops among `pulls` (paid checkouts, any order), judged at `nowMs`. A
  * product counts only when its first pull is at least DROP_LEAD_MS after
@@ -143,6 +169,7 @@ export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number
       priceUsd: [...prices.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
       packs: list.length,
       firstAt: new Date(first).toISOString(),
+      openAt: new Date(openingOf(pullTimes(list)) ?? first).toISOString(),
       lastAt: new Date(last).toISOString(),
       buyers: byBuyer.size,
       buyerWallets: [...byBuyer.keys()].sort(),
@@ -226,6 +253,33 @@ export async function readDropPulls(fromMs: number, toMs: number): Promise<DropP
     }
   }
   return out;
+}
+
+/**
+ * The opening of a stored drop, read from its own paid pulls (one product, its
+ * first-to-last window over the `pulled_at` index): for rows stored before the
+ * opening was measured.
+ */
+export async function readDropOpening(d: Pick<DropRow, "productId" | "firstAt" | "lastAt">): Promise<string> {
+  const PAGE = 1000;
+  const rows: DropPull[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db()
+      .from("renaiss_pulls")
+      .select("product_id, machine_name, buyer, price_usd, pulled_at")
+      .eq("kind", "checkout")
+      .eq("product_id", d.productId)
+      .gte("pulled_at", d.firstAt)
+      .lte("pulled_at", d.lastAt)
+      .order("pull_id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`[renaiss_pulls] opening read failed (${d.firstAt.slice(0, 10)}): ${error.message}`);
+    const page = (data ?? []) as DropPull[];
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
+  const opening = openingOf(pullTimes(rows.filter((p) => (num(p.price_usd) ?? 0) > 0)));
+  return new Date(opening ?? Date.parse(d.firstAt)).toISOString();
 }
 
 export function readRenaissDrops(): Promise<RenaissDrops | null> {

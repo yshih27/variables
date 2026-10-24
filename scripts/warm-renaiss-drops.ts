@@ -19,6 +19,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   detectDrops,
+  readDropOpening,
   readDropPulls,
   readRenaissDrops,
   scoreDrops,
@@ -52,19 +53,27 @@ async function main() {
   const removed = (stored?.drops ?? []).filter((d) => notDrops.has(d.productId));
   const firstPull = new Map(wallets.rows.map((w) => [w.buyer.toLowerCase(), Date.parse(w.first_pull)]));
   const drops = scoreDrops(stored?.drops ?? [], fresh, firstPull, notDrops);
+  // Rows stored before the opening was measured: read each one's pulls once.
+  let opened = 0;
+  for (const d of drops) {
+    if (d.openAt) continue;
+    d.openAt = await readDropOpening(d);
+    opened++;
+  }
   const fromIso = new Date(fromMs).toISOString();
   // The earliest first pull this read can count (detectDrops' lead), not where it began.
   const countsFrom = new Date(fromMs + DROP_LEAD_MS).toISOString();
   const historyFrom = stored && stored.historyFrom < countsFrom ? stored.historyFrom : countsFrom;
 
   console.log(`Renaiss drops · read ${days} day(s) from ${fromIso.slice(0, 10)}: ${pulls.length.toLocaleString()} paid pulls, ${fresh.length} drop(s) detected · history ${drops.length} drop(s) from ${historyFrom.slice(0, 10)} · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  if (opened) console.log(`  opening measured for ${opened} stored drop(s)`);
   for (const d of removed) console.log(`  removed ${d.productId} (${d.name}): its pulls run past ${DROP_MAX_SPAN_MS / 3_600_000}h, so it was never a drop`);
   // No top-buyers share here: Actions logs are public, and that figure is private to Renaiss.
   console.log(`\n| Drop | Price | Packs | Last pack after | Buyers | New players | Bought an earlier drop |\n|---|---|---|---|---|---|---|`);
   for (const d of drops) {
-    const mins = Math.round((Date.parse(d.lastAt) - Date.parse(d.firstAt)) / 60_000);
+    const mins = Math.round((Date.parse(d.lastAt) - Date.parse(d.openAt ?? d.firstAt)) / 60_000);
     console.log(
-      `| ${d.firstAt.slice(0, 10)} ${d.name} | $${d.priceUsd ?? "—"} | ${d.packs} | ${Math.floor(mins / 60)}h ${mins % 60}m | ${d.buyers} | ${d.newPlayers} | ${d.returningBuyers} |`,
+      `| ${(d.openAt ?? d.firstAt).slice(0, 10)} ${d.name} | $${d.priceUsd ?? "—"} | ${d.packs} | ${Math.floor(mins / 60)}h ${mins % 60}m | ${d.buyers} | ${d.newPlayers} | ${d.returningBuyers} |`,
     );
   }
 

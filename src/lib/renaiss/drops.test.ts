@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detectDrops, scoreDrops, sellingPastSpan, DROP_MIN_PACKS, type DropPull } from "./drops";
+import { detectDrops, openingOf, scoreDrops, sellingPastSpan, DROP_MIN_PACKS, OPEN_BURST_MS, OPEN_BURST_PACKS, type DropPull } from "./drops";
 
 const READ_FROM = Date.parse("2026-09-01T00:00:00Z");
 const NOW = Date.parse("2026-10-14T03:00:00Z");
@@ -77,4 +77,27 @@ test("a stored drop that a later read sees still selling is removed, and the nex
   assert.equal(fixed[0].returningBuyers, 0, "no earlier drop left to have bought");
   // A read that clips a drop's start never shortens it into a removal.
   assert.equal(sellingPastSpan(run("sep", "2026-09-12T12:00:00Z", 50, ["0xa"])).size, 0);
+});
+
+test("the clock starts at the opening burst, not at a pack bought early", () => {
+  // The Jun 18 2026 shape: two packs the afternoon before, then the run from 09:00, a pack every 5 seconds.
+  const early = run("jun", "2026-06-18T13:56:00Z", 2, ["0xt"]);
+  const opening = Date.parse("2026-06-19T09:00:00Z");
+  const fast = run("jun", "2026-06-19T09:00:00Z", 998, ["0xa", "0xb", "0xc"]).map((p, i) => ({ ...p, pulled_at: new Date(opening + i * 5_000).toISOString() }));
+  const pulls = [...early, ...fast];
+  const [d] = detectDrops(pulls, Date.parse("2026-06-01T00:00:00Z"), Date.parse("2026-06-25T00:00:00Z"));
+  assert.equal(d.packs, 1000, "early packs still count in the run");
+  assert.equal(d.firstAt, "2026-06-18T13:56:00.000Z");
+  assert.equal(d.openAt, "2026-06-19T09:00:00.000Z");
+});
+
+test("openingOf: the first time a burst follows, else the first time", () => {
+  const t0 = Date.parse("2026-09-04T09:00:00Z");
+  const burst = Array.from({ length: OPEN_BURST_PACKS }, (_, i) => t0 + i * (OPEN_BURST_MS / OPEN_BURST_PACKS));
+  assert.equal(openingOf([t0 - 3_600_000, ...burst]), t0);
+  assert.equal(openingOf(burst), t0);
+  // Constructed: no burst at all (one pack an hour).
+  const slow = Array.from({ length: 20 }, (_, i) => t0 + i * 3_600_000);
+  assert.equal(openingOf(slow), t0);
+  assert.equal(openingOf([]), null);
 });
