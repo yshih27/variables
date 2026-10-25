@@ -6,7 +6,10 @@
  * 09:00 UTC, so every window holds the same hours of the day and the daily
  * rhythm cancels. Also the hour-of-day profile of regular spend.
  *
- *   npx tsx --env-file=.env.local scripts/dev/renaiss-drop-anticipation.ts --out=<dir>
+ *   npx tsx --env-file=.env.local scripts/dev/renaiss-drop-anticipation.ts --out=<dir> [--through=<ISO time>]
+ *
+ * --through reads pulls only before that instant, so a rerun reproduces an earlier run.
+ * The JSON keeps full precision; the console rounds to three places.
  *
  * Reads only; prints counts and sums, never a wallet; writes local JSON.
  * ⚠️ PRIVATE PARTNER DATA: the output stays local (the repo and its Actions logs
@@ -17,7 +20,7 @@ config({ path: ".env.local" });
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readDropPulls, readRenaissDrops, walletsOf } from "../../src/lib/renaiss/drops";
+import { detectDrops, readDropPulls, readRenaissDrops, walletsOf } from "../../src/lib/renaiss/drops";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? null;
 const HOUR = 3_600_000;
@@ -42,13 +45,20 @@ async function main() {
   const dropIds = new Set(drops.map((d) => d.productId));
   const opens = drops.map((d) => Date.parse(d.openAt ?? d.firstAt));
   const fromMs = Math.floor((opens[0] - 8 * DAY) / DAY) * DAY;
+  const through = arg("through") ? Date.parse(arg("through")!) : Date.now();
+  if (!Number.isFinite(through)) throw new Error(`--through: not a time: ${arg("through")}`);
   const t0 = Date.now();
-  const pulls = (await readDropPulls(fromMs, Date.now()))
+  const raw = await readDropPulls(fromMs, through);
+  // A drop the history doesn't hold (older than it, or newer) still sells like a drop: the same rule finds it, and it stays out of regular spend.
+  const others = detectDrops(raw, fromMs, through).filter((d) => !dropIds.has(d.productId));
+  for (const d of others) dropIds.add(d.productId);
+  const pulls = raw
     .filter((p) => p.buyer && Number(p.price_usd) > 0)
     .map((p) => ({ w: p.buyer!.toLowerCase(), t: Date.parse(p.pulled_at), usd: Number(p.price_usd), drop: dropIds.has(p.product_id) }))
     .sort((a, b) => a.t - b.t);
-  const lastPull = pulls[pulls.length - 1]?.t ?? Date.now();
+  const lastPull = pulls[pulls.length - 1]?.t ?? through;
   console.log(`read ${pulls.length.toLocaleString()} paid pulls from ${new Date(fromMs).toISOString().slice(0, 10)} · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  console.log(`${others.length} other drop(s) found by the same rule, kept out of regular spend`);
 
   /** Regular (non-drop) spend in [a, b), split by whether the wallet is in `group`. */
   const lowerBound = (x: number) => {
@@ -101,7 +111,7 @@ async function main() {
       const a = d.days.find((y) => y.day === dayA), b = d.days.find((y) => y.day === dayB);
       if (a?.complete && b?.complete && a.share != null && b.share != null && b.share > 0) ratios.push(a.share / b.share);
     }
-    return { pair: `day ${dayA} ÷ day ${dayB}`, drops: ratios.length, below1: ratios.filter((x) => x < 1).length, medianRatio: r3(median(ratios)) };
+    return { pair: `day ${dayA} ÷ day ${dayB}`, drops: ratios.length, below1: ratios.filter((x) => x < 1).length, medianRatio: median(ratios) };
   };
   const tests = [compare(-1, -3), compare(-1, -2), compare(-2, -3), compare(0, -3), compare(1, -3), compare(2, -3)];
 
@@ -126,7 +136,7 @@ async function main() {
       const a = r.days.find((y) => y.day === dayA)?.share, b = r.days.find((y) => y.day === dayB)?.share;
       if (a != null && b != null && b > 0) xs.push(a / b);
     }
-    return { drops: xs.length, below1: xs.filter((x) => x < 1).length, median: r3(median(xs)) };
+    return { drops: xs.length, below1: xs.filter((x) => x < 1).length, median: median(xs) };
   };
   const placeboTests = { "day -1 ÷ day -3": ratioOf(placebo, -1, -3), "day -1 ÷ day -2": ratioOf(placebo, -1, -2), "day 1 ÷ day -3": ratioOf(placebo, 1, -3) };
   const realTests = { "day -1 ÷ day -3": ratioOf(perDrop as never, -1, -3), "day -1 ÷ day -2": ratioOf(perDrop as never, -1, -2), "day 1 ÷ day -3": ratioOf(perDrop as never, 1, -3) };
@@ -154,8 +164,10 @@ async function main() {
     return { usd, wallets: ws.size };
   };
   const HOURS = Array.from({ length: 24 }, (_, i) => i - 12);
+  // ratio = every drop summed; medianRatio = the typical drop (median of each drop's own ratio).
   const hourly = HOURS.map((h) => {
     let day0 = 0, base = 0, up = 0, n = 0;
+    const ratios: number[] = [];
     for (const o of opens) {
       const a = o + h * HOUR;
       if (a + HOUR > lastPull) continue;
@@ -163,8 +175,9 @@ async function main() {
       const b = median([-5, -4, -3, -2].map((k) => totalIn(a + k * DAY, a + k * DAY + HOUR).usd)) ?? 0;
       day0 += d0; base += b; n++;
       if (d0 > b) up++;
+      if (b > 0) ratios.push(d0 / b);
     }
-    return { hour: h, drops: n, dropDayUsd: Math.round(day0), baselineUsd: Math.round(base), ratio: base > 0 ? r3(day0 / base) : null, dropsAbove: up };
+    return { hour: h, drops: n, dropDayUsd: Math.round(day0), baselineUsd: Math.round(base), ratio: base > 0 ? day0 / base : null, medianRatio: median(ratios), dropsAbove: up };
   });
   // Whole 24h windows (09:00-aligned): day -1, 0, +1 against the median of days -6..-3.
   const daily = [-1, 0, 1].map((k) => {
@@ -178,7 +191,7 @@ async function main() {
       sumK += vk; sumB += vb;
       if (vb > 0) ratios.push(vk / vb);
     }
-    return { day: k, drops: ratios.length, below1: ratios.filter((x) => x < 1).length, medianRatio: r3(median(ratios)), pooledRatio: sumB > 0 ? r3(sumK / sumB) : null };
+    return { day: k, drops: ratios.length, below1: ratios.filter((x) => x < 1).length, medianRatio: median(ratios), pooledRatio: sumB > 0 ? sumK / sumB : null };
   });
   // How many wallets play the regular machines from 09:00 to 09:40 UTC on a day without a drop.
   const quietDays: number[] = [];
@@ -224,25 +237,25 @@ async function main() {
   console.log("|---|---|---|---|---|---|");
   for (const p of pooled) console.log(`| ${p.day} | ${p.drops} | ${Math.round(p.buyersUsd).toLocaleString()} | ${Math.round(p.othersUsd).toLocaleString()} | ${p.pooledShare == null ? "—" : (100 * p.pooledShare).toFixed(1) + "%"} | ${p.medianShare == null ? "—" : (100 * p.medianShare).toFixed(1) + "%"} |`);
   console.log("\nPer-drop share ratios (same hours of day):");
-  for (const t of tests) console.log(`  ${t.pair}: ${t.below1} of ${t.drops} drops below 1 · median ${t.medianRatio}`);
+  for (const t of tests) console.log(`  ${t.pair}: ${t.below1} of ${t.drops} drops below 1 · median ${r3(t.medianRatio)}`);
   console.log("\nRegular spend by hour (UTC), last 60 complete days:");
   console.log("  " + hodShare.map((h) => `${String(h.hourUtc).padStart(2, "0")}:${h.sharePct}`).join("  "));
   console.log("\nDrop buyers vs a placebo group (active 09:00–09:40 UTC three days before, no drop):");
   for (const k of Object.keys(realTests)) {
     const a = realTests[k as keyof typeof realTests], b = placeboTests[k as keyof typeof placeboTests];
-    console.log(`  ${k}: drop buyers median ${a.median} (${a.drops - a.below1} of ${a.drops} up) · placebo median ${b.median} (${b.drops - b.below1} of ${b.drops} up)`);
+    console.log(`  ${k}: drop buyers median ${r3(a.median)} (${a.drops - a.below1} of ${a.drops} up) · placebo median ${r3(b.median)} (${b.drops - b.below1} of ${b.drops} up)`);
   }
   console.log(`  placebo group size: median ${median(placebo.map((p) => p.wallets))} wallets`);
   console.log("\nRegular spend 09:00–11:00 UTC: drop day vs the median of days -1, -2, -3, -6 (same 2 hours):");
   const sum = (k: keyof (typeof opening)[number]) => opening.reduce((acc, o) => acc + (o[k] as number), 0);
-  console.log(`  drop buyers: $${sum("buyers0").toLocaleString()} on drop days vs $${sum("buyersBase").toLocaleString()} baseline · others: $${sum("others0").toLocaleString()} vs $${sum("othersBase").toLocaleString()} (19 drops summed)`);
+  console.log(`  drop buyers: $${sum("buyers0").toLocaleString()} on drop days vs $${sum("buyersBase").toLocaleString()} baseline · others: $${sum("others0").toLocaleString()} vs $${sum("othersBase").toLocaleString()} (${opening.length} drops summed)`);
   console.log(`  drops where the opening 2h beat baseline (all wallets): ${opening.filter((o) => o.buyers0 + o.others0 > o.buyersBase + o.othersBase).length} of ${opening.length}`);
   console.log(`\nAverage regular $ per hour (UTC), drop days (${nDrop}) vs other days (${nOther}), last 60 days:`);
   console.log("  " + hodSplit.filter((h) => h.hourUtc >= 6 && h.hourUtc <= 14).map((h) => `${String(h.hourUtc).padStart(2, "0")}h ${h.dropDayAvgUsd.toLocaleString()}/${h.otherDayAvgUsd.toLocaleString()}`).join(" · "));
-  console.log("\nTotal regular spend by hour around the opening (h = hours from 09:00 UTC), drop day vs median of days -5..-2, 19 drops summed:");
-  console.log("  " + hourly.map((h) => `${h.hour >= 0 ? "+" : ""}${h.hour}h ${h.ratio}(${h.dropsAbove}/${h.drops})`).join("  "));
+  console.log(`\nTotal regular spend by hour around the opening (h = hours from 09:00 UTC), drop day vs median of days -5..-2, ${opens.length} drops summed (typical drop after the slash):`);
+  console.log("  " + hourly.map((h) => `${h.hour >= 0 ? "+" : ""}${h.hour}h ${r3(h.ratio)}/${r3(h.medianRatio)}(${h.dropsAbove}/${h.drops})`).join("  "));
   console.log("\nWhole days (09:00-aligned) vs the median of days -6..-3:");
-  for (const d of daily) console.log(`  day ${d.day}: median ratio ${d.medianRatio}, pooled ${d.pooledRatio}, ${d.drops - d.below1} of ${d.drops} drops above`);
+  for (const d of daily) console.log(`  day ${d.day}: median ratio ${r3(d.medianRatio)}, pooled ${r3(d.pooledRatio)}, ${d.drops - d.below1} of ${d.drops} drops above`);
   console.log(`\nWallets on regular machines 09:00–09:40 UTC: median ${median(quietDays)} on ${quietDays.length} days without a drop · median ${median(dropDayOpeningWallets)} on drop days (regular machines only)`);
   console.log(`\nwrote ${join(out, "anticipation.json")}`);
 }

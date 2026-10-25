@@ -6,6 +6,11 @@
  *
  *   npx tsx --env-file=.env.local scripts/dev/renaiss-drops-analysis.ts --drops=<renaiss-drops.json> --out=<dir>
  *   … --openings   only print how each drop opened (minutes from its first paid pull to its 2nd–5th, 10th, 50th and last)
+ *   … --through=<ISO time>   read pulls and sales only before this instant, so a rerun reproduces an earlier
+ *                            run's drop figures (lifetime wallet totals still read today's renaiss_wallet_spend)
+ *
+ * Minutes, shares and repeat rates keep full precision in the JSON, so a page
+ * rounds them once; the console rounds them.
  *
  * ⚠️ PRIVATE PARTNER DATA. The output stays local: the repo and its Actions logs
  * are public, and several figures here are Renaiss's to see first.
@@ -19,7 +24,7 @@ import { db } from "../../src/lib/db/client";
 import { readWalletSpend } from "../../src/lib/renaiss/players";
 import { readMetricSeries } from "../../src/lib/data/metricSnapshots";
 import { dropLabel } from "../../src/lib/renaiss/dropNames";
-import { openingOf, readDropPulls as readPaidPulls, type DropRow } from "../../src/lib/renaiss/drops";
+import { detectDrops, openingOf, readDropPulls as readPaidPulls, type DropRow } from "../../src/lib/renaiss/drops";
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? null;
 const DAY = 86_400_000;
@@ -92,13 +97,14 @@ function readDropPulls(d: DropRow): Promise<Pull[]> {
   );
 }
 
-function readSales(sinceIso: string): Promise<Sale[]> {
+function readSales(sinceIso: string, beforeIso: string): Promise<Sale[]> {
   return pageAll<Sale>(
     (from) =>
       db()
         .from("renaiss_sales")
         .select("token_id, sold_at, price_usd, buyer, seller")
         .gte("sold_at", sinceIso)
+        .lt("sold_at", beforeIso)
         .order("sale_id", { ascending: true })
         .range(from, from + PAGE - 1),
     "sales",
@@ -110,6 +116,8 @@ async function main() {
   mkdirSync(out, { recursive: true });
   const snap = JSON.parse(readFileSync(arg("drops")!, "utf8")) as { historyFrom: string; drops: DropRow[] };
   const drops = [...snap.drops].sort((a, b) => a.firstAt.localeCompare(b.firstAt)); // oldest first
+  const through = arg("through") ? Date.parse(arg("through")!) : Date.now();
+  if (!Number.isFinite(through)) throw new Error(`--through: not a time: ${arg("through")}`);
   const t0 = Date.now();
 
   const pullsByDrop = new Map<string, Pull[]>();
@@ -126,16 +134,21 @@ async function main() {
   const [wallets, spine, sales] = await Promise.all([
     readWalletSpend(),
     readMetricSeries("platform", "renaiss", "gacha_volume_usd"),
-    readSales(snap.historyFrom),
+    readSales(snap.historyFrom, new Date(through).toISOString()),
   ]);
   console.log(`read ${[...pullsByDrop.values()].reduce((s, l) => s + l.length, 0)} drop pulls, ${wallets.rows.length} wallets, ${spine.length} spine days, ${sales.length} sales · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
   const fullFrom = Math.floor(Date.parse(drops[0].firstAt) / DAY) * DAY - 30 * DAY;
-  const everyPull = (await readPaidPulls(fullFrom, Date.now()))
+  const rawPulls = await readPaidPulls(fullFrom, through);
+  const everyPull = rawPulls
     .filter((p) => p.buyer && (num(p.price_usd) ?? 0) > 0)
     .map((p) => ({ w: p.buyer!.toLowerCase(), t: Date.parse(p.pulled_at), usd: num(p.price_usd)!, product: p.product_id }))
     .sort((a, b) => a.t - b.t);
   console.log(`read ${everyPull.length.toLocaleString()} paid pulls from ${new Date(fullFrom).toISOString().slice(0, 10)} · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
-  const dropIds = new Set(drops.map((d) => d.productId));
+  // A drop the history doesn't hold (older than it, or newer) still sells like a drop: the same rule finds it, and it stays out of regular spend.
+  const snapIds = new Set(drops.map((d) => d.productId));
+  const otherDrops = detectDrops(rawPulls, fullFrom, through).filter((d) => !snapIds.has(d.productId));
+  console.log(`${otherDrops.length} other drop(s) found by the same rule, kept out of regular spend`);
+  const dropIds = new Set([...snapIds, ...otherDrops.map((d) => d.productId)]);
   /** Paid pulls in [a, b), by every machine or the regular ones only. */
   const between = (a: number, b: number) => {
     let lo = 0, hi = everyPull.length;
@@ -144,7 +157,7 @@ async function main() {
     for (let i = lo; i < everyPull.length && everyPull[i].t < b; i++) out.push(everyPull[i]);
     return out;
   };
-  const cutoff = wallets.rows.reduce((m, w) => Math.max(m, Date.parse(w.last_pull)), 0); // newest pull of all
+  const cutoff = everyPull.length ? everyPull[everyPull.length - 1].t : through; // newest pull read
   const walletBy = new Map(wallets.rows.map((w) => [w.buyer.toLowerCase(), { key: w.buyer.toLowerCase(), spend: Number(w.spend), pulls: Number(w.pulls), first: Date.parse(w.first_pull), last: Date.parse(w.last_pull) }]));
 
   // ── Per drop ──────────────────────────────────────────────────────────────
@@ -156,7 +169,7 @@ async function main() {
     const paid = all.filter((p) => p.kind === "checkout" && (num(p.price_usd) ?? 0) > 0);
     const times = paid.map((p) => Date.parse(p.pulled_at)).sort((a, b) => a - b);
     const first = openingOf(times) ?? Date.parse(d.firstAt);
-    const minsTo = (f: number) => (times.length ? round(Math.max(0, times[Math.max(0, Math.ceil(f * times.length) - 1)] - first) / 60_000, 0) : null);
+    const minsTo = (f: number) => (times.length ? Math.max(0, times[Math.max(0, Math.ceil(f * times.length) - 1)] - first) / 60_000 : null);
     const inFirst = (mins: number) => times.filter((t) => t >= first && t - first <= mins * 60_000).length;
     const byBuyer = new Map<string, number>();
     for (const p of paid) {
@@ -190,11 +203,14 @@ async function main() {
     const before30 = new Set(between(first - 30 * DAY, first).map((p) => p.w));
     const week = between(first, first + 7 * DAY);
     const weekWallets = new Set(week.map((p) => p.w));
+    // A week still running counts fewer wallets than it will: flagged, for readers to leave out.
+    const weekComplete = first + 7 * DAY <= cutoff;
     const reactivated = [...buyers].filter((w) => (walletBy.get(w)?.first ?? Infinity) < first && !before30.has(w)).length;
     const regularBy = (pulls: { w: string; usd: number; product: string }[]) => pulls.filter((p) => buyers.has(p.w) && !dropIds.has(p.product)).reduce((s, p) => s + p.usd, 0);
     const behaviour = {
+      weekComplete,
       weekActiveWallets: weekWallets.size,
-      shareOfWeekPct: round((100 * buyers.size) / Math.max(1, weekWallets.size), 1),
+      shareOfWeekPct: (100 * buyers.size) / Math.max(1, weekWallets.size),
       reactivated,
       activeBefore30: [...buyers].filter((w) => before30.has(w)).length,
       regularSpendBuyers7dBefore: Math.round(regularBy(between(first - 7 * DAY, first))),
@@ -253,7 +269,8 @@ async function main() {
 
   const nextRepeat = perDrop.slice(0, -1).map((d, i) => {
     const next = new Set(perDrop[i + 1].buyerWallets);
-    return { from: d.date, to: perDrop[i + 1].date, pct: round((100 * d.buyerWallets.filter((w) => next.has(w)).length) / d.buyerWallets.length, 1) };
+    const repeat = d.buyerWallets.filter((w) => next.has(w)).length;
+    return { from: d.date, to: perDrop[i + 1].date, repeat, of: d.buyerWallets.length, pct: (100 * repeat) / d.buyerWallets.length };
   });
   // Drop buyers whose first Renaiss pull of all was in that drop (the table's first-time players).
   const viaDrop = new Set<string>();
@@ -355,15 +372,17 @@ async function main() {
   console.log("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
   for (const d of perDrop) {
     const t = d.stated.top[0];
-    console.log(`| ${d.date} ${d.name} | ${d.weekday} | ${d.startUtc} | ${d.packs} | ${d.buyers} | ${d.packsPerBuyerMean} | ${d.buyersOnePack} | ${d.minsTo.p50}m | ${d.minsTo.p90}m | ${d.minsTo.p100}m | ${d.stated.valueBackPct ?? "—"}% (n ${d.stated.n}) | $${d.stated.median ?? "—"} | ${d.stated.hitSharePct ?? "—"}% | ${t ? `${t.card} ${t.grade} $${t.valueUsd}` : "—"} |`);
+    const m = (x: number | null) => (x == null ? "—" : Math.round(x));
+    console.log(`| ${d.date} ${d.name} | ${d.weekday} | ${d.startUtc} | ${d.packs} | ${d.buyers} | ${d.packsPerBuyerMean} | ${d.buyersOnePack} | ${m(d.minsTo.p50)}m | ${m(d.minsTo.p90)}m | ${m(d.minsTo.p100)}m | ${d.stated.valueBackPct ?? "—"}% (n ${d.stated.n}) | $${d.stated.median ?? "—"} | ${d.stated.hitSharePct ?? "—"}% | ${t ? `${t.card} ${t.grade} $${t.valueUsd}` : "—"} |`);
   }
   console.log("\n| Drop | Week's paying wallets | Drop buyers share | Active in prior 30d | Back after 30d+ away | New | Buyers' regular spend 7d before | 7d after | same day | Packs 1m/5m/10m |");
   console.log("|---|---|---|---|---|---|---|---|---|---|");
   for (const d of perDrop) {
     const b = d.behaviour;
-    console.log(`| ${d.date} ${d.name} | ${b.weekActiveWallets} | ${b.shareOfWeekPct}% | ${b.activeBefore30} | ${b.reactivated} | ${d.newPlayers} | $${b.regularSpendBuyers7dBefore.toLocaleString()} | $${b.regularSpendBuyers7dAfter.toLocaleString()} | $${b.regularSpendBuyersSameDay.toLocaleString()} | ${d.packsInFirst.m1}/${d.packsInFirst.m5}/${d.packsInFirst.m10} |`);
+    const partial = b.weekComplete ? "" : " (week not over)";
+    console.log(`| ${d.date} ${d.name} | ${b.weekActiveWallets}${partial} | ${round(b.shareOfWeekPct)}%${partial} | ${b.activeBefore30} | ${b.reactivated} | ${d.newPlayers} | $${b.regularSpendBuyers7dBefore.toLocaleString()} | $${b.regularSpendBuyers7dAfter.toLocaleString()} | $${b.regularSpendBuyersSameDay.toLocaleString()} | ${d.packsInFirst.m1}/${d.packsInFirst.m5}/${d.packsInFirst.m10} |`);
   }
-  console.log(`\n${JSON.stringify(across, (k, v) => (k === "days" ? undefined : v), 1)}`);
+  console.log(`\n${JSON.stringify(across, (k, v) => (k === "days" ? undefined : k === "pct" && typeof v === "number" ? round(v) : v), 1)}`);
   console.log(`\nwrote ${join(out, "analysis.json")}`);
 }
 
