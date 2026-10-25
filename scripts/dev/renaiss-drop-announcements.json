@@ -1,0 +1,103 @@
+[
+ {
+  "open": "2026-06-12",
+  "name": "Plasma Pack",
+  "announcedAt": "2026-06-10T09:06:00Z",
+  "guardOnly": true
+ },
+ {
+  "open": "2026-06-19",
+  "name": "Ribbon Pack",
+  "announcedAt": "2026-06-17T07:30:00Z"
+ },
+ {
+  "open": "2026-06-26",
+  "name": "Bowtie Pack",
+  "announcedAt": "2026-06-24T09:08:00Z"
+ },
+ {
+  "open": "2026-07-03",
+  "name": "World Cup Pack",
+  "announcedAt": "2026-07-01T09:07:00Z"
+ },
+ {
+  "open": "2026-07-10",
+  "name": "Champion Pack",
+  "announcedAt": "2026-07-08T10:08:00Z"
+ },
+ {
+  "open": "2026-07-17",
+  "name": "Cozy Pack",
+  "announcedAt": "2026-07-15T09:12:00Z"
+ },
+ {
+  "open": "2026-07-23",
+  "name": "Trinity Pack",
+  "announcedAt": "2026-07-21T11:00:00Z"
+ },
+ {
+  "open": "2026-07-31",
+  "name": "Emerald Pack",
+  "announcedAt": "2026-07-29T09:00:00Z"
+ },
+ {
+  "open": "2026-08-07",
+  "name": "Tempest Pack",
+  "announcedAt": "2026-08-06T09:44:00Z"
+ },
+ {
+  "open": "2026-08-14",
+  "name": "Inferno Pack",
+  "announcedAt": "2026-08-13T10:46:00Z"
+ },
+ {
+  "open": "2026-08-21",
+  "name": "Surge Pack",
+  "announcedAt": "2026-08-19T07:00:00Z"
+ },
+ {
+  "open": "2026-08-27",
+  "name": "Genesis Pack",
+  "announcedAt": "2026-08-25T10:00:00Z"
+ },
+ {
+  "open": "2026-09-04",
+  "name": "Niu Lai Pack",
+  "announcedAt": "2026-09-01T11:00:00Z"
+ },
+ {
+  "open": "2026-09-11",
+  "name": "Apple Pack",
+  "announcedAt": "2026-09-09T12:00:00Z"
+ },
+ {
+  "open": "2026-09-18",
+  "name": "Duo Pack",
+  "announcedAt": "2026-09-16T09:15:00Z"
+ },
+ {
+  "open": "2026-09-24",
+  "name": "Lunar Pack",
+  "announcedAt": "2026-09-22T09:00:00Z"
+ },
+ {
+  "open": "2026-10-02",
+  "name": "Magikarp Pack",
+  "announcedAt": "2026-09-30T09:00:00Z"
+ },
+ {
+  "open": "2026-10-09",
+  "name": "Entei Pack",
+  "announcedAt": "2026-10-06T07:30:00Z"
+ },
+ {
+  "open": "2026-10-16",
+  "name": "Chrono Pack",
+  "announcedAt": "2026-10-15T10:40:00Z"
+ },
+ {
+  "open": "2026-10-23",
+  "name": "Spooky Pack",
+  "announcedAt": "2026-10-21T10:00:00Z"
+ }
+]
