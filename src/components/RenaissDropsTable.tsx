@@ -50,7 +50,6 @@ const openOf = (d: DropRow) => d.openAt ?? d.firstAt;
 /** The feed's name, else Varible's (dropNames.ts), else "Drop". */
 const nameOf = (d: DropRow) => dropLabel(d)?.name ?? "Drop";
 /** "A, B and C". */
-const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 /** "35m", "3h 25m" (a no-break space keeps it on one line). */
 const duration = (ms: number): string => {
   const mins = Math.max(0, Math.round(ms / 60_000));
@@ -112,11 +111,9 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
   const older = views.slice(RECENT);
   const oldest = snap.drops[snap.drops.length - 1];
   const maxSold = Math.max(1, ...views.map((v) => v.soldMs));
-  // Names Varible added where the feed has none, oldest first, said in the receipt line.
-  const ours = [...snap.drops].reverse().flatMap((d) => {
-    const l = dropLabel(d);
-    return l?.source === "varible" ? [l.name.replace(/ Pack$/, "")] : [];
-  });
+  // Where the names come from, said in the receipt line: the feed, else a posted name Varible added.
+  const posted = snap.drops.filter((d) => dropLabel(d)?.source === "varible").length;
+  const unnamed = snap.drops.some((d) => !dropLabel(d));
 
   // The tiles: each group's share of the newest drops' buyers and packs, pooled.
   const split = recent.filter((v) => v.groups.returning.packs != null);
@@ -195,7 +192,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
         </details>
       ) : null}
       <p className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · returning = bought an earlier drop, counted from ${formatMonthDayUtc(snap.historyFrom)} · first drop = had played Renaiss, never bought a drop · new to Renaiss = their first Renaiss pull was in that drop · tiles pool the newest ${recent.length} drops · sold out in = from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes (so a pack bought early doesn't start the clock), to the run's last pack${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · returning = bought an earlier drop, counted from ${formatMonthDayUtc(snap.historyFrom)} · first drop = had played Renaiss, never bought a drop · new to Renaiss = their first Renaiss pull was in that drop · tiles pool the newest ${recent.length} drops · sold out in = from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes (so a pack bought early doesn't start the clock), to the run's last pack · names: Renaiss's feed${posted ? `, or for the ${posted} drops it leaves unnamed, Renaiss's announcement posts on X (added by Varible)` : ""}${unnamed ? ` · "Drop" = no name known` : ""}`}
       </p>
     </Section>
   );
