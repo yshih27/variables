@@ -4,10 +4,12 @@
  * 1,000 packs each, the fastest run gone in 24 minutes. Every one opened at 09:00
  * UTC (Oct 24 2026; see openingOf).
  *
- * Per drop: its run, how long the last pack took, how many wallets bought, how
- * concentrated the buying was (kept, never published: private to Renaiss), how
- * many buyers were new to Renaiss and how many had bought an earlier drop. Renaiss sees its own pulls; this reads them as a
- * series and keeps the history, `renaiss-drops`, written by
+ * Per drop: its run, how long it took to sell out (and half of it), how many
+ * wallets bought and how many packs each, how concentrated the buying was
+ * (kept, never published: private to Renaiss), and its buyers and packs split
+ * three ways: buyers of an earlier drop, first-drop buyers who had played
+ * Renaiss before, and players new to Renaiss. Renaiss sees its own pulls; this
+ * reads them as a series and keeps the history, `renaiss-drops`, written by
  * scripts/warm-renaiss-drops.ts.
  *
  * ⚠️ A DROP IS INFERRED, NEVER DECLARED. Renaiss publishes no drop calendar and
@@ -69,17 +71,32 @@ export type DropRow = {
   firstAt: string;
   /** The opening (openingOf): where the clock starts. Absent on a row stored before it was measured, until the warmer fills it. */
   openAt?: string;
+  /** When half the run had sold (halfOf). Absent on a row stored before it was measured, until the warmer fills it. */
+  halfAt?: string;
   lastAt: string;
   buyers: number;
-  /** Kept so a later drop can tell its returning buyers; never rendered. */
-  buyerWallets: string[];
+  /**
+   * Packs per buyer wallet: a later drop tells its returning buyers by it, and
+   * scoreDrops splits packs by buyer with it. Never rendered or logged (private
+   * to Renaiss; the repo and its Actions logs are public).
+   */
+  buyerPacks?: Record<string, number>;
+  /** Rows stored before buyerPacks carry the wallets only, until the warmer fills buyerPacks. */
+  buyerWallets?: string[];
   /** Never rendered or logged (the repo and its Actions logs are public). */
   topBuyersSharePct: number;
   /** Buyers whose first Renaiss pull of all was in this drop. */
   newPlayers: number;
   /** Buyers who bought an earlier drop in the history. */
   returningBuyers: number;
+  /** Packs those two groups bought (scoreDrops); absent until the row has buyerPacks. */
+  packsNew?: number;
+  packsReturning?: number;
 };
+
+/** A drop's buyer wallets, from either stored shape. */
+export const walletsOf = (d: Pick<DropRow, "buyerPacks" | "buyerWallets">): string[] =>
+  d.buyerPacks ? Object.keys(d.buyerPacks) : (d.buyerWallets ?? []);
 
 export type RenaissDrops = {
   generatedAt: string;
@@ -132,6 +149,21 @@ export function openingOf(times: number[]): number | null {
   return times[0];
 }
 
+/** When half of `times` (ms, ascending) had happened: the pull that completes half the run; null when there are none. */
+export function halfOf(times: number[]): number | null {
+  return times.length ? times[Math.ceil(times.length / 2) - 1] : null;
+}
+
+/** Packs per buyer wallet (lower-cased), keys sorted so the stored JSON is stable. */
+function packsByBuyer(list: DropPull[]): Record<string, number> {
+  const m = new Map<string, number>();
+  for (const p of list) {
+    const b = p.buyer?.toLowerCase();
+    if (b) m.set(b, (m.get(b) ?? 0) + 1);
+  }
+  return Object.fromEntries([...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)));
+}
+
 /** A drop's paid pull times, ascending. */
 function pullTimes(list: DropPull[]): number[] {
   return list.map((p) => Date.parse(p.pulled_at)).filter(Number.isFinite).sort((a, b) => a - b);
@@ -142,7 +174,7 @@ function pullTimes(list: DropPull[]): number[] {
  * product counts only when its first pull is at least DROP_LEAD_MS after
  * `readFromMs` (the read saw a day without it) and its span plus DROP_SETTLE_MS
  * has passed. `newPlayers` and `returningBuyers` are left at 0: scoreDrops fills
- * them against the whole history.
+ * them, and the packs they bought, against the whole history.
  */
 export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number): DropRow[] {
   const out: DropRow[] = [];
@@ -156,12 +188,9 @@ export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number
       const v = num(p.price_usd)!;
       prices.set(v, (prices.get(v) ?? 0) + 1);
     }
-    const byBuyer = new Map<string, number>();
-    for (const p of list) {
-      const b = p.buyer?.toLowerCase();
-      if (b) byBuyer.set(b, (byBuyer.get(b) ?? 0) + 1);
-    }
-    const top = [...byBuyer.values()].sort((a, b) => b - a).slice(0, DROP_TOP_BUYERS).reduce((s, n) => s + n, 0);
+    const buyerPacks = packsByBuyer(list);
+    const top = Object.values(buyerPacks).sort((a, b) => b - a).slice(0, DROP_TOP_BUYERS).reduce((s, n) => s + n, 0);
+    const times = pullTimes(list);
     out.push({
       productId,
       name: named?.machine_name?.trim() ?? `Unnamed pack · ${shortDay(first)}`,
@@ -169,10 +198,11 @@ export function detectDrops(pulls: DropPull[], readFromMs: number, nowMs: number
       priceUsd: [...prices.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
       packs: list.length,
       firstAt: new Date(first).toISOString(),
-      openAt: new Date(openingOf(pullTimes(list)) ?? first).toISOString(),
+      openAt: new Date(openingOf(times) ?? first).toISOString(),
+      halfAt: new Date(halfOf(times) ?? last).toISOString(),
       lastAt: new Date(last).toISOString(),
-      buyers: byBuyer.size,
-      buyerWallets: [...byBuyer.keys()].sort(),
+      buyers: Object.keys(buyerPacks).length,
+      buyerPacks,
       topBuyersSharePct: list.length ? (100 * top) / list.length : 0,
       newPlayers: 0,
       returningBuyers: 0,
@@ -200,6 +230,11 @@ export function sellingPastSpan(pulls: DropPull[]): Set<string> {
  * less any product in `notDrops`, newest first, each scored against every drop
  * before it. `firstPullMs` is each wallet's first Renaiss pull of all
  * (renaiss_wallet_spend).
+ *
+ * Each buyer falls in one group: bought an earlier drop (returning), else first
+ * Renaiss pull of all inside this drop (new), else a first-drop buyer who had
+ * played before. With buyerPacks the row also gets the packs of the first two;
+ * the third is what remains.
  */
 export function scoreDrops(stored: DropRow[], fresh: DropRow[], firstPullMs: Map<string, number>, notDrops: Set<string> = new Set()): DropRow[] {
   const byId = new Map(stored.filter((d) => !notDrops.has(d.productId)).map((d) => [d.productId, d]));
@@ -209,15 +244,24 @@ export function scoreDrops(stored: DropRow[], fresh: DropRow[], firstPullMs: Map
   const scored = chronological.map((d) => {
     const first = Date.parse(d.firstAt);
     const last = Date.parse(d.lastAt);
+    const wallets = walletsOf(d);
     let newPlayers = 0;
     let returningBuyers = 0;
-    for (const w of d.buyerWallets) {
+    let packsNew = 0;
+    let packsReturning = 0;
+    for (const w of wallets) {
       const t = firstPullMs.get(w);
-      if (t != null && t >= first && t <= last) newPlayers++;
-      if (seen.has(w)) returningBuyers++;
+      const packs = d.buyerPacks?.[w] ?? 0;
+      if (seen.has(w)) {
+        returningBuyers++;
+        packsReturning += packs;
+      } else if (t != null && t >= first && t <= last) {
+        newPlayers++;
+        packsNew += packs;
+      }
     }
-    for (const w of d.buyerWallets) seen.add(w);
-    return { ...d, newPlayers, returningBuyers };
+    for (const w of wallets) seen.add(w);
+    return { ...d, newPlayers, returningBuyers, ...(d.buyerPacks ? { packsNew, packsReturning } : {}) };
   });
   return scored.reverse();
 }
@@ -256,11 +300,11 @@ export async function readDropPulls(fromMs: number, toMs: number): Promise<DropP
 }
 
 /**
- * The opening of a stored drop, read from its own paid pulls (one product, its
- * first-to-last window over the `pulled_at` index): for rows stored before the
- * opening was measured.
+ * What a stored drop lacks, read from its own paid pulls (one product, its
+ * first-to-last window over the `pulled_at` index): its opening, half time and
+ * packs per buyer, for rows stored before they were measured.
  */
-export async function readDropOpening(d: Pick<DropRow, "productId" | "firstAt" | "lastAt">): Promise<string> {
+export async function readDropDetail(d: Pick<DropRow, "productId" | "firstAt" | "lastAt">): Promise<Pick<DropRow, "openAt" | "halfAt" | "buyerPacks">> {
   const PAGE = 1000;
   const rows: DropPull[] = [];
   for (let from = 0; ; from += PAGE) {
@@ -273,13 +317,18 @@ export async function readDropOpening(d: Pick<DropRow, "productId" | "firstAt" |
       .lte("pulled_at", d.lastAt)
       .order("pull_id", { ascending: true })
       .range(from, from + PAGE - 1);
-    if (error) throw new Error(`[renaiss_pulls] opening read failed (${d.firstAt.slice(0, 10)}): ${error.message}`);
+    if (error) throw new Error(`[renaiss_pulls] drop detail read failed (${d.firstAt.slice(0, 10)}): ${error.message}`);
     const page = (data ?? []) as DropPull[];
     rows.push(...page);
     if (page.length < PAGE) break;
   }
-  const opening = openingOf(pullTimes(rows.filter((p) => (num(p.price_usd) ?? 0) > 0)));
-  return new Date(opening ?? Date.parse(d.firstAt)).toISOString();
+  const paid = rows.filter((p) => (num(p.price_usd) ?? 0) > 0);
+  const times = pullTimes(paid);
+  return {
+    openAt: new Date(openingOf(times) ?? Date.parse(d.firstAt)).toISOString(),
+    halfAt: new Date(halfOf(times) ?? Date.parse(d.lastAt)).toISOString(),
+    buyerPacks: packsByBuyer(paid),
+  };
 }
 
 export function readRenaissDrops(): Promise<RenaissDrops | null> {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { detectDrops, openingOf, scoreDrops, sellingPastSpan, DROP_MIN_PACKS, OPEN_BURST_MS, OPEN_BURST_PACKS, type DropPull } from "./drops";
+import { detectDrops, halfOf, openingOf, scoreDrops, sellingPastSpan, walletsOf, DROP_MIN_PACKS, OPEN_BURST_MS, OPEN_BURST_PACKS, type DropPull, type DropRow } from "./drops";
 
 const READ_FROM = Date.parse("2026-09-01T00:00:00Z");
 const NOW = Date.parse("2026-10-14T03:00:00Z");
@@ -100,4 +100,46 @@ test("openingOf: the first time a burst follows, else the first time", () => {
   const slow = Array.from({ length: 20 }, (_, i) => t0 + i * 3_600_000);
   assert.equal(openingOf(slow), t0);
   assert.equal(openingOf([]), null);
+});
+
+test("buyers and their packs split three ways: an earlier drop, played before, new to Renaiss", () => {
+  // Constructed. Drop one: 0xa two packs, 0xb one. Drop two: 0xa (returning) three, 0xc (played before) two, 0xd (new) one.
+  const one = detectDrops(run("one", "2026-09-05T09:00:00Z", 3, ["0xa", "0xb", "0xa"]).concat(run("one", "2026-09-05T09:03:00Z", 97, ["0xa"])), READ_FROM, NOW);
+  const twoPulls = [
+    ...run("two", "2026-09-12T09:00:00Z", 3, ["0xa"]),
+    ...run("two", "2026-09-12T09:03:00Z", 2, ["0xc"]),
+    ...run("two", "2026-09-12T09:05:00Z", 95, ["0xd"]),
+  ];
+  const two = detectDrops(twoPulls, READ_FROM, NOW);
+  assert.deepEqual(two[0].buyerPacks, { "0xa": 3, "0xc": 2, "0xd": 95 });
+  const firstPull = new Map([
+    ["0xa", Date.parse("2026-01-01T00:00:00Z")],
+    ["0xb", Date.parse("2026-02-01T00:00:00Z")],
+    ["0xc", Date.parse("2026-03-01T00:00:00Z")], // played before, first drop
+    ["0xd", Date.parse("2026-09-12T09:05:00Z")], // first pull of all in drop two
+  ]);
+  const [second] = scoreDrops(one, two, firstPull);
+  assert.equal(second.productId, "two");
+  assert.deepEqual([second.returningBuyers, second.newPlayers, second.buyers - second.returningBuyers - second.newPlayers], [1, 1, 1]);
+  assert.deepEqual([second.packsReturning, second.packsNew, second.packs - second.packsReturning! - second.packsNew!], [3, 95, 2]);
+});
+
+test("a row stored before packs per buyer still scores its buyers, with no pack split", () => {
+  const legacy: DropRow = {
+    productId: "old", name: "Unnamed pack · Jul 3", named: false, priceUsd: 100, packs: 2,
+    firstAt: "2026-07-03T09:00:00.000Z", lastAt: "2026-07-03T09:01:00.000Z", buyers: 2,
+    buyerWallets: ["0xa", "0xb"], topBuyersSharePct: 100, newPlayers: 0, returningBuyers: 0,
+  };
+  const [d] = scoreDrops([legacy], [], new Map([["0xb", Date.parse("2026-07-03T09:00:30Z")]]));
+  assert.deepEqual(walletsOf(d), ["0xa", "0xb"]);
+  assert.equal(d.newPlayers, 1);
+  assert.equal(d.packsNew, undefined);
+  assert.equal(d.packsReturning, undefined);
+});
+
+test("halfOf: the pull that completes half the run", () => {
+  assert.equal(halfOf([1, 2, 3, 4]), 2);
+  assert.equal(halfOf([1, 2, 3]), 2);
+  assert.equal(halfOf([7]), 7);
+  assert.equal(halfOf([]), null);
 });
