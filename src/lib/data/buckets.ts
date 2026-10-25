@@ -13,7 +13,6 @@ import { unstable_cache } from "next/cache";
 import type { CollectionStats, NormalizedSale } from "@/lib/rarible/queries";
 import { PLATFORM_SOURCES, type PlatformSource } from "./sources";
 import { readHistory, type HourBucket } from "./history";
-import { readCourtyardPrimary } from "./courtyardPrimaryCache";
 import { readPrimaryRevenue } from "./primaryRevenueCache";
 import { readGachaDune } from "./gachaDuneCache";
 import { readCoreVolume, type CoreVolumeSnapshot } from "./coreVolumeCache";
@@ -82,8 +81,11 @@ function unknownStats(collectionId: string): CollectionStats {
  *   1. Dune gacha cache (warm-gacha-dune.ts) — complete chain scan, same
  *      number the /gacha page shows. Keeps the two pages consistent.
  *   2. RPC primary-revenue cache (warm-primary-revenue.ts) — fallback.
- *   3. Courtyard legacy estimate (MINTs × $2) — last resort.
- *   4. null — surfaces as "—" in the UI.
+ *   3. null — surfaces as "—" in the UI.
+ *
+ * Courtyard's old last resort, MINTs × an assumed $2 fee (warm-courtyard-primary),
+ * was retired on Oct 25 2026. The Dune cache carries Courtyard, and an unknown
+ * prints as "—" rather than as an estimate.
  */
 async function resolvePrimaryUsd(platformKey: string): Promise<number | null> {
   const dune = await readGachaDune();
@@ -93,11 +95,6 @@ async function resolvePrimaryUsd(platformKey: string): Promise<number | null> {
   const snap = await readPrimaryRevenue();
   const entry = snap?.platforms?.[platformKey];
   if (entry && Number.isFinite(entry.vol24hUsd)) return entry.vol24hUsd;
-
-  if (platformKey === "courtyard") {
-    const legacy = await readCourtyardPrimary();
-    return legacy?.volume24hUsd ?? null;
-  }
   return null;
 }
 
