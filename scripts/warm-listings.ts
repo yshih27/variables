@@ -12,6 +12,7 @@
  *   - Filters out listings < MIN_PRICE_USD as dust
  *   - Caps each platform at MAX_ORDERS to keep runtime bounded; Courtyard
  *     alone can exceed 750K active orders
+ *   - Stops each Rarible scan at PLATFORM_BUDGET_MS (see there)
  */
 import { config } from "dotenv";
 config({ path: ".env.local" });
@@ -31,6 +32,16 @@ import { runWarmer } from "../src/lib/db/runWarmer";
 const MIN_PRICE_USD = 1.0;
 const argMax = process.argv.find((a) => a.startsWith("--max-orders="));
 const MAX_ORDERS = argMax ? Number(argMax.split("=")[1]) : 200_000;
+/**
+ * Time budget per Rarible-read venue. Oct 24 2026: Rarible's /orders/all went
+ * from ~85s per 200,000-order scan to 49 minutes (Courtyard) and 30s timeouts
+ * (Beezie). This unbudgeted step then ate the core job's 75 minutes, and nothing
+ * after it (market cap, volume, the Renaiss steps, the homepage payload) ran for
+ * a day. A scan that reaches the budget stops like an interrupted one: tokens
+ * it didn't reach keep their last listing, because the cache is seeded from the
+ * previous snapshot.
+ */
+const PLATFORM_BUDGET_MS = 8 * 60_000;
 
 type RaribleOrder = {
   id: string;
@@ -77,6 +88,12 @@ async function warmPlatform(
   const t0 = Date.now();
 
   for await (const order of paginate(source.collectionId, MAX_ORDERS)) {
+    if (Date.now() - t0 > PLATFORM_BUDGET_MS) {
+      console.warn(
+        `  ${source.name}: stopped at the ${PLATFORM_BUDGET_MS / 60_000}-minute budget after ${total} orders · ${priced} priced; tokens not reached keep their last listing`,
+      );
+      return { total, priced, dust, unpriced };
+    }
     total += 1;
     const make = order.make.type;
     const tokenId = make.tokenId;
