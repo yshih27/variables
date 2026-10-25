@@ -7,9 +7,13 @@ import { Section } from "./Section";
  * Renaiss's limited drops (`renaiss-drops`), one row per drop, newest first.
  * Each row reads across: the drop's packs as one bar split by who bought them,
  * how long it took to sell out (with the moment half the run was gone), its
- * buyers, and packs per buyer for everyone, for buyers of an earlier drop and
- * for first-drop buyers. Hover (or focus) a row for its full breakdown; the
+ * buyers and its packs per buyer. Hover (or focus) a row for its breakdown; the
  * table view under the toggle holds every figure.
+ *
+ * Packs per buyer is shown for all buyers only. Per-group averages stay off the
+ * page (owner's call, Oct 25 2026): a group's average is often a few wallets,
+ * which reads as typical when it isn't, and it sits close to the private
+ * concentration figure below. Each group's buyers and packs are shown.
  *
  * Two bars, two scales, side by side: packs on one, time on the other, never
  * one bar carrying both. Bar lengths compare across rows (the biggest run and
@@ -54,7 +58,7 @@ const duration = (ms: number): string => {
 };
 const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
 const int = (n: number) => n.toLocaleString("en-US");
-const perBuyer = (packs: number | null, buyers: number) => (packs == null || buyers <= 0 ? null : packs / buyers);
+const perBuyer = (packs: number, buyers: number) => (buyers > 0 ? packs / buyers : null);
 const oneDp = (n: number | null) => (n == null ? "—" : n.toFixed(1));
 
 type DropView = {
@@ -67,7 +71,8 @@ type DropView = {
   buyers: Record<GroupKey, number>;
   /** Null until the row carries its packs per buyer (the warmer fills older rows once). */
   packs: Record<GroupKey, number> | null;
-  per: { all: number | null; returning: number | null; firstDrop: number | null };
+  /** Packs per buyer, all buyers. */
+  packsEach: number | null;
 };
 
 function viewOf(d: DropRow): DropView {
@@ -84,16 +89,12 @@ function viewOf(d: DropRow): DropView {
     halfMs: d.halfAt ? Math.max(0, Date.parse(d.halfAt) - open) : null,
     buyers,
     packs,
-    per: {
-      all: perBuyer(d.packs, d.buyers),
-      returning: packs ? perBuyer(packs.returning, buyers.returning) : null,
-      firstDrop: packs ? perBuyer(packs.played + packs.new, buyers.played + buyers.new) : null,
-    },
+    packsEach: perBuyer(d.packs, d.buyers),
   };
 }
 
-/** Columns: drop · packs · sold out · buyers · packs per buyer (all; and, from lg, the two groups). */
-const COLS = "md:grid-cols-[minmax(150px,1.1fr)_minmax(200px,2.4fr)_minmax(150px,1.5fr)_60px_56px] lg:grid-cols-[minmax(150px,1.1fr)_minmax(200px,2.4fr)_minmax(150px,1.5fr)_60px_56px_76px_68px]";
+/** Columns: drop · packs · sold out · buyers · packs each. */
+const COLS = "md:grid-cols-[minmax(150px,1.1fr)_minmax(200px,2.4fr)_minmax(150px,1.5fr)_64px_80px]";
 
 export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefined }) {
   if (!snap?.drops?.length) return null;
@@ -135,16 +136,13 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
         </span>
       </div>
 
-      {/* Column heads, from md: "Packs each" spans its three columns (one from md, three from lg). */}
-      <div className={`hidden items-end border-y border-line px-4 pb-2 pt-1.5 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5 md:grid md:gap-x-4 md:gap-y-1 ${COLS}`} aria-hidden>
-        <span className="col-start-5 col-end-6 border-b border-line/80 pb-1 text-right lg:col-end-8">Packs each</span>
-        <span className="col-start-1 row-start-2">Drop</span>
-        <span className="row-start-2">Packs</span>
-        <span className="row-start-2">Sold out in</span>
-        <span className="row-start-2 text-right">Buyers</span>
-        <span className="row-start-2 text-right">All</span>
-        <span className="row-start-2 hidden text-right lg:block">Earlier drop</span>
-        <span className="row-start-2 hidden text-right lg:block">First drop</span>
+      {/* Column heads, from md. */}
+      <div className={`hidden border-y border-line px-4 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5 md:grid md:gap-x-4 ${COLS}`} aria-hidden>
+        <span>Drop</span>
+        <span>Packs</span>
+        <span>Sold out in</span>
+        <span className="text-right">Buyers</span>
+        <span className="text-right">Packs each</span>
       </div>
 
       <ol className="border-b border-line" data-drops-rows>
@@ -175,7 +173,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
  */
 function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks: number; maxSold: number; opensUp: boolean }) {
   const { d } = v;
-  const sentence = `${v.name}, ${v.date}: ${int(d.packs)} packs, sold out in ${duration(v.soldMs)}${v.halfMs != null ? `, half gone in ${duration(v.halfMs)}` : ""}; ${int(d.buyers)} buyers, ${oneDp(v.per.all)} packs each${
+  const sentence = `${v.name}, ${v.date}: ${int(d.packs)} packs, sold out in ${duration(v.soldMs)}${v.halfMs != null ? `, half gone in ${duration(v.halfMs)}` : ""}; ${int(d.buyers)} buyers, ${oneDp(v.packsEach)} packs each${
     v.packs ? `; ${GROUPS.map((g) => `${g.label}: ${int(v.buyers[g.key])} buyers, ${int(v.packs![g.key])} packs`).join("; ")}` : ""
   }`;
   return (
@@ -215,12 +213,10 @@ function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks:
       </span>
 
       <span className="hidden text-right font-mono text-[12.5px] tabular text-ink-2 md:block">{int(d.buyers)}</span>
-      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink md:block">{oneDp(v.per.all)}</span>
-      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink-2 lg:block">{oneDp(v.per.returning)}</span>
-      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink-2 lg:block">{oneDp(v.per.firstDrop)}</span>
+      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink md:block">{oneDp(v.packsEach)}</span>
 
-      {/* Below md: the figures on one line (the groups' packs each are in the table view). */}
-      <span className="col-span-2 font-mono text-[11px] tabular text-ink-3 md:hidden">{`${int(d.buyers)} buyers · ${oneDp(v.per.all)} packs each`}</span>
+      {/* Below md: the figures on one line. */}
+      <span className="col-span-2 font-mono text-[11px] tabular text-ink-3 md:hidden">{`${int(d.buyers)} buyers · ${oneDp(v.packsEach)} packs each`}</span>
 
       {/* The breakdown: values lead, labels follow. */}
       <span
@@ -231,7 +227,7 @@ function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks:
         <span className="mt-0.5 block whitespace-nowrap font-mono tabular">
           {`${int(d.packs)} packs · sold out in ${duration(v.soldMs)}${v.halfMs != null ? ` · half gone in ${duration(v.halfMs)}` : ""}`}
         </span>
-        <span className="block font-mono tabular">{`${int(d.buyers)} buyers · ${oneDp(v.per.all)} packs each`}</span>
+        <span className="block font-mono tabular">{`${int(d.buyers)} buyers · ${oneDp(v.packsEach)} packs each`}</span>
         <span className="mt-1.5 grid grid-cols-[12px_auto_auto] items-center gap-x-2 gap-y-1">
           {GROUPS.map((g) => (
             <span key={g.key} className="contents">
@@ -244,7 +240,7 @@ function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks:
                   <>
                     {` · `}
                     <span className="text-ink">{int(v.packs[g.key])}</span>
-                    {` packs · ${oneDp(perBuyer(v.packs[g.key], v.buyers[g.key]))} each`}
+                    {` packs`}
                   </>
                 ) : null}
               </span>
@@ -261,7 +257,7 @@ function DropsTable({ views }: { views: DropView[] }) {
   const pair = (b: number, p: number | null) => (p == null ? int(b) : `${int(b)} · ${int(p)}`);
   return (
     <div className="scroll-x">
-      <table className="w-full min-w-[1080px] border-collapse text-[12.5px]" data-drops>
+      <table className="w-full min-w-[980px] border-collapse text-[12.5px]" data-drops>
         <thead>
           <tr className="border-b border-line">
             <Th>Drop</Th>
@@ -273,7 +269,7 @@ function DropsTable({ views }: { views: DropView[] }) {
             <Th align="right">Earlier drop: buyers · packs</Th>
             <Th align="right">First drop, played before</Th>
             <Th align="right">New to Renaiss</Th>
-            <Th align="right">Packs each: all · earlier · first</Th>
+            <Th align="right">Packs each</Th>
           </tr>
         </thead>
         <tbody>
@@ -291,7 +287,7 @@ function DropsTable({ views }: { views: DropView[] }) {
               <Td align="right" className="text-ink-2">{pair(v.buyers.returning, v.packs?.returning ?? null)}</Td>
               <Td align="right" className="text-ink-2">{pair(v.buyers.played, v.packs?.played ?? null)}</Td>
               <Td align="right" className="text-ink-2">{pair(v.buyers.new, v.packs?.new ?? null)}</Td>
-              <Td align="right" className="text-ink-2">{`${oneDp(v.per.all)} · ${oneDp(v.per.returning)} · ${oneDp(v.per.firstDrop)}`}</Td>
+              <Td align="right" className="text-ink-2">{oneDp(v.packsEach)}</Td>
             </tr>
           ))}
         </tbody>
