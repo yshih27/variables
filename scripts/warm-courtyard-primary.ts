@@ -29,6 +29,14 @@ import { runWarmer } from "../src/lib/db/runWarmer";
 // Default estimate. Adjust when Courtyard discloses their fee schedule.
 const TOKENIZATION_FEE_USD = 2.0;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Time budget for the 7-day MINT scan. It took 10m14s on Oct 24 2026 with
+ * Rarible healthy. On Oct 25, with Rarible's API slow, it ran 44 minutes into
+ * the core job's timeout, and every step after it was skipped. A scan that
+ * misses the budget writes nothing (a partial 7-day count would understate)
+ * and fails, so the last snapshot stays and freshness shows it.
+ */
+const BUDGET_MS = 12 * 60_000;
 
 async function main() {
   const ct = PLATFORM_SOURCES.find((p) => p.key === "courtyard");
@@ -45,6 +53,9 @@ async function main() {
     { collection: ct.collectionId, types: ["MINT"], sort: "LATEST_FIRST" },
     { date: cutoff7d },
   )) {
+    if (Date.now() - t0 > BUDGET_MS) {
+      throw new Error(`stopped at the ${BUDGET_MS / 60_000}-minute budget before 7 days of MINTs were read (${count7d} so far, back to ${a.date}): the last snapshot stays`);
+    }
     count7d += 1;
     if (a.date >= cutoff24h) count24h += 1;
   }

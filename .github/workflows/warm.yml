@@ -60,7 +60,10 @@ jobs:
       (github.event_name == 'schedule' && github.event.schedule == '0 */6 * * *')
       || (github.event_name == 'workflow_dispatch' && github.event.inputs.batch == 'core')
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # 75 until Oct 25 2026. A healthy run takes ~40 min; with Rarible's API slow,
+    # Listings (budgeted) and Courtyard primary (budgeted) alone can reach ~30.
+    # A job timeout skips every step left, the homepage payload included.
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -106,6 +109,7 @@ jobs:
         run: npx tsx scripts/warm-renaiss-pulls.ts --apply
       - name: Core volume (cached Dune + Rarible)
         continue-on-error: true
+        timeout-minutes: 15 # ~2 min healthy; Rarible-dependent, so bounded (Oct 25 2026)
         run: npx tsx scripts/warm-core-dune.ts --cached
       # The price index, the sale panel, the identity index + slabs and the
       # character rollups — every 6 h, not once a day. Moved here from the 06:00
@@ -124,9 +128,13 @@ jobs:
         run: npx tsx scripts/warm-venue-insights.ts --apply
       - name: Courtyard primary
         continue-on-error: true
+        # Backstop for the scan's own budget (warm-courtyard-primary.ts BUDGET_MS):
+        # on Oct 25 2026 a slow Rarible API held this step until the job timed out.
+        timeout-minutes: 15
         run: npx tsx scripts/warm-courtyard-primary.ts
       - name: Backfill history
         continue-on-error: true
+        timeout-minutes: 15 # seconds healthy; reads Courtyard from Rarible, so bounded (Oct 25 2026)
         run: npx tsx scripts/backfill-history.ts
       # Renaiss's machine board and players, from the rows just stored. No API call.
       # Machines: a 30-complete-day windowed read (~166K pulls, ~70 s measured Oct 7).
