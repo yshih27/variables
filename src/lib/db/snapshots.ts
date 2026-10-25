@@ -2,7 +2,7 @@
  * Generic snapshot-blob store in the `snapshots` table.
  *
  * Used by the cache modules that read/write a whole snapshot object (holders,
- * marketcap, listings, cc-sales, courtyard-primary, primary-revenue, per-platform
+ * marketcap, listings, cc-sales, primary-revenue, per-platform
  * history). Each key holds one JSON payload + a generated_at. This is the
  * Phase-2 migration off local disk — see MIGRATION_PLAN.md §2.
  */

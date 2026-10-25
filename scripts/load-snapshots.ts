@@ -22,7 +22,6 @@ const BLOBS: Array<{ file: string; key: string }> = [
   { file: "listings.json", key: "listings" },
   { file: "holders.json", key: "holders" },
   { file: "cc-sales-24h.json", key: "cc-sales" },
-  { file: "courtyard-primary.json", key: "courtyard-primary" },
   { file: "primary-revenue.json", key: "primary-revenue" },
 ];
 

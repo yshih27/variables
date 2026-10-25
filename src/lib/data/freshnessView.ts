@@ -30,7 +30,6 @@ const LABELS: Record<string, string> = {
   "core-volume": "Volume",
   marketcap: "Market cap",
   listings: "Listings / floor",
-  "courtyard-primary": "Courtyard primary",
   "primary-revenue": "Primary revenue",
   history: "Price history",
   "gacha-dune": "Gacha",

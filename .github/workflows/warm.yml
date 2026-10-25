@@ -126,12 +126,6 @@ jobs:
       - name: Venue insights (market position + same card, other venues → venue-insights)
         continue-on-error: true
         run: npx tsx scripts/warm-venue-insights.ts --apply
-      - name: Courtyard primary
-        continue-on-error: true
-        # Backstop for the scan's own budget (warm-courtyard-primary.ts BUDGET_MS):
-        # on Oct 25 2026 a slow Rarible API held this step until the job timed out.
-        timeout-minutes: 15
-        run: npx tsx scripts/warm-courtyard-primary.ts
       - name: Backfill history
         continue-on-error: true
         timeout-minutes: 15 # seconds healthy; reads Courtyard from Rarible, so bounded (Oct 25 2026)
@@ -198,7 +192,7 @@ jobs:
       # to run and fail. Combined with the stale/untracked fix in check-freshness,
       # this is what closes the "6 days dead behind green runs" hole.
       - name: Health gate
-        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,courtyard-primary,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,renaiss-sales,renaiss-pulls,price-index,homepage,studio-seed,metric-snapshots,weekly-report
+        run: npx tsx scripts/check-freshness.ts --require=listings,marketcap,core-volume,history,gacha-dune,phygitals-gacha,cc-gacha,gacha-packs,dyli-sales,renaiss-sales,renaiss-pulls,price-index,homepage,studio-seed,metric-snapshots,weekly-report
       # The index this job just published, gated in the same job (INV-7/11/12/13
       # and INV-14, the running month's reading): no index point goes out without
       # them. Runs even when the health gate fails, so both verdicts show.
