@@ -205,7 +205,10 @@ async function main() {
   const dropDays = new Set(opens.map((o) => Math.floor(o / DAY)));
   const hodDrop = Array.from({ length: 24 }, () => 0), hodOther = Array.from({ length: 24 }, () => 0);
   let nDrop = 0, nOther = 0;
-  for (let day = Math.floor(hodFrom / DAY); day < Math.floor(dayStart / DAY); day++) (dropDays.has(day) ? nDrop++ : nOther++);
+  for (let day = Math.floor(hodFrom / DAY); day < Math.floor(dayStart / DAY); day++) {
+    if (dropDays.has(day)) nDrop++;
+    else nOther++;
+  }
   for (let i = lowerBound(hodFrom); i < pulls.length && pulls[i].t < dayStart; i++) {
     const p = pulls[i];
     if (p.drop) continue;
