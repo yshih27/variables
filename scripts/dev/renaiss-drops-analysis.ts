@@ -246,7 +246,7 @@ async function main() {
   const dropsBought = new Map<string, number>();
   for (const d of perDrop) for (const w of d.buyerWallets) dropsBought.set(w, (dropsBought.get(w) ?? 0) + 1);
   const bucket = (lo: number, hi: number) => [...dropsBought.values()].filter((n) => n >= lo && n <= hi).length;
-  const named5 = perDrop.filter((d) => d.nameSource === "varible").map((d) => new Set(d.buyerWallets));
+  const addedNames = perDrop.filter((d) => d.nameSource === "varible").map((d) => new Set(d.buyerWallets));
   const inAll = (sets: Set<string>[]) => (sets.length ? [...sets[0]].filter((w) => sets.every((s) => s.has(w))).length : 0);
   const allSets = perDrop.map((d) => new Set(d.buyerWallets));
   const sepOct = perDrop.filter((d) => d.date >= "2026-09-01").map((d) => new Set(d.buyerWallets));
@@ -325,7 +325,7 @@ async function main() {
     distinctBuyers: dropsBought.size,
     dropsBoughtBuckets: { "1": bucket(1, 1), "2-4": bucket(2, 4), "5-9": bucket(5, 9), "10-14": bucket(10, 14), "15-18": bucket(15, 18) },
     boughtAll18: inAll(allSets),
-    boughtAllNamed5: inAll(named5),
+    boughtAllAddedNames: { drops: addedNames.length, wallets: inAll(addedNames) },
     boughtAllSepOct: { drops: sepOct.length, wallets: inAll(sepOct) },
     dropFirstTimers,
     otherFirstTimers,
