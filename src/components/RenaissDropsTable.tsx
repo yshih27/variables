@@ -4,20 +4,17 @@ import { dropLabel } from "@/lib/renaiss/dropNames";
 import { Section } from "./Section";
 
 /**
- * Renaiss's limited drops (`renaiss-drops`), one row per drop, newest first.
- * Each row reads across: the drop's packs as one bar split by who bought them,
- * how long it took to sell out (with the moment half the run was gone), its
- * buyers and its packs per buyer. Hover (or focus) a row for its breakdown; the
- * table view under the toggle holds every figure.
+ * Renaiss's limited drops (`renaiss-drops`): who buys them, and how much each
+ * kind of buyer takes.
  *
- * Packs per buyer is shown for all buyers only. Per-group averages stay off the
- * page (owner's call, Oct 25 2026): a group's average is often a few wallets,
- * which reads as typical when it isn't, and it sits close to the private
- * concentration figure below. Each group's buyers and packs are shown.
- *
- * Two bars, two scales, side by side: packs on one, time on the other, never
- * one bar carrying both. Bar lengths compare across rows (the biggest run and
- * the slowest sell-out fill their tracks).
+ * Every buyer falls in one group: returning (bought an earlier drop), first
+ * drop (played Renaiss before, never bought a drop), or new to Renaiss (first
+ * Renaiss pull of all was this drop). Tiles on top give each group's share of
+ * the newest drops' buyers and packs, and the median sell-out. Below, one row
+ * per drop, newest first (the newest RECENT shown, the rest behind a toggle).
+ * Each group's cell carries two bars on one 0–100% scale, its share of the
+ * buyers and its share of the packs, each labelled. Comparing the two is the
+ * read. Hover (or focus) a row for its counts.
  *
  * ⚠️ INFERRED, AND SAYS SO. Renaiss publishes no drop calendar or supply; the
  * receipt line states the rule (src/lib/renaiss/drops.ts), where the clock
@@ -29,20 +26,22 @@ import { Section } from "./Section";
  * snapshot in the page's RSC payload. Keep this a server component: the hover
  * reads are CSS and the toggle is a native <details>.
  *
- * No written conclusion: the bars, the figures and the breakdown are the read.
+ * No written conclusion: the shares, the bars and the counts are the read.
  */
 
-/**
- * Buyer groups, longest tie to Renaiss's drops first: one lime ramp from the
- * site's tokens, validated as an ordinal ramp on the card surface (Oct 25
- * 2026: monotone lightness, steps ≥ 0.06 apart, darkest step 2.8:1).
- */
+/** Rows shown before the toggle, and the window the tiles summarise. */
+const RECENT = 6;
+
 const GROUPS = [
-  { key: "returning", label: "Bought an earlier drop", color: "var(--color-lime-dim)" },
-  { key: "played", label: "First drop, played before", color: "var(--color-yellow)" },
-  { key: "new", label: "First drop, new to Renaiss", color: "var(--color-yellow-2)" },
+  { key: "returning", label: "Returning", short: "Returning", long: "Returning (bought an earlier drop)" },
+  { key: "played", label: "First drop", short: "First drop", long: "First drop (played Renaiss before)" },
+  { key: "new", label: "New to Renaiss", short: "New", long: "New to Renaiss" },
 ] as const;
 type GroupKey = (typeof GROUPS)[number]["key"];
+
+/** The two shares in every group cell: buyers in a neutral, packs in the accent. */
+const BUYERS_BAR = "var(--color-ink-3)";
+const PACKS_BAR = "var(--color-yellow)";
 
 /** Where a drop's clock starts and its date comes from: the opening (drops.ts openingOf), else its first pull on an older row. */
 const openOf = (d: DropRow) => d.openAt ?? d.firstAt;
@@ -58,9 +57,16 @@ const duration = (ms: number): string => {
 };
 const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
 const int = (n: number) => n.toLocaleString("en-US");
-const perBuyer = (packs: number, buyers: number) => (buyers > 0 ? packs / buyers : null);
-const oneDp = (n: number | null) => (n == null ? "—" : n.toFixed(1));
+const share = (n: number, of: number) => (of > 0 ? (100 * n) / of : null);
+const pctText = (x: number | null) => (x == null ? "—" : `${Math.round(x)}%`);
+const median = (xs: number[]): number | null => {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
 
+type Group = { buyers: number; packs: number | null; buyersPct: number | null; packsPct: number | null };
 type DropView = {
   d: DropRow;
   name: string;
@@ -68,11 +74,7 @@ type DropView = {
   openUtc: string;
   soldMs: number;
   halfMs: number | null;
-  buyers: Record<GroupKey, number>;
-  /** Null until the row carries its packs per buyer (the warmer fills older rows once). */
-  packs: Record<GroupKey, number> | null;
-  /** Packs per buyer, all buyers. */
-  packsEach: number | null;
+  groups: Record<GroupKey, Group>;
 };
 
 function viewOf(d: DropRow): DropView {
@@ -80,6 +82,12 @@ function viewOf(d: DropRow): DropView {
   const split = d.packsNew != null && d.packsReturning != null;
   const buyers = { returning: d.returningBuyers, new: d.newPlayers, played: Math.max(0, d.buyers - d.returningBuyers - d.newPlayers) };
   const packs = split ? { returning: d.packsReturning!, new: d.packsNew!, played: Math.max(0, d.packs - d.packsReturning! - d.packsNew!) } : null;
+  const group = (k: GroupKey): Group => ({
+    buyers: buyers[k],
+    packs: packs ? packs[k] : null,
+    buyersPct: share(buyers[k], d.buyers),
+    packsPct: packs ? share(packs[k], d.packs) : null,
+  });
   return {
     d,
     name: nameOf(d),
@@ -87,20 +95,19 @@ function viewOf(d: DropRow): DropView {
     openUtc: openOf(d).slice(11, 16),
     soldMs: Math.max(0, Date.parse(d.lastAt) - open),
     halfMs: d.halfAt ? Math.max(0, Date.parse(d.halfAt) - open) : null,
-    buyers,
-    packs,
-    packsEach: perBuyer(d.packs, d.buyers),
+    groups: { returning: group("returning"), played: group("played"), new: group("new") },
   };
 }
 
-/** Columns: drop · packs · sold out · buyers · packs each. */
-const COLS = "md:grid-cols-[minmax(150px,1.1fr)_minmax(200px,2.4fr)_minmax(150px,1.5fr)_64px_80px]";
+/** Columns from md: drop · the three groups · sold out · buyers · packs. */
+const COLS = "md:grid-cols-[minmax(140px,1.1fr)_repeat(3,minmax(104px,1fr))_minmax(130px,1fr)_56px_56px]";
 
 export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefined }) {
   if (!snap?.drops?.length) return null;
   const views = snap.drops.map(viewOf);
+  const recent = views.slice(0, RECENT);
+  const older = views.slice(RECENT);
   const oldest = snap.drops[snap.drops.length - 1];
-  const maxPacks = Math.max(...views.map((v) => v.d.packs));
   const maxSold = Math.max(1, ...views.map((v) => v.soldMs));
   // Names Varible added where the feed has none, oldest first, said in the receipt line.
   const ours = [...snap.drops].reverse().flatMap((d) => {
@@ -108,101 +115,167 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
     return l?.source === "varible" ? [l.name.replace(/ Pack$/, "")] : [];
   });
 
+  // The tiles: each group's share of the newest drops' buyers and packs, pooled.
+  const split = recent.filter((v) => v.groups.returning.packs != null);
+  const pooled = (k: GroupKey) => ({
+    buyers: share(recent.reduce((s, v) => s + v.groups[k].buyers, 0), recent.reduce((s, v) => s + v.d.buyers, 0)),
+    packs: split.length ? share(split.reduce((s, v) => s + (v.groups[k].packs ?? 0), 0), split.reduce((s, v) => s + v.d.packs, 0)) : null,
+  });
+  const soldMedian = median(recent.map((v) => v.soldMs));
+  const soldFastest = recent.length ? Math.min(...recent.map((v) => v.soldMs)) : null;
+
   return (
     <Section
       id="drops"
       className="scroll-mt-24 font-sans"
       title="Limited drops"
-      readMe="one-time packs that sold their whole run within a day: how fast, and who bought"
+      readMe="one-time packs that sold their whole run within a day: who buys them, and how much each kind of buyer takes"
       subtitle={`${snap.drops.length} drops since ${formatMonthDayUtc(openOf(oldest))}`}
       flush
     >
-      {/* Legend: the three buyer groups, and the half-run tick on the time bar. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-3 pt-1 text-[11.5px] sm:px-5" data-drops-legend>
-        <span className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-          <span className="text-ink-3">Packs, by who bought them</span>
-          {GROUPS.map((g) => (
-            <span key={g.key} className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 shrink-0" style={{ background: g.color }} aria-hidden />
-              <span className="text-ink-2">{g.label}</span>
-            </span>
-          ))}
-        </span>
-        <span className="flex items-center gap-1.5 text-ink-2">
+      {/* Tiles: the newest drops at a glance. */}
+      <div className="px-4 pb-1 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5">{`Newest ${recent.length} drops`}</div>
+      <div className="grid grid-cols-2 gap-px border-y border-line bg-line md:grid-cols-4" data-drops-tiles>
+        {GROUPS.map((g) => {
+          const p = pooled(g.key);
+          return (
+            <Tile key={g.key} label={g.long}>
+              <Figure color={BUYERS_BAR} value={pctText(p.buyers)} unit="of buyers" />
+              <Figure color={PACKS_BAR} value={pctText(p.packs)} unit="of packs" />
+            </Tile>
+          );
+        })}
+        <Tile label="Sold out in">
+          <Figure value={soldMedian == null ? "—" : duration(soldMedian)} unit="median" />
+          <Figure value={soldFastest == null ? "—" : duration(soldFastest)} unit="fastest" />
+        </Tile>
+      </div>
+
+      {/* Legend and column heads. */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 pb-2 pt-3 text-[11.5px] text-ink-2 sm:px-5" data-drops-legend>
+        <span className="text-ink-3">Each group&apos;s share of the drop&apos;s</span>
+        <Key color={BUYERS_BAR} label="buyers" />
+        <Key color={PACKS_BAR} label="packs" />
+        <span className="flex items-center gap-1.5 md:ml-auto">
           <span className="relative block h-1.5 w-6 bg-ink-3" aria-hidden>
             <span className="absolute -bottom-[3px] -top-[3px] left-[35%] w-[2px] bg-ink" />
           </span>
           Sold out in, ticked where half the run was gone
         </span>
       </div>
-
-      {/* Column heads, from md. */}
       <div className={`hidden border-y border-line px-4 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5 md:grid md:gap-x-4 ${COLS}`} aria-hidden>
         <span>Drop</span>
-        <span>Packs</span>
+        {GROUPS.map((g) => (
+          <span key={g.key}>{g.label}</span>
+        ))}
         <span>Sold out in</span>
         <span className="text-right">Buyers</span>
-        <span className="text-right">Packs each</span>
+        <span className="text-right">Packs</span>
       </div>
 
-      <ol className="border-b border-line" data-drops-rows>
-        {views.map((v, i) => (
-          <DropRowView key={v.d.productId} v={v} maxPacks={maxPacks} maxSold={maxSold} opensUp={i >= views.length / 2} />
+      <ol data-drops-rows>
+        {recent.map((v, i) => (
+          <DropRowView key={v.d.productId} v={v} maxSold={maxSold} opensUp={i >= recent.length / 2} />
         ))}
       </ol>
-
-      <details className="group/table">
-        <summary className="cursor-pointer list-none border-b border-line px-4 py-2.5 font-mono text-[10.5px] text-ink-3 transition-colors hover:text-yellow group-open/table:text-ink-2 sm:px-5 [&::-webkit-details-marker]:hidden">
-          <span className="group-open/table:hidden">{`Every figure, as a table ▾`}</span>
-          <span className="hidden group-open/table:inline">{`Hide the table ▴`}</span>
-        </summary>
-        <DropsTable views={views} />
-      </details>
-      <p className="px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · sold out in = from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes (so a pack bought early doesn't start the clock), to the run's last pack · buyers are wallets · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)} · new to Renaiss = their first Renaiss pull was in that drop · packs each = packs ÷ buyers, an average${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
+      {older.length ? (
+        <details className="group/more border-t border-line">
+          <summary className="cursor-pointer list-none px-4 py-2.5 font-mono text-[10.5px] text-ink-3 transition-colors hover:text-yellow group-open/more:text-ink-2 sm:px-5 [&::-webkit-details-marker]:hidden">
+            <span className="group-open/more:hidden">{`Show all ${views.length} drops ▾`}</span>
+            <span className="hidden group-open/more:inline">{`Show the newest ${recent.length} ▴`}</span>
+          </summary>
+          <ol className="border-t border-line" data-drops-rows-older>
+            {older.map((v, i) => (
+              <DropRowView key={v.d.productId} v={v} maxSold={maxSold} opensUp={i >= older.length / 2} />
+            ))}
+          </ol>
+        </details>
+      ) : null}
+      <p className="border-t border-line px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-drops-receipt>
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · returning = bought an earlier drop, counted from ${formatMonthDayUtc(snap.historyFrom)} · first drop = had played Renaiss, never bought a drop · new to Renaiss = their first Renaiss pull was in that drop · tiles pool the newest ${recent.length} drops · sold out in = from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes (so a pack bought early doesn't start the clock), to the run's last pack${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
       </p>
     </Section>
   );
 }
 
+/** A tile: its figures first, then what they are (value above label, as StatCard). */
+function Tile({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-bg-1 px-4 py-3 sm:px-5">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">{children}</div>
+      <div className="mt-1.5 text-[12px] text-ink-2">{label}</div>
+    </div>
+  );
+}
+
+/** One figure in a tile; the key mark ties it to the bars below. */
+function Figure({ value, unit, color }: { value: string; unit: string; color?: string }) {
+  return (
+    <span className="flex items-baseline gap-1.5">
+      {color ? <span className="h-2 w-2 shrink-0 self-center" style={{ background: color }} aria-hidden /> : null}
+      <span className="font-mono text-[22px] font-semibold leading-none tabular text-ink">{value}</span>
+      <span className="font-mono text-[11px] text-ink-3">{unit}</span>
+    </span>
+  );
+}
+
+function Key({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="h-2 w-4 shrink-0" style={{ background: color }} aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+/** One share on its 0–100% track, its value after it. */
+function ShareBar({ pct, color, strong }: { pct: number | null; color: string; strong?: boolean }) {
+  return (
+    <>
+      <span className="relative block h-[7px] bg-line/70" aria-hidden>
+        {pct != null && pct > 0 ? <span className="absolute inset-y-0 left-0 min-w-[2px]" style={{ width: `${pct}%`, background: color }} /> : null}
+      </span>
+      <span className={`w-[34px] text-right font-mono text-[11.5px] leading-none tabular ${strong ? "text-ink" : "text-ink-2"}`}>{pctText(pct)}</span>
+    </>
+  );
+}
+
 /**
- * One drop. Below md it stacks: name and sell-out on one line, the packs bar
- * under it, the figures under that. From md it is one grid row; the breakdown
- * opens on hover or focus, upward in the lower half of the list so it stays
- * inside the card.
+ * One drop. From md one grid row: name, the three groups' share bars, the
+ * sell-out bar, buyers and packs; the counts open on hover or focus, upward in
+ * the lower half of a list so they stay inside the card. Below md it stacks.
  */
-function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks: number; maxSold: number; opensUp: boolean }) {
+function DropRowView({ v, maxSold, opensUp }: { v: DropView; maxSold: number; opensUp: boolean }) {
   const { d } = v;
-  const sentence = `${v.name}, ${v.date}: ${int(d.packs)} packs, sold out in ${duration(v.soldMs)}${v.halfMs != null ? `, half gone in ${duration(v.halfMs)}` : ""}; ${int(d.buyers)} buyers, ${oneDp(v.packsEach)} packs each${
-    v.packs ? `; ${GROUPS.map((g) => `${g.label}: ${int(v.buyers[g.key])} buyers, ${int(v.packs![g.key])} packs`).join("; ")}` : ""
-  }`;
+  const sentence = `${v.name}, ${v.date}: ${int(d.packs)} packs to ${int(d.buyers)} buyers, sold out in ${duration(v.soldMs)}${v.halfMs != null ? `, half gone in ${duration(v.halfMs)}` : ""}; ${GROUPS.map(
+    (g) => `${g.long}: ${pctText(v.groups[g.key].buyersPct)} of buyers, ${pctText(v.groups[g.key].packsPct)} of packs`,
+  ).join("; ")}`;
   return (
     <li
       tabIndex={0}
       aria-label={sentence}
-      className={`group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 border-b border-line/60 px-4 py-2.5 outline-none md:py-2 transition-colors last:border-b-0 hover:bg-bg-2/60 focus-visible:bg-bg-2/60 sm:px-5 md:gap-y-0 ${COLS}`}
+      className={`group relative grid grid-cols-3 items-center gap-x-4 gap-y-2 border-b border-line/60 px-4 py-3 outline-none transition-colors last:border-b-0 hover:bg-bg-2/60 focus-visible:bg-bg-2/60 sm:px-5 md:gap-y-0 md:py-2.5 ${COLS}`}
     >
-      <span className="min-w-0 truncate">
+      <span className="col-span-2 min-w-0 truncate md:col-span-1">
         <span className="text-[13px] font-semibold text-ink">{v.name}</span>
         <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{v.date}</span>
       </span>
       <span className="text-right font-mono text-[12px] font-semibold tabular text-ink md:hidden">{duration(v.soldMs)}</span>
 
-      {/* Packs, split by who bought them; the run's size at the tip. */}
-      <span className="col-span-2 flex items-center gap-2 md:col-span-1">
-        <span className="flex h-3 gap-[2px]" style={{ width: `calc((100% - 3rem) * ${d.packs / maxPacks})` }} aria-hidden>
-          {v.packs ? (
-            GROUPS.filter((g) => v.packs![g.key] > 0).map((g) => (
-              <span key={g.key} className="block h-full min-w-[2px]" style={{ flex: `${v.packs![g.key]} 1 0`, background: g.color }} />
-            ))
-          ) : (
-            <span className="block h-full flex-1 bg-ink-4" />
-          )}
-        </span>
-        <span className="font-mono text-[12px] tabular text-ink-2">{int(d.packs)}</span>
-      </span>
+      {GROUPS.map((g) => {
+        const grp = v.groups[g.key];
+        return (
+          <span key={g.key} className="min-w-0">
+            <span className="mb-1 block truncate font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 md:hidden">{g.short}</span>
+            <span className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1">
+              <ShareBar pct={grp.buyersPct} color={BUYERS_BAR} />
+              <ShareBar pct={grp.packsPct} color={PACKS_BAR} strong />
+            </span>
+          </span>
+        );
+      })}
 
-      {/* Sold out in, on its own time scale; the tick marks half the run gone. */}
+      {/* Sold out in, on one time scale for every drop; the tick marks half the run gone. */}
       <span className="hidden items-center gap-2 md:flex">
         <span className="relative block h-1.5 min-w-[2px] bg-ink-3" style={{ width: `calc((100% - 4.25rem) * ${v.soldMs / maxSold})` }} aria-hidden>
           {v.halfMs != null && v.soldMs > 0 ? (
@@ -211,103 +284,42 @@ function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks:
         </span>
         <span className="font-mono text-[12px] font-semibold tabular text-ink">{duration(v.soldMs)}</span>
       </span>
-
       <span className="hidden text-right font-mono text-[12.5px] tabular text-ink-2 md:block">{int(d.buyers)}</span>
-      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink md:block">{oneDp(v.packsEach)}</span>
+      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink-2 md:block">{int(d.packs)}</span>
+      <span className="col-span-3 font-mono text-[11px] tabular text-ink-3 md:hidden">{`${int(d.buyers)} buyers · ${int(d.packs)} packs`}</span>
 
-      {/* Below md: the figures on one line. */}
-      <span className="col-span-2 font-mono text-[11px] tabular text-ink-3 md:hidden">{`${int(d.buyers)} buyers · ${oneDp(v.packsEach)} packs each`}</span>
-
-      {/* The breakdown: values lead, labels follow. */}
+      {/* The counts behind the shares: values lead, labels follow. */}
       <span
         role="tooltip"
-        className={`pointer-events-none absolute left-4 z-20 hidden w-max max-w-[480px] border border-line bg-bg-2 px-3 py-2 text-[11.5px] leading-snug text-ink-2 shadow-lg sm:left-5 md:left-[calc(25%+1rem)] md:group-hover:block md:group-focus-visible:block ${opensUp ? "bottom-full mb-1" : "top-full mt-1"}`}
+        className={`pointer-events-none absolute left-4 z-20 hidden w-max max-w-[480px] border border-line bg-bg-2 px-3 py-2 text-[11.5px] leading-snug text-ink-2 shadow-lg sm:left-5 md:left-[calc(18%+1rem)] md:group-hover:block md:group-focus-visible:block ${opensUp ? "bottom-full mb-1" : "top-full mt-1"}`}
       >
         <span className="block font-semibold text-ink">{`${v.name} · ${v.date} · opened ${v.openUtc} UTC`}</span>
         <span className="mt-0.5 block whitespace-nowrap font-mono tabular">
-          {`${int(d.packs)} packs · sold out in ${duration(v.soldMs)}${v.halfMs != null ? ` · half gone in ${duration(v.halfMs)}` : ""}`}
+          {`${int(d.packs)} packs to ${int(d.buyers)} buyers · sold out in ${duration(v.soldMs)}${v.halfMs != null ? ` · half gone in ${duration(v.halfMs)}` : ""}`}
         </span>
-        <span className="block font-mono tabular">{`${int(d.buyers)} buyers · ${oneDp(v.packsEach)} packs each`}</span>
-        <span className="mt-1.5 grid grid-cols-[12px_auto_auto] items-center gap-x-2 gap-y-1">
-          {GROUPS.map((g) => (
-            <span key={g.key} className="contents">
-              <span className="h-[2px] w-3" style={{ background: g.color }} aria-hidden />
-              <span className="whitespace-nowrap text-ink-3">{g.label}</span>
-              <span className="whitespace-nowrap font-mono tabular">
-                <span className="text-ink">{int(v.buyers[g.key])}</span>
-                {` buyers`}
-                {v.packs ? (
-                  <>
-                    {` · `}
-                    <span className="text-ink">{int(v.packs[g.key])}</span>
-                    {` packs`}
-                  </>
-                ) : null}
+        <span className="mt-1.5 grid grid-cols-[auto_auto_auto] items-center gap-x-3 gap-y-1">
+          {GROUPS.map((g) => {
+            const grp = v.groups[g.key];
+            return (
+              <span key={g.key} className="contents">
+                <span className="whitespace-nowrap text-ink-3">{g.long}</span>
+                <span className="whitespace-nowrap font-mono tabular">
+                  <span className="text-ink">{int(grp.buyers)}</span>
+                  {` buyers · ${pctText(grp.buyersPct)}`}
+                </span>
+                <span className="whitespace-nowrap font-mono tabular">
+                  {grp.packs == null ? "—" : (
+                    <>
+                      <span className="text-ink">{int(grp.packs)}</span>
+                      {` packs · ${pctText(grp.packsPct)}`}
+                    </>
+                  )}
+                </span>
               </span>
-            </span>
-          ))}
+            );
+          })}
         </span>
       </span>
     </li>
-  );
-}
-
-/** Every figure, one row per drop: the rows' table-view twin. */
-function DropsTable({ views }: { views: DropView[] }) {
-  const pair = (b: number, p: number | null) => (p == null ? int(b) : `${int(b)} · ${int(p)}`);
-  return (
-    <div className="scroll-x">
-      <table className="w-full min-w-[980px] border-collapse text-[12.5px]" data-drops>
-        <thead>
-          <tr className="border-b border-line">
-            <Th>Drop</Th>
-            <Th align="right">Price</Th>
-            <Th align="right">Packs</Th>
-            <Th align="right">Sold out in</Th>
-            <Th align="right">Half gone in</Th>
-            <Th align="right">Buyers</Th>
-            <Th align="right">Earlier drop: buyers · packs</Th>
-            <Th align="right">First drop, played before</Th>
-            <Th align="right">New to Renaiss</Th>
-            <Th align="right">Packs each</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {views.map((v) => (
-            <tr key={v.d.productId} className="[&:last-child>td]:border-b-0">
-              <Td>
-                <span className="font-sans font-semibold text-ink">{v.name}</span>
-                <span className="ml-2 text-[11px] text-ink-3">{v.date}</span>
-              </Td>
-              <Td align="right" className="text-ink-2">{v.d.priceUsd == null ? "—" : `$${v.d.priceUsd}`}</Td>
-              <Td align="right">{int(v.d.packs)}</Td>
-              <Td align="right" className="font-semibold">{duration(v.soldMs)}</Td>
-              <Td align="right" className="text-ink-2">{v.halfMs == null ? "—" : duration(v.halfMs)}</Td>
-              <Td align="right" className="text-ink-2">{int(v.d.buyers)}</Td>
-              <Td align="right" className="text-ink-2">{pair(v.buyers.returning, v.packs?.returning ?? null)}</Td>
-              <Td align="right" className="text-ink-2">{pair(v.buyers.played, v.packs?.played ?? null)}</Td>
-              <Td align="right" className="text-ink-2">{pair(v.buyers.new, v.packs?.new ?? null)}</Td>
-              <Td align="right" className="text-ink-2">{oneDp(v.packsEach)}</Td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Th({ children, align }: { children: React.ReactNode; align?: "right" }) {
-  return (
-    <th className={`whitespace-nowrap px-4 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-ink-3 ${align === "right" ? "text-right" : "text-left"}`}>
-      {children}
-    </th>
-  );
-}
-
-function Td({ children, align, className = "" }: { children: React.ReactNode; align?: "right"; className?: string }) {
-  return (
-    <td className={`whitespace-nowrap border-b border-line/60 px-4 py-2.5 font-mono tabular text-ink ${align === "right" ? "text-right" : "text-left"} ${className}`}>
-      {children}
-    </td>
   );
 }
