@@ -39,6 +39,8 @@ const GROUPS = [
 ] as const;
 type GroupKey = (typeof GROUPS)[number]["key"];
 
+/** Room kept at a share bar's end for its value ("100%" plus the gap), so a full bar's label stays in its cell. */
+const LABEL_ROOM = "2.75rem";
 /** The two shares in every group cell: buyers in a neutral, packs in the accent. */
 const BUYERS_BAR = "var(--color-ink-3)";
 const PACKS_BAR = "var(--color-yellow)";
@@ -58,7 +60,8 @@ const duration = (ms: number): string => {
 const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
 const int = (n: number) => n.toLocaleString("en-US");
 const share = (n: number, of: number) => (of > 0 ? (100 * n) / of : null);
-const pctText = (x: number | null) => (x == null ? "—" : `${Math.round(x)}%`);
+/** "26%"; a share above zero that rounds to 0 reads "<1%", so a few packs never print as none. */
+const pctText = (x: number | null) => (x == null ? "—" : x > 0 && x < 0.5 ? "<1%" : `${Math.round(x)}%`);
 const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
@@ -163,7 +166,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
           Sold out in, ticked where half the run was gone
         </span>
       </div>
-      <div className={`hidden border-y border-line px-4 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5 md:grid md:gap-x-4 ${COLS}`} aria-hidden>
+      <div className={`hidden border-y border-line px-4 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5 md:grid md:gap-x-6 ${COLS}`} aria-hidden>
         <span>Drop</span>
         {GROUPS.map((g) => (
           <span key={g.key}>{g.label}</span>
@@ -228,15 +231,17 @@ function Key({ color, label }: { color: string; label: string }) {
   );
 }
 
-/** One share on its 0–100% track, its value after it. */
+/**
+ * One share as a bar on a 0–100% scale (the cell's width less the label's room),
+ * its value at the bar's tip. The value used to sit at the cell's right edge,
+ * as near the next column's bars as its own; at the tip there is one reading.
+ */
 function ShareBar({ pct, color, strong }: { pct: number | null; color: string; strong?: boolean }) {
   return (
-    <>
-      <span className="relative block h-[7px] bg-line/70" aria-hidden>
-        {pct != null && pct > 0 ? <span className="absolute inset-y-0 left-0 min-w-[2px]" style={{ width: `${pct}%`, background: color }} /> : null}
-      </span>
-      <span className={`w-[34px] text-right font-mono text-[11.5px] leading-none tabular ${strong ? "text-ink" : "text-ink-2"}`}>{pctText(pct)}</span>
-    </>
+    <span className="flex items-center gap-1.5">
+      <span className="block h-[7px] min-w-[2px] shrink-0" style={{ width: `calc((100% - ${LABEL_ROOM}) * ${(pct ?? 0) / 100})`, background: color }} aria-hidden />
+      <span className={`font-mono text-[11.5px] leading-none tabular ${strong ? "text-ink" : "text-ink-2"}`}>{pctText(pct)}</span>
+    </span>
   );
 }
 
@@ -254,7 +259,7 @@ function DropRowView({ v, maxSold, opensUp }: { v: DropView; maxSold: number; op
     <li
       tabIndex={0}
       aria-label={sentence}
-      className={`group relative grid grid-cols-3 items-center gap-x-4 gap-y-2 border-b border-line/60 px-4 py-3 outline-none transition-colors last:border-b-0 hover:bg-bg-2/60 focus-visible:bg-bg-2/60 sm:px-5 md:gap-y-0 md:py-2.5 ${COLS}`}
+      className={`group relative grid grid-cols-3 items-center gap-x-4 gap-y-2 border-b border-line/60 px-4 py-3 outline-none transition-colors last:border-b-0 hover:bg-bg-2/60 focus-visible:bg-bg-2/60 sm:px-5 md:gap-x-6 md:gap-y-0 md:py-2.5 ${COLS}`}
     >
       <span className="col-span-2 min-w-0 truncate md:col-span-1">
         <span className="text-[13px] font-semibold text-ink">{v.name}</span>
@@ -267,7 +272,7 @@ function DropRowView({ v, maxSold, opensUp }: { v: DropView; maxSold: number; op
         return (
           <span key={g.key} className="min-w-0">
             <span className="mb-1 block truncate font-mono text-[10px] uppercase tracking-[0.05em] text-ink-3 md:hidden">{g.short}</span>
-            <span className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-1.5 gap-y-1">
+            <span className="flex flex-col gap-1">
               <ShareBar pct={grp.buyersPct} color={BUYERS_BAR} />
               <ShareBar pct={grp.packsPct} color={PACKS_BAR} strong />
             </span>
