@@ -58,7 +58,7 @@
     "test:resale-feeds": "tsx --test src/lib/data/resaleFeedState.test.ts src/lib/data/packFeedState.test.ts",
     "test:mcap-history": "tsx --test src/lib/data/marketcapHistory.test.ts",
     "test:vault": "tsx --test src/lib/vault/address.test.ts src/lib/onchain/ownerOf.test.ts src/lib/data/vault.test.ts src/lib/data/vault.parity.test.ts",
-    "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts src/lib/renaiss/platform.test.ts src/lib/renaiss/drops.test.ts",
+    "test:renaiss": "tsx --test src/lib/renaiss/renaiss.test.ts src/lib/renaiss/platform.test.ts src/lib/renaiss/drops.test.ts src/lib/renaiss/dropNames.test.ts",
     "test:index-current": "tsx --test src/lib/indices/indexCurrent.test.ts",
     "test:gacha": "tsx --test src/lib/data/gacha.test.ts",
     "test:sales-store": "tsx --test src/lib/data/salesStore.test.ts",

@@ -1,11 +1,12 @@
-import { DROP_MAX_SPAN_MS, DROP_MIN_PACKS, DROP_SETTLE_MS, type DropRow, type RenaissDrops } from "@/lib/renaiss/drops";
+import { DROP_MAX_SPAN_MS, DROP_MIN_PACKS, DROP_SETTLE_MS, OPEN_BURST_MS, OPEN_BURST_PACKS, type DropRow, type RenaissDrops } from "@/lib/renaiss/drops";
 import { formatMonthDayUtc } from "@/lib/format";
+import { dropLabel } from "@/lib/renaiss/dropNames";
 import { Section } from "./Section";
 
 /**
  * Renaiss's limited drops (`renaiss-drops`): one chart of how long each drop's
  * run took, oldest to newest, beside the six newest; every drop behind a toggle.
- * Each bar is one drop, its height the hours from the first pack to the last,
+ * Each bar is one drop, its height the hours from its opening to the last pack,
  * its colour the drop's size; hover (or focus) a bar for its name, packs,
  * buyers, first-time players and earlier-drop buyers.
  *
@@ -28,21 +29,32 @@ const FULL = "var(--color-lime-dim)";
 const SMALL = "var(--color-yellow)";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const spanMs = (d: DropRow) => Math.max(0, Date.parse(d.lastAt) - Date.parse(d.firstAt));
+/** Where a drop's clock starts and its date comes from: the opening (drops.ts openingOf), else its first pull on an older row. */
+const openOf = (d: DropRow) => d.openAt ?? d.firstAt;
+const spanMs = (d: DropRow) => Math.max(0, Date.parse(d.lastAt) - Date.parse(openOf(d)));
 const span = (fromIso: string, toIso: string): string => {
   const mins = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60_000));
   const h = Math.floor(mins / 60);
-  return h ? `${h}h ${String(mins % 60).padStart(2, "0")}m` : `${mins}m`;
+  return h ? `${h}h\u00a0${String(mins % 60).padStart(2, "0")}m` : `${mins}m`;
 };
 const pct = (n: number, of: number) => (of > 0 ? Math.round((100 * n) / of) : 0);
 const share = (n: number, of: number) => (of > 0 ? ` · ${pct(n, of)}%` : "");
 const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
+/** The feed's name, else Varible's (dropNames.ts), else "Drop". */
+const nameOf = (d: DropRow) => dropLabel(d)?.name ?? "Drop";
+/** "A, B and C". */
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefined }) {
   if (!snap?.drops?.length) return null;
   const drops = snap.drops;
   const oldest = drops[drops.length - 1];
   const recent = drops.slice(0, RECENT);
+  // Names Varible added where the feed has none, oldest first, said in the receipt line.
+  const ours = [...drops].reverse().flatMap((d) => {
+    const l = dropLabel(d);
+    return l?.source === "varible" ? [l.name.replace(/ Pack$/, "")] : [];
+  });
 
   return (
     <Section
@@ -50,7 +62,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
       className="scroll-mt-24 font-sans"
       title="Limited drops"
       readMe="one-time packs that sold their whole run within a day: how fast, and who bought"
-      subtitle={`${drops.length} drops since ${formatMonthDayUtc(oldest.firstAt)}`}
+      subtitle={`${drops.length} drops since ${formatMonthDayUtc(openOf(oldest))}`}
       flush
     >
       <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-b border-line px-4 pb-4 pt-1 sm:px-5 lg:grid-cols-2">
@@ -69,14 +81,14 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
               {recent.map((d) => (
                 <tr key={d.productId} className="[&:last-child>td]:border-b-0">
                   <Td compact>
-                    <span className="font-semibold text-ink">{d.named ? d.name : "Drop"}</span>
-                    <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(d.firstAt)}</span>
+                    <span className="font-semibold text-ink">{nameOf(d)}</span>
+                    <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(openOf(d))}</span>
                   </Td>
                   <Td compact align="right" className="font-mono tabular text-ink">
                     {d.packs.toLocaleString("en-US")}
                   </Td>
                   <Td compact align="right" className="font-mono tabular font-semibold text-ink">
-                    {span(d.firstAt, d.lastAt)}
+                    {span(openOf(d), d.lastAt)}
                   </Td>
                   <Td compact align="right" className="font-mono tabular text-ink-2">
                     {`${pct(d.returningBuyers, d.buyers)}%`}
@@ -110,8 +122,8 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
               {drops.map((d) => (
                 <tr key={d.productId} className="[&:last-child>td]:border-b-0">
                   <Td>
-                    <span className="font-semibold text-ink">{d.named ? d.name : "Drop"}</span>
-                    <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(d.firstAt)}</span>
+                    <span className="font-semibold text-ink">{nameOf(d)}</span>
+                    <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(openOf(d))}</span>
                   </Td>
                   <Td align="right" className="font-mono tabular text-ink-2">
                     {d.priceUsd == null ? "—" : `$${d.priceUsd}`}
@@ -120,7 +132,7 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
                     {d.packs.toLocaleString("en-US")}
                   </Td>
                   <Td align="right" className="font-mono tabular font-semibold text-ink">
-                    {span(d.firstAt, d.lastAt)}
+                    {span(openOf(d), d.lastAt)}
                   </Td>
                   <Td align="right" className="font-mono tabular text-ink-2">
                     {d.buyers.toLocaleString("en-US")}
@@ -138,15 +150,15 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
         </div>
       </details>
       <p className="px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · buyers are wallets · first-time = their first Renaiss pull was in that drop · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)} · "Drop" = no name in Renaiss's feed`}
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · timed from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes, so a pack bought early doesn't start the clock · buyers are wallets · first-time = their first Renaiss pull was in that drop · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)}${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
       </p>
     </Section>
   );
 }
 
 /**
- * Every drop, oldest to newest: one bar each, its height the hours from the
- * first pack to the last on one linear axis (gridlines every 6 hours), its
+ * Every drop, oldest to newest: one bar each, its height the hours from its
+ * opening to the last pack on one linear axis (gridlines every 6 hours), its
  * colour the drop's size. Months label the axis; each bar's figures are in its
  * hover, so nothing else is printed on the plot.
  */
@@ -160,7 +172,7 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
   return (
     <div className="flex min-w-0 flex-col" data-drops-chart>
       <div className="mb-3 flex shrink-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span className="text-[12px] text-ink-2">Hours from the first pack to the last</span>
+        <span className="text-[12px] text-ink-2">Hours from the opening to the last pack</span>
         <span className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]">
           <Swatch color={FULL} label="1,000 packs" />
           {smallLabel ? <Swatch color={SMALL} label={smallLabel} /> : null}
@@ -184,7 +196,7 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
             {drops.map((d, i) => {
               // The read opens toward the plot's middle, so an edge bar's stays inside the card.
               const side = i < drops.length / 3 ? "left-0" : i >= (2 * drops.length) / 3 ? "right-0" : "left-1/2 -translate-x-1/2";
-              const sentence = `${d.named ? d.name : "Drop"}, ${formatMonthDayUtc(d.firstAt)}: ${d.packs.toLocaleString("en-US")} packs, last pack after ${span(d.firstAt, d.lastAt)}; ${d.buyers.toLocaleString("en-US")} buyers, ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop, ${pct(d.newPlayers, d.buyers)}% first-time players`;
+              const sentence = `${nameOf(d)}, ${formatMonthDayUtc(openOf(d))}: ${d.packs.toLocaleString("en-US")} packs, last pack after ${span(openOf(d), d.lastAt)}; ${d.buyers.toLocaleString("en-US")} buyers, ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop, ${pct(d.newPlayers, d.buyers)}% first-time players`;
               return (
                 <div
                   key={d.productId}
@@ -207,8 +219,8 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
                       role="tooltip"
                       className={`pointer-events-none absolute bottom-full ${side} z-20 mb-1.5 hidden w-max max-w-[260px] border border-line bg-bg-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-2 shadow-lg group-hover:block group-focus:block`}
                     >
-                      <span className="block font-semibold text-ink">{`${d.named ? d.name : "Drop"} · ${formatMonthDayUtc(d.firstAt)}`}</span>
-                      <span className="block font-mono tabular">{`${d.packs.toLocaleString("en-US")} packs · last pack after ${span(d.firstAt, d.lastAt)}`}</span>
+                      <span className="block font-semibold text-ink">{`${nameOf(d)} · ${formatMonthDayUtc(openOf(d))}`}</span>
+                      <span className="block font-mono tabular">{`${d.packs.toLocaleString("en-US")} packs · last pack after ${span(openOf(d), d.lastAt)}`}</span>
                       <span className="block font-mono tabular">{`${d.buyers.toLocaleString("en-US")} buyers · ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop · ${pct(d.newPlayers, d.buyers)}% first-time`}</span>
                     </span>
                   </span>
@@ -221,7 +233,7 @@ function DropsChart({ drops }: { drops: DropRow[] }) {
         <div className="mt-1.5 flex gap-[5px] font-mono text-[10px] text-ink-4" aria-hidden>
           {drops.map((d, i) => (
             <span key={d.productId} className="min-w-0 flex-1 overflow-visible whitespace-nowrap">
-              {i === 0 || drops[i - 1].firstAt.slice(5, 7) !== d.firstAt.slice(5, 7) ? MONTHS[Number(d.firstAt.slice(5, 7)) - 1] : ""}
+              {i === 0 || openOf(drops[i - 1]).slice(5, 7) !== openOf(d).slice(5, 7) ? MONTHS[Number(openOf(d).slice(5, 7)) - 1] : ""}
             </span>
           ))}
         </div>
