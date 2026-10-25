@@ -4,54 +4,106 @@ import { dropLabel } from "@/lib/renaiss/dropNames";
 import { Section } from "./Section";
 
 /**
- * Renaiss's limited drops (`renaiss-drops`): one chart of how long each drop's
- * run took, oldest to newest, beside the six newest; every drop behind a toggle.
- * Each bar is one drop, its height the hours from its opening to the last pack,
- * its colour the drop's size; hover (or focus) a bar for its name, packs,
- * buyers, first-time players and earlier-drop buyers.
+ * Renaiss's limited drops (`renaiss-drops`), one row per drop, newest first.
+ * Each row reads across: the drop's packs as one bar split by who bought them,
+ * how long it took to sell out (with the moment half the run was gone), its
+ * buyers and its packs per buyer. Hover (or focus) a row for its breakdown; the
+ * table view under the toggle holds every figure.
+ *
+ * Packs per buyer is shown for all buyers only. Per-group averages stay off the
+ * page (owner's call, Oct 25 2026): a group's average is often a few wallets,
+ * which reads as typical when it isn't, and it sits close to the private
+ * concentration figure below. Each group's buyers and packs are shown.
+ *
+ * Two bars, two scales, side by side: packs on one, time on the other, never
+ * one bar carrying both. Bar lengths compare across rows (the biggest run and
+ * the slowest sell-out fill their tracks).
  *
  * ⚠️ INFERRED, AND SAYS SO. Renaiss publishes no drop calendar or supply; the
- * receipt line states the rule (src/lib/renaiss/drops.ts) and how far back the
- * history reaches, since "bought an earlier drop" can only count drops in it.
+ * receipt line states the rule (src/lib/renaiss/drops.ts), where the clock
+ * starts, and how far back "an earlier drop" can reach.
  *
- * ⚠️ SERVER-ONLY, AND NOT RENDERED: topBuyersSharePct and buyerWallets. How
- * concentrated a drop's buying is stays private to Renaiss (owner's call, Oct 14
- * 2026), and a client component would ship the whole snapshot in the page's RSC
- * payload. Keep this a server component: the hover reads are CSS and the toggle
- * is a native <details>.
+ * ⚠️ SERVER-ONLY, AND NOT RENDERED: topBuyersSharePct, buyerPacks and
+ * buyerWallets. How concentrated a drop's buying is stays private to Renaiss
+ * (owner's call, Oct 14 2026), and a client component would ship the whole
+ * snapshot in the page's RSC payload. Keep this a server component: the hover
+ * reads are CSS and the toggle is a native <details>.
  *
- * No written conclusion: the bars, the axis and each drop's figures are the read.
+ * No written conclusion: the bars, the figures and the breakdown are the read.
  */
-const RECENT = 6;
-const PLOT_H = 150;
-/** Bar colours by drop size: the full 1,000-pack runs, and the smaller ones. */
-const FULL = "var(--color-lime-dim)";
-const SMALL = "var(--color-yellow)";
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Buyer groups, longest tie to Renaiss's drops first: one lime ramp from the
+ * site's tokens, validated as an ordinal ramp on the card surface (Oct 25
+ * 2026: monotone lightness, steps ≥ 0.06 apart, darkest step 2.8:1).
+ */
+const GROUPS = [
+  { key: "returning", label: "Bought an earlier drop", color: "var(--color-lime-dim)" },
+  { key: "played", label: "First drop, played before", color: "var(--color-yellow)" },
+  { key: "new", label: "First drop, new to Renaiss", color: "var(--color-yellow-2)" },
+] as const;
+type GroupKey = (typeof GROUPS)[number]["key"];
 
 /** Where a drop's clock starts and its date comes from: the opening (drops.ts openingOf), else its first pull on an older row. */
 const openOf = (d: DropRow) => d.openAt ?? d.firstAt;
-const spanMs = (d: DropRow) => Math.max(0, Date.parse(d.lastAt) - Date.parse(openOf(d)));
-const span = (fromIso: string, toIso: string): string => {
-  const mins = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60_000));
-  const h = Math.floor(mins / 60);
-  return h ? `${h}h\u00a0${String(mins % 60).padStart(2, "0")}m` : `${mins}m`;
-};
-const pct = (n: number, of: number) => (of > 0 ? Math.round((100 * n) / of) : 0);
-const share = (n: number, of: number) => (of > 0 ? ` · ${pct(n, of)}%` : "");
-const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
 /** The feed's name, else Varible's (dropNames.ts), else "Drop". */
 const nameOf = (d: DropRow) => dropLabel(d)?.name ?? "Drop";
 /** "A, B and C". */
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+/** "35m", "3h 25m" (a no-break space keeps it on one line). */
+const duration = (ms: number): string => {
+  const mins = Math.max(0, Math.round(ms / 60_000));
+  const h = Math.floor(mins / 60);
+  return h ? `${h}h\u00a0${String(mins % 60).padStart(2, "0")}m` : `${mins}m`;
+};
+const hours = (ms: number) => `${Math.round(ms / 3_600_000)} hours`;
+const int = (n: number) => n.toLocaleString("en-US");
+const perBuyer = (packs: number, buyers: number) => (buyers > 0 ? packs / buyers : null);
+const oneDp = (n: number | null) => (n == null ? "—" : n.toFixed(1));
+
+type DropView = {
+  d: DropRow;
+  name: string;
+  date: string;
+  openUtc: string;
+  soldMs: number;
+  halfMs: number | null;
+  buyers: Record<GroupKey, number>;
+  /** Null until the row carries its packs per buyer (the warmer fills older rows once). */
+  packs: Record<GroupKey, number> | null;
+  /** Packs per buyer, all buyers. */
+  packsEach: number | null;
+};
+
+function viewOf(d: DropRow): DropView {
+  const open = Date.parse(openOf(d));
+  const split = d.packsNew != null && d.packsReturning != null;
+  const buyers = { returning: d.returningBuyers, new: d.newPlayers, played: Math.max(0, d.buyers - d.returningBuyers - d.newPlayers) };
+  const packs = split ? { returning: d.packsReturning!, new: d.packsNew!, played: Math.max(0, d.packs - d.packsReturning! - d.packsNew!) } : null;
+  return {
+    d,
+    name: nameOf(d),
+    date: formatMonthDayUtc(openOf(d)) ?? "",
+    openUtc: openOf(d).slice(11, 16),
+    soldMs: Math.max(0, Date.parse(d.lastAt) - open),
+    halfMs: d.halfAt ? Math.max(0, Date.parse(d.halfAt) - open) : null,
+    buyers,
+    packs,
+    packsEach: perBuyer(d.packs, d.buyers),
+  };
+}
+
+/** Columns: drop · packs · sold out · buyers · packs each. */
+const COLS = "md:grid-cols-[minmax(150px,1.1fr)_minmax(200px,2.4fr)_minmax(150px,1.5fr)_64px_80px]";
 
 export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefined }) {
   if (!snap?.drops?.length) return null;
-  const drops = snap.drops;
-  const oldest = drops[drops.length - 1];
-  const recent = drops.slice(0, RECENT);
+  const views = snap.drops.map(viewOf);
+  const oldest = snap.drops[snap.drops.length - 1];
+  const maxPacks = Math.max(...views.map((v) => v.d.packs));
+  const maxSold = Math.max(1, ...views.map((v) => v.soldMs));
   // Names Varible added where the feed has none, oldest first, said in the receipt line.
-  const ours = [...drops].reverse().flatMap((d) => {
+  const ours = [...snap.drops].reverse().flatMap((d) => {
     const l = dropLabel(d);
     return l?.source === "varible" ? [l.name.replace(/ Pack$/, "")] : [];
   });
@@ -62,210 +114,199 @@ export function RenaissDropsTable({ snap }: { snap: RenaissDrops | null | undefi
       className="scroll-mt-24 font-sans"
       title="Limited drops"
       readMe="one-time packs that sold their whole run within a day: how fast, and who bought"
-      subtitle={`${drops.length} drops since ${formatMonthDayUtc(openOf(oldest))}`}
+      subtitle={`${snap.drops.length} drops since ${formatMonthDayUtc(openOf(oldest))}`}
       flush
     >
-      <div className="grid grid-cols-1 gap-x-6 gap-y-5 border-b border-line px-4 pb-4 pt-1 sm:px-5 lg:grid-cols-2">
-        <DropsChart drops={[...drops].reverse()} />
-        <div className="scroll-x">
-          <table className="w-full min-w-[400px] border-collapse text-[12.5px]" data-drops-recent>
-            <thead>
-              <tr className="border-b border-line">
-                <Th>Newest {recent.length}</Th>
-                <Th align="right">Packs</Th>
-                <Th align="right">Last pack after</Th>
-                <Th align="right">Bought an earlier drop</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((d) => (
-                <tr key={d.productId} className="[&:last-child>td]:border-b-0">
-                  <Td compact>
-                    <span className="font-semibold text-ink">{nameOf(d)}</span>
-                    <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(openOf(d))}</span>
-                  </Td>
-                  <Td compact align="right" className="font-mono tabular text-ink">
-                    {d.packs.toLocaleString("en-US")}
-                  </Td>
-                  <Td compact align="right" className="font-mono tabular font-semibold text-ink">
-                    {span(openOf(d), d.lastAt)}
-                  </Td>
-                  <Td compact align="right" className="font-mono tabular text-ink-2">
-                    {`${pct(d.returningBuyers, d.buyers)}%`}
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Legend: the three buyer groups, and the half-run tick on the time bar. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 pb-3 pt-1 text-[11.5px] sm:px-5" data-drops-legend>
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+          <span className="text-ink-3">Packs, by who bought them</span>
+          {GROUPS.map((g) => (
+            <span key={g.key} className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 shrink-0" style={{ background: g.color }} aria-hidden />
+              <span className="text-ink-2">{g.label}</span>
+            </span>
+          ))}
+        </span>
+        <span className="flex items-center gap-1.5 text-ink-2">
+          <span className="relative block h-1.5 w-6 bg-ink-3" aria-hidden>
+            <span className="absolute -bottom-[3px] -top-[3px] left-[35%] w-[2px] bg-ink" />
+          </span>
+          Sold out in, ticked where half the run was gone
+        </span>
       </div>
 
-      <details className="group">
-        <summary className="cursor-pointer list-none border-b border-line px-4 py-2.5 font-mono text-[10.5px] text-ink-3 transition-colors hover:text-yellow group-open:text-ink-2 sm:px-5 [&::-webkit-details-marker]:hidden">
-          <span className="group-open:hidden">{`Show all ${drops.length} drops ▾`}</span>
-          <span className="hidden group-open:inline">{`Hide the ${drops.length} drops ▴`}</span>
+      {/* Column heads, from md. */}
+      <div className={`hidden border-y border-line px-4 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-ink-3 sm:px-5 md:grid md:gap-x-4 ${COLS}`} aria-hidden>
+        <span>Drop</span>
+        <span>Packs</span>
+        <span>Sold out in</span>
+        <span className="text-right">Buyers</span>
+        <span className="text-right">Packs each</span>
+      </div>
+
+      <ol className="border-b border-line" data-drops-rows>
+        {views.map((v, i) => (
+          <DropRowView key={v.d.productId} v={v} maxPacks={maxPacks} maxSold={maxSold} opensUp={i >= views.length / 2} />
+        ))}
+      </ol>
+
+      <details className="group/table">
+        <summary className="cursor-pointer list-none border-b border-line px-4 py-2.5 font-mono text-[10.5px] text-ink-3 transition-colors hover:text-yellow group-open/table:text-ink-2 sm:px-5 [&::-webkit-details-marker]:hidden">
+          <span className="group-open/table:hidden">{`Every figure, as a table ▾`}</span>
+          <span className="hidden group-open/table:inline">{`Hide the table ▴`}</span>
         </summary>
-        <div className="scroll-x">
-          <table className="w-full min-w-[800px] border-collapse text-[13px]" data-drops>
-            <thead>
-              <tr className="border-b border-line">
-                <Th>Drop</Th>
-                <Th align="right">Price</Th>
-                <Th align="right">Packs</Th>
-                <Th align="right">Last pack after</Th>
-                <Th align="right">Buyers</Th>
-                <Th align="right">First-time players</Th>
-                <Th align="right">Bought an earlier drop</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {drops.map((d) => (
-                <tr key={d.productId} className="[&:last-child>td]:border-b-0">
-                  <Td>
-                    <span className="font-semibold text-ink">{nameOf(d)}</span>
-                    <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{formatMonthDayUtc(openOf(d))}</span>
-                  </Td>
-                  <Td align="right" className="font-mono tabular text-ink-2">
-                    {d.priceUsd == null ? "—" : `$${d.priceUsd}`}
-                  </Td>
-                  <Td align="right" className="font-mono tabular text-ink">
-                    {d.packs.toLocaleString("en-US")}
-                  </Td>
-                  <Td align="right" className="font-mono tabular font-semibold text-ink">
-                    {span(openOf(d), d.lastAt)}
-                  </Td>
-                  <Td align="right" className="font-mono tabular text-ink-2">
-                    {d.buyers.toLocaleString("en-US")}
-                  </Td>
-                  <Td align="right" className="font-mono tabular text-ink-2">
-                    {`${d.newPlayers.toLocaleString("en-US")}${share(d.newPlayers, d.buyers)}`}
-                  </Td>
-                  <Td align="right" className="font-mono tabular text-ink-2">
-                    {`${d.returningBuyers.toLocaleString("en-US")}${share(d.returningBuyers, d.buyers)}`}
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DropsTable views={views} />
       </details>
       <p className="px-4 py-2.5 font-mono text-[10.5px] leading-snug text-ink-4 sm:px-5" data-drops-receipt>
-        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · timed from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes, so a pack bought early doesn't start the clock · buyers are wallets · first-time = their first Renaiss pull was in that drop · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)}${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
+        {`a drop is a pack whose ${DROP_MIN_PACKS}+ paid pulls all came within ${hours(DROP_MAX_SPAN_MS)} of its first, listed once ${hours(DROP_SETTLE_MS)} pass with no sale: inferred from the pulls, Renaiss publishes no supply · sold out in = from the opening, the first of ${OPEN_BURST_PACKS} packs bought within ${OPEN_BURST_MS / 60_000} minutes (so a pack bought early doesn't start the clock), to the run's last pack · buyers are wallets · earlier drops counted from ${formatMonthDayUtc(snap.historyFrom)} · new to Renaiss = their first Renaiss pull was in that drop · packs each = packs ÷ buyers, an average${ours.length ? ` · ${andList(ours)}: names added by Varible, none in Renaiss's feed · "Drop" = no name known` : ` · "Drop" = no name in Renaiss's feed`}`}
       </p>
     </Section>
   );
 }
 
 /**
- * Every drop, oldest to newest: one bar each, its height the hours from its
- * opening to the last pack on one linear axis (gridlines every 6 hours), its
- * colour the drop's size. Months label the axis; each bar's figures are in its
- * hover, so nothing else is printed on the plot.
+ * One drop. Below md it stacks: name and sell-out on one line, the packs bar
+ * under it, the figures under that. From md it is one grid row; the breakdown
+ * opens on hover or focus, upward in the lower half of the list so it stays
+ * inside the card.
  */
-function DropsChart({ drops }: { drops: DropRow[] }) {
-  const hoursOf = (d: DropRow) => spanMs(d) / 3_600_000;
-  const top = Math.max(6, Math.ceil(Math.max(...drops.map(hoursOf)) / 6) * 6);
-  const grid = Array.from({ length: top / 6 }, (_, i) => (i + 1) * 6);
-  const smallSizes = [...new Set(drops.filter((d) => d.packs < 1000).map((d) => d.packs))].sort((a, b) => a - b);
-  const smallLabel = smallSizes.length ? `${smallSizes[0].toLocaleString("en-US")}${smallSizes.length > 1 ? `–${smallSizes[smallSizes.length - 1].toLocaleString("en-US")}` : ""} packs` : null;
-
+function DropRowView({ v, maxPacks, maxSold, opensUp }: { v: DropView; maxPacks: number; maxSold: number; opensUp: boolean }) {
+  const { d } = v;
+  const sentence = `${v.name}, ${v.date}: ${int(d.packs)} packs, sold out in ${duration(v.soldMs)}${v.halfMs != null ? `, half gone in ${duration(v.halfMs)}` : ""}; ${int(d.buyers)} buyers, ${oneDp(v.packsEach)} packs each${
+    v.packs ? `; ${GROUPS.map((g) => `${g.label}: ${int(v.buyers[g.key])} buyers, ${int(v.packs![g.key])} packs`).join("; ")}` : ""
+  }`;
   return (
-    <div className="flex min-w-0 flex-col" data-drops-chart>
-      <div className="mb-3 flex shrink-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <span className="text-[12px] text-ink-2">Hours from the opening to the last pack</span>
-        <span className="flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]">
-          <Swatch color={FULL} label="1,000 packs" />
-          {smallLabel ? <Swatch color={SMALL} label={smallLabel} /> : null}
+    <li
+      tabIndex={0}
+      aria-label={sentence}
+      className={`group relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 border-b border-line/60 px-4 py-2.5 outline-none md:py-2 transition-colors last:border-b-0 hover:bg-bg-2/60 focus-visible:bg-bg-2/60 sm:px-5 md:gap-y-0 ${COLS}`}
+    >
+      <span className="min-w-0 truncate">
+        <span className="text-[13px] font-semibold text-ink">{v.name}</span>
+        <span className="ml-2 font-mono text-[11px] tabular text-ink-3">{v.date}</span>
+      </span>
+      <span className="text-right font-mono text-[12px] font-semibold tabular text-ink md:hidden">{duration(v.soldMs)}</span>
+
+      {/* Packs, split by who bought them; the run's size at the tip. */}
+      <span className="col-span-2 flex items-center gap-2 md:col-span-1">
+        <span className="flex h-3 gap-[2px]" style={{ width: `calc((100% - 3rem) * ${d.packs / maxPacks})` }} aria-hidden>
+          {v.packs ? (
+            GROUPS.filter((g) => v.packs![g.key] > 0).map((g) => (
+              <span key={g.key} className="block h-full min-w-[2px]" style={{ flex: `${v.packs![g.key]} 1 0`, background: g.color }} />
+            ))
+          ) : (
+            <span className="block h-full flex-1 bg-ink-4" />
+          )}
         </span>
-      </div>
-      {/* The plot fills the card beside the table (its row's height), never under PLOT_H. */}
-      <div className="grid min-h-0 flex-1 grid-cols-[30px_minmax(0,1fr)] gap-x-2" style={{ gridTemplateRows: `minmax(${PLOT_H}px, 1fr) auto` }}>
-        <div className="relative font-mono text-[10px] text-ink-4" aria-hidden>
-          {grid.map((g) => (
-            <span key={g} className="absolute right-0 -translate-y-1/2" style={{ top: `${100 - (100 * g) / top}%` }}>
-              {g}h
+        <span className="font-mono text-[12px] tabular text-ink-2">{int(d.packs)}</span>
+      </span>
+
+      {/* Sold out in, on its own time scale; the tick marks half the run gone. */}
+      <span className="hidden items-center gap-2 md:flex">
+        <span className="relative block h-1.5 min-w-[2px] bg-ink-3" style={{ width: `calc((100% - 4.25rem) * ${v.soldMs / maxSold})` }} aria-hidden>
+          {v.halfMs != null && v.soldMs > 0 ? (
+            <span className="absolute -bottom-[3px] -top-[3px] w-[2px] bg-ink" style={{ left: `min(calc(100% - 2px), ${(100 * v.halfMs) / v.soldMs}%)` }} />
+          ) : null}
+        </span>
+        <span className="font-mono text-[12px] font-semibold tabular text-ink">{duration(v.soldMs)}</span>
+      </span>
+
+      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink-2 md:block">{int(d.buyers)}</span>
+      <span className="hidden text-right font-mono text-[12.5px] tabular text-ink md:block">{oneDp(v.packsEach)}</span>
+
+      {/* Below md: the figures on one line. */}
+      <span className="col-span-2 font-mono text-[11px] tabular text-ink-3 md:hidden">{`${int(d.buyers)} buyers · ${oneDp(v.packsEach)} packs each`}</span>
+
+      {/* The breakdown: values lead, labels follow. */}
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute left-4 z-20 hidden w-max max-w-[480px] border border-line bg-bg-2 px-3 py-2 text-[11.5px] leading-snug text-ink-2 shadow-lg sm:left-5 md:left-[calc(25%+1rem)] md:group-hover:block md:group-focus-visible:block ${opensUp ? "bottom-full mb-1" : "top-full mt-1"}`}
+      >
+        <span className="block font-semibold text-ink">{`${v.name} · ${v.date} · opened ${v.openUtc} UTC`}</span>
+        <span className="mt-0.5 block whitespace-nowrap font-mono tabular">
+          {`${int(d.packs)} packs · sold out in ${duration(v.soldMs)}${v.halfMs != null ? ` · half gone in ${duration(v.halfMs)}` : ""}`}
+        </span>
+        <span className="block font-mono tabular">{`${int(d.buyers)} buyers · ${oneDp(v.packsEach)} packs each`}</span>
+        <span className="mt-1.5 grid grid-cols-[12px_auto_auto] items-center gap-x-2 gap-y-1">
+          {GROUPS.map((g) => (
+            <span key={g.key} className="contents">
+              <span className="h-[2px] w-3" style={{ background: g.color }} aria-hidden />
+              <span className="whitespace-nowrap text-ink-3">{g.label}</span>
+              <span className="whitespace-nowrap font-mono tabular">
+                <span className="text-ink">{int(v.buyers[g.key])}</span>
+                {` buyers`}
+                {v.packs ? (
+                  <>
+                    {` · `}
+                    <span className="text-ink">{int(v.packs[g.key])}</span>
+                    {` packs`}
+                  </>
+                ) : null}
+              </span>
             </span>
           ))}
-        </div>
-        <div className="relative">
-          {grid.map((g) => (
-            <span key={g} className="absolute inset-x-0 h-px bg-line/60" style={{ top: `${100 - (100 * g) / top}%` }} aria-hidden />
-          ))}
-          <span className="absolute inset-x-0 bottom-0 h-px bg-line" aria-hidden />
-          <div className="absolute inset-0 flex items-end gap-[5px]">
-            {drops.map((d, i) => {
-              // The read opens toward the plot's middle, so an edge bar's stays inside the card.
-              const side = i < drops.length / 3 ? "left-0" : i >= (2 * drops.length) / 3 ? "right-0" : "left-1/2 -translate-x-1/2";
-              const sentence = `${nameOf(d)}, ${formatMonthDayUtc(openOf(d))}: ${d.packs.toLocaleString("en-US")} packs, last pack after ${span(openOf(d), d.lastAt)}; ${d.buyers.toLocaleString("en-US")} buyers, ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop, ${pct(d.newPlayers, d.buyers)}% first-time players`;
-              return (
-                <div
-                  key={d.productId}
-                  tabIndex={0}
-                  role="img"
-                  aria-label={sentence}
-                  className="group relative flex h-full min-w-0 flex-1 items-end outline-none focus-visible:ring-1 focus-visible:ring-yellow/60"
-                >
-                  {/* The bar carries its read: the tooltip opens just above the bar's top,
-                      wherever that is, not at the top of the plot. */}
-                  <span
-                    className="relative block w-full"
-                    style={{ height: `max(2px, ${(100 * hoursOf(d)) / top}%)` }}
-                  >
-                    <span
-                      className="block h-full w-full transition-opacity group-hover:opacity-80"
-                      style={{ background: d.packs < 1000 ? SMALL : FULL }}
-                    />
-                    <span
-                      role="tooltip"
-                      className={`pointer-events-none absolute bottom-full ${side} z-20 mb-1.5 hidden w-max max-w-[260px] border border-line bg-bg-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-ink-2 shadow-lg group-hover:block group-focus:block`}
-                    >
-                      <span className="block font-semibold text-ink">{`${nameOf(d)} · ${formatMonthDayUtc(openOf(d))}`}</span>
-                      <span className="block font-mono tabular">{`${d.packs.toLocaleString("en-US")} packs · last pack after ${span(openOf(d), d.lastAt)}`}</span>
-                      <span className="block font-mono tabular">{`${d.buyers.toLocaleString("en-US")} buyers · ${pct(d.returningBuyers, d.buyers)}% bought an earlier drop · ${pct(d.newPlayers, d.buyers)}% first-time`}</span>
-                    </span>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <span aria-hidden />
-        <div className="mt-1.5 flex gap-[5px] font-mono text-[10px] text-ink-4" aria-hidden>
-          {drops.map((d, i) => (
-            <span key={d.productId} className="min-w-0 flex-1 overflow-visible whitespace-nowrap">
-              {i === 0 || openOf(drops[i - 1]).slice(5, 7) !== openOf(d).slice(5, 7) ? MONTHS[Number(openOf(d).slice(5, 7)) - 1] : ""}
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
+        </span>
+      </span>
+    </li>
   );
 }
 
-function Swatch({ color, label }: { color: string; label: string }) {
+/** Every figure, one row per drop: the rows' table-view twin. */
+function DropsTable({ views }: { views: DropView[] }) {
+  const pair = (b: number, p: number | null) => (p == null ? int(b) : `${int(b)} · ${int(p)}`);
   return (
-    <span className="flex items-center gap-1.5">
-      <span className="h-2.5 w-2.5 shrink-0 border border-line" style={{ background: color }} />
-      <span className="text-ink-2">{label}</span>
-    </span>
+    <div className="scroll-x">
+      <table className="w-full min-w-[980px] border-collapse text-[12.5px]" data-drops>
+        <thead>
+          <tr className="border-b border-line">
+            <Th>Drop</Th>
+            <Th align="right">Price</Th>
+            <Th align="right">Packs</Th>
+            <Th align="right">Sold out in</Th>
+            <Th align="right">Half gone in</Th>
+            <Th align="right">Buyers</Th>
+            <Th align="right">Earlier drop: buyers · packs</Th>
+            <Th align="right">First drop, played before</Th>
+            <Th align="right">New to Renaiss</Th>
+            <Th align="right">Packs each</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {views.map((v) => (
+            <tr key={v.d.productId} className="[&:last-child>td]:border-b-0">
+              <Td>
+                <span className="font-sans font-semibold text-ink">{v.name}</span>
+                <span className="ml-2 text-[11px] text-ink-3">{v.date}</span>
+              </Td>
+              <Td align="right" className="text-ink-2">{v.d.priceUsd == null ? "—" : `$${v.d.priceUsd}`}</Td>
+              <Td align="right">{int(v.d.packs)}</Td>
+              <Td align="right" className="font-semibold">{duration(v.soldMs)}</Td>
+              <Td align="right" className="text-ink-2">{v.halfMs == null ? "—" : duration(v.halfMs)}</Td>
+              <Td align="right" className="text-ink-2">{int(v.d.buyers)}</Td>
+              <Td align="right" className="text-ink-2">{pair(v.buyers.returning, v.packs?.returning ?? null)}</Td>
+              <Td align="right" className="text-ink-2">{pair(v.buyers.played, v.packs?.played ?? null)}</Td>
+              <Td align="right" className="text-ink-2">{pair(v.buyers.new, v.packs?.new ?? null)}</Td>
+              <Td align="right" className="text-ink-2">{oneDp(v.packsEach)}</Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function Th({ children, align }: { children: React.ReactNode; align?: "right" }) {
   return (
-    <th
-      className={`px-4 py-3 font-mono text-[11px] font-medium uppercase tracking-[0.06em] text-ink-3 ${
-        align === "right" ? "text-right" : "text-left"
-      }`}
-    >
+    <th className={`whitespace-nowrap px-4 py-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] text-ink-3 ${align === "right" ? "text-right" : "text-left"}`}>
       {children}
     </th>
   );
 }
 
-function Td({ children, align, className = "", compact = false }: { children: React.ReactNode; align?: "right"; className?: string; compact?: boolean }) {
+function Td({ children, align, className = "" }: { children: React.ReactNode; align?: "right"; className?: string }) {
   return (
-    <td className={`whitespace-nowrap border-b border-line/60 ${compact ? "px-3 py-2.5" : "px-4 py-3"} ${align === "right" ? "text-right" : "text-left"} ${className}`}>
+    <td className={`whitespace-nowrap border-b border-line/60 px-4 py-2.5 font-mono tabular text-ink ${align === "right" ? "text-right" : "text-left"} ${className}`}>
       {children}
     </td>
   );

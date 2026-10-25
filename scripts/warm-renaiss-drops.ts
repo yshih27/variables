@@ -19,7 +19,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   detectDrops,
-  readDropOpening,
+  readDropDetail,
   readDropPulls,
   readRenaissDrops,
   scoreDrops,
@@ -52,21 +52,24 @@ async function main() {
   const notDrops = sellingPastSpan(pulls);
   const removed = (stored?.drops ?? []).filter((d) => notDrops.has(d.productId));
   const firstPull = new Map(wallets.rows.map((w) => [w.buyer.toLowerCase(), Date.parse(w.first_pull)]));
-  const drops = scoreDrops(stored?.drops ?? [], fresh, firstPull, notDrops);
-  // Rows stored before the opening was measured: read each one's pulls once.
-  let opened = 0;
-  for (const d of drops) {
-    if (d.openAt) continue;
-    d.openAt = await readDropOpening(d);
-    opened++;
+  // Stored rows from before the opening, half time and packs per buyer were
+  // measured: read each one's pulls once, before scoring splits packs by buyer.
+  const freshIds = new Set(fresh.map((d) => d.productId));
+  let filled = 0;
+  for (const d of stored?.drops ?? []) {
+    if (freshIds.has(d.productId) || notDrops.has(d.productId) || (d.openAt && d.halfAt && d.buyerPacks)) continue;
+    Object.assign(d, await readDropDetail(d));
+    delete d.buyerWallets;
+    filled++;
   }
+  const drops = scoreDrops(stored?.drops ?? [], fresh, firstPull, notDrops);
   const fromIso = new Date(fromMs).toISOString();
   // The earliest first pull this read can count (detectDrops' lead), not where it began.
   const countsFrom = new Date(fromMs + DROP_LEAD_MS).toISOString();
   const historyFrom = stored && stored.historyFrom < countsFrom ? stored.historyFrom : countsFrom;
 
   console.log(`Renaiss drops · read ${days} day(s) from ${fromIso.slice(0, 10)}: ${pulls.length.toLocaleString()} paid pulls, ${fresh.length} drop(s) detected · history ${drops.length} drop(s) from ${historyFrom.slice(0, 10)} · ${((Date.now() - t0) / 1000).toFixed(0)}s`);
-  if (opened) console.log(`  opening measured for ${opened} stored drop(s)`);
+  if (filled) console.log(`  opening, half time and packs per buyer measured for ${filled} stored drop(s)`);
   for (const d of removed) console.log(`  removed ${d.productId} (${d.name}): its pulls run past ${DROP_MAX_SPAN_MS / 3_600_000}h, so it was never a drop`);
   // No top-buyers share here: Actions logs are public, and that figure is private to Renaiss.
   console.log(`\n| Drop | Price | Packs | Last pack after | Buyers | New players | Bought an earlier drop |\n|---|---|---|---|---|---|---|`);
