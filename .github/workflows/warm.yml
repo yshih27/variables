@@ -70,6 +70,10 @@ jobs:
       - run: npm ci
       - name: Listings
         continue-on-error: true
+        # Backstop for the scan's own per-venue budget (warm-listings.ts
+        # PLATFORM_BUDGET_MS): on Oct 24 2026 a slow Rarible API made this step
+        # eat the job's 75 minutes, and every step after it was skipped.
+        timeout-minutes: 25
         run: npx tsx scripts/warm-listings.ts
       - name: Market cap # reads the listings snapshot written above
         continue-on-error: true
