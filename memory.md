@@ -37,7 +37,7 @@ Once data is reliable, build (in order): **`/card/[id]`** (price history, cheape
 
 ## DATA BACKEND: Dune (primary for gacha) — set up & working
 
-- **Dune Plus plan, $349/mo, API access confirmed.** `DUNE_API_KEY` in `.env.local` (value: `Ko69QeJr0PF4Cn3t9cFkCY38Xxs5sssQ`).
+- **Dune Plus plan, $349/mo, API access confirmed.** `DUNE_API_KEY` in `.env.local` (value removed: the key was rotated on Oct 26 2026).
 - Client: `src/lib/dune/client.ts` — `runQuery(id)` (fresh execute→poll→results), `getLatestResults(id)` (cached, instant). I can **create queries via API** (`POST /api/v1/query`) — not blocked on user for query IDs. Archive temp ones via `POST /query/{id}/archive`.
 - **Why Dune:** free Helius RPC tier severely undercounted (pagination caps). Dune scans full chain in seconds. CC was $874K/24h (RPC) vs $3.1M (Dune).
 - Warmer: `npm run warm-gacha-dune` → writes `.cache/gacha-dune.json`. Run every ~6h (≈16 executions/day, cheap on Plus). `--cached` flag uses getLatestResults (zero credits).
