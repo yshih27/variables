@@ -25,6 +25,8 @@
  * An entry with "guardOnly": true is a drop older than the history: its
  * announcement and opening are kept out of the placebos, nothing more.
  *
+ * The JSON keeps full precision; the console rounds to three places.
+ *
  * Reads only; prints counts and ratios, never a wallet; writes local JSON.
  * ⚠️ PRIVATE PARTNER DATA: the output stays local.
  */
@@ -74,7 +76,7 @@ const signP = (below: number, n: number) => {
   if (!n) return null;
   let c = 0;
   for (let i = 0; i <= Math.min(below, n - below); i++) c += binom(n, i);
-  return r3(Math.min(1, (2 * c) / 2 ** n));
+  return Math.min(1, (2 * c) / 2 ** n);
 };
 /** Exact one-sided rank-sum test: how often a random pick of |a| values ranks at least as high as `a` does. */
 const rankSumP = (a: number[], b: number[]) => {
@@ -91,7 +93,7 @@ const rankSumP = (a: number[], b: number[]) => {
     for (let i = start; i <= all.length - left; i++) pick(i + 1, left - 1, sum + i + 1);
   };
   pick(0, a.length, 0);
-  return total ? r3(hits / total) : null;
+  return total ? hits / total : null;
 };
 /** Seeded (mulberry32), so a rerun gives the same intervals. */
 const seeded = (seed: number) => () => {
@@ -113,7 +115,7 @@ const pooledOf = (s: Sums[]) => {
 /** pooledOf with each drop left out in turn: the lowest and highest result. */
 const leaveOneOutOf = (s: Sums[]): [number | null, number | null] => {
   const xs = s.map((_, i) => pooledOf(s.filter((__, j) => j !== i))).filter(isNum);
-  return xs.length ? [r3(Math.min(...xs)), r3(Math.max(...xs))] : [null, null];
+  return xs.length ? [Math.min(...xs), Math.max(...xs)] : [null, null];
 };
 /** 95% interval for pooledOf, resampling whole drops. */
 const intervalOf = (s: Sums[]): [number | null, number | null] => {
@@ -124,7 +126,7 @@ const intervalOf = (s: Sums[]): [number | null, number | null] => {
     if (v != null) xs.push(v);
   }
   xs.sort((a, b) => a - b);
-  return xs.length ? [r3(xs[Math.floor(0.025 * xs.length)]), r3(xs[Math.floor(0.975 * xs.length)])] : [null, null];
+  return xs.length ? [xs[Math.floor(0.025 * xs.length)], xs[Math.floor(0.975 * xs.length)]] : [null, null];
 };
 
 async function main() {
@@ -230,8 +232,8 @@ async function main() {
         const xs = rows.map((r) => r.did?.[gk]?.[m] ?? null).filter(isNum);
         const below = xs.filter((x) => x < 1).length;
         const s = rows.flatMap((r) => (r.did && "sums" in r ? [r.sums[gk][m]] : []));
-        const perDrop = rows.map((r) => ({ name: r.name, placebos: r.placebos, did: r3(r.did?.[gk]?.[m] ?? null), sums: "sums" in r && r.sums ? r.sums[gk][m].map((v) => Math.round(v * 10) / 10) : null }));
-        return { hours: L, group: gk, metric: m, drops: xs.length, median: r3(median(xs)), below, signP: signP(below, xs.length), pooled: r3(pooledOf(s)), interval: intervalOf(s), leaveOneOut: leaveOneOutOf(s), perDrop };
+        const perDrop = rows.map((r) => ({ name: r.name, placebos: r.placebos, did: r.did?.[gk]?.[m] ?? null, sums: "sums" in r && r.sums ? r.sums[gk][m] : null }));
+        return { hours: L, group: gk, metric: m, drops: xs.length, median: median(xs), below, signP: signP(below, xs.length), pooled: pooledOf(s), interval: intervalOf(s), leaveOneOut: leaveOneOutOf(s), perDrop };
       }),
     );
   });
@@ -251,10 +253,10 @@ async function main() {
         if (b > 0) per[m].push(ev[m] / b);
         sum[m][0] += ev[m];
         sum[m][1] += b;
-        if (m === "wallets") byDropHour.push({ name: e.name, group: leadGroup(e.lead), hour: h, wallets: b > 0 ? r3(ev[m] / b) : null });
+        if (m === "wallets") byDropHour.push({ name: e.name, group: leadGroup(e.lead), hour: h, wallets: b > 0 ? ev[m] / b : null });
       }
     }
-    return { hour: h, drops: per.usd.length, usdMedian: r3(median(per.usd)), usdPooled: r3(div(sum.usd[0], sum.usd[1])), walletsMedian: r3(median(per.wallets)), walletsPooled: r3(div(sum.wallets[0], sum.wallets[1])) };
+    return { hour: h, drops: per.usd.length, usdMedian: median(per.usd), usdPooled: div(sum.usd[0], sum.usd[1]), walletsMedian: median(per.wallets), walletsPooled: div(sum.wallets[0], sum.wallets[1]) };
   });
 
   // 2. 48h to 24h before each opening: after the announcement in most weeks, before it when announced under a day ahead.
@@ -265,7 +267,7 @@ async function main() {
     const block = measure(a, b, null);
     const ratio = (m: (typeof METRICS)[number]) => {
       const bm = median(base.map(([x, y]) => measure(x, y, null)[m]));
-      return bm ? r3(block[m] / bm) : null;
+      return bm ? block[m] / bm : null;
     };
     return { name: e.name, open: e.open, lead: e.lead, group: leadGroup(e.lead), announced: e.A <= a ? "before" : e.A >= b ? "after" : "inside", baseDays: base.length, usd: ratio("usd"), wallets: ratio("wallets") };
   });
@@ -273,7 +275,7 @@ async function main() {
     METRICS.map((m) => {
       const short = test2Rows.filter((r) => r.group === "short").map((r) => r[m]).filter(isNum);
       const rest = test2Rows.filter((r) => r.group !== "short").map((r) => r[m]).filter(isNum);
-      return [m, { shortMedian: r3(median(short)), restMedian: r3(median(rest)), short: short.length, rest: rest.length, shortHigherP: rankSumP(short, rest) }];
+      return [m, { shortMedian: median(short), restMedian: median(rest), short: short.length, rest: rest.length, shortHigherP: rankSumP(short, rest) }];
     }),
   );
 
@@ -309,7 +311,7 @@ async function main() {
   const allWs = median(whole.map(([, s]) => s.ws.size))!;
   const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((name, wd) => {
     const ds = whole.filter(([d]) => new Date(d).getUTCDay() === wd);
-    return { weekday: name, days: ds.length, usd: r3(median(ds.map(([, s]) => s.usd))! / allUsd), wallets: r3(median(ds.map(([, s]) => s.ws.size))! / allWs) };
+    return { weekday: name, days: ds.length, usd: median(ds.map(([, s]) => s.usd))! / allUsd, wallets: median(ds.map(([, s]) => s.ws.size))! / allWs };
   });
 
   writeFileSync(join(out, "announcements.json"), JSON.stringify({ generatedAt: new Date().toISOString(), dataFrom: new Date(dataFrom).toISOString(), test1, profile, byDropHour, test2: { rows: test2Rows, summary: test2 }, test3: ranked, weekdays }, null, 1));
@@ -317,15 +319,15 @@ async function main() {
   console.log("\n1. After ÷ before each announcement, against the same split on placebo days (median across drops; 1 = no change):");
   console.log("| hours each side | group | measure | drops | median | below 1 | sign test p | pooled | pooled 95% interval | leaving one drop out |");
   console.log("|---|---|---|---|---|---|---|---|---|---|");
-  for (const s of test1) console.log(`| ${s.hours} | ${s.group} | ${s.metric} | ${s.drops} | ${s.median} | ${s.below} | ${s.signP} | ${s.pooled} | ${s.interval[0]}–${s.interval[1]} | ${s.leaveOneOut[0]}–${s.leaveOneOut[1]} |`);
+  for (const s of test1) console.log(`| ${s.hours} | ${s.group} | ${s.metric} | ${s.drops} | ${r3(s.median)} | ${s.below} | ${r3(s.signP)} | ${r3(s.pooled)} | ${r3(s.interval[0])}–${r3(s.interval[1])} | ${r3(s.leaveOneOut[0])}–${r3(s.leaveOneOut[1])} |`);
   const w3 = test1.find((s) => s.hours === 3 && s.group === "all" && s.metric === "wallets")!;
   const typical = median(w3.perDrop.flatMap((r) => (r.sums ? [r.sums[1]] : [])));
-  console.log(`typical regular-machine wallets in the 3 hours before a post: ${typical}`);
+  console.log(`typical regular-machine wallets in the 3 hours before a post: ${r3(typical)}`);
   console.log(`placebo days per drop (${SPANS[0]}h): ${test1[0].perDrop.map((r) => r.placebos).join(", ")}`);
   console.log("\nHour by hour around the announcement (hour 0 starts at the post), against the placebos' same hour:");
   console.log("| hour | drops | spend median | spend pooled | wallets median | wallets pooled |");
   console.log("|---|---|---|---|---|---|");
-  for (const p of profile) console.log(`| ${p.hour >= 0 ? "+" : ""}${p.hour} | ${p.drops} | ${p.usdMedian} | ${p.usdPooled} | ${p.walletsMedian} | ${p.walletsPooled} |`);
+  for (const p of profile) console.log(`| ${p.hour >= 0 ? "+" : ""}${p.hour} | ${p.drops} | ${r3(p.usdMedian)} | ${r3(p.usdPooled)} | ${r3(p.walletsMedian)} | ${r3(p.walletsPooled)} |`);
   console.log("Players 6 to 4 hours before the post, by lead group (median of drops):");
   for (const g of ["short", "usual", "long"]) {
     const cells = [-6, -5, -4].map((h) => `${h}h ${r3(median(byDropHour.filter((x) => x.group === g && x.hour === h && x.wallets != null).map((x) => x.wallets!)))}`);
@@ -334,8 +336,8 @@ async function main() {
   console.log("\n2. 48h to 24h before each opening, against the same hours 2–4 days earlier:");
   console.log("| drop | lead (h) | announced vs block | spend | wallets |");
   console.log("|---|---|---|---|---|");
-  for (const r of test2Rows) console.log(`| ${r.name} | ${r.lead} | ${r.announced} | ${r.usd} | ${r.wallets} |`);
-  for (const m of METRICS) console.log(`${m}: under-a-day weeks median ${test2[m].shortMedian} (${test2[m].short}) vs the rest ${test2[m].restMedian} (${test2[m].rest}); P(under-a-day weeks rank this high by chance) = ${test2[m].shortHigherP}`);
+  for (const r of test2Rows) console.log(`| ${r.name} | ${r.lead} | ${r.announced} | ${r3(r.usd)} | ${r3(r.wallets)} |`);
+  for (const m of METRICS) console.log(`${m}: under-a-day weeks median ${r3(test2[m].shortMedian)} (${test2[m].short}) vs the rest ${r3(test2[m].restMedian)} (${test2[m].rest}); P(under-a-day weeks rank this high by chance) = ${r3(test2[m].shortHigherP)}`);
   console.log("\n3. Drop outcomes by lead time:");
   console.log("| drop | lead (h) | packs | sold out (min) | rank in its era | buyers | new to Renaiss | packs in first 10 min | % in first hour |");
   console.log("|---|---|---|---|---|---|---|---|---|");
@@ -343,7 +345,7 @@ async function main() {
   console.log("\nRegular play by UTC weekday, drop days left out (median day ÷ median of all days):");
   console.log(`| ${weekdays.map((w) => w.weekday).join(" | ")} |`);
   console.log(`| ${weekdays.map(() => "---").join(" | ")} |`);
-  console.log(`| ${weekdays.map((w) => `${w.usd} / ${w.wallets}`).join(" | ")} |  (spend / wallets)`);
+  console.log(`| ${weekdays.map((w) => `${r3(w.usd)} / ${r3(w.wallets)}`).join(" | ")} |  (spend / wallets)`);
   console.log(`days per weekday: ${weekdays.map((w) => w.days).join(", ")}`);
   console.log(`\nwrote ${join(out, "announcements.json")}`);
 }
